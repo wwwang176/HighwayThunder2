@@ -15,6 +15,8 @@ export interface HudFrame {
   gear: number;
   rpm: number;
   reverse: boolean;
+  /** The trained AI is driving the player's car. */
+  aiDriving: boolean;
 }
 
 export const TACHO_MAX = 8000;
@@ -72,6 +74,7 @@ export class Hud {
           <tr><td><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd></td><td>轉向</td></tr>
           <tr><td><kbd>C</kbd></td><td>按住看正後方</td></tr>
           <tr><td><kbd>R</kbd></td><td>重置到車道上（冷卻 3 秒）</td></tr>
+          <tr><td><kbd>I</kbd></td><td>AI 接手駕駛（再按一次拿回）</td></tr>
           <tr><td><kbd>Esc</kbd></td><td>暫停</td></tr>
           <tr><td><kbd>M</kbd></td><td>靜音</td></tr>
         </table>
@@ -104,6 +107,7 @@ export class Hud {
           </div>
         </div>
         <div class="mute" data-id="mute">🔇 靜音</div>
+        <div class="ai-badge" data-id="ai">AI 駕駛中 <small>I 拿回控制</small></div>
       </div>
       <div id="toast" class="toast" data-id="toast">險過！</div>
       <div id="pause" class="panel center">
@@ -130,11 +134,18 @@ export class Hud {
   }
 
   nearMiss(): void {
+    this.message('險過！', 1);
+  }
+
+  /** Flash a short message in the middle of the screen. */
+  message(text: string, seconds = 2.5): void {
     const t = this.el.toast;
+    t.textContent = text;
+    t.classList.toggle('long', text.length > 8);
     t.classList.remove('show');
     void t.offsetWidth; // restart animation
     t.classList.add('show');
-    this.toastTimer = 1;
+    this.toastTimer = seconds;
   }
 
   private show(id: string, on: boolean): void {
@@ -183,6 +194,7 @@ export class Hud {
       phase === 'racing' ? (f.resetCooldown > 0 ? `R 重置 ${f.resetCooldown.toFixed(1)}s` : 'R 重置 可用') : '';
     this.el.reset.classList.toggle('ready', phase === 'racing' && f.resetCooldown <= 0);
     this.el.mute.style.display = f.muted ? '' : 'none';
+    this.el.ai.style.display = f.aiDriving ? '' : 'none';
 
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;

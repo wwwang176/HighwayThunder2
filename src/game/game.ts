@@ -13,6 +13,8 @@ import { CameraRig } from '../render/cameraRig';
 import { TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { AiDriver, selfStateOf } from '../ai/driver';
+import type { TrafficBox } from '../ai/sensors';
 import { laneCenter, lanesOccupied } from '../road/coords';
 import { Hud } from '../ui/hud';
 import { HandlingInput } from '../vehicles/handling';
@@ -45,6 +47,14 @@ export class Game {
   readonly hud: Hud;
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
   readonly trafficWorld: TrafficWorld;
+  /** Trained driver from public/ai/driver.json (null when none could be loaded). */
+  aiDriver: AiDriver | null = null;
+  /** The AI drives the player's car (toggled with I). */
+  aiActive = false;
+  /** AI strength: its top speed. */
+  readonly aiSettings = { speedCapKmh: 300 };
+  private humanMaxSpeed = 0;
+  private aiTraffic: TrafficBox[] = [];
   private wheelPool!: WheelInstances;
   private skids!: SkidMarks;
   private smoke!: TireSmoke;
@@ -89,7 +99,7 @@ export class Game {
       onResume: () => this.togglePause(),
       onTitle: () => this.toTitle(),
     });
-    this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings);
+    this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
     this.resize();
     addEventListener('resize', () => this.resize());
@@ -110,6 +120,7 @@ export class Game {
     k.onPress('Escape', () => this.togglePause());
     k.onPress('KeyR', () => this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
+    k.onPress('KeyI', () => this.toggleAi());
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
   }
 
@@ -247,9 +258,26 @@ export class Game {
     if (render) this.render(PHYSICS_DT, 1);
   }
 
+  /** Hand the car to the trained AI, or take it back. */
+  toggleAi(): void {
+    if (!this.aiDriver) {
+      this.hud.message('沒有可用的 AI 駕駛（請先在 lab/train.html 訓練並存檔）');
+      return;
+    }
+    this.aiActive = !this.aiActive;
+    if (this.aiActive) this.humanMaxSpeed = this.player.params.maxSpeed;
+    else this.player.params.maxSpeed = this.humanMaxSpeed;
+  }
+
   private currentInput(): HandlingInput {
     switch (this.flow.phase) {
       case 'racing':
+        if (this.aiActive && this.aiDriver && !this.inputOverride) {
+          // Same inputs as in training: our carriageway's traffic, and its own top speed.
+          const cap = this.aiSettings.speedCapKmh / 3.6;
+          this.player.params.maxSpeed = cap;
+          return this.aiDriver.drive(selfStateOf(this.player, cap), this.trafficWorld.ourBoxes(this.aiTraffic));
+        }
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
         return this.player.speed > 1 ? ROLL_OUT : HOLD; // brake to a stop, never into reverse
@@ -388,6 +416,7 @@ export class Game {
       muted: this.sound.muted,
       gear: this.player.gearbox.gear,
       rpm: this.player.rpm,
+      aiDriving: this.aiActive && this.flow.phase === 'racing',
     });
     const h = this.renderer.domElement.height;
     updateFlareScale(this.flares.material, this.camera, h);

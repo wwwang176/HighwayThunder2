@@ -55,6 +55,11 @@ button.secondary { background: #e6e6e6; box-shadow: 0 4px 0 #999; font-size: 16p
   font-weight: 900; font-style: italic; color: #7dffb0; text-shadow: 0 3px 0 #0b6b3a, 0 0 20px rgba(0,0,0,0.4);
   opacity: 0; pointer-events: none; }
 .toast.show { animation: pop 0.9s ease-out forwards; }
+.toast.long { font-size: 22px; font-style: normal; white-space: nowrap; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
+.toast.long.show { animation: pop 2.6s ease-out forwards; }
+.ai-badge { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); padding: 4px 14px; border-radius: 4px;
+  background: rgba(47,111,214,0.85); color: #fff; font-size: 15px; font-weight: 800; letter-spacing: 1px; }
+.ai-badge small { font-weight: 400; opacity: 0.8; margin-left: 6px; }
 @keyframes pop {
   0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
   15% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }

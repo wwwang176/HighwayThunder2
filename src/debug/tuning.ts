@@ -6,7 +6,7 @@ import { NIGHT } from '../world/roadScene';
 import { NPC_BEAM } from '../render/npcBeams';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
-export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }): GUI {
+export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }, ai: { speedCapKmh: number }): GUI {
   const gui = new GUI({ title: '調校面板（` 切換）' });
   const d = gui.addFolder('動力 / 轉向');
   d.add(car, 'power', 100_000, 800_000, 10_000).name('馬力 W');
@@ -53,6 +53,8 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   t.add(traffic, 'spacing', 30, 250, 1).name('同車道平均間距 m');
   t.add(WRECK_TRIP, 'car', 1, 6, 0.1).name('事故轎車橫滑翻車摩擦');
   t.add(WRECK_TRIP, 'truck', 0.8, 4, 0.1).name('事故貨車橫滑翻車摩擦');
+  const a = gui.addFolder('AI 駕駛');
+  a.add(ai, 'speedCapKmh', 150, 300, 5).name('AI 最高時速 km/h（強度）');
   gui.hide();
   return gui;
 }
