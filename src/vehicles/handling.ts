@@ -22,12 +22,12 @@ export const DEFAULT_HANDLING: HandlingParams = {
   coast: 1.5,
   grip: 40,
   stunGrip: 1.0,
-  latAccelMax: 16,
+  latAccelMax: 28,
   maxYawRate: 1.6,
-  steerRise: 5,
+  steerRise: 8,
   steerFall: 9,
   headingAssist: 3.5,
-  yawResponse: 14,
+  yawResponse: 20,
 };
 
 export interface HandlingState {
