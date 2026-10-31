@@ -45,6 +45,19 @@ describe('readSensors', () => {
     expect(x[2 * 4]).toBeLessThan(1);
   });
 
+  it('wrecks on the shoulder or the median grass show up in the nearest edge lane', () => {
+    const x = readSensors(self(), [
+      { s: 60, dMin: 8.4, dMax: 9.9, v: 0, length: 4.6 }, // right shoulder
+      { s: 90, dMin: -11.5, dMax: -10.2, v: 0, length: 4.6 }, // median grass
+    ]);
+    expect(x[3 * 4]).toBeLessThan(1);
+    expect(x[0 * 4]).toBeLessThan(1);
+    expect(x[1 * 4]).toBe(1);
+    expect(x[2 * 4]).toBe(1);
+    // Far out on the grass, beyond where the car may go: ignored.
+    expect(readSensors(self(), [{ s: 60, dMin: -18, dMax: -16, v: 0, length: 4.6 }])[0]).toBe(1);
+  });
+
   it('cars beyond the radar range are not seen', () => {
     const x = readSensors(self(), [car(400, 1, 20), car(-80, 1, 20)]);
     expect(x[1 * 4]).toBe(1);

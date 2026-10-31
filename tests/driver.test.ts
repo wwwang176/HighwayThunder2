@@ -24,6 +24,17 @@ describe('AiDriver', () => {
     expect(input.brake).toBe(0);
   });
 
+  it('a slightly positive brake output does not brake (and so does not cut the engine)', () => {
+    const b = createBrain(BRAIN_LAYERS, mulberry32(1));
+    b.weights.fill(0);
+    const n = b.weights.length;
+    b.weights[n - 1] = 0.1; // brake output ~0.1
+    b.weights[n - 1 - (16 + 1)] = 2; // throttle output ~0.96
+    const input = new AiDriver(b).drive(self, []);
+    expect(input.brake).toBe(0);
+    expect(input.throttle).toBeGreaterThan(0.9);
+  });
+
   it('outputs stay in range and braking hard lifts off the throttle', () => {
     const b = createBrain(BRAIN_LAYERS, mulberry32(2));
     b.weights.fill(0);

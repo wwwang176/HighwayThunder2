@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { PHYSICS_DT, ROAD_LENGTH } from '../config';
 import { PhysicsWorld } from '../physics/physicsWorld';
-import { surfaceGrip } from '../road/coords';
+import { lanesOccupied, surfaceGrip } from '../road/coords';
+import type { RoadFrame } from '../road/frame';
+import type { Occupant } from '../traffic/spawner';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
-import { PlayerCar } from '../vehicles/playerCar';
+import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
 import { WheelInstances } from '../vehicles/wheelInstances';
 import type { Brain } from './brain';
 import { AiDriver, selfStateOf } from './driver';
@@ -12,6 +14,7 @@ import { mulberry32 } from './rng';
 import type { TrafficBox } from './sensors';
 
 const START_LANE = 1;
+const CAR_HALF_W = PLAYER_W / 2;
 
 /** One AI car in a generation. */
 export interface Ghost {
@@ -66,7 +69,7 @@ export class TrainingSim {
       car.resetTo(0, START_LANE, 0);
       this.ghosts.push({ car, driver: new AiDriver(brain), alive: true, result: { distance: 0, crashed: false, finishTime: null }, progressS: 0, progressT: 0 });
     }
-    this.traffic.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, () => []);
+    this.traffic.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, (f) => this.occupants(f));
     this.boxes = this.traffic.ourBoxes(this.boxes);
   }
 
@@ -107,7 +110,22 @@ export class TrainingSim {
     this.boxes = this.traffic.ourBoxes(this.boxes);
     for (const g of this.ghosts) if (g.alive) this.judge(g);
     const focus = this.focus();
-    if (focus) this.traffic.maintain(dt, focus, () => []);
+    if (focus) this.traffic.maintain(dt, focus, (f) => this.occupants(f));
+  }
+
+  /**
+   * Lanes the live ghosts take up, so traffic is never spawned on top of one
+   * (traffic still drives as if they were not there).
+   */
+  occupants(frame: RoadFrame): Occupant[] {
+    const out: Occupant[] = [];
+    for (const g of this.ghosts) {
+      if (!g.alive) continue;
+      const c = g.car;
+      const s = frame.fromWorld(c.d, -c.s).s;
+      for (const lane of lanesOccupied(c.d - CAR_HALF_W, c.d + CAR_HALF_W)) out.push({ s, lane, length: PLAYER_L, v: Math.max(0, c.speed) });
+    }
+    return out;
   }
 
   private judge(g: Ghost): void {

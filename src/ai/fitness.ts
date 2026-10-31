@@ -68,6 +68,7 @@ export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficB
     dMax = Math.max(dMax, c.d);
   }
   for (const t of traffic) {
+    if (t.phantom) continue;
     if (t.s + t.length / 2 < sMin || t.s - t.length / 2 > sMax) continue;
     if (t.dMax < dMin || t.dMin > dMax) continue;
     return true;

@@ -3,6 +3,8 @@ import type { PlayerCar } from '../vehicles/playerCar';
 import { Brain, forward } from './brain';
 import { readSensors, SelfState, SENSOR_COUNT, TrafficBox } from './sensors';
 
+const BRAKE_DEADZONE = 0.25;
+
 /** The AI car's state as the sensors expect it. */
 export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
   return { s: car.s, d: car.d, yaw: car.yaw, vLong: car.vLong, vLat: car.vLat, yawRate: car.yawRate, speedCap };
@@ -21,9 +23,10 @@ export class AiDriver {
   drive(self: SelfState, traffic: TrafficBox[]): HandlingInput {
     readSensors(self, traffic, this.sensors);
     const o = forward(this.brain, this.sensors, this.out);
-    const brake = Math.max(0, o[2]);
-    // Hard braking lifts off the throttle, so it cannot learn to do both at once.
-    const throttle = brake > 0.5 ? 0 : (o[1] + 1) / 2;
+    // Brake only above a dead zone: any brake at all cuts the engine (driveCommand),
+    // so without it about half of all random networks could never accelerate.
+    const brake = Math.max(0, (o[2] - BRAKE_DEADZONE) / (1 - BRAKE_DEADZONE));
+    const throttle = brake > 0 ? 0 : (o[1] + 1) / 2;
     return { steer: o[0], throttle, brake };
   }
 }

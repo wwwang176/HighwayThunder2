@@ -38,4 +38,9 @@ describe('crash rules', () => {
     expect(hitsTraffic(-7, laneCenter(1), 0, t)).toBe(false);
     expect(hitsTraffic(0, laneCenter(2), 0, t)).toBe(false);
   });
+
+  it('the lane a car is about to move into is not a crash', () => {
+    const t = [{ s: 3, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 20, length: 4.6, phantom: true }];
+    expect(hitsTraffic(0, laneCenter(1), 0, t)).toBe(false);
+  });
 });

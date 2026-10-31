@@ -139,7 +139,7 @@ export class TrafficWorld {
       out.push({ s: a.s, dMin: a.d - a.width / 2, dMax: a.d + a.width / 2, v: a.v, length: a.length });
       if (a.targetLane !== null && a.targetLane !== a.lane) {
         const c = laneCenter(a.targetLane);
-        out.push({ s: a.s, dMin: c - a.width / 2, dMax: c + a.width / 2, v: a.v, length: a.length });
+        out.push({ s: a.s, dMin: c - a.width / 2, dMax: c + a.width / 2, v: a.v, length: a.length, phantom: true });
       }
     }
     for (const npc of this.npcs.values()) if (npc.wrecked) out.push(...npc.obstacles(OUR_FRAME));

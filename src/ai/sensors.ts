@@ -21,10 +21,18 @@ export interface TrafficBox {
   dMax: number;
   v: number;
   length: number;
+  /**
+   * The lane a vehicle is about to move into: the sensors treat it as taken
+   * (so the AI keeps clear), but touching it is not a crash.
+   */
+  phantom?: boolean;
 }
 
-/** Bump when the inputs below change: trained driver files record it. */
-export const SENSOR_LAYOUT = 'lane-radar-v2'; // v2: left edge = 2 m onto the median grass
+/**
+ * Bump when the inputs below change: trained driver files record it.
+ * v2: left edge = 2 m onto the median grass. v3: shoulder / grass objects count in the edge lanes.
+ */
+export const SENSOR_LAYOUT = 'lane-radar-v3';
 export const SENSOR_COUNT = LANE_COUNT * 4 + 8;
 
 const RADAR_AHEAD = 300;
@@ -35,6 +43,21 @@ const HALF_LENGTH = 2.2; // the AI car (same body as the player's)
 const HALF_WIDTH = 0.93;
 
 const clamp = (x: number, lo = -1, hi = 1) => Math.min(hi, Math.max(lo, x));
+const LEFT_LANE = [0];
+const RIGHT_LANE = [LANE_COUNT - 1];
+const NONE: number[] = [];
+
+/**
+ * Lanes an object counts in. Something on the shoulder or the median grass
+ * (where the car may also drive) counts in the nearest edge lane; anything
+ * beyond where the car may go is ignored.
+ */
+function lanesSeen(t: TrafficBox): number[] {
+  const lanes = lanesOccupied(t.dMin, t.dMax);
+  if (lanes.length > 0) return lanes;
+  if (t.dMax < LEFT_LIMIT || t.dMin > RIGHT_LIMIT) return NONE;
+  return t.dMax < 0 ? LEFT_LANE : RIGHT_LANE;
+}
 const aheadGap = new Float32Array(LANE_COUNT);
 const aheadV = new Float32Array(LANE_COUNT);
 const behindGap = new Float32Array(LANE_COUNT);
@@ -55,7 +78,7 @@ export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Fl
     const ahead = t.s > self.s;
     const gap = ahead ? t.s - t.length / 2 - (self.s + HALF_LENGTH) : self.s - HALF_LENGTH - (t.s + t.length / 2);
     if (gap > (ahead ? RADAR_AHEAD : RADAR_BEHIND)) continue;
-    for (const lane of lanesOccupied(t.dMin, t.dMax)) {
+    for (const lane of lanesSeen(t)) {
       if (ahead) {
         if (gap < aheadGap[lane]) {
           aheadGap[lane] = gap;

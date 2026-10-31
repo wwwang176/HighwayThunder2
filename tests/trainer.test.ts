@@ -55,6 +55,20 @@ describe('Trainer', () => {
     u.dispose();
   });
 
+  it('refuses saved progress trained on different sensor inputs', () => {
+    const storage = new MemoryStorage() as unknown as Storage;
+    const t = new Trainer({ seed: 4, population: 4, timeLimit: 1, storage });
+    t.save();
+    t.dispose();
+    const key = 'highwayThunder2.trainer.v1';
+    const saved = JSON.parse(storage.getItem(key)!);
+    storage.setItem(key, JSON.stringify({ ...saved, sensors: 'lane-radar-v1' }));
+    expect(Trainer.load(storage, { timeLimit: 1 })).toBeNull();
+    const { sensors: _drop, ...noLayout } = saved;
+    storage.setItem(key, JSON.stringify(noLayout));
+    expect(Trainer.load(storage, { timeLimit: 1 })).toBeNull();
+  });
+
   it('load returns null when nothing (or garbage) is stored', () => {
     const storage = new MemoryStorage() as unknown as Storage;
     expect(Trainer.load(storage)).toBeNull();

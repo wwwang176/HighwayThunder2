@@ -5,6 +5,7 @@ import { BRAIN_LAYERS } from '../src/ai/evolution';
 import { mulberry32 } from '../src/ai/rng';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { GRASS_GRIP, PHYSICS_DT } from '../src/config';
+import { OUR_FRAME } from '../src/road/frame';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -54,6 +55,16 @@ describe('TrainingSim', () => {
     expect(a.ghosts.map((g) => g.result.distance)).toEqual(b.ghosts.map((g) => g.result.distance));
     a.dispose();
     b.dispose();
+  });
+
+  it('tells the traffic where live ghosts are, so nothing is spawned on top of them', () => {
+    const sim = new TrainingSim([constant(0, 0.5), constant(0, 0.5)], 1, { speedCap: 40 });
+    const occ = sim.occupants(OUR_FRAME);
+    expect(occ.length).toBeGreaterThanOrEqual(2);
+    expect(occ.every((o) => o.lane === 1 && Math.abs(o.s) < 1)).toBe(true);
+    sim.ghosts[0].alive = false;
+    expect(sim.occupants(OUR_FRAME).length).toBe(occ.length / 2);
+    sim.dispose();
   });
 
   it('ghosts have the same grass grip as the player car in the game', () => {

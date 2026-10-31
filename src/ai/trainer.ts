@@ -5,6 +5,7 @@ import { Brain, cloneBrain, createBrain } from './brain';
 import { BRAIN_LAYERS, DEFAULT_EVO, EvoParams, nextGeneration } from './evolution';
 import { FITNESS, fitness } from './fitness';
 import { hashSeed, mulberry32 } from './rng';
+import { SENSOR_LAYOUT } from './sensors';
 import { TrainingSim } from './trainingSim';
 
 /** Traffic the generation's best are checked on: never used for training itself. */
@@ -189,6 +190,8 @@ export class Trainer {
   save(): void {
     if (!this.storage) return;
     const data = {
+      sensors: SENSOR_LAYOUT,
+      layers: BRAIN_LAYERS,
       seed: this.seed,
       generation: this.generation,
       evo: this.evo,
@@ -209,6 +212,8 @@ export class Trainer {
       const raw = storage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const d = JSON.parse(raw);
+      // Networks trained on other inputs would load fine (same weight count) and drive blind.
+      if (d.sensors !== SENSOR_LAYOUT || JSON.stringify(d.layers) !== JSON.stringify(BRAIN_LAYERS)) return null;
       const toBrain = (w: number[]): Brain => {
         const b = createBrain(BRAIN_LAYERS, () => 0.5);
         if (w.length !== b.weights.length) throw new Error('size');
