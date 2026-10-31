@@ -70,6 +70,7 @@ export class Hud {
           <tr><td><kbd>W</kbd> / <kbd>↑</kbd></td><td>油門</td></tr>
           <tr><td><kbd>S</kbd> / <kbd>↓</kbd></td><td>煞車 / 倒車</td></tr>
           <tr><td><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd></td><td>轉向</td></tr>
+          <tr><td><kbd>C</kbd></td><td>按住看正後方</td></tr>
           <tr><td><kbd>R</kbd></td><td>重置到車道上（冷卻 3 秒）</td></tr>
           <tr><td><kbd>Esc</kbd></td><td>暫停</td></tr>
           <tr><td><kbd>M</kbd></td><td>靜音</td></tr>

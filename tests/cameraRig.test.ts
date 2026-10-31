@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { wrapAngle, approachAngle, reverseView, cameraTargetYaw } from '../src/render/cameraRig';
+import { wrapAngle, approachAngle, reverseView, cameraTargetYaw, lookBackYaw } from '../src/render/cameraRig';
 
 describe('camera helpers', () => {
   it('wrapAngle keeps angles in (-π, π]', () => {
@@ -27,6 +27,10 @@ describe('camera helpers', () => {
     expect(yaw).toBeCloseTo(Math.atan2(10, 20));
     // Reversing at speed: camera looks the way the car moves (backwards).
     expect(Math.abs(wrapAngle(cameraTargetYaw(0, 0, 5, true) - Math.PI))).toBeLessThan(1e-9);
+  });
+  it('look-back view faces straight behind the car, whatever it is doing', () => {
+    expect(lookBackYaw(0)).toBeCloseTo(Math.PI);
+    expect(Math.abs(wrapAngle(lookBackYaw(0.4) - (0.4 + Math.PI)))).toBeLessThan(1e-9);
   });
   it('uses the car heading when (almost) stopped', () => {
     expect(cameraTargetYaw(0.3, 0, 0, false)).toBeCloseTo(0.3);

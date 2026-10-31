@@ -54,9 +54,15 @@ export function cameraTargetYaw(carYaw: number, velX: number, velZ: number, reve
   return approachAngle(headingYaw, motionYaw, k);
 }
 
+/** Camera yaw for the look-back view: straight behind the car's nose. */
+export function lookBackYaw(carYaw: number): number {
+  return wrapAngle(carYaw + Math.PI);
+}
+
 /**
  * Chase camera that trails the car along its direction of travel (never
- * locked to the road / finish line).
+ * locked to the road / finish line). Holding the look-back key swings it to the
+ * front of the car, looking straight back.
  */
 export class CameraRig {
   params = { ...DEFAULT_CAMERA };
@@ -75,7 +81,15 @@ export class CameraRig {
     this.initialized = false;
   }
 
-  update(dt: number, carPos: THREE.Vector3, carYaw: number, vel: { x: number; z: number }, vForward: number, maxSpeed: number): void {
+  update(
+    dt: number,
+    carPos: THREE.Vector3,
+    carYaw: number,
+    vel: { x: number; z: number },
+    vForward: number,
+    maxSpeed: number,
+    lookBack = false,
+  ): void {
     const p = this.params;
     this.reversing = reverseView(this.reversing, vForward);
     const targetYaw = cameraTargetYaw(carYaw, vel.x, vel.z, this.reversing);
@@ -84,9 +98,11 @@ export class CameraRig {
       this.initialized = true;
     }
     this.camYaw = wrapAngle(approachAngle(this.camYaw, targetYaw, 1 - Math.exp(-dt / p.yawTau)));
+    // Look-back is an instant cut (like glancing in the mirror) and back again.
+    const viewYaw = lookBack ? lookBackYaw(carYaw) : this.camYaw;
 
-    const fx = Math.sin(this.camYaw);
-    const fz = -Math.cos(this.camYaw);
+    const fx = Math.sin(viewYaw);
+    const fz = -Math.cos(viewYaw);
     const cam = this.camera;
     cam.position.set(carPos.x - fx * p.distance, carPos.y + p.height, carPos.z - fz * p.distance);
 

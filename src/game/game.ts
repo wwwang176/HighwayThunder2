@@ -441,7 +441,8 @@ export class Game {
     this.smoke.update(this.flow.phase === 'paused' ? 0 : dt);
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
-    this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed);
+    const lookBack = this.flow.phase === 'racing' && this.keyboard.isDown('KeyC');
+    this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     this.sound.setEngine(this.player.rpm, this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     this.hud.update(dt, {
