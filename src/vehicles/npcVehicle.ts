@@ -105,7 +105,7 @@ interface Wheel {
 interface Part {
   spec: PartSpec;
   body: RAPIER.RigidBody;
-  collider: RAPIER.Collider;
+  colliders: RAPIER.Collider[]; // body box (+ lower box over wheels/chassis on tall vehicles)
   vehicle: RAPIER.DynamicRayCastVehicleController | null; // live: Rapier's controller
   chassis: TyreChassis | null; // wrecked: the full tyre model
   wheels: Wheel[];
@@ -248,6 +248,26 @@ export class NpcVehicle {
       body,
     );
     this.physics.register(collider, { type: 'npc', id: this.id });
+    const colliders = [collider];
+    // Tall vehicles: the body box starts high, so add a massless lower box over the
+    // wheels and chassis (like real side/rear underride guards) - otherwise a car can
+    // drive straight under a trailer. It stays clear of the road surface.
+    const lowBottom = 0.3;
+    if (s.clearance > lowBottom + 0.15) {
+      const halfH = (s.clearance - lowBottom) / 2;
+      const low = this.physics.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(s.w / 2 - 0.05, halfH, s.l / 2)
+          .setTranslation(0, -s.h / 2 + lowBottom + halfH, 0)
+          .setDensity(0)
+          .setFriction(0.6)
+          .setRestitution(0.1)
+          .setCollisionGroups(NPC_LIVE_GROUPS)
+          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+        body,
+      );
+      this.physics.register(low, { type: 'npc', id: this.id });
+      colliders.push(low);
+    }
 
     const vehicle = this.physics.world.createVehicleController(body);
     vehicle.indexUpAxis = 1;
@@ -285,7 +305,7 @@ export class NpcVehicle {
     return {
       spec: s,
       body,
-      collider,
+      colliders,
       vehicle,
       chassis: null,
       wheels,
@@ -370,7 +390,7 @@ export class NpcVehicle {
     this.wrecked = true;
     this.wreckTime = 0;
     for (const p of this.parts) {
-      p.collider.setCollisionGroups(WRECK_GROUPS);
+      for (const c of p.colliders) c.setCollisionGroups(WRECK_GROUPS);
       setBrake(p.lights, true);
       this.switchToTyreModel(p);
     }
@@ -505,7 +525,7 @@ export class NpcVehicle {
     for (const p of this.parts) {
       for (const w of p.wheels) this.wheelPool.release(w.slot);
       if (p.vehicle) this.physics.world.removeVehicleController(p.vehicle);
-      this.physics.unregister(p.collider);
+      for (const c of p.colliders) this.physics.unregister(c);
       this.physics.world.removeRigidBody(p.body);
       this.scene.remove(p.mesh);
     }
