@@ -19,6 +19,7 @@ import {
   VehicleModel,
 } from './models';
 import { npcDriveForces, stanleySteer, wheelLoads } from './npcDriver';
+import { boxToFrame, RoadFrame } from '../road/frame';
 import { WheelInstances } from './wheelInstances';
 
 // Container geometry (see config: total 16.9 m).
@@ -41,9 +42,11 @@ const TMP_M2 = new THREE.Matrix4();
 const TMP_E = new THREE.Euler(0, 0, 0, 'YXZ');
 const TMP_S = new THREE.Vector3();
 
-function headingYaw(q: { x: number; y: number; z: number; w: number }): number {
+/** World-space forward (nose) direction of a body on the ground plane. */
+function forwardOf(q: { x: number; y: number; z: number; w: number }): { x: number; z: number } {
   TMP_V.set(0, 0, -1).applyQuaternion(TMP_Q.set(q.x, q.y, q.z, q.w));
-  return Math.atan2(TMP_V.x, -TMP_V.z);
+  const n = Math.hypot(TMP_V.x, TMP_V.z) || 1;
+  return { x: TMP_V.x / n, z: TMP_V.z / n };
 }
 
 interface PartSpec {
@@ -165,6 +168,7 @@ export class NpcVehicle {
     private physics: PhysicsWorld,
     private scene: THREE.Scene,
     private wheelPool: WheelInstances,
+    readonly frame: RoadFrame,
     agent: Agent,
     rng: () => number,
   ) {
@@ -273,10 +277,13 @@ export class NpcVehicle {
     const cabS = front - this.parts[0].spec.l / 2;
     const ss = [cabS];
     if (this.parts.length === 2) ss.push(cabS - HITCH_FROM_CAB_CENTER - KINGPIN_FROM_TRAILER_CENTER);
+    const ry = this.frame.rotationY(0);
+    const fwd = this.frame.forwardWorld(0);
     this.parts.forEach((p, i) => {
-      p.body.setTranslation({ x: agent.d, y: p.spec.h / 2, z: -ss[i] }, true);
-      p.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-      p.body.setLinvel({ x: 0, y: 0, z: -agent.v }, true);
+      const w = this.frame.toWorld(ss[i], agent.d);
+      p.body.setTranslation({ x: w.x, y: p.spec.h / 2, z: w.z }, true);
+      p.body.setRotation({ x: 0, y: Math.sin(ry / 2), z: 0, w: Math.cos(ry / 2) }, true);
+      p.body.setLinvel({ x: fwd.x * agent.v, y: 0, z: fwd.z * agent.v }, true);
     });
     this.capture(true);
   }
@@ -286,11 +293,12 @@ export class NpcVehicle {
     const cab = this.parts[0];
     const t = cab.body.translation();
     const v = cab.body.linvel();
-    const yaw = headingYaw(cab.body.rotation());
-    agent.yaw = yaw;
-    agent.d = t.x;
-    agent.s = -t.z + cab.spec.l / 2 - agent.length / 2;
-    agent.v = Math.max(0, v.x * Math.sin(yaw) - v.z * Math.cos(yaw));
+    const f = forwardOf(cab.body.rotation());
+    const c = this.frame.fromWorld(t.x, t.z);
+    agent.yaw = this.frame.yawFromWorldForward(f.x, f.z);
+    agent.d = c.d;
+    agent.s = c.s + cab.spec.l / 2 - agent.length / 2;
+    agent.v = Math.max(0, v.x * f.x + v.z * f.z);
   }
 
   /** Agent → pedals and steering (call before world.step). */
@@ -392,22 +400,24 @@ export class NpcVehicle {
     }
   }
 
-  /** Road position (s) of the first part's center. */
+  /** Position along OUR road (world s = -z) of the first part, for culling. */
   get s(): number {
     return -this.parts[0].body.translation().z;
   }
 
-  /** Road-space boxes the AI must avoid (one per part). */
-  obstacles(): Obstacle[] {
+  /** World x of the first part. */
+  get x(): number {
+    return this.parts[0].body.translation().x;
+  }
+
+  /** Boxes an AI driving in `frame` must avoid (one per part). */
+  obstacles(frame: RoadFrame): Obstacle[] {
     return this.parts.map((p, i) => {
       const t = p.body.translation();
-      const yaw = headingYaw(p.body.rotation());
-      const c = Math.abs(Math.cos(yaw));
-      const sn = Math.abs(Math.sin(yaw));
-      const halfD = (p.spec.w / 2) * c + (p.spec.l / 2) * sn;
-      const halfS = (p.spec.l / 2) * c + (p.spec.w / 2) * sn;
+      const f = forwardOf(p.body.rotation());
       const v = p.body.linvel();
-      return { id: -(this.id * 10 + i), s: -t.z, dMin: t.x - halfD, dMax: t.x + halfD, v: Math.max(0, -v.z), length: halfS * 2 };
+      const b = boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: p.spec.w, l: p.spec.l, vx: v.x, vz: v.z });
+      return { id: -(this.id * 10 + i), ...b };
     });
   }
 

@@ -1,5 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import { RAIL_D, ROAD_LENGTH } from '../config';
+import { LEFT_RAIL_X, RAIL_D, ROAD_LENGTH } from '../config';
 
 export type EntityRef = { type: 'player' } | { type: 'npc'; id: number } | { type: 'static' };
 
@@ -44,17 +44,18 @@ export class PhysicsWorld {
     const half = (ROAD_END_S - ROAD_START_S) / 2;
     const centerZ = -(ROAD_START_S + half);
     const ground = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(60, 0.5, half)
+      RAPIER.ColliderDesc.cuboid(80, 0.5, half)
         .setTranslation(0, -0.5, centerZ)
         .setFriction(0.9)
         .setCollisionGroups(STATIC_GROUPS),
     );
     this.register(ground, { type: 'static' });
-    for (const side of [-1, 1]) {
-      // Thick rails so wrecks (no CCD) cannot tunnel through.
+    // Guardrails only on the outer edges; the median between carriageways is open grass.
+    // Thick rails so wrecks (no CCD) cannot tunnel through.
+    for (const x of [RAIL_D + 0.6, LEFT_RAIL_X - 0.6]) {
       const rail = this.world.createCollider(
         RAPIER.ColliderDesc.cuboid(0.6, 0.8, half)
-          .setTranslation(side * (RAIL_D + 0.6), 0.8, centerZ)
+          .setTranslation(x, 0.8, centerZ)
           .setFriction(0.1)
           .setRestitution(0.1)
           .setCollisionGroups(STATIC_GROUPS),

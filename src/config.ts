@@ -5,6 +5,15 @@ export const SHOULDER = 2.5;
 export const RAIL_D = ROAD_HALF_WIDTH + SHOULDER; // 10
 export const ROAD_LENGTH = 10000;
 
+// Divided highway: oncoming carriageway on our left, separated by a grass median
+// you can drive across. Guardrails only on the two outer edges.
+export const MEDIAN_WIDTH = 10;
+export const MEDIAN_NEAR_X = -RAIL_D; // our inner shoulder ends here (-10)
+export const MEDIAN_FAR_X = MEDIAN_NEAR_X - MEDIAN_WIDTH; // -20
+export const ONCOMING_X = MEDIAN_FAR_X - SHOULDER - ROAD_HALF_WIDTH; // -30, oncoming centre line
+export const LEFT_RAIL_X = ONCOMING_X - ROAD_HALF_WIDTH - SHOULDER; // -40
+export const GRASS_GRIP = 0.55;
+
 export const PHYSICS_DT = 1 / 120;
 export const MAX_SUBSTEPS = 8;
 export const MAX_FRAME_DT = 0.1;

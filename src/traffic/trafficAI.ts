@@ -69,7 +69,12 @@ const smoothstep = (u: number) => u * u * (3 - 2 * u);
 
 export class TrafficSim {
   readonly agents = new Map<number, Agent>();
-  private nextId = 1;
+  private nextId: number;
+
+  /** @param firstId id of the first agent (keeps ids unique across several sims) */
+  constructor(firstId = 1) {
+    this.nextId = firstId;
+  }
   private bodies: Body[] = [];
 
   addAgent(kind: VehicleKind, s: number, lane: number, rng: () => number): Agent {

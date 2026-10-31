@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LANE_COUNT, LANE_WIDTH, RAIL_D, ROAD_HALF_WIDTH, ROAD_LENGTH } from '../config';
+import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH, ROAD_LENGTH } from '../config';
 
 const STRIP_PERIOD = 100; // m; lane-dash (20), rail-post (4) and lamp (50) periods all divide it
 const STRIP_BEHIND = 300;
@@ -158,6 +158,16 @@ export class RoadScene {
     road.receiveShadow = true;
     this.strip.add(road);
 
+    // Oncoming carriageway: same surface mirrored, so its yellow edge line sits
+    // next to the median like ours.
+    const roadMat2 = (road.material as THREE.MeshStandardMaterial).clone();
+    roadMat2.side = THREE.DoubleSide;
+    const road2 = new THREE.Mesh(road.geometry, roadMat2);
+    road2.scale.x = -1;
+    road2.position.set(ONCOMING_X, 0.01, midZ);
+    road2.receiveShadow = true;
+    this.strip.add(road2);
+
     const grass = new THREE.Mesh(
       new THREE.PlaneGeometry(2000, STRIP_LEN).rotateX(-Math.PI / 2),
       new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1 }),
@@ -168,9 +178,10 @@ export class RoadScene {
 
     // Guardrails: beam + posts every 4 m.
     const metal = new THREE.MeshStandardMaterial({ color: 0xb9bec4, roughness: 0.4, metalness: 0.7 });
-    for (const side of [-1, 1]) {
+    const railX = [RAIL_D, LEFT_RAIL_X];
+    for (const x of railX) {
       const beam = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.34, STRIP_LEN), metal);
-      beam.position.set(side * (RAIL_D + 0.06), 0.62, midZ);
+      beam.position.set(x + Math.sign(x) * 0.06, 0.62, midZ);
       beam.castShadow = true;
       this.strip.add(beam);
     }
@@ -179,7 +190,7 @@ export class RoadScene {
     const m = new THREE.Matrix4();
     let i = 0;
     for (let s = -STRIP_BEHIND; s < STRIP_AHEAD; s += 4)
-      for (const side of [-1, 1]) posts.setMatrixAt(i++, m.makeTranslation(side * (RAIL_D + 0.2), 0.4, -s));
+      for (const x of railX) posts.setMatrixAt(i++, m.makeTranslation(x + Math.sign(x) * 0.2, 0.4, -s));
     this.strip.add(posts);
 
     // Lamp posts every 50 m on both sides.
@@ -194,8 +205,9 @@ export class RoadScene {
     );
     i = 0;
     for (let s = -STRIP_BEHIND; s < STRIP_AHEAD; s += 50)
-      for (const side of [-1, 1]) {
-        const x = side * (RAIL_D + 1.6);
+      for (const rx of railX) {
+        const side = Math.sign(rx);
+        const x = rx + side * 1.6;
         poles.setMatrixAt(i, m.makeTranslation(x, 5, -s));
         arms.setMatrixAt(i, m.makeTranslation(x - side * 1.2, 9.9, -s));
         heads.setMatrixAt(i, m.makeTranslation(x - side * 2.3, 9.8, -s));
@@ -222,8 +234,9 @@ export class RoadScene {
     );
     const base: { x: number; s: number; k: number }[] = [];
     for (let j = 0; j < per; j++) {
-      const side = rnd() < 0.5 ? -1 : 1;
-      base.push({ x: side * (16 + rnd() * rnd() * 90), s: rnd() * TREE_PERIOD, k: 0.7 + rnd() * 0.8 });
+      const right = rnd() < 0.5;
+      const off = 6 + rnd() * rnd() * 90;
+      base.push({ x: right ? RAIL_D + off : LEFT_RAIL_X - off, s: rnd() * TREE_PERIOD, k: 0.7 + rnd() * 0.8 });
     }
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -268,23 +281,26 @@ export class RoadScene {
 
     // Gantries.
     const steel = new THREE.MeshStandardMaterial({ color: 0x7d838a, metalness: 0.6, roughness: 0.4 });
+    // Gantries span both carriageways.
+    const spanL = LEFT_RAIL_X - 1;
+    const spanR = RAIL_D + 1;
     const gantry = (s: number, tex: THREE.Texture) => {
-      for (const side of [-1, 1]) {
+      for (const x of [spanL, spanR]) {
         const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, 8, 0.6), steel);
-        p.position.set(side * (RAIL_D + 1), 4, -s);
+        p.position.set(x, 4, -s);
         p.castShadow = true;
         grp.add(p);
       }
       const banner = new THREE.Mesh(
-        new THREE.BoxGeometry(2 * RAIL_D + 2.6, 2.4, 0.3),
+        new THREE.BoxGeometry(spanR - spanL + 0.6, 2.4, 0.3),
         [steel, steel, steel, steel, new THREE.MeshBasicMaterial({ map: tex }), new THREE.MeshBasicMaterial({ map: tex })],
       );
-      banner.position.set(0, 7.6, -s);
+      banner.position.set((spanL + spanR) / 2, 7.6, -s);
       banner.castShadow = true;
       grp.add(banner);
     };
-    gantry(40, textPanel(['START 起點'], 1024, 128, '#1b3d7a', '#ffffff'));
-    gantry(ROAD_LENGTH, textPanel(['FINISH  終點'], 1024, 128, '#111111', '#ffd400'));
+    gantry(40, textPanel(['START 起點'], 2048, 128, '#1b3d7a', '#ffffff'));
+    gantry(ROAD_LENGTH, textPanel(['FINISH  終點'], 2048, 128, '#111111', '#ffd400'));
 
     // Distance signs every km on the right shoulder.
     for (let k = 1; k <= 9; k++) {

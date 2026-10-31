@@ -110,3 +110,35 @@ describe('pickKind / shouldDespawn', () => {
     expect(shouldDespawn(1950, 1000)).toBe(true);
   });
 });
+
+describe('oncoming (facing = -1)', () => {
+  it('initial fill sits ahead of the player in world terms (smaller frame s), never closer than 60 m', () => {
+    const playerS = -500; // player at world s=500 is frame s=-500 on the oncoming side
+    const reqs = planSpawns({ playerS, playerV: 0, raceTime: 0, occupied: [], rng: rngFrom(1), initial: true, facing: -1 });
+    expect(reqs.length).toBeGreaterThanOrEqual(15);
+    for (const r of reqs) {
+      expect(r.s + VEHICLE_SPECS[r.kind].length / 2).toBeLessThanOrEqual(playerS - 60);
+      expect(r.s).toBeGreaterThanOrEqual(playerS - 700);
+    }
+  });
+  it('incremental spawns appear at the far edge ahead of the player', () => {
+    for (let seed = 1; seed < 20; seed++) {
+      const reqs = planSpawns({ playerS: -500, playerV: 80, raceTime: 30, occupied: [], rng: rngFrom(seed), initial: false, facing: -1 });
+      for (const r of reqs) {
+        expect(r.s).toBeGreaterThanOrEqual(-1200);
+        expect(r.s).toBeLessThanOrEqual(-1100);
+      }
+    }
+  });
+  it('never spawns behind the player', () => {
+    for (let seed = 1; seed < 20; seed++) {
+      const reqs = planSpawns({ playerS: -500, playerV: 0, raceTime: 30, occupied: [], rng: rngFrom(seed), initial: false, facing: -1 });
+      expect(reqs.some((r) => r.s > -500)).toBe(false);
+    }
+  });
+  it('despawns once it has passed the player', () => {
+    expect(shouldDespawn(-200, -500, -1)).toBe(true); // 300 m past the player
+    expect(shouldDespawn(-600, -500, -1)).toBe(false); // still approaching
+    expect(shouldDespawn(-1500, -500, -1)).toBe(true); // too far ahead
+  });
+});

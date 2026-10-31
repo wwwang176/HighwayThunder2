@@ -45,8 +45,13 @@ export function pickKindForLane(lane: number, rng: () => number): VehicleKind {
   return 'container';
 }
 
-export function shouldDespawn(agentS: number, playerS: number): boolean {
-  return agentS < playerS - 260 || agentS > playerS + 900;
+/**
+ * @param facing +1 when the traffic travels the player's way, -1 for oncoming
+ * traffic (whose s runs the other way, so "behind the player" is larger s).
+ */
+export function shouldDespawn(agentS: number, playerS: number, facing: 1 | -1 = 1): boolean {
+  const rel = (agentS - playerS) * facing;
+  return rel < -260 || rel > 900;
 }
 
 function canPlace(s: number, lane: number, len: number, occ: Occupant[]): boolean {
@@ -115,13 +120,21 @@ export function planSpawns(o: {
   rng: () => number;
   initial: boolean;
   spacing?: number;
+  /** +1: traffic goes the player's way. -1: oncoming (spawn ahead of the player in world terms, i.e. at smaller s). */
+  facing?: 1 | -1;
 }): SpawnRequest[] {
   const out: SpawnRequest[] = [];
   const occ = o.occupied.slice();
   const spacing = o.spacing ?? DEFAULT_SPACING;
-  const ahead: [number, number] = [o.playerS + AHEAD_MIN, o.playerS + AHEAD_MAX];
-  fill(out, occ, o.rng, ahead, o.initial ? ahead : [o.playerS + FAR_EDGE, o.playerS + AHEAD_MAX], spacing);
-  if (!o.initial && o.raceTime >= REAR_START_TIME && o.playerV < REAR_MAX_PLAYER_V) {
+  const f = o.facing ?? 1;
+  const win = (a: number, b: number): [number, number] => {
+    const x = o.playerS + f * a;
+    const y = o.playerS + f * b;
+    return [Math.min(x, y), Math.max(x, y)];
+  };
+  const ahead = win(AHEAD_MIN, AHEAD_MAX);
+  fill(out, occ, o.rng, ahead, o.initial ? ahead : win(FAR_EDGE, AHEAD_MAX), spacing);
+  if (f === 1 && !o.initial && o.raceTime >= REAR_START_TIME && o.playerV < REAR_MAX_PLAYER_V) {
     fill(
       out,
       occ,
