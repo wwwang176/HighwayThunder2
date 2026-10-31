@@ -1,5 +1,5 @@
-import { LANE_COUNT, RAIL_D } from '../config';
-import { lanesOccupied } from '../road/coords';
+import { LANE_COUNT, LANE_WIDTH, RAIL_D } from '../config';
+import { laneAt, laneCenter, lanesOccupied } from '../road/coords';
 import { LEFT_LIMIT, RIGHT_LIMIT } from './fitness';
 
 /** The AI car's own state, in our carriageway's road coordinates. */
@@ -31,9 +31,12 @@ export interface TrafficBox {
 /**
  * Bump when the inputs below change: trained driver files record it.
  * v2: left edge = 2 m onto the median grass. v3: shoulder / grass objects count in the edge lanes.
+ * v4: radar relative to the own lane (much easier for a small network to learn than absolute lanes).
  */
-export const SENSOR_LAYOUT = 'lane-radar-v3';
-export const SENSOR_COUNT = LANE_COUNT * 4 + 8;
+export const SENSOR_LAYOUT = 'ego-radar-v4';
+/** Radar lanes, relative to the car's own lane: two to the left, own, two to the right. */
+const REL_LANES = [-2, -1, 0, 1, 2];
+export const SENSOR_COUNT = REL_LANES.length * 4 + 9;
 
 const RADAR_AHEAD = 300;
 const RADAR_BEHIND = 50;
@@ -65,11 +68,13 @@ const behindV = new Float32Array(LANE_COUNT);
 
 /**
  * What the AI "sees" (it is allowed to cheat: exact positions and speeds).
- * Per lane: nearest vehicle ahead / behind (gap and closing speed), then its own state:
- *  [lane*4+0] gap ahead / 300 m (1 = clear)   [lane*4+1] closing speed on it / 50 m/s
- *  [lane*4+2] gap behind / 50 m (1 = clear)   [lane*4+3] its closing speed on us / 50 m/s
- *  [16] vLong  [17] vLat  [18] yaw  [19] yaw rate  [20] d / rail
- *  [21] room to the right limit  [22] room to the left limit (2 m onto the grass)  [23] speed cap
+ * Radar per lane relative to its own (slot k = lane offset k - 2: two left ... own ... two right),
+ * nearest vehicle ahead / behind; a lane that does not exist reads as blocked right here:
+ *  [k*4+0] gap ahead / 300 m (1 = clear)   [k*4+1] closing speed on it / 50 m/s
+ *  [k*4+2] gap behind / 50 m (1 = clear)   [k*4+3] its closing speed on us / 50 m/s
+ * Then its own state:
+ *  [20] vLong  [21] vLat  [22] yaw  [23] yaw rate  [24] offset from the own lane's centre (±half lane)
+ *  [25] room to the right limit  [26] room to the left limit (2 m onto the grass)  [27] speed cap  [28] d / rail
  */
 export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Float32Array(SENSOR_COUNT)): Float32Array {
   aheadGap.fill(Infinity);
@@ -90,22 +95,33 @@ export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Fl
       }
     }
   }
-  for (let lane = 0; lane < LANE_COUNT; lane++) {
+  const own = laneAt(self.d);
+  REL_LANES.forEach((rel, k) => {
+    const lane = own + rel;
+    const i = k * 4;
+    if (lane < 0 || lane >= LANE_COUNT) {
+      out[i] = 0;
+      out[i + 1] = 0;
+      out[i + 2] = 0;
+      out[i + 3] = 0;
+      return;
+    }
     const a = aheadGap[lane];
     const b = behindGap[lane];
-    out[lane * 4] = a === Infinity ? 1 : clamp(a / RADAR_AHEAD, 0, 1);
-    out[lane * 4 + 1] = a === Infinity ? 0 : clamp((self.vLong - aheadV[lane]) / CLOSING_SCALE);
-    out[lane * 4 + 2] = b === Infinity ? 1 : clamp(b / RADAR_BEHIND, 0, 1);
-    out[lane * 4 + 3] = b === Infinity ? 0 : clamp((behindV[lane] - self.vLong) / CLOSING_SCALE);
-  }
-  const o = LANE_COUNT * 4;
+    out[i] = a === Infinity ? 1 : clamp(a / RADAR_AHEAD, 0, 1);
+    out[i + 1] = a === Infinity ? 0 : clamp((self.vLong - aheadV[lane]) / CLOSING_SCALE);
+    out[i + 2] = b === Infinity ? 1 : clamp(b / RADAR_BEHIND, 0, 1);
+    out[i + 3] = b === Infinity ? 0 : clamp((behindV[lane] - self.vLong) / CLOSING_SCALE);
+  });
+  const o = REL_LANES.length * 4;
   out[o] = clamp(self.vLong / SPEED_SCALE);
   out[o + 1] = clamp(self.vLat / 10);
   out[o + 2] = clamp(self.yaw / 0.5);
   out[o + 3] = clamp(self.yawRate / 2);
-  out[o + 4] = clamp(self.d / RAIL_D);
+  out[o + 4] = clamp((self.d - laneCenter(own)) / (LANE_WIDTH / 2));
   out[o + 5] = clamp((RIGHT_LIMIT - (self.d + HALF_WIDTH)) / 10);
   out[o + 6] = clamp((self.d - HALF_WIDTH - LEFT_LIMIT) / 10);
   out[o + 7] = clamp(self.speedCap / SPEED_SCALE);
+  out[o + 8] = clamp(self.d / RAIL_D);
   return out;
 }

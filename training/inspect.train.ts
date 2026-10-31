@@ -12,9 +12,15 @@ it('inspect', async () => {
   const dir = resolve(import.meta.dirname, 'out');
   const lines: string[] = [];
   for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
-    const brain = parseDriver(JSON.parse(readFileSync(resolve(dir, f), 'utf8')));
+    let brain;
+    try {
+      brain = parseDriver(JSON.parse(readFileSync(resolve(dir, f), 'utf8')));
+    } catch (e) {
+      lines.push(`${f}: skipped (${e instanceof Error ? e.message : e})`);
+      continue;
+    }
     for (const seed of [7001, 7002, 7003]) {
-      const sim = new TrainingSim([brain], seed, { speedCap: 300 / 3.6 });
+      const sim = new TrainingSim([brain], seed, { speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6 });
       let maxV = 0;
       while (!sim.done) {
         sim.step();
