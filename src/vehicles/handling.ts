@@ -82,7 +82,7 @@ export const DEFAULT_CAR: CarParams = {
   rearGrip: 1.12,
   slipFalloff: 18,
   lsd: 150,
-  counterSteer: 1,
+  counterSteer: 0.8,
 };
 
 export interface DriveInput {
