@@ -50,8 +50,15 @@ export function pickKindForLane(lane: number, rng: () => number): VehicleKind {
  * traffic (whose s runs the other way, so "behind the player" is larger s).
  */
 export function shouldDespawn(agentS: number, playerS: number, facing: 1 | -1 = 1): boolean {
-  const rel = (agentS - playerS) * facing;
-  return rel < -260 || rel > 900;
+  return shouldDespawnRange(agentS, playerS, playerS, facing);
+}
+
+/**
+ * Same rule for a spread-out group of drivers (AI training): gone once far
+ * behind the last one (`tailS`) or far ahead of the first one (`leadS`).
+ */
+export function shouldDespawnRange(agentS: number, tailS: number, leadS: number, facing: 1 | -1 = 1): boolean {
+  return (agentS - tailS) * facing < -260 || (agentS - leadS) * facing > 900;
 }
 
 function canPlace(s: number, lane: number, len: number, occ: Occupant[]): boolean {

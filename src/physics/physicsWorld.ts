@@ -36,6 +36,18 @@ export class PhysicsWorld {
     return new PhysicsWorld();
   }
 
+  /** A fresh world once RAPIER.init() has completed (e.g. one per training generation). */
+  static createSync(): PhysicsWorld {
+    return new PhysicsWorld();
+  }
+
+  /** Release the WASM-side world. The object must not be used afterwards. */
+  free(): void {
+    this.eventQueue.free();
+    this.world.free();
+    this.owners.clear();
+  }
+
   set timestep(dt: number) {
     this.world.timestep = dt;
   }
