@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
 import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, steerAngle } from './handling';
-import { BRAKE_ON, buildCar, buildWheel, FlareSpot, setBrake, VehicleLights } from './models';
+import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
 import { AIM_DOWN, createHeadlight } from './headlight';
 import { emitFlares } from './npcVehicle';
@@ -16,9 +16,6 @@ export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
 
 const WHEEL_R = 0.34;
-// Tail / brake lamps as seen by tyre smoke (candela, red).
-const TAIL_LAMP = 4;
-const BRAKE_LAMP = 40;
 const HEADLIGHT_INTENSITY = 900; // candela for both lamps together, brightest part of the beam (decay 1)
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
@@ -312,25 +309,10 @@ export class PlayerCar {
     });
   }
 
-  /** Lights that light tyre smoke: the headlights, and the tail / brake lamps (call after render). */
+  /** The headlights as seen by tyre smoke (call after render). Tail and brake lamps don't light it. */
   smokeLights(): SmokeLight[] {
     this.mesh.updateMatrixWorld();
-    const out = this.headlights.map(smokeLightFromSpot);
-    const braking = this.lights.brake[0]?.material === BRAKE_ON;
-    const back = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion);
-    for (const f of this.mesh.userData.flares as FlareSpot[]) {
-      if (f.kind !== 'tail') continue;
-      out.push({
-        pos: new THREE.Vector3(f.x, f.y, f.z).applyMatrix4(this.mesh.matrixWorld),
-        color: new THREE.Color(1, 0.04, 0.02).multiplyScalar(braking ? BRAKE_LAMP : TAIL_LAMP),
-        decay: 2,
-        distance: 15,
-        dir: back,
-        cosOuter: -0.2, // a lamp lights the whole half-space behind it
-        cosInner: 0.4,
-      });
-    }
-    return out;
+    return this.headlights.map(smokeLightFromSpot);
   }
 
   /** Road-space AABB for AI / reset checks. */

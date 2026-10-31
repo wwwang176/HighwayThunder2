@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
 /** Half angle of the headlight's projection (rad). */
-const HALF_ANGLE = 0.75;
+export const HALF_ANGLE = 0.75;
 /** Fraction of the cone over which the spot light's edge fades out. */
-const PENUMBRA = 0.35;
+export const PENUMBRA = 0.35;
 /** How far the beam's axis is aimed below horizontal (rad). */
 export const AIM_DOWN = THREE.MathUtils.degToRad(3);
 

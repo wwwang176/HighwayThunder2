@@ -463,6 +463,7 @@ export class Game {
     this.smoke.update(this.flow.phase === 'paused' ? 0 : dt, [
       ...this.road.activeLights().map(smokeLightFromSpot),
       ...this.player.smokeLights(),
+      ...this.npcBeams.smokeLights(),
     ]);
     const lookBack = this.flow.phase === 'racing' && this.keyboard.isDown('KeyC');
     this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);

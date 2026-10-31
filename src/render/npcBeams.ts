@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { BEAM_GROUND_L, BEAM_GROUND_W, BEAM_LAMP_H, lowBeamGroundTexture } from '../vehicles/headlight';
+import { AIM_DOWN, BEAM_GROUND_L, BEAM_GROUND_W, BEAM_LAMP_H, HALF_ANGLE, lowBeamGroundTexture, PENUMBRA } from '../vehicles/headlight';
+import type { SmokeLight } from '../world/tireSmoke';
 
 /** How many NPC low beams light the ground at once (the nearest ones). */
 export const MAX_BEAMS = 32;
@@ -14,9 +15,14 @@ export interface BeamSpot {
 
 /** Brightness of NPC low beams on the ground (tunable). */
 export const NPC_BEAM = { intensity: 7 };
+/** NPC headlight pair as a light source for tyre smoke (candela, like the player's). */
+const NPC_HEADLIGHT_CD = 900;
+/** How many of the nearest NPCs' headlights light tyre smoke. */
+const SMOKE_BEAMS = 8;
 
 interface Candidate {
   x: number;
+  y: number; // lamp height (world)
   z: number;
   fx: number;
   fz: number;
@@ -44,6 +50,7 @@ export class NpcBeams {
     beamColor: { value: new THREE.Color() },
   };
   private cands: Candidate[] = [];
+  private used: Candidate[] = [];
   private n = 0;
 
   /** Make a ground material receive NPC low beams. */
@@ -111,9 +118,10 @@ reflectedLight.directDiffuse += BRDF_Lambert(diffuseColor.rgb) * npcBeamIrradian
     const h = Math.hypot(D.x, D.z);
     if (h < 1e-3) return;
     let c = this.cands[this.n];
-    if (!c) c = this.cands[this.n] = { x: 0, z: 0, fx: 0, fz: 0, k: 1, pitch: 0, dist2: 0 };
+    if (!c) c = this.cands[this.n] = { x: 0, y: 0, z: 0, fx: 0, fz: 0, k: 1, pitch: 0, dist2: 0 };
     this.n++;
     c.x = V.x;
+    c.y = V.y + spot.k * BEAM_LAMP_H;
     c.z = V.z;
     c.fx = D.x / h;
     c.fz = D.z / h;
@@ -126,7 +134,7 @@ reflectedLight.directDiffuse += BRDF_Lambert(diffuseColor.rgb) * npcBeamIrradian
   }
 
   end(): void {
-    const used = this.cands.slice(0, this.n).sort((a, b) => a.dist2 - b.dist2);
+    const used = (this.used = this.cands.slice(0, this.n).sort((a, b) => a.dist2 - b.dist2));
     const count = Math.min(MAX_BEAMS, used.length);
     const u = this.uniforms;
     for (let i = 0; i < count; i++) {
@@ -136,5 +144,30 @@ reflectedLight.directDiffuse += BRDF_Lambert(diffuseColor.rgb) * npcBeamIrradian
     }
     u.beamCount.value = count;
     u.beamColor.value.set(0xfff4e6).multiplyScalar(NPC_BEAM.intensity);
+  }
+
+  /**
+   * The nearest NPCs' headlights as light sources for tyre smoke (call after
+   * end()): one low-beam spot per vehicle, aimed like the player's lamps and
+   * tilted with the body's pitch, so smoke in front of a car turns white.
+   */
+  smokeLights(): SmokeLight[] {
+    const cosOuter = Math.cos(HALF_ANGLE);
+    const cosInner = Math.cos(HALF_ANGLE * (1 - PENUMBRA));
+    return this.used.slice(0, SMOKE_BEAMS).map((c) => {
+      const down = AIM_DOWN + c.pitch;
+      const dir = new THREE.Vector3(c.fx * Math.cos(down), -Math.sin(down), c.fz * Math.cos(down));
+      const right = new THREE.Vector3().crossVectors(dir, THREE.Object3D.DEFAULT_UP).normalize();
+      return {
+        pos: new THREE.Vector3(c.x, c.y, c.z),
+        color: new THREE.Color(0xfff4e6).multiplyScalar(NPC_HEADLIGHT_CD),
+        decay: 1,
+        distance: 120,
+        dir,
+        cosOuter,
+        cosInner,
+        cookie: { right, up: new THREE.Vector3().crossVectors(right, dir) },
+      };
+    });
   }
 }
