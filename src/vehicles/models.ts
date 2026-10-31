@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { BEAM_GROUND_L, BEAM_GROUND_W, BEAM_LAMP_H, lowBeamGroundTexture } from './headlight';
 
 /**
  * Procedural low-poly vehicles. Every model's origin is the center of its
@@ -64,35 +65,10 @@ export interface FlareSpot {
   kind: 'head' | 'tail';
 }
 
-/** Soft pool of headlight light painted on the road in front of a vehicle. */
-function beamTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 256;
-  const g = c.getContext('2d')!;
-  const img = g.createImageData(128, 256);
-  for (let y = 0; y < 256; y++) {
-    const along = 1 - y / 255; // 0 at the far end (top), 1 at the car (bottom)
-    for (let x = 0; x < 128; x++) {
-      const across = Math.abs(x - 63.5) / 63.5;
-      const spread = 0.35 + 0.65 * (1 - along); // widens away from the car
-      const side = Math.max(0, 1 - across / spread);
-      const fall = Math.pow(along, 0.6) * Math.min(1, (1 - along) * 6);
-      const a = Math.max(0, Math.min(1, side * side * fall));
-      const i = (y * 128 + x) * 4;
-      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
-      img.data[i + 3] = Math.round(a * 255);
-    }
-  }
-  g.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
+// NPC headlights don't light the scene; their low beam is painted on the road
+// as an additive decal computed from the same pattern as the player's lights.
 let beamMat: THREE.MeshBasicMaterial | null = null;
 let beamGeo: THREE.BufferGeometry | null = null;
-const BEAM_LEN = 22;
-const BEAM_W = 9;
 const DARK = std(0x222222, 0.8);
 const CHROME = std(0xcccccc, 0.3, 0.8);
 
@@ -139,21 +115,24 @@ function addLights(
   y: number,
   frontZ: number | null,
   rearZ: number,
-  groundY?: number, // when given, paint a headlight pool on the road ahead
+  groundY?: number, // when given, paint the low beam on the road ahead
 ) {
   if (frontZ !== null && groundY !== undefined) {
     beamMat ??= new THREE.MeshBasicMaterial({
-      map: beamTexture(),
-      color: new THREE.Color().setRGB(0.55, 0.52, 0.46),
+      map: lowBeamGroundTexture(),
+      color: new THREE.Color().setRGB(0.12, 0.115, 0.105),
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -2,
     });
-    beamGeo ??= new THREE.PlaneGeometry(BEAM_W, BEAM_LEN).rotateX(-Math.PI / 2);
+    beamGeo ??= new THREE.PlaneGeometry(BEAM_GROUND_W, BEAM_GROUND_L).rotateX(-Math.PI / 2);
     const beam = new THREE.Mesh(beamGeo, beamMat);
-    beam.position.set(0, groundY + 0.04, frontZ - BEAM_LEN / 2 + 0.5);
+    // The pattern on the ground scales with the lamps' height.
+    const k = (y - groundY) / BEAM_LAMP_H;
+    beam.scale.set(k, 1, k);
+    beam.position.set(0, groundY + 0.04, frontZ - (BEAM_GROUND_L * k) / 2);
     parent.add(beam);
   }
   const flares: FlareSpot[] = (parent.userData.flares ??= []);
