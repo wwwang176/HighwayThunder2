@@ -163,6 +163,8 @@ export class RoadScene {
   private far = new THREE.Group();
   private lampHeads: LampHead[] = [];
   readonly lampFlareMaterial = makeFlareMaterial(2.5);
+  /** Road and grass surfaces (receive NPC headlight beams, see render/npcBeams). */
+  readonly groundMaterials: THREE.MeshStandardMaterial[] = [];
   private pools!: THREE.InstancedMesh;
   private realLights: THREE.SpotLight[] = [];
   private readonly poolColor = new THREE.Color(LAMP_COLOR);
@@ -212,6 +214,7 @@ export class RoadScene {
     road2.position.set(ONCOMING_X, 0.01, midZ);
     road2.receiveShadow = true;
     this.strip.add(road2);
+    this.groundMaterials.push(road.material as THREE.MeshStandardMaterial, roadMat2);
 
     const grass = new THREE.Mesh(
       new THREE.PlaneGeometry(2000, STRIP_LEN).rotateX(-Math.PI / 2),
@@ -220,6 +223,7 @@ export class RoadScene {
     grass.position.set(0, -0.02, midZ);
     grass.receiveShadow = true;
     this.strip.add(grass);
+    this.groundMaterials.push(grass.material);
 
     // Guardrails: beam + posts every 4 m.
     const metal = new THREE.MeshStandardMaterial({ color: 0xb9bec4, roughness: 0.4, metalness: 0.7 });

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import Stats from 'stats.js';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
+import { NpcBeams } from '../render/npcBeams';
 import type GUI from 'lil-gui';
 import { GRASS_GRIP, MAX_FRAME_DT, MAX_SUBSTEPS, MAX_WRECKS, MEDIAN_FAR_X, MEDIAN_NEAR_X, PHYSICS_DT, RESET_SPEED, WRECK_LIFETIME } from '../config';
 import { boxToFrame, ONCOMING_FRAME, OUR_FRAME, RoadFrame } from '../road/frame';
@@ -41,6 +42,7 @@ interface Side {
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
   private flares!: LightFlares;
+  readonly npcBeams = new NpcBeams();
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 3000);
   readonly keyboard = new Keyboard();
@@ -86,6 +88,7 @@ export class Game {
     container.appendChild(this.renderer.domElement);
     this.flares = new LightFlares(this.scene);
     this.road = new RoadScene(this.scene, this.renderer);
+    for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = (x) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
     this.wheelPool = new WheelInstances(this.scene);
@@ -444,9 +447,15 @@ export class Game {
 
   private render(dt: number, alpha: number): void {
     this.flares.begin();
+    this.npcBeams.begin();
     this.player.render(alpha, this.flares);
-    for (const npc of this.npcs.values()) npc.render(alpha, this.flares);
+    const pp = this.player.mesh.position;
+    for (const npc of this.npcs.values()) {
+      npc.render(alpha, this.flares);
+      for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
+    }
     this.flares.end();
+    this.npcBeams.end();
     this.wheelPool.commit();
     this.smoke.update(this.flow.phase === 'paused' ? 0 : dt);
     const p = this.player.mesh.position;

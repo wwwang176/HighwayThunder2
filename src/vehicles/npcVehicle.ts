@@ -4,7 +4,6 @@ import { GRASS_GRIP, MEDIAN_FAR_X, MEDIAN_NEAR_X, VehicleKind } from '../config'
 import { G_PLAYER, G_STATIC, groups, NPC_LIVE_GROUPS, PhysicsWorld, WRECK_GROUPS } from '../physics/physicsWorld';
 import type { Agent, Obstacle } from '../traffic/trafficAI';
 import {
-  alignBeam,
   buildCar,
   buildContainerCab,
   buildContainerTrailer,
@@ -119,7 +118,6 @@ interface Part {
   wheels: Wheel[];
   mesh: THREE.Group;
   lights: VehicleLights;
-  beam: THREE.Mesh | undefined;
   prevPos: THREE.Vector3;
   currPos: THREE.Vector3;
   prevQuat: THREE.Quaternion;
@@ -350,7 +348,6 @@ export class NpcVehicle {
       wheels,
       mesh: m.root,
       lights: m.lights,
-      beam: m.beam,
       prevPos: new THREE.Vector3(),
       currPos: new THREE.Vector3(),
       prevQuat: new THREE.Quaternion(),
@@ -526,7 +523,6 @@ export class NpcVehicle {
       p.mesh.position.lerpVectors(p.prevPos, p.currPos, alpha);
       p.mesh.quaternion.slerpQuaternions(p.prevQuat, p.currQuat, alpha);
       p.mesh.updateMatrix();
-      if (p.beam) alignBeam(p.mesh, p.beam);
       emitFlares(p.mesh, p.lights, flares);
       p.wheels.forEach((w, i) => {
         const cw = p.chassis?.wheels[i];

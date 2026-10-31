@@ -82,8 +82,8 @@ export const BEAM_GROUND_L = 64;
  * What a pair of the same low-beam lamps (BEAM_LAMP_H up, `halfSpacing` either
  * side of centre) paints on flat ground: illuminance = pattern · spot fade ·
  * h / d² (decay-1 falloff times the incidence cosine), as for the player's
- * real lights. Used as an additive road decal for NPC headlights, so their
- * beams have the same shape as yours without costing real lights.
+ * real lights. NPC headlights light the road with it (render/npcBeams), so
+ * their beams have the same shape as yours without costing real lights.
  * Texture bottom = at the lamps, top = BEAM_GROUND_L ahead.
  */
 export function lowBeamGroundTexture(halfSpacing = 0.55, w = 256, h = 512): THREE.CanvasTexture {
@@ -113,7 +113,7 @@ export function lowBeamGroundTexture(halfSpacing = 0.55, w = 256, h = 512): THRE
     }
     return e;
   };
-  // Brightness saturates softly (no hard-edged plateau) from ~8 m ahead toward the car.
+  // Irradiance relative to ~8 m ahead, rolling off softly (no hard-edged plateau) near the car.
   const ref = illum(0, 8);
   for (let y = 0; y < h; y++) {
     const z = (1 - (y + 0.5) / h) * BEAM_GROUND_L;
@@ -123,7 +123,7 @@ export function lowBeamGroundTexture(halfSpacing = 0.55, w = 256, h = 512): THRE
       const win =
         THREE.MathUtils.smoothstep(BEAM_GROUND_W / 2 - Math.abs(gx), 0, BEAM_GROUND_W * 0.2) *
         THREE.MathUtils.smoothstep(BEAM_GROUND_L - z, 0, BEAM_GROUND_L * 0.25);
-      const lin = (1 - Math.exp(-1.5 * illum(gx, z) / ref)) * win;
+      const lin = (1 - Math.exp(-0.5 * illum(gx, z) / ref)) * win;
       // Stored sRGB-encoded (and decoded by the GPU) for precision in the dim far end.
       const s = lin <= 0.0031308 ? 12.92 * lin : 1.055 * lin ** (1 / 2.4) - 0.055;
       const i = (y * w + x) * 4;
