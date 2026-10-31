@@ -31,6 +31,9 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   s.add(car, 'muSlide', 0.3, 1.5, 0.01).name('輪胎抓地（滑動）');
   s.add(car, 'slipAnglePeak', 0.04, 0.3, 0.005).name('側滑角臨界 rad');
   s.add(car, 'wheelInertia', 0.3, 5, 0.1).name('輪子慣量');
+  s.add(car, 'slipFalloff', 1, 30, 0.5).name('滑動摩擦衰減 m/s');
+  s.add(car, 'lsd', 0, 600, 10).name('限滑差速器');
+  d.add(car, 'engineTorque', 150, 900, 5).name('引擎扭力 N·m');
   const c = gui.addFolder('鏡頭');
   c.add(camera, 'distance', 4, 16, 0.1).name('距離');
   c.add(camera, 'height', 1, 8, 0.1).name('高度');

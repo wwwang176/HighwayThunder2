@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { solveWheel, DEFAULT_TIRE, WheelIn, lateralCurve } from '../src/vehicles/tireModel';
+import { solveWheel, DEFAULT_TIRE, WheelIn, lateralCurve, kineticMu } from '../src/vehicles/tireModel';
 
 const dt = 1 / 120;
 const R = 0.34;
@@ -16,6 +16,15 @@ describe('lateralCurve', () => {
     expect(lateralCurve(t.slipAnglePeak, t)).toBeCloseTo(t.muPeak);
     expect(lateralCurve(t.slipAnglePeak * 0.5, t)).toBeCloseTo(t.muPeak * 0.5);
     expect(lateralCurve(t.slipAnglePeak * 3, t)).toBeCloseTo(t.muSlide);
+  });
+});
+
+describe('kineticMu', () => {
+  it('sliding friction falls as the slip gets faster (burnouts keep spinning, slow slides grip more)', () => {
+    const t = DEFAULT_TIRE;
+    expect(kineticMu(0, t)).toBeCloseTo(t.muPeak);
+    expect(kineticMu(5, t)).toBeLessThan(kineticMu(1, t));
+    expect(kineticMu(60, t)).toBeCloseTo(t.muSlide, 2);
   });
 });
 
@@ -42,7 +51,7 @@ describe('solveWheel', () => {
     }
     expect(r.sliding).toBe(true);
     expect(r.omega * R).toBeGreaterThan(3); // tyre surface much faster than the car
-    expect(r.Fx).toBeLessThanOrEqual(DEFAULT_TIRE.muSlide * Fz + 1);
+    expect(r.Fx).toBeLessThanOrEqual(kineticMu(r.slip * 0.5, DEFAULT_TIRE) * Fz + 1); // well below peak grip
   });
 
   it('wheelspin starts even when the wheel was a hair below rolling speed (real launch)', () => {
@@ -69,7 +78,7 @@ describe('solveWheel', () => {
     expect(r.omega).toBeCloseTo(0, 5);
     expect(r.sliding).toBe(true);
     expect(r.Fx).toBeLessThan(0);
-    expect(Math.abs(r.Fx)).toBeCloseTo(DEFAULT_TIRE.muSlide * Fz, -1);
+    expect(Math.abs(r.Fx)).toBeCloseTo(kineticMu(40, DEFAULT_TIRE) * Fz, -2);
   });
 
   it('a locked wheel has almost no cornering force left (friction circle)', () => {

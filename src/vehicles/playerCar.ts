@@ -75,6 +75,7 @@ export class PlayerCar {
   private steer = 0;
   private throttle = 0;
   readonly gearbox = new Gearbox();
+  rpm = 900;
   private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   /** Optional per-position grip multiplier (e.g. grass). */
   surfaceGrip: (x: number) => number = () => 1;
@@ -164,11 +165,14 @@ export class PlayerCar {
     this.throttle += Math.sign(targetThrottle - this.throttle) * Math.min(Math.abs(targetThrottle - this.throttle), p.throttleRise * dt);
 
     // Engine power is limited by how fast the driven wheels turn (wheelspin eats power).
-    const rearSurface = ((this.wheels[2].omega + this.wheels[3].omega) / 2) * WHEEL_R;
+    const rearOmega = (this.wheels[2].omega + this.wheels[3].omega) / 2;
     this.gearbox.update(this.vLong, dt);
-    const cmd = driveCommand({ ...input, throttle: this.throttle }, Math.max(this.vLong, rearSurface), p);
-    // Rev limiter of the current gear bounds how fast the driven wheels can spin.
-    if (cmd.engineForce > 0 && rearSurface >= this.gearbox.wheelSpeedLimit()) cmd.engineForce = 0;
+    // Displayed / audible rpm bounces off the limiter but never far past it.
+    this.rpm = Math.min(p.redline * 1.03, this.gearbox.engineRpm(rearOmega, p));
+    const cmd = driveCommand({ ...input, throttle: this.throttle }, this.vLong, p);
+    // Forward drive comes from the engine through the current gear (reverse keeps
+    // the simple pedal force). The rev limiter bounds wheelspin.
+    if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / WHEEL_R;
     const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * WHEEL_R;
     const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * WHEEL_R;
     const driveTorqueRear = cmd.engineForce * 0.5 * WHEEL_R;
@@ -184,7 +188,12 @@ export class PlayerCar {
       slipAnglePeak: p.slipAnglePeak,
       rollingResistance: 0.012,
       regripSpeed: 0.6,
+      slipFalloff: p.slipFalloff,
     };
+    // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,
+    // so both rears light up (and hook up) together instead of one-wheel peel.
+    const lsd = Math.max(-1500, Math.min(1500, p.lsd * (this.wheels[2].omega - this.wheels[3].omega)));
+    const rearTorque = [driveTorqueRear - lsd, driveTorqueRear + lsd];
 
     // 1) Suspension: ray from each hard point down along the chassis.
     const comp: number[] = [];
@@ -239,7 +248,7 @@ export class PlayerCar {
         vy,
         omega: w.omega,
         Fz: w.inContact ? w.load : 0,
-        driveTorque: i >= 2 ? driveTorqueRear : 0,
+        driveTorque: i >= 2 ? rearTorque[i - 2] : 0,
         brakeTorque: w.front ? brakeTorqueFront : brakeTorqueRear,
         R: WHEEL_R,
         I: p.wheelInertia,

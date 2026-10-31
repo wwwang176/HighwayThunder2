@@ -7,8 +7,13 @@
 
 export interface CarParams {
   mass: number; // kg
-  power: number; // W at the rear wheels
-  maxDriveForce: number; // N at the rear axle, low-speed torque limit
+  power: number; // W, engine peak power
+  maxDriveForce: number; // N at the rear axle when reversing / pedal-mapping limit
+  engineTorque: number; // N·m, engine peak torque
+  redline: number; // rpm
+  idleRpm: number; // rpm
+  driveEfficiency: number; // driveline efficiency
+  wheelRadius: number; // m
   maxSpeed: number; // m/s, rev limiter (wheel surface speed)
   reverseMax: number; // m/s
   reverseForce: number; // N
@@ -36,37 +41,46 @@ export interface CarParams {
   muSlide: number;
   slipAnglePeak: number; // rad
   rearGrip: number; // rear tyre grip multiplier (wider rear tyres)
+  slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
+  lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
 }
 
 export const DEFAULT_CAR: CarParams = {
   mass: 1300,
-  power: 390_000,
+  power: 290_000,
   maxDriveForce: 9_500,
+  engineTorque: 400,
+  redline: 7500,
+  idleRpm: 900,
+  driveEfficiency: 0.9,
+  wheelRadius: 0.34,
   maxSpeed: 83.3,
   reverseMax: 8,
   reverseForce: 4_000,
-  brakeForceMax: 20_000,
-  brakeFrontBias: 0.65,
-  dragK: 0.62,
+  brakeForceMax: 26_000,
+  brakeFrontBias: 0.75,
+  dragK: 0.4,
   downforceK: 0.55,
   wheelbase: 2.6,
   maxSteer: 0.55,
-  latAccelLimit: 45,
+  latAccelLimit: 55,
   steerRise: 6,
   steerFall: 9,
-  throttleRise: 5,
+  throttleRise: 20,
   suspensionRest: 0.3,
   suspensionTravel: 0.2,
   springK: 35_000,
   damperBump: 3_000,
   damperRebound: 4_500,
-  antiRollFront: 22_000,
+  antiRollFront: 18_000,
   antiRollRear: 8_000,
   wheelInertia: 1.2,
-  muPeak: 1.15,
+  muPeak: 1.3,
   muSlide: 0.85,
   slipAnglePeak: 0.08,
-  rearGrip: 1.1,
+  rearGrip: 1.12,
+  slipFalloff: 22,
+  lsd: 150,
 };
 
 export interface DriveInput {
@@ -116,19 +130,53 @@ export function smoothSteer(current: number, target: number, p: CarParams, dt: n
 }
 
 /** Top wheel-surface speed of each gear (rev limiter), km/h. */
-export const GEAR_TOP_KMH = [70, 115, 160, 205, 255, 310];
+export const GEAR_TOP_KMH = [95, 140, 185, 230, 270, 310];
 const SHIFT_UP = 0.93;
 const SHIFT_DOWN = 0.6;
 const SHIFT_TIME = 0.25;
 
+const RPM_TO_RAD = (2 * Math.PI) / 60;
+const TC_MAX_MULT = 2.0; // torque converter multiplication at stall
+const TC_STALL_RPM = 3000;
+
 /**
- * Automatic gearbox. Shifts on road speed (so wheelspin does not trigger an
- * upshift) and caps the driven wheels' surface speed at the current gear's limit,
- * which is what bounds wheelspin on a full-throttle launch.
+ * Engine + automatic gearbox. Each gear's ratio is chosen so the engine hits
+ * the redline at GEAR_TOP_KMH; low gears multiply engine torque far beyond what
+ * the tyres can transmit, so a full-throttle launch lights up the rear tyres
+ * until a taller gear (or speed) brings the force under the grip limit. Shifts
+ * happen on road speed so wheelspin itself does not trigger an upshift.
  */
 export class Gearbox {
   gear = 1;
   private cooldown = 0;
+
+  /** Overall ratio (engine revs per wheel rev) of a gear. */
+  ratio(gear = this.gear, p: CarParams = DEFAULT_CAR): number {
+    const wheelOmegaAtRedline = GEAR_TOP_KMH[gear - 1] / 3.6 / p.wheelRadius;
+    return (p.redline * RPM_TO_RAD) / wheelOmegaAtRedline;
+  }
+
+  /** Engine rpm for a driven-wheel angular velocity (rad/s). */
+  engineRpm(wheelOmega: number, p: CarParams = DEFAULT_CAR): number {
+    const rpm = (Math.abs(wheelOmega) * this.ratio(this.gear, p)) / RPM_TO_RAD;
+    return Math.max(p.idleRpm, rpm);
+  }
+
+  /**
+   * Total torque at the driven wheels (N·m) for a throttle position: engine
+   * torque, capped by power at the current rpm, times the gear ratio. Zero at
+   * the rev limiter.
+   */
+  wheelTorque(throttle: number, wheelOmega: number, p: CarParams = DEFAULT_CAR): number {
+    const rpm = this.engineRpm(wheelOmega, p);
+    if (rpm >= p.redline) return 0;
+    const omegaE = rpm * RPM_TO_RAD;
+    const engine = Math.min(p.engineTorque, p.power / omegaE);
+    // Torque converter: multiplies torque while the driveline turns slower than stall speed.
+    const turbineRpm = (Math.abs(wheelOmega) * this.ratio(this.gear, p)) / RPM_TO_RAD;
+    const tc = 1 + (TC_MAX_MULT - 1) * Math.max(0, 1 - turbineRpm / TC_STALL_RPM);
+    return engine * tc * this.ratio(this.gear, p) * p.driveEfficiency * throttle;
+  }
 
   update(roadSpeed: number, dt: number): void {
     this.cooldown -= dt;

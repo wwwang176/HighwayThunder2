@@ -18,6 +18,7 @@ import { WheelInstances } from '../vehicles/wheelInstances';
 import { PlayerCar } from '../vehicles/playerCar';
 import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
+import { TireSmoke } from '../world/tireSmoke';
 import { GameFlow } from './gameState';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
@@ -53,6 +54,7 @@ export class Game {
   readonly npcs = new Map<number, NpcVehicle>();
   private wheelPool!: WheelInstances;
   private skids!: SkidMarks;
+  private smoke!: TireSmoke;
   readonly stats = new Stats();
   private gui: GUI;
   private accumulator = 0;
@@ -81,6 +83,7 @@ export class Game {
     this.player.surfaceGrip = (x) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
     this.wheelPool = new WheelInstances(this.scene);
     this.skids = new SkidMarks(this.scene);
+    this.smoke = new TireSmoke(this.scene);
     this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
     document.body.appendChild(this.stats.dom);
     this.hud = new Hud(uiRoot, this.flow, {
@@ -160,6 +163,7 @@ export class Game {
     this.touched.clear();
     this.player.resetTo(-3, 1, 0);
     this.skids.clear();
+    this.smoke.clear();
     this.rig.snap();
     this.spawn(true);
   }
@@ -262,9 +266,12 @@ export class Game {
     this.physics.step((a, b) => this.onContact(a, b));
     this.player.postPhysics();
     for (const npc of this.npcs.values()) npc.capture();
+    const pv = this.player.body.linvel();
     this.player.wheels.forEach((w, i) => {
-      const k = w.inContact && w.sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
+      const sliding = w.inContact && w.sliding;
+      const k = sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
       this.skids.add(i, w.contactX, w.contactZ, w.dirX, w.dirZ, k);
+      this.smoke.emit(i, w.contactX, w.contactZ, sliding ? w.slip : 0, pv.x, pv.z, dt);
     });
 
     this.cullVehicles();
@@ -417,10 +424,11 @@ export class Game {
     this.player.render(alpha);
     for (const npc of this.npcs.values()) npc.render(alpha);
     this.wheelPool.commit();
+    this.smoke.update(this.flow.phase === 'paused' ? 0 : dt);
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
     this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed);
-    this.sound.setEngine(this.player.speed, this.lastInput.throttle, this.flow.phase !== 'title');
+    this.sound.setEngine(this.player.rpm, this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     this.hud.update(dt, {
       speedKmh: this.player.speed * 3.6,
@@ -428,6 +436,7 @@ export class Game {
       resetCooldown: this.flow.resetCooldown,
       muted: this.sound.muted,
       gear: this.player.gearbox.gear,
+      rpm: this.player.rpm,
     });
     this.renderer.render(this.scene, this.camera);
   }

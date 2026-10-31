@@ -1,5 +1,3 @@
-const GEARS_KMH = [0, 55, 100, 150, 200, 250, 310];
-
 /** Procedural Web Audio: engine drone, crash bursts and the near-miss whoosh. */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -79,20 +77,16 @@ export class Sound {
     else void this.ctx.resume();
   }
 
-  setEngine(speed: number, throttle: number, active: boolean): void {
+  /** Engine note follows the real engine rpm (gears, wheelspin, rev limiter). */
+  setEngine(rpm: number, throttle: number, active: boolean): void {
     if (!this.ctx) return;
-    const kmh = Math.abs(speed) * 3.6;
-    let g = 1;
-    while (g < GEARS_KMH.length - 1 && kmh > GEARS_KMH[g]) g++;
-    const lo = GEARS_KMH[g - 1];
-    const hi = GEARS_KMH[g];
-    const rpm = 0.3 + 0.7 * Math.min(1, Math.max(0, (kmh - lo) / (hi - lo)));
-    const f = 45 + rpm * 120 + g * 6;
+    const r = Math.min(1, Math.max(0, rpm / 7500));
+    const f = 32 + r * 175;
     const t = this.ctx.currentTime;
-    this.oscA.frequency.setTargetAtTime(f, t, 0.03);
-    this.oscB.frequency.setTargetAtTime(f * 0.5, t, 0.03);
-    this.filter.frequency.setTargetAtTime(500 + rpm * 1400 + throttle * 600, t, 0.05);
-    this.engineGain.gain.setTargetAtTime(active ? 0.1 + throttle * 0.08 : 0, t, 0.08);
+    this.oscA.frequency.setTargetAtTime(f, t, 0.02);
+    this.oscB.frequency.setTargetAtTime(f * 0.5, t, 0.02);
+    this.filter.frequency.setTargetAtTime(450 + r * 1600 + throttle * 700, t, 0.04);
+    this.engineGain.gain.setTargetAtTime(active ? 0.08 + throttle * 0.1 + r * 0.04 : 0, t, 0.06);
   }
 
   private burst(duration: number, freq: number, type: BiquadFilterType, gain: number, sweepTo?: number): void {

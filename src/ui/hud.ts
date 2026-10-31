@@ -13,6 +13,44 @@ export interface HudFrame {
   resetCooldown: number;
   muted: boolean;
   gear: number;
+  rpm: number;
+}
+
+export const TACHO_MAX = 8000;
+export const TACHO_RED = 7000;
+const START_DEG = 135;
+const SWEEP_DEG = 270;
+
+/** Needle angle (degrees, SVG convention) for an rpm value. */
+export function tachoAngle(rpm: number): number {
+  const t = Math.min(1, Math.max(0, rpm / TACHO_MAX));
+  return START_DEG + SWEEP_DEG * t;
+}
+
+function polar(r: number, deg: number): [number, number] {
+  const a = (deg * Math.PI) / 180;
+  return [100 + r * Math.cos(a), 100 + r * Math.sin(a)];
+}
+
+function tachoTicksSvg(): string {
+  let out = '';
+  // Red zone.
+  const [x0, y0] = polar(84, tachoAngle(TACHO_RED));
+  const [x1, y1] = polar(84, tachoAngle(TACHO_MAX));
+  out += `<path d="M ${x0} ${y0} A 84 84 0 0 1 ${x1} ${y1}" stroke="#ff3b30" stroke-width="10" fill="none" opacity="0.85"/>`;
+  for (let rpm = 0; rpm <= TACHO_MAX; rpm += 500) {
+    const major = rpm % 1000 === 0;
+    const a = tachoAngle(rpm);
+    const [ax, ay] = polar(major ? 74 : 80, a);
+    const [bx, by] = polar(89, a);
+    out += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#fff" stroke-width="${major ? 3 : 1.5}" opacity="0.9"/>`;
+    if (major) {
+      const [tx, ty] = polar(62, a);
+      out += `<text x="${tx}" y="${ty}" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="middle">${rpm / 1000}</text>`;
+    }
+  }
+  out += `<text x="100" y="70" fill="#bbb" font-size="9" text-anchor="middle">x1000 rpm</text>`;
+  return out;
 }
 
 const html = String.raw;
@@ -48,7 +86,21 @@ export class Hud {
           <div class="label">險過</div><div class="value" data-id="nm">0</div>
           <div class="reset" data-id="reset"></div>
         </div>
-        <div class="hud-br"><div class="speed" data-id="speed">0</div><div class="unit"><span class="gear" data-id="gear">1</span> 檔 · km/h</div></div>
+        <div class="hud-br">
+          <div class="tacho">
+            <svg viewBox="0 0 200 200" data-id="tachoSvg">
+              <circle cx="100" cy="100" r="96" fill="rgba(10,14,24,0.55)" stroke="rgba(255,255,255,0.25)" stroke-width="2" />
+              <g data-id="tachoTicks"></g>
+              <line data-id="needle" x1="100" y1="100" x2="178" y2="100" stroke="#ff3b30" stroke-width="4" stroke-linecap="round" />
+              <circle cx="100" cy="100" r="7" fill="#ff3b30" />
+            </svg>
+            <div class="tacho-center">
+              <div class="speed" data-id="speed">0</div>
+              <div class="unit">km/h</div>
+              <div class="gear-box"><span class="gear" data-id="gear">1</span><span class="rpm" data-id="rpm">900</span></div>
+            </div>
+          </div>
+        </div>
         <div class="mute" data-id="mute">🔇 靜音</div>
       </div>
       <div id="toast" class="toast" data-id="toast">險過！</div>
@@ -67,6 +119,7 @@ export class Hud {
       </div>`;
     for (const id of ['title', 'countdown', 'hud', 'pause', 'finish']) this.el[id] = root.querySelector(`#${id}`)!;
     root.querySelectorAll<HTMLElement>('[data-id]').forEach((e) => (this.el[e.dataset.id!] = e));
+    this.el.tachoTicks.innerHTML = tachoTicksSvg();
     this.el.startBtn.onclick = () => handlers.onStart();
     this.el.againBtn.onclick = () => handlers.onStart();
     this.el.resumeBtn.onclick = () => handlers.onResume();
@@ -121,6 +174,9 @@ export class Hud {
     this.el.speed.textContent = String(Math.max(0, Math.round(f.speedKmh)));
     this.el.nm.textContent = String(flow.nearMisses);
     this.el.gear.textContent = f.speedKmh < -1 ? 'R' : String(f.gear);
+    this.el.rpm.textContent = String(Math.round(f.rpm / 50) * 50);
+    this.el.needle.setAttribute('transform', `rotate(${tachoAngle(f.rpm).toFixed(1)} 100 100)`);
+    this.el.rpm.classList.toggle('red', f.rpm >= TACHO_RED);
     this.el.reset.textContent =
       phase === 'racing' ? (f.resetCooldown > 0 ? `R 重置 ${f.resetCooldown.toFixed(1)}s` : 'R 重置 可用') : '';
     this.el.reset.classList.toggle('ready', phase === 'racing' && f.resetCooldown <= 0);

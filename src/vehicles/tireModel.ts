@@ -17,6 +17,7 @@ export interface TireParams {
   slipAnglePeak: number; // rad, cornering force peaks here
   rollingResistance: number; // fraction of Fz
   regripSpeed: number; // m/s of slip below which a sliding tyre grips again
+  slipFalloff?: number; // m/s: how fast sliding friction drops from peak towards muSlide
 }
 
 export const DEFAULT_TIRE: TireParams = {
@@ -48,6 +49,18 @@ export interface WheelOut {
   omega: number;
   sliding: boolean;
   slip: number; // slip speed at the contact patch (m/s), for sound / marks
+}
+
+const DEFAULT_SLIP_FALLOFF = 8;
+
+/**
+ * Sliding friction vs. slip speed: a tyre sliding slowly keeps nearly peak grip,
+ * a tyre spinning or skidding fast drops to muSlide. That is what keeps a burnout
+ * going until the car catches up with its wheels.
+ */
+export function kineticMu(slipSpeed: number, t: TireParams): number {
+  const v0 = t.slipFalloff ?? DEFAULT_SLIP_FALLOFF;
+  return t.muSlide + (t.muPeak - t.muSlide) * Math.exp(-Math.abs(slipSpeed) / v0);
 }
 
 /** Cornering friction coefficient as a function of |slip angle|. */
@@ -95,7 +108,7 @@ export function solveWheel(w: WheelIn): WheelOut {
 
   const slipNow = Math.hypot(w.omega * R - w.vx, w.vy);
   const wasSliding = slipNow > t.regripSpeed && Math.abs(w.omega * R - w.vx) > t.regripSpeed;
-  const limit = (wasSliding ? t.muSlide : t.muPeak) * mu * w.Fz;
+  const limit = (wasSliding ? kineticMu(slipNow, t) : t.muPeak) * mu * w.Fz;
   const req = Math.hypot(FxReq, FyReq);
 
   if (req <= limit) {
@@ -103,7 +116,7 @@ export function solveWheel(w: WheelIn): WheelOut {
   }
 
   // --- sliding --------------------------------------------------------------
-  const kinetic = t.muSlide * mu * w.Fz;
+  const kinetic = kineticMu(slipNow, t) * mu * w.Fz;
   const scale = Math.min(1, kinetic / req);
   const Fx = FxReq * scale;
   const Fy = FyReq * scale;

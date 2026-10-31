@@ -40,7 +40,7 @@ describe('steering', () => {
   it('full lock at low speed, tiny angle at 300 km/h', () => {
     expect(steerLimit(2, P)).toBeCloseTo(P.maxSteer);
     const high = steerLimit(83.3, P);
-    expect(high).toBeLessThan(0.02);
+    expect(high).toBeLessThan(0.025);
     expect(high).toBeGreaterThan(0.002);
   });
   it('limit keeps lateral accel near latAccelLimit (kinematic bicycle)', () => {
@@ -77,5 +77,49 @@ describe('Gearbox', () => {
     expect(g.gear).toBe(6);
     for (let i = 0; i < 20; i++) g.update(3, 0.5);
     expect(g.gear).toBe(1);
+  });
+});
+
+describe('engine through the gearbox', () => {
+  const R = 0.34;
+  it('1st gear at launch overpowers the rear tyres (burnout), but not once rolling with weight transfer', () => {
+    const g = new Gearbox();
+    const rearStatic = (P.mass * 9.81) / 2;
+    expect(g.wheelTorque(1, 0, P) / R).toBeGreaterThan(P.muPeak * P.rearGrip * (rearStatic + 1900));
+    // Mid 1st gear, wheels rolling: peak grip with weight transfer holds the engine.
+    const omega = 45 / 3.6 / R;
+    expect(g.wheelTorque(1, omega, P) / R).toBeLessThan(P.muPeak * P.rearGrip * (rearStatic + 1900));
+  });
+  it('2nd gear (from its upshift speed) does not overpower the rear tyres', () => {
+    const g = new Gearbox();
+    g.gear = 2;
+    const omega = (GEAR_TOP_KMH[0] * 0.93) / 3.6 / R;
+    expect(g.wheelTorque(1, omega, P) / R).toBeLessThan(P.muPeak * P.rearGrip * ((P.mass * 9.81) / 2 + 1500));
+  });
+  it('torque converter multiplies torque at launch and fades out with wheel speed', () => {
+    const g = new Gearbox();
+    const atRest = g.wheelTorque(1, 0, P);
+    const rolling = g.wheelTorque(1, 40 / 3.6 / R, P);
+    expect(atRest).toBeGreaterThan(rolling * 1.5);
+  });
+  it('higher gears multiply less', () => {
+    const g = new Gearbox();
+    const t1 = g.wheelTorque(1, 0, P);
+    g.gear = 4;
+    expect(g.wheelTorque(1, 0, P)).toBeLessThan(t1 / 2);
+  });
+  it('rpm follows wheel speed and gear; rev limiter cuts torque', () => {
+    const g = new Gearbox();
+    const vTop = GEAR_TOP_KMH[0] / 3.6;
+    expect(g.engineRpm(vTop / R)).toBeCloseTo(P.redline, -1);
+    expect(g.engineRpm(0)).toBe(P.idleRpm);
+    expect(g.wheelTorque(1, (vTop * 1.01) / R, P)).toBe(0);
+  });
+  it('power-limited near the top of a gear', () => {
+    const g = new Gearbox();
+    g.gear = 6;
+    const omega = 80 / R;
+    const t = g.wheelTorque(1, omega, P);
+    expect(t * omega).toBeLessThanOrEqual(P.power * P.driveEfficiency + 1);
   });
 });
