@@ -1,2 +1,68 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+body { font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif; color: #fff; user-select: none; }
 #app canvas { display: block; }
+#ui { position: fixed; inset: 0; pointer-events: none; }
+#ui button, #ui .panel { pointer-events: auto; }
+
+.panel { position: absolute; background: rgba(10, 14, 24, 0.82); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 14px; padding: 28px 40px; text-align: center; backdrop-filter: blur(6px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45); }
+.center { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.panel h2 { margin: 0 0 14px; font-size: 34px; letter-spacing: 2px; }
+
+.logo { font-size: 54px; font-weight: 900; font-style: italic; letter-spacing: 3px; line-height: 1;
+  color: #ffd400; text-shadow: 0 4px 0 #b3261e; }
+.logo span { display: block; font-size: 30px; color: #fff; text-shadow: 0 3px 0 #1d4e89; margin-top: 4px; }
+.subtitle { margin: 12px 0 18px; opacity: 0.85; letter-spacing: 1px; }
+.keys { margin: 0 auto 14px; border-collapse: collapse; font-size: 15px; }
+.keys td { padding: 4px 10px; text-align: left; }
+.keys td:first-child { text-align: right; white-space: nowrap; }
+kbd { display: inline-block; min-width: 18px; padding: 2px 6px; margin: 0 2px; border-radius: 5px;
+  background: #f2f2f2; color: #111; font: bold 13px/1.4 system-ui, sans-serif; box-shadow: 0 2px 0 #888; text-align: center; }
+.best { margin: 8px 0 16px; color: #9fd3ff; font-size: 16px; }
+.hint { margin-top: 14px; font-size: 13px; opacity: 0.7; }
+
+button { display: block; margin: 8px auto 0; min-width: 220px; padding: 12px 22px; font: bold 20px inherit;
+  font-family: inherit; color: #111; background: #ffd400; border: 0; border-radius: 10px; cursor: pointer;
+  box-shadow: 0 4px 0 #b38f00; }
+button:hover { filter: brightness(1.08); }
+button small { font-size: 12px; opacity: 0.6; margin-left: 6px; }
+button.secondary { background: #e6e6e6; box-shadow: 0 4px 0 #999; font-size: 16px; padding: 9px 18px; }
+
+.countdown { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); font-size: 140px;
+  font-weight: 900; color: #fff; text-shadow: 0 6px 0 #b3261e, 0 0 30px rgba(0,0,0,0.5); }
+.countdown.go { color: #ffd400; }
+
+#hud .label { font-size: 13px; opacity: 0.8; letter-spacing: 1px; }
+#hud .value { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; text-shadow: 0 2px 4px rgba(0,0,0,0.6); }
+.hud-tl, .hud-tr, .hud-bl, .hud-br { position: absolute; }
+.hud-tl { left: 24px; top: 18px; }
+.hud-tr { right: 24px; top: 18px; text-align: right; }
+.hud-bl { left: 24px; bottom: 22px; }
+.hud-br { right: 28px; bottom: 14px; text-align: right; }
+.speed { font-size: 76px; font-weight: 900; font-style: italic; line-height: 1; font-variant-numeric: tabular-nums;
+  text-shadow: 0 3px 0 rgba(0,0,0,0.5); }
+.unit { font-size: 16px; opacity: 0.85; }
+.reset { margin-top: 8px; font-size: 14px; opacity: 0.6; }
+.reset.ready { opacity: 0.95; color: #9fffb0; }
+.mute { position: absolute; right: 24px; top: 80px; font-size: 14px; opacity: 0.8; }
+.progress { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); width: 36vw; height: 8px;
+  background: rgba(255,255,255,0.25); border-radius: 4px; }
+.progress .bar { height: 100%; width: 0; background: #ffd400; border-radius: 4px; }
+.progress .flag { position: absolute; right: -26px; top: -9px; font-size: 18px; }
+
+.toast { position: absolute; left: 50%; top: 30%; transform: translate(-50%, -50%) scale(0.6); font-size: 46px;
+  font-weight: 900; font-style: italic; color: #7dffb0; text-shadow: 0 3px 0 #0b6b3a, 0 0 20px rgba(0,0,0,0.4);
+  opacity: 0; pointer-events: none; }
+.toast.show { animation: pop 0.9s ease-out forwards; }
+@keyframes pop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  15% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+  30% { transform: translate(-50%, -50%) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -70%) scale(1); }
+}
+
+.big { font-size: 56px; font-weight: 900; font-variant-numeric: tabular-nums; color: #ffd400; }
+.record { margin: 6px 0; font-size: 22px; font-weight: 800; color: #7dffb0; }
+.stats { margin: 8px 0 14px; opacity: 0.85; }

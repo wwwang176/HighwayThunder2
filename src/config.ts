@@ -74,7 +74,7 @@ export const VEHICLE_SPECS: Record<VehicleKind, VehicleSpec> = {
   },
   container: {
     kind: 'container',
-    length: 18.9, // cab 6 + gap 0.4 + trailer 12.5
+    length: 16.9, // cab 6 + trailer 12.5 - 1.6 overlap at the fifth wheel
     width: 2.5,
     height: 4.0,
     mass: 8000,

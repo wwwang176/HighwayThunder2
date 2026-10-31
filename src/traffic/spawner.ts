@@ -31,6 +31,15 @@ export function pickKind(rng: () => number): VehicleKind {
   return 'container';
 }
 
+/** Heavy vehicles only use the right two lanes, so they are concentrated there. */
+export function pickKindForLane(lane: number, rng: () => number): VehicleKind {
+  if (!VEHICLE_SPECS.truck.allowedLanes.includes(lane)) return 'car';
+  const r = rng();
+  if (r < 0.45) return 'car';
+  if (r < 0.75) return 'truck';
+  return 'container';
+}
+
 export function shouldDespawn(agentS: number, playerS: number): boolean {
   return agentS < playerS - 260 || agentS > playerS + 900;
 }
@@ -57,8 +66,7 @@ function fill(
     let attempts = 0;
     while (count < target && attempts < 40) {
       attempts++;
-      let kind = pickKind(rng);
-      if (!VEHICLE_SPECS[kind].allowedLanes.includes(lane)) kind = 'car';
+      const kind = pickKindForLane(lane, rng);
       const len = VEHICLE_SPECS[kind].length;
       const lo = placeWindow[0] + len / 2;
       const hi = placeWindow[1] - len / 2;

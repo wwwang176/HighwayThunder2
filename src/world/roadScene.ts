@@ -283,7 +283,7 @@ export class RoadScene {
       banner.castShadow = true;
       grp.add(banner);
     };
-    gantry(0, textPanel(['START 起點'], 1024, 128, '#1b3d7a', '#ffffff'));
+    gantry(40, textPanel(['START 起點'], 1024, 128, '#1b3d7a', '#ffffff'));
     gantry(ROAD_LENGTH, textPanel(['FINISH  終點'], 1024, 128, '#111111', '#ffd400'));
 
     // Distance signs every km on the right shoulder.

@@ -1,13 +1,26 @@
 import * as THREE from 'three';
-import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT } from '../config';
+import type GUI from 'lil-gui';
+import { MAX_FRAME_DT, MAX_SUBSTEPS, MAX_WRECKS, PHYSICS_DT, RESET_SPEED, WRECK_LIFETIME } from '../config';
+import { Sound } from '../audio/sound';
+import { createTuningPanel } from '../debug/tuning';
 import { Keyboard } from '../input/keyboard';
 import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
 import { CameraRig } from '../render/cameraRig';
+import { Obstacle, TrafficSim } from '../traffic/trafficAI';
+import { DEFAULT_SPACING, planSpawns, shouldDespawn } from '../traffic/spawner';
+import { Hud } from '../ui/hud';
+import { HandlingInput } from '../vehicles/handling';
+import { NpcVehicle } from '../vehicles/npcVehicle';
 import { PlayerCar } from '../vehicles/playerCar';
 import { RoadScene } from '../world/roadScene';
-import { HandlingInput } from '../vehicles/handling';
+import { GameFlow } from './gameState';
+import { detectNearMiss } from './nearMiss';
+import { Blocker, computeResetSpot } from './reset';
 
-const NO_INPUT: HandlingInput = { throttle: 0, brake: 0, steer: 0 };
+const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0 };
+const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
+const PLAYER_OBSTACLE_ID = -1;
+const SPAWN_INTERVAL = 0.25;
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -17,12 +30,25 @@ export class Game {
   readonly rig = new CameraRig(this.camera);
   readonly road: RoadScene;
   readonly player: PlayerCar;
+  readonly flow = new GameFlow(localStorage);
+  readonly sound = new Sound();
+  readonly hud: Hud;
+  readonly trafficSettings = { spacing: DEFAULT_SPACING };
+  traffic = new TrafficSim();
+  readonly npcs = new Map<number, NpcVehicle>();
+  private gui: GUI;
   private accumulator = 0;
   private lastTime = 0;
+  private simTime = 0;
+  private spawnTimer = 0;
+  private prevRelS = new Map<number, number>();
+  private touched = new Set<number>();
+  private lastInput: HandlingInput = HOLD;
   /** Overrides keyboard input when set (used by automated checks). */
   inputOverride: HandlingInput | null = null;
+  rng: () => number = Math.random;
 
-  constructor(container: HTMLElement, readonly physics: PhysicsWorld) {
+  constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld) {
     physics.timestep = PHYSICS_DT;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -32,8 +58,33 @@ export class Game {
     container.appendChild(this.renderer.domElement);
     this.road = new RoadScene(this.scene, this.renderer);
     this.player = new PlayerCar(physics, this.scene);
+    this.hud = new Hud(uiRoot, this.flow, {
+      onStart: () => this.startRace(),
+      onResume: () => this.togglePause(),
+      onTitle: () => this.toTitle(),
+    });
+    this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings);
+    this.bindKeys();
     this.resize();
     addEventListener('resize', () => this.resize());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && (this.flow.phase === 'racing' || this.flow.phase === 'countdown')) this.togglePause();
+    });
+    this.resetWorld();
+  }
+
+  private bindKeys(): void {
+    const k = this.keyboard;
+    k.onPress('Enter', () => {
+      if (this.flow.phase === 'title' || this.flow.phase === 'finished') this.startRace();
+    });
+    k.onPress('NumpadEnter', () => {
+      if (this.flow.phase === 'title' || this.flow.phase === 'finished') this.startRace();
+    });
+    k.onPress('Escape', () => this.togglePause());
+    k.onPress('KeyR', () => this.tryReset());
+    k.onPress('KeyM', () => this.sound.toggleMute());
+    k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
   }
 
   private resize(): void {
@@ -41,6 +92,56 @@ export class Game {
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
   }
+
+  // --- flow -----------------------------------------------------------------
+
+  startRace(): void {
+    this.sound.init();
+    this.resetWorld();
+    this.flow.start();
+  }
+
+  toTitle(): void {
+    this.flow.toTitle();
+    this.sound.suspend(false);
+    this.resetWorld();
+  }
+
+  togglePause(): void {
+    this.flow.togglePause();
+    this.sound.suspend(this.flow.phase === 'paused');
+  }
+
+  /** Clear traffic and wrecks, put the player on the start line, refill traffic ahead. */
+  resetWorld(): void {
+    for (const npc of this.npcs.values()) npc.dispose();
+    this.npcs.clear();
+    this.traffic = new TrafficSim();
+    this.prevRelS.clear();
+    this.touched.clear();
+    this.player.resetTo(-3, 1, 0);
+    this.rig.snap();
+    this.spawn(true);
+  }
+
+  tryReset(): void {
+    if (!this.flow.canReset()) return;
+    const blockers: Blocker[] = [];
+    for (const npc of this.npcs.values()) {
+      const agent = this.traffic.agents.get(npc.id);
+      if (agent && !npc.wrecked) {
+        blockers.push({ s: agent.s, dMin: agent.d - agent.width / 2, dMax: agent.d + agent.width / 2, length: agent.length });
+      } else {
+        blockers.push(...npc.obstacles());
+      }
+    }
+    const spot = computeResetSpot(this.player.s, this.player.d, blockers);
+    this.player.resetTo(spot.s, spot.lane, RESET_SPEED);
+    this.flow.markReset();
+    this.rig.snap();
+  }
+
+  // --- loop -----------------------------------------------------------------
 
   start(): void {
     this.lastTime = performance.now();
@@ -54,16 +155,17 @@ export class Game {
   }
 
   private frame(dt: number): void {
-    this.accumulator += dt;
-    let steps = 0;
-    while (this.accumulator >= PHYSICS_DT && steps < MAX_SUBSTEPS) {
-      this.fixedStep(PHYSICS_DT);
-      this.accumulator -= PHYSICS_DT;
-      steps++;
+    if (this.flow.phase !== 'paused') {
+      this.accumulator += dt;
+      let steps = 0;
+      while (this.accumulator >= PHYSICS_DT && steps < MAX_SUBSTEPS) {
+        this.fixedStep(PHYSICS_DT);
+        this.accumulator -= PHYSICS_DT;
+        steps++;
+      }
+      if (steps === MAX_SUBSTEPS) this.accumulator = 0;
     }
-    if (steps === MAX_SUBSTEPS) this.accumulator = 0;
-    const alpha = this.accumulator / PHYSICS_DT;
-    this.render(dt, alpha);
+    this.render(dt, this.accumulator / PHYSICS_DT);
   }
 
   /** Debug: advance the simulation synchronously (independent of rAF throttling). */
@@ -71,25 +173,168 @@ export class Game {
     const prev = this.inputOverride;
     if (input) this.inputOverride = input;
     const n = Math.round(seconds / PHYSICS_DT);
-    for (let i = 0; i < n; i++) this.fixedStep(PHYSICS_DT);
+    for (let i = 0; i < n && this.flow.phase !== 'paused'; i++) this.fixedStep(PHYSICS_DT);
     this.inputOverride = prev;
     this.render(PHYSICS_DT, 1);
   }
 
-  private fixedStep(dt: number): void {
-    const input = this.inputOverride ?? this.keyboard.driving();
-    this.player.prePhysics(input ?? NO_INPUT, dt);
-    this.physics.step((a, b) => this.onContact(a, b));
-    this.player.postPhysics();
+  private currentInput(): HandlingInput {
+    switch (this.flow.phase) {
+      case 'racing':
+        return this.inputOverride ?? this.keyboard.driving();
+      case 'finished':
+        return this.player.speed > 1 ? ROLL_OUT : HOLD; // brake to a stop, never into reverse
+      default:
+        return HOLD;
+    }
   }
 
-  private onContact(_a: EntityRef, _b: EntityRef): void {}
+  private fixedStep(dt: number): void {
+    this.simTime += dt;
+    const input = this.currentInput();
+    this.lastInput = input;
+
+    // Traffic AI, then drive the NPC bodies toward the AI poses.
+    const obstacles: Obstacle[] = [{ ...this.player.footprint(), id: PLAYER_OBSTACLE_ID, v: Math.max(0, this.player.speed), isPlayer: true }];
+    for (const npc of this.npcs.values()) if (npc.wrecked) obstacles.push(...npc.obstacles());
+    this.traffic.step(dt, obstacles, this.rng);
+    for (const npc of this.npcs.values()) {
+      npc.savePrev();
+      if (npc.wrecked) npc.updateWreck(dt, this.simTime);
+      else npc.syncFromAgent(this.traffic.agents.get(npc.id)!, dt, this.simTime);
+    }
+
+    this.player.prePhysics(input, dt);
+    this.physics.step((a, b) => this.onContact(a, b));
+    this.player.postPhysics();
+    for (const npc of this.npcs.values()) npc.capture();
+
+    this.cullVehicles();
+    this.spawnTimer -= dt;
+    if (this.spawnTimer <= 0) {
+      this.spawnTimer = SPAWN_INTERVAL;
+      this.spawn(false);
+    }
+    this.checkNearMisses();
+
+    const wasFinished = this.flow.phase === 'finished';
+    this.flow.update(dt, this.player.s);
+    if (!wasFinished && this.flow.phase === 'finished') this.sound.whoosh();
+  }
+
+  private onContact(a: EntityRef, b: EntityRef): void {
+    if (a.type === 'static' || b.type === 'static') return;
+    if (a.type === 'npc' && b.type === 'npc') {
+      this.wreckNpc(a.id, 0);
+      this.wreckNpc(b.id, 0);
+      return;
+    }
+    const npcRef = a.type === 'npc' ? a : b.type === 'npc' ? b : null;
+    if (!npcRef) return;
+    const npc = this.npcs.get(npcRef.id);
+    if (!npc) return;
+    const pv = this.player.body.linvel();
+    const nv = npc.parts[0].body.linvel();
+    const rel = Math.hypot(pv.x - nv.x, pv.z - nv.z);
+    this.wreckNpc(npcRef.id, rel);
+    this.player.stun(Math.min(1.0, 0.25 + rel * 0.02));
+    this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
+    this.sound.crash(rel);
+  }
+
+  private wreckNpc(id: number, _impact: number): void {
+    const npc = this.npcs.get(id);
+    if (!npc || npc.wrecked) return;
+    npc.wreck();
+    this.traffic.removeAgent(id);
+    this.touched.add(id);
+    this.prevRelS.delete(id);
+  }
+
+  private removeNpc(npc: NpcVehicle): void {
+    npc.dispose();
+    this.npcs.delete(npc.id);
+    this.traffic.removeAgent(npc.id);
+    this.prevRelS.delete(npc.id);
+    this.touched.delete(npc.id);
+  }
+
+  private cullVehicles(): void {
+    const ps = this.player.s;
+    const wrecks: NpcVehicle[] = [];
+    for (const npc of [...this.npcs.values()]) {
+      if (npc.wrecked) {
+        if (npc.wreckTime > WRECK_LIFETIME || npc.s < ps - 260 || npc.s > ps + 900) this.removeNpc(npc);
+        else wrecks.push(npc);
+      } else {
+        const agent = this.traffic.agents.get(npc.id);
+        if (!agent || shouldDespawn(agent.s, ps)) this.removeNpc(npc);
+      }
+    }
+    if (wrecks.length > MAX_WRECKS) {
+      // Oldest first, and only ones not ahead of the player.
+      const removable = wrecks.filter((w) => w.s < ps).sort((x, y) => y.wreckTime - x.wreckTime);
+      for (let i = 0; i < wrecks.length - MAX_WRECKS && i < removable.length; i++) this.removeNpc(removable[i]);
+    }
+  }
+
+  private spawn(initial: boolean): void {
+    const occupied = [];
+    for (const a of this.traffic.agents.values()) occupied.push({ s: a.s, lane: a.lane, length: a.length });
+    for (const npc of this.npcs.values()) {
+      if (!npc.wrecked) continue;
+      for (const o of npc.obstacles()) {
+        const lane = Math.round(((o.dMin + o.dMax) / 2) / 3.75 + 1.5);
+        occupied.push({ s: o.s, lane: Math.max(0, Math.min(3, lane)), length: o.length });
+      }
+    }
+    const reqs = planSpawns({
+      playerS: this.player.s,
+      playerV: this.player.speed,
+      raceTime: this.flow.raceTime,
+      occupied,
+      rng: this.rng,
+      initial,
+      spacing: this.trafficSettings.spacing,
+    });
+    for (const r of reqs) {
+      const agent = this.traffic.addAgent(r.kind, r.s, r.lane, this.rng);
+      this.npcs.set(agent.id, new NpcVehicle(this.physics, this.scene, agent, this.rng));
+    }
+  }
+
+  private checkNearMisses(): void {
+    const p = this.player;
+    const fp = p.footprint();
+    for (const agent of this.traffic.agents.values()) {
+      const rel = agent.s - p.s;
+      const prev = this.prevRelS.get(agent.id);
+      this.prevRelS.set(agent.id, rel);
+      if (prev === undefined || this.touched.has(agent.id)) continue;
+      if (prev > 0 && rel <= 0) {
+        const gap = Math.max(agent.d - agent.width / 2 - fp.dMax, fp.dMin - (agent.d + agent.width / 2));
+        if (detectNearMiss(prev, rel, gap, p.speed) && this.flow.phase === 'racing') {
+          this.flow.addNearMiss();
+          this.hud.nearMiss();
+          this.sound.whoosh();
+        }
+      }
+    }
+  }
 
   private render(dt: number, alpha: number): void {
     this.player.render(alpha);
+    for (const npc of this.npcs.values()) npc.render(alpha);
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
     this.rig.update(dt, p, this.player.yaw, Math.max(0, this.player.speed), this.player.params.maxSpeed);
+    this.sound.setEngine(this.player.speed, this.lastInput.throttle, this.flow.phase !== 'title');
+    this.hud.update(dt, {
+      speedKmh: this.player.speed * 3.6,
+      playerS: this.player.s,
+      resetCooldown: this.flow.resetCooldown,
+      muted: this.sound.muted,
+    });
     this.renderer.render(this.scene, this.camera);
   }
 }
