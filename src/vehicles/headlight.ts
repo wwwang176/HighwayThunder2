@@ -7,7 +7,8 @@ export const PENUMBRA = 0.35;
 /** How far the beam's axis is aimed below horizontal (rad). */
 export const AIM_DOWN = THREE.MathUtils.degToRad(3);
 
-const TAN_HALF = Math.tan(HALF_ANGLE);
+/** Tangent of the half angle: the cookie spans ±TAN_HALF in the light's projection. */
+export const TAN_HALF = Math.tan(HALF_ANGLE);
 /** Cut-off line, in tangent units of the light's projection (just below the horizon). */
 const CUT_V = Math.tan(AIM_DOWN) - Math.tan(THREE.MathUtils.degToRad(0.6));
 const KINK = Math.tan(THREE.MathUtils.degToRad(15));
