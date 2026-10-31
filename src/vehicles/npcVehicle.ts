@@ -9,6 +9,8 @@ import {
   buildContainerTrailer,
   buildTruck,
   CAR_COLORS,
+  cloneModel,
+  compactModel,
   CONTAINER_COLORS,
   setBrake,
   setIndicators,
@@ -28,6 +30,7 @@ const HITCH_FROM_CAB_CENTER = 2.0; // fifth wheel, 1 m in front of the cab's rea
 const KINGPIN_FROM_TRAILER_CENTER = TRAILER_L / 2 - 0.6;
 const TRAILER_WHEELBASE = 8;
 const CONTAINER_H = 4.0;
+const HOVER = 0.03;
 
 interface Part {
   body: RAPIER.RigidBody;
@@ -40,6 +43,16 @@ interface Part {
   currPos: THREE.Vector3;
   prevQuat: THREE.Quaternion;
   currQuat: THREE.Quaternion;
+}
+
+const templates = new Map<string, VehicleModel>();
+function model(key: string, build: () => VehicleModel): VehicleModel {
+  let t = templates.get(key);
+  if (!t) {
+    t = compactModel(build());
+    templates.set(key, t);
+  }
+  return cloneModel(t);
 }
 
 function pick<T>(arr: T[], rng: () => number): T {
@@ -62,15 +75,17 @@ export class NpcVehicle {
     if (agent.kind === 'container') {
       const color = pick(CONTAINER_COLORS, rng);
       const cabColor = pick(TRUCK_COLORS, rng);
-      this.parts.push(this.makePart(buildContainerCab(sp.width, CONTAINER_H, CAB_L, cabColor), sp.width, CONTAINER_H, CAB_L, sp.mass));
-      this.parts.push(
-        this.makePart(buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color), sp.width, CONTAINER_H, TRAILER_L, sp.trailerMass!),
-      );
+      const cab = model(`cab|${cabColor}`, () => buildContainerCab(sp.width, CONTAINER_H, CAB_L, cabColor));
+      const trailer = model(`trailer|${color}`, () => buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color));
+      this.parts.push(this.makePart(cab, sp.width, CONTAINER_H, CAB_L, sp.mass));
+      this.parts.push(this.makePart(trailer, sp.width, CONTAINER_H, TRAILER_L, sp.trailerMass!));
     } else if (agent.kind === 'truck') {
-      const m = buildTruck(sp.width, sp.height, sp.length, pick(TRUCK_COLORS, rng));
+      const color = pick(TRUCK_COLORS, rng);
+      const m = model(`truck|${color}`, () => buildTruck(sp.width, sp.height, sp.length, color));
       this.parts.push(this.makePart(m, sp.width, sp.height, sp.length, sp.mass));
     } else {
-      const m = buildCar(sp.width, sp.height, sp.length, pick(CAR_COLORS, rng));
+      const color = pick(CAR_COLORS, rng);
+      const m = model(`car|${color}`, () => buildCar(sp.width, sp.height, sp.length, color));
       this.parts.push(this.makePart(m, sp.width, sp.height, sp.length, sp.mass));
     }
     this.placeFromAgent(agent, true);
@@ -78,7 +93,9 @@ export class NpcVehicle {
 
   private makePart(model: VehicleModel, w: number, h: number, l: number, mass: number): Part {
     const body = this.physics.world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic().setTranslation(0, h / 2, 0).setCanSleep(false),
+      // Live NPCs hover just above the road with no gravity: the AI owns their height,
+      // and skipping ground contacts halves the physics cost. Wrecks get gravity back.
+      RAPIER.RigidBodyDesc.dynamic().setTranslation(0, h / 2 + HOVER, 0).setGravityScale(0).setCanSleep(false),
     );
     // Low center of mass so hits spin vehicles rather than flip them every time.
     const inertia = {
@@ -97,9 +114,6 @@ export class NpcVehicle {
       body,
     );
     this.physics.register(collider, { type: 'npc', id: this.id });
-    model.root.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
-    });
     this.scene.add(model.root);
     return {
       body,
@@ -155,8 +169,7 @@ export class NpcVehicle {
     poses.forEach((p, i) => {
       const b = this.parts[i].body;
       const t = b.translation();
-      const vy = Math.min(b.linvel().y, 1);
-      b.setLinvel({ x: (p.x - t.x) / dt, y: vy, z: (p.z - t.z) / dt }, true);
+      b.setLinvel({ x: (p.x - t.x) / dt, y: 0, z: (p.z - t.z) / dt }, true);
       b.setRotation(quatFromYaw(p.yaw), true);
       b.setAngvel({ x: 0, y: 0, z: 0 }, true);
     });
@@ -179,6 +192,7 @@ export class NpcVehicle {
       p.collider.setCollisionGroups(WRECK_GROUPS);
       p.collider.setFriction(0.9);
       p.collider.setFrictionCombineRule(RAPIER.CoefficientCombineRule.Average);
+      p.body.setGravityScale(1, true);
       p.body.setLinearDamping(0.5);
       p.body.setAngularDamping(1.2);
       setBrake(p.lights, true);

@@ -47,13 +47,15 @@ export class Game {
   /** Overrides keyboard input when set (used by automated checks). */
   inputOverride: HandlingInput | null = null;
   rng: () => number = Math.random;
+  /** Debug: stop the real-time loop from advancing the simulation. */
+  freeze = false;
 
   constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld) {
     physics.timestep = PHYSICS_DT;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     container.appendChild(this.renderer.domElement);
     this.road = new RoadScene(this.scene, this.renderer);
@@ -155,7 +157,7 @@ export class Game {
   }
 
   private frame(dt: number): void {
-    if (this.flow.phase !== 'paused') {
+    if (this.flow.phase !== 'paused' && !this.freeze) {
       this.accumulator += dt;
       let steps = 0;
       while (this.accumulator >= PHYSICS_DT && steps < MAX_SUBSTEPS) {
@@ -169,13 +171,13 @@ export class Game {
   }
 
   /** Debug: advance the simulation synchronously (independent of rAF throttling). */
-  simulate(seconds: number, input?: HandlingInput): void {
+  simulate(seconds: number, input?: HandlingInput, render = true): void {
     const prev = this.inputOverride;
     if (input) this.inputOverride = input;
     const n = Math.round(seconds / PHYSICS_DT);
     for (let i = 0; i < n && this.flow.phase !== 'paused'; i++) this.fixedStep(PHYSICS_DT);
     this.inputOverride = prev;
-    this.render(PHYSICS_DT, 1);
+    if (render) this.render(PHYSICS_DT, 1);
   }
 
   private currentInput(): HandlingInput {

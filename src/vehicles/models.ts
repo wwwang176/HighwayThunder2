@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * Procedural low-poly vehicles. Every model's origin is the center of its
@@ -207,4 +208,47 @@ export function setIndicators(lights: VehicleLights, left: boolean, right: boole
 
 export function setBrake(lights: VehicleLights, on: boolean): void {
   for (const m of lights.brake) m.material = on ? BRAKE_ON : BRAKE_DIM;
+}
+
+/**
+ * Merge a model's static parts into one mesh per material (lights stay separate
+ * so they can blink), to keep draw calls low with dozens of vehicles on screen.
+ */
+export function compactModel(model: VehicleModel): VehicleModel {
+  const { root, lights } = model;
+  const keep = new Set<THREE.Object3D>([...lights.left, ...lights.right, ...lights.brake]);
+  for (const m of lights.left) m.userData.role = 'L';
+  for (const m of lights.right) m.userData.role = 'R';
+  for (const m of lights.brake) m.userData.role = 'B';
+  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for (const child of [...root.children]) {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || keep.has(mesh)) continue;
+    mesh.updateMatrix();
+    const g = mesh.geometry.clone().applyMatrix4(mesh.matrix);
+    const mat = mesh.material as THREE.Material;
+    if (!byMat.has(mat)) byMat.set(mat, []);
+    byMat.get(mat)!.push(g);
+    root.remove(mesh);
+  }
+  for (const [mat, geos] of byMat) {
+    const merged = new THREE.Mesh(mergeGeometries(geos), mat);
+    merged.castShadow = mat !== GLASS;
+    root.add(merged);
+    geos.forEach((g) => g.dispose());
+  }
+  return model;
+}
+
+/** Clone a (compacted) template, re-collecting its light meshes. */
+export function cloneModel(template: VehicleModel): VehicleModel {
+  const root = template.root.clone(true);
+  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  root.traverse((o) => {
+    const role = o.userData.role;
+    if (role === 'L') lights.left.push(o);
+    else if (role === 'R') lights.right.push(o);
+    else if (role === 'B') lights.brake.push(o as THREE.Mesh);
+  });
+  return { root, lights };
 }

@@ -13,7 +13,7 @@ export interface Occupant {
 }
 
 export const MIN_CLEAR_GAP = 25;
-export const DEFAULT_SPACING = 85; // mean distance between vehicles in one lane (m)
+export const DEFAULT_SPACING = 100; // mean distance between vehicles in one lane (m)
 const AHEAD_MIN = 60;
 const AHEAD_MAX = 700;
 const FAR_EDGE = 600;
