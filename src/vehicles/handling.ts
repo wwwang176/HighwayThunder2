@@ -78,7 +78,7 @@ export const DEFAULT_CAR: CarParams = {
   wheelInertia: 1.2,
   muPeak: 1.3,
   muSlide: 0.85,
-  slipAnglePeak: 0.08,
+  slipAnglePeak: 0.105, // ~6 deg, performance street tyre
   rearGrip: 1.12,
   slipFalloff: 18,
   lsd: 150,
