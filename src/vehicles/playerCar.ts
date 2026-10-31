@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
-import { GHOST_GROUPS, PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
+import { PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
 import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, steerAngle } from './handling';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
@@ -50,7 +50,8 @@ type WheelState = ChassisWheel;
  */
 export class PlayerCar {
   readonly body: RAPIER.RigidBody;
-  readonly collider: RAPIER.Collider;
+  /** The body's collision box (null for ghosts). */
+  readonly collider: RAPIER.Collider | null;
   readonly mesh: THREE.Group;
   private readonly lights: VehicleLights;
   private readonly visuals: { steer: THREE.Group; spin: THREE.Group }[] = [];
@@ -85,26 +86,34 @@ export class PlayerCar {
   constructor(physics: PhysicsWorld, scene: THREE.Scene | null) {
     const p = this.params;
     const ghost = scene === null;
-    this.body = physics.world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(laneCenter(1), RIDE_Y, 0)
-        .setCcdEnabled(true)
-        .setCanSleep(false),
-    );
     const inertia = {
       x: (p.mass / 12) * (0.8 * 0.8 + PLAYER_L * PLAYER_L),
       y: (p.mass / 12) * (PLAYER_W * PLAYER_W + PLAYER_L * PLAYER_L),
       z: (p.mass / 12) * (PLAYER_W * PLAYER_W + 0.8 * 0.8),
     };
-    const desc = RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
-      .setTranslation(0, 0.1, 0)
-      .setMassProperties(p.mass, { x: 0, y: -0.15, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
-      .setFriction(0.3)
-      .setRestitution(0.05)
-      .setCollisionGroups(ghost ? GHOST_GROUPS : PLAYER_GROUPS);
-    if (!ghost) desc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-    this.collider = physics.world.createCollider(desc, this.body);
-    if (!ghost) physics.register(this.collider, { type: 'player' });
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(laneCenter(1), RIDE_Y, 0).setCanSleep(false);
+    if (ghost) {
+      // No collider at all: a ghost stands on its wheel rays only, and with dozens
+      // of them stacked on the start line, the rays must not have to test each other.
+      // Same mass properties as the player's collider gives (COM at body y -0.05).
+      this.body = physics.world.createRigidBody(
+        bodyDesc.setAdditionalMassProperties(p.mass, { x: 0, y: -0.05, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 }),
+      );
+      this.collider = null;
+    } else {
+      this.body = physics.world.createRigidBody(bodyDesc.setCcdEnabled(true));
+      this.collider = physics.world.createCollider(
+        RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
+          .setTranslation(0, 0.1, 0)
+          .setMassProperties(p.mass, { x: 0, y: -0.15, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
+          .setFriction(0.3)
+          .setRestitution(0.05)
+          .setCollisionGroups(PLAYER_GROUPS)
+          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+        this.body,
+      );
+      physics.register(this.collider, { type: 'player' });
+    }
 
     // Wheels: 0 FL, 1 FR, 2 RL, 3 RR.
     const wheels: WheelState[] = [];

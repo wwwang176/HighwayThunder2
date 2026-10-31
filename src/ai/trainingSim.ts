@@ -125,10 +125,10 @@ export class TrainingSim {
     }
   }
 
-  /** Out of the race: take the car out of the physics world (no more cost). */
+  /** Out of the race: the body stops simulating (no more cost) but keeps its last pose for drawing. */
   private retire(g: Ghost): void {
     g.alive = false;
-    this.physics.world.removeRigidBody(g.car.body);
+    g.car.body.setEnabled(false);
   }
 
   private focus(): TrafficFocus | null {
