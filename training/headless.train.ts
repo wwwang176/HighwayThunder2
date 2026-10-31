@@ -1,6 +1,6 @@
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { serializeDriver } from '../src/ai/driverFile';
 import { Trainer } from '../src/ai/trainer';
@@ -19,7 +19,10 @@ it('train', async () => {
   const outDir = resolve(import.meta.dirname, 'out');
   mkdirSync(outDir, { recursive: true });
   const out = resolve(outDir, `seed-${seed}.json`);
-  const log = (s: string) => process.stdout.write(`[seed ${seed}] ${s}\n`);
+  const logFile = resolve(outDir, `seed-${seed}.log`);
+  writeFileSync(logFile, '');
+  // vitest holds console output until the test ends, so progress also goes to a file.
+  const log = (s: string) => appendFileSync(logFile, `${s}\n`);
 
   const t = new Trainer({ seed });
   let bestSaved = -Infinity;
