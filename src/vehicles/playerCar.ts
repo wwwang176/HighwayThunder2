@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
-import { PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
+import { GHOST_GROUPS, PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
 import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, steerAngle } from './handling';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
@@ -78,8 +78,13 @@ export class PlayerCar {
   private prevQuat = new THREE.Quaternion();
   private currQuat = new THREE.Quaternion();
 
-  constructor(physics: PhysicsWorld, scene: THREE.Scene) {
+  /**
+   * @param scene where to add the car's model and headlights. Pass null for an
+   * AI training "ghost": same physics, no visuals, and it only touches the road.
+   */
+  constructor(physics: PhysicsWorld, scene: THREE.Scene | null) {
     const p = this.params;
+    const ghost = scene === null;
     this.body = physics.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(laneCenter(1), RIDE_Y, 0)
@@ -91,17 +96,15 @@ export class PlayerCar {
       y: (p.mass / 12) * (PLAYER_W * PLAYER_W + PLAYER_L * PLAYER_L),
       z: (p.mass / 12) * (PLAYER_W * PLAYER_W + 0.8 * 0.8),
     };
-    this.collider = physics.world.createCollider(
-      RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
-        .setTranslation(0, 0.1, 0)
-        .setMassProperties(p.mass, { x: 0, y: -0.15, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
-        .setFriction(0.3)
-        .setRestitution(0.05)
-        .setCollisionGroups(PLAYER_GROUPS)
-        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-      this.body,
-    );
-    physics.register(this.collider, { type: 'player' });
+    const desc = RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
+      .setTranslation(0, 0.1, 0)
+      .setMassProperties(p.mass, { x: 0, y: -0.15, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
+      .setFriction(0.3)
+      .setRestitution(0.05)
+      .setCollisionGroups(ghost ? GHOST_GROUPS : PLAYER_GROUPS);
+    if (!ghost) desc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+    this.collider = physics.world.createCollider(desc, this.body);
+    if (!ghost) physics.register(this.collider, { type: 'player' });
 
     // Wheels: 0 FL, 1 FR, 2 RL, 3 RR.
     const wheels: WheelState[] = [];
@@ -121,6 +124,13 @@ export class PlayerCar {
     this.wheels = wheels;
     this.chassis = new TyreChassis(physics, this.body, wheels, this.chassisSetup());
 
+    if (ghost) {
+      this.mesh = new THREE.Group();
+      this.lights = { left: [], right: [], brake: [] };
+      this.readBack();
+      this.snapInterpolation();
+      return;
+    }
     const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false, false);
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
@@ -141,13 +151,18 @@ export class PlayerCar {
       this.mesh.add(w.steer);
       this.visuals.push(w);
     }
-    scene.add(this.mesh);
+    scene!.add(this.mesh);
     this.readBack();
     this.snapInterpolation();
   }
 
   get speed(): number {
     return this.vLong;
+  }
+
+  /** Yaw rate (rad/s), positive turning toward +d like `yaw`. */
+  get yawRate(): number {
+    return -this.body.angvel().y;
   }
 
   /** Strongest tyre slide this step (m/s of slip), for sound. */

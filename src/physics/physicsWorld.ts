@@ -8,10 +8,13 @@ export const G_STATIC = 1;
 export const G_PLAYER = 2;
 export const G_NPC_LIVE = 4;
 export const G_WRECK = 8;
+/** AI training cars: they stand on the road and touch nothing else (crashes are judged geometrically). */
+export const G_GHOST = 16;
 const ALL = G_STATIC | G_PLAYER | G_NPC_LIVE | G_WRECK;
 
 export const groups = (membership: number, filter: number) => (membership << 16) | filter;
-export const STATIC_GROUPS = groups(G_STATIC, ALL);
+export const STATIC_GROUPS = groups(G_STATIC, ALL | G_GHOST);
+export const GHOST_GROUPS = groups(G_GHOST, G_STATIC);
 export const PLAYER_GROUPS = groups(G_PLAYER, G_STATIC | G_NPC_LIVE | G_WRECK);
 /** Live NPCs never touch each other: pile-ups only spread through wrecks. */
 export const NPC_LIVE_GROUPS = groups(G_NPC_LIVE, G_STATIC | G_PLAYER | G_WRECK);
