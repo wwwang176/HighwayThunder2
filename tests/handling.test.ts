@@ -1,63 +1,62 @@
 import { describe, it, expect } from 'vitest';
-import { stepHandling, DEFAULT_HANDLING, HandlingState } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer } from '../src/vehicles/handling';
 
+const P = DEFAULT_CAR;
 const dt = 1 / 120;
-const fresh = (): HandlingState => ({ vLong: 0, vLat: 0, yaw: 0, yawRate: 0, steer: 0, stun: 0 });
 
-function run(st: HandlingState, input: { throttle: number; brake: number; steer: number }, sec: number) {
-  const n = Math.round(sec / dt);
-  for (let i = 0; i < n; i++) {
-    const r = stepHandling(st, input, DEFAULT_HANDLING, dt);
-    st = { ...st, ...r, yaw: st.yaw + r.yawRate * dt, stun: Math.max(0, st.stun - dt) };
-  }
-  return st;
-}
-
-describe('stepHandling', () => {
-  it('accelerates well and never exceeds max speed', () => {
-    let st = run(fresh(), { throttle: 1, brake: 0, steer: 0 }, 5);
-    expect(st.vLong).toBeGreaterThan(27);
-    st = run(st, { throttle: 1, brake: 0, steer: 0 }, 60);
-    expect(st.vLong).toBeLessThanOrEqual(DEFAULT_HANDLING.maxSpeed + 1e-6);
-    expect(st.vLong).toBeGreaterThan(DEFAULT_HANDLING.maxSpeed * 0.95);
+describe('driveCommand', () => {
+  it('full throttle from standstill is traction limited', () => {
+    const c = driveCommand({ throttle: 1, brake: 0, steer: 0 }, 0, P, dt);
+    expect(c.engineForce).toBeCloseTo(P.maxDriveForce);
+    expect(c.brakeImpulse).toBe(0);
   });
-
-  it('yaw rate at 300 km/h is limited by lateral accel', () => {
-    let st: HandlingState = { ...fresh(), vLong: 83.3 };
-    st = run(st, { throttle: 1, brake: 0, steer: 1 }, 0.4);
-    expect(Math.abs(st.yawRate)).toBeLessThanOrEqual(DEFAULT_HANDLING.latAccelMax / 83 + 1e-6);
-    expect(st.yawRate).toBeGreaterThan(0);
+  it('power limited at high speed', () => {
+    const c = driveCommand({ throttle: 1, brake: 0, steer: 0 }, 60, P, dt);
+    expect(c.engineForce).toBeCloseTo(P.power / 60);
   });
-
-  it('heading returns toward road direction when steering is released', () => {
-    let st: HandlingState = { ...fresh(), vLong: 60, yaw: 0.2 };
-    st = run(st, { throttle: 0.5, brake: 0, steer: 0 }, 2);
-    expect(Math.abs(st.yaw)).toBeLessThan(0.03);
+  it('no drive beyond the speed limiter', () => {
+    expect(driveCommand({ throttle: 1, brake: 0, steer: 0 }, P.maxSpeed + 0.1, P, dt).engineForce).toBe(0);
   });
-
-  it('lateral slip decays', () => {
-    let st: HandlingState = { ...fresh(), vLong: 40, vLat: 5 };
-    st = run(st, { throttle: 0, brake: 0, steer: 0 }, 0.5);
-    expect(Math.abs(st.vLat)).toBeLessThan(0.5);
+  it('brake key brakes while rolling forward', () => {
+    const c = driveCommand({ throttle: 0, brake: 1, steer: 0 }, 20, P, dt);
+    expect(c.engineForce).toBe(0);
+    // Per-wheel impulse that would give brakeDecel across 4 wheels in one step.
+    expect(c.brakeImpulse).toBeCloseTo((P.brakeDecel * P.mass * dt) / 4);
   });
-
-  it('stun keeps slip much longer', () => {
-    let st: HandlingState = { ...fresh(), vLong: 40, vLat: 5, stun: 1 };
-    st = run(st, { throttle: 0, brake: 0, steer: 0 }, 0.3);
-    expect(Math.abs(st.vLat)).toBeGreaterThan(2);
+  it('brake key reverses when (almost) stopped, up to reverseMax', () => {
+    expect(driveCommand({ throttle: 0, brake: 1, steer: 0 }, 0.2, P, dt).engineForce).toBeLessThan(0);
+    expect(driveCommand({ throttle: 0, brake: 1, steer: 0 }, -P.reverseMax - 0.1, P, dt).engineForce).toBe(0);
   });
-
-  it('brakes then reverses with limited speed', () => {
-    let st: HandlingState = { ...fresh(), vLong: 30 };
-    st = run(st, { throttle: 0, brake: 1, steer: 0 }, 2);
-    expect(st.vLong).toBeLessThan(1);
-    st = run(st, { throttle: 0, brake: 1, steer: 0 }, 10);
-    expect(st.vLong).toBeLessThan(0);
-    expect(st.vLong).toBeGreaterThanOrEqual(-DEFAULT_HANDLING.reverseMax - 1e-6);
+  it('throttle while rolling backwards brakes first', () => {
+    const c = driveCommand({ throttle: 1, brake: 0, steer: 0 }, -3, P, dt);
+    expect(c.engineForce).toBe(0);
+    expect(c.brakeImpulse).toBeGreaterThan(0);
   });
+  it('handbrake holds the car', () => {
+    const c = driveCommand({ throttle: 0, brake: 0, steer: 0, handbrake: true }, 0, P, dt);
+    expect(c.engineForce).toBe(0);
+    expect(c.brakeImpulse).toBeGreaterThan(0);
+  });
+});
 
-  it('no turning when stationary', () => {
-    const st = run(fresh(), { throttle: 0, brake: 0, steer: 1 }, 1);
-    expect(Math.abs(st.yaw)).toBeLessThan(1e-6);
+describe('steering', () => {
+  it('full lock at low speed, tiny angle at 300 km/h', () => {
+    expect(steerLimit(2, P)).toBeCloseTo(P.maxSteer);
+    const high = steerLimit(83.3, P);
+    expect(high).toBeLessThan(0.015);
+    expect(high).toBeGreaterThan(0.002);
+  });
+  it('limit keeps lateral accel near latAccelLimit (kinematic bicycle)', () => {
+    for (const v of [20, 40, 60, 80]) {
+      const a = (v * v * Math.tan(steerLimit(v, P))) / P.wheelbase;
+      expect(a).toBeLessThanOrEqual(P.latAccelLimit + 1e-6);
+    }
+  });
+  it('input smoothing ramps and returns faster', () => {
+    let s = 0;
+    s = smoothSteer(s, 1, P, 0.05);
+    expect(s).toBeCloseTo(P.steerRise * 0.05);
+    const back = smoothSteer(0.5, 0, P, 0.05);
+    expect(back).toBeCloseTo(Math.max(0, 0.5 - P.steerFall * 0.05));
   });
 });

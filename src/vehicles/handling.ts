@@ -1,105 +1,104 @@
-export interface HandlingParams {
-  accel: number; // peak forward accel (m/s^2)
-  maxSpeed: number; // m/s
-  brake: number; // m/s^2
+/**
+ * Driver-side vehicle logic for the player car: how pedal and steering input map
+ * to engine force, brake impulses and front-wheel angle. The tyres, suspension
+ * and chassis themselves are simulated by Rapier's ray-cast vehicle. There are
+ * no driving aids: the car goes wherever its nose points.
+ */
+
+export interface CarParams {
+  mass: number; // kg
+  power: number; // W at the rear wheels
+  maxDriveForce: number; // N, traction limit at low speed
+  maxSpeed: number; // m/s, speed limiter
   reverseMax: number; // m/s
-  coast: number; // rolling decel (m/s^2)
-  grip: number; // lateral slip decay rate (1/s)
-  stunGrip: number; // lateral slip decay while stunned
-  latAccelMax: number; // caps yaw rate at speed: yawRate <= latAccelMax / v
-  maxYawRate: number; // rad/s at low speed
-  steerRise: number; // steer input ramp (1/s)
-  steerFall: number; // steer return-to-center rate (1/s)
-  headingAssist: number; // auto-straighten gain (1/s) when steering released
-  yawResponse: number; // how fast yaw rate follows target (1/s)
+  reverseForce: number; // N
+  brakeDecel: number; // m/s^2 target from the brake pedal
+  dragK: number; // aero drag F = dragK * v^2
+  downforceK: number; // aero downforce F = downforceK * v^2
+  wheelbase: number; // m
+  maxSteer: number; // rad, front wheel lock
+  latAccelLimit: number; // m/s^2, steering limit keeps v^2*tan(angle)/L below this
+  steerRise: number; // input ramp (1/s)
+  steerFall: number; // input return to centre (1/s)
+  // Tyres & suspension (per wheel)
+  suspensionRest: number;
+  suspensionTravel: number;
+  suspensionStiffness: number;
+  suspensionCompression: number;
+  suspensionRelaxation: number;
+  maxSuspensionForce: number;
+  frictionSlip: number;
+  sideFrictionStiffness: number;
 }
 
-export const DEFAULT_HANDLING: HandlingParams = {
-  accel: 10,
+export const DEFAULT_CAR: CarParams = {
+  mass: 1300,
+  power: 390_000,
+  maxDriveForce: 9_500,
   maxSpeed: 83.3,
-  brake: 24,
   reverseMax: 8,
-  coast: 1.5,
-  grip: 40,
-  stunGrip: 1.0,
-  latAccelMax: 28,
-  maxYawRate: 1.6,
-  steerRise: 8,
+  reverseForce: 4_000,
+  brakeDecel: 11,
+  dragK: 0.62,
+  downforceK: 0.55,
+  wheelbase: 2.6,
+  maxSteer: 0.55,
+  latAccelLimit: 24,
+  steerRise: 6,
   steerFall: 9,
-  headingAssist: 3.5,
-  yawResponse: 20,
+  suspensionRest: 0.3,
+  suspensionTravel: 0.18,
+  suspensionStiffness: 38,
+  suspensionCompression: 3.2,
+  suspensionRelaxation: 3.6,
+  maxSuspensionForce: 20_000,
+  frictionSlip: 2.6,
+  sideFrictionStiffness: 1.0,
 };
 
-export interface HandlingState {
-  vLong: number; // forward speed along heading (m/s)
-  vLat: number; // sideways speed, + = right
-  yaw: number; // heading relative to road, + = right
-  yawRate: number;
-  steer: number; // smoothed steer -1..1
-  stun: number; // seconds of post-impact loss of control left
-}
-
-export interface HandlingInput {
+export interface DriveInput {
   throttle: number; // 0..1
   brake: number; // 0..1
   steer: number; // -1 (left) .. 1 (right)
+  handbrake?: boolean;
 }
 
-function approach(cur: number, target: number, rate: number): number {
-  if (cur < target) return Math.min(target, cur + rate);
-  return Math.max(target, cur - rate);
+/** Kept for callers that only deal with pedals and steering. */
+export type HandlingInput = DriveInput;
+
+/**
+ * @param vForward speed along the car's nose (m/s, negative when reversing)
+ * @returns total rear-axle engine force (N, + = forward) and per-wheel brake impulse
+ */
+export function driveCommand(input: DriveInput, vForward: number, p: CarParams, dt: number): { engineForce: number; brakeImpulse: number } {
+  const brakeImpulse = (decel: number) => (decel * p.mass * dt) / 4;
+  if (input.handbrake) return { engineForce: 0, brakeImpulse: brakeImpulse(p.brakeDecel) };
+
+  if (input.brake > 0) {
+    if (vForward > 0.5) return { engineForce: 0, brakeImpulse: brakeImpulse(p.brakeDecel * input.brake) };
+    if (vForward < -p.reverseMax) return { engineForce: 0, brakeImpulse: 0 };
+    return { engineForce: -p.reverseForce * input.brake, brakeImpulse: 0 };
+  }
+  if (input.throttle > 0) {
+    if (vForward < -0.5) return { engineForce: 0, brakeImpulse: brakeImpulse(p.brakeDecel * input.throttle) };
+    if (vForward >= p.maxSpeed) return { engineForce: 0, brakeImpulse: 0 };
+    const f = Math.min(p.maxDriveForce, p.power / Math.max(vForward, 1));
+    return { engineForce: f * input.throttle, brakeImpulse: 0 };
+  }
+  return { engineForce: 0, brakeImpulse: 0 };
 }
 
-/** Arcade handling: returns the new velocities the body should have after this step. */
-export function stepHandling(
-  st: HandlingState,
-  input: HandlingInput,
-  p: HandlingParams,
-  dt: number,
-): { vLong: number; vLat: number; yawRate: number; steer: number } {
-  const stunned = st.stun > 0;
-  const control = stunned ? 0.3 : 1;
+/** Front-wheel lock allowed at this speed (speed-sensitive steering). */
+export function steerLimit(speed: number, p: CarParams): number {
+  const v = Math.abs(speed);
+  if (v < 1) return p.maxSteer;
+  return Math.min(p.maxSteer, Math.atan((p.latAccelLimit * p.wheelbase) / (v * v)));
+}
 
-  // Steering input smoothing (faster return to center).
-  const returning = input.steer === 0 || Math.sign(input.steer) !== Math.sign(st.steer);
-  const steer = approach(st.steer, input.steer, (returning ? p.steerFall : p.steerRise) * dt);
-
-  // Longitudinal.
-  let v = st.vLong;
-  if (input.brake > 0 && v > 0.5) {
-    v = Math.max(0, v - p.brake * input.brake * dt);
-  } else if (input.brake > 0) {
-    const r = Math.min(1, Math.abs(Math.min(v, 0)) / p.reverseMax);
-    v -= p.accel * 0.5 * input.brake * (1 - r * r) * dt;
-    v = Math.max(-p.reverseMax, v);
-  } else if (input.throttle > 0) {
-    if (v < 0) {
-      v = Math.min(0, v + p.brake * input.throttle * dt);
-    } else {
-      const r = Math.min(1, v / p.maxSpeed);
-      v += p.accel * input.throttle * control * (1 - r * r) * dt;
-    }
-  } else if (v !== 0) {
-    v = Math.sign(v) * Math.max(0, Math.abs(v) - p.coast * dt);
-  }
-  v = Math.min(p.maxSpeed, v);
-
-  // Lateral grip.
-  const grip = stunned ? p.stunGrip : p.grip;
-  const vLat = st.vLat * Math.exp(-grip * dt);
-
-  // Yaw.
-  const speed = Math.abs(v);
-  const limit = Math.min(p.maxYawRate, p.latAccelMax / Math.max(speed, 1));
-  const speedFactor = Math.min(1, speed / 5);
-  const dir = v >= 0 ? 1 : -1;
-  let target = steer * limit * speedFactor * dir * control;
-  if (input.steer === 0 && !stunned && Math.abs(st.yaw) < 0.6 && v > 3) {
-    target += -p.headingAssist * st.yaw;
-  }
-  target = Math.max(-limit, Math.min(limit, target));
-  const response = stunned ? 1.5 : p.yawResponse;
-  const yawRate = st.yawRate + (target - st.yawRate) * (1 - Math.exp(-response * dt));
-
-  return { vLong: v, vLat, yawRate, steer };
+/** Smooth the digital keyboard steering into a -1..1 value. */
+export function smoothSteer(current: number, target: number, p: CarParams, dt: number): number {
+  const returning = target === 0 || (current !== 0 && Math.sign(target) !== Math.sign(current));
+  const rate = (returning ? p.steerFall : p.steerRise) * dt;
+  if (current < target) return Math.min(target, current + rate);
+  return Math.max(target, current - rate);
 }

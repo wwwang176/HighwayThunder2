@@ -123,7 +123,7 @@ export const CONTAINER_COLORS = [0x1f5fa8, 0xb8352a, 0x2f7d4a, 0xd88a1a, 0x6b6b6
 export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
 
 /** Generic sedan / player car. */
-export function buildCar(w: number, h: number, l: number, color: number, sporty = false): VehicleModel {
+export function buildCar(w: number, h: number, l: number, color: number, sporty = false, withWheels = true): VehicleModel {
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
   const g = -h / 2;
@@ -142,7 +142,7 @@ export function buildCar(w: number, h: number, l: number, color: number, sporty 
     box(root, 0.35, 0.01, l * 0.98, std(0xffffff, 0.3), -0.25, g + 0.28 + bodyH + 0.005, 0, false);
     box(root, 0.35, 0.01, l * 0.98, std(0xffffff, 0.3), 0.25, g + 0.28 + bodyH + 0.005, 0, false);
   }
-  wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.33);
+  if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.33);
   addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2);
   return { root, lights };
 }
@@ -199,6 +199,29 @@ export function buildContainerTrailer(w: number, h: number, trailerL: number, co
   wheels(root, g, w / 2 - 0.2, [trailerL / 2 - 3.0, trailerL / 2 - 2.0, trailerL / 2 - 1.0], 0.5, 0.35);
   addLights(root, lights, w / 2, g + 1.0, null, trailerL / 2);
   return { root, lights };
+}
+
+/**
+ * A single wheel for the player car: `steer` turns about Y, `spin` (child) rolls
+ * about the axle. Spokes make the rotation visible.
+ */
+export function buildWheel(r: number, width: number): { steer: THREE.Group; spin: THREE.Group } {
+  const steer = new THREE.Group();
+  const spin = new THREE.Group();
+  steer.add(spin);
+  const tire = new THREE.Mesh(wheelGeo, TIRE);
+  tire.scale.set(width, r, r);
+  tire.castShadow = true;
+  spin.add(tire);
+  const rim = new THREE.Mesh(wheelGeo, RIM);
+  rim.scale.set(width + 0.02, r * 0.6, r * 0.6);
+  spin.add(rim);
+  for (let i = 0; i < 3; i++) {
+    const spoke = new THREE.Mesh(boxGeo(width + 0.04, r * 1.1, 0.07), DARK);
+    spoke.rotation.x = (i * Math.PI) / 3;
+    spin.add(spoke);
+  }
+  return { steer, spin };
 }
 
 export function setIndicators(lights: VehicleLights, left: boolean, right: boolean): void {

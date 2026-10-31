@@ -17,7 +17,7 @@ import { GameFlow } from './gameState';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
 
-const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0 };
+const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
 const PLAYER_OBSTACLE_ID = -1;
 const SPAWN_INTERVAL = 0.25;
@@ -239,7 +239,6 @@ export class Game {
     const nv = npc.parts[0].body.linvel();
     const rel = Math.hypot(pv.x - nv.x, pv.z - nv.z);
     this.wreckNpc(npcRef.id, rel);
-    this.player.stun(Math.min(1.0, 0.25 + rel * 0.02));
     this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
     this.sound.crash(rel);
   }
