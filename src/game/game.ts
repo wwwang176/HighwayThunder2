@@ -7,10 +7,12 @@ import { Keyboard } from '../input/keyboard';
 import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
 import { CameraRig } from '../render/cameraRig';
 import { Obstacle, TrafficSim } from '../traffic/trafficAI';
-import { DEFAULT_SPACING, planSpawns, shouldDespawn } from '../traffic/spawner';
+import { DEFAULT_SPACING, Occupant, planSpawns, shouldDespawn } from '../traffic/spawner';
+import { laneCenter, lanesOccupied } from '../road/coords';
 import { Hud } from '../ui/hud';
 import { HandlingInput } from '../vehicles/handling';
 import { NpcVehicle } from '../vehicles/npcVehicle';
+import { WheelInstances } from '../vehicles/wheelInstances';
 import { PlayerCar } from '../vehicles/playerCar';
 import { RoadScene } from '../world/roadScene';
 import { GameFlow } from './gameState';
@@ -36,6 +38,7 @@ export class Game {
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
   traffic = new TrafficSim();
   readonly npcs = new Map<number, NpcVehicle>();
+  private wheelPool!: WheelInstances;
   private gui: GUI;
   private accumulator = 0;
   private lastTime = 0;
@@ -60,6 +63,7 @@ export class Game {
     container.appendChild(this.renderer.domElement);
     this.road = new RoadScene(this.scene, this.renderer);
     this.player = new PlayerCar(physics, this.scene);
+    this.wheelPool = new WheelInstances(this.scene);
     this.hud = new Hud(uiRoot, this.flow, {
       onStart: () => this.startRace(),
       onResume: () => this.togglePause(),
@@ -132,12 +136,17 @@ export class Game {
     for (const npc of this.npcs.values()) {
       const agent = this.traffic.agents.get(npc.id);
       if (agent && !npc.wrecked) {
-        blockers.push({ s: agent.s, dMin: agent.d - agent.width / 2, dMax: agent.d + agent.width / 2, length: agent.length });
+        blockers.push({ s: agent.s, dMin: agent.d - agent.width / 2, dMax: agent.d + agent.width / 2, length: agent.length, v: agent.v });
+        if (agent.targetLane !== null && agent.targetLane !== agent.lane) {
+          // Mid lane change: it is about to occupy the target lane too.
+          const c = laneCenter(agent.targetLane);
+          blockers.push({ s: agent.s, dMin: c - agent.width / 2, dMax: c + agent.width / 2, length: agent.length, v: agent.v });
+        }
       } else {
         blockers.push(...npc.obstacles());
       }
     }
-    const spot = computeResetSpot(this.player.s, this.player.d, blockers);
+    const spot = computeResetSpot(this.player.s, this.player.d, blockers, RESET_SPEED);
     this.player.resetTo(spot.s, spot.lane, RESET_SPEED);
     this.flow.markReset();
     this.rig.snap();
@@ -198,12 +207,15 @@ export class Game {
 
     // Traffic AI, then drive the NPC bodies toward the AI poses.
     const obstacles: Obstacle[] = [{ ...this.player.footprint(), id: PLAYER_OBSTACLE_ID, v: Math.max(0, this.player.speed), isPlayer: true }];
-    for (const npc of this.npcs.values()) if (npc.wrecked) obstacles.push(...npc.obstacles());
-    this.traffic.step(dt, obstacles, this.rng);
+    for (const npc of this.npcs.values()) {
+      if (npc.wrecked) obstacles.push(...npc.obstacles());
+      else npc.syncAgent(this.traffic.agents.get(npc.id)!);
+    }
+    this.traffic.step(dt, obstacles, this.rng, false);
     for (const npc of this.npcs.values()) {
       npc.savePrev();
       if (npc.wrecked) npc.updateWreck(dt, this.simTime);
-      else npc.syncFromAgent(this.traffic.agents.get(npc.id)!, dt, this.simTime);
+      else npc.drive(this.traffic.agents.get(npc.id)!, dt, this.simTime);
     }
 
     this.player.prePhysics(input, dt);
@@ -280,14 +292,17 @@ export class Game {
   }
 
   private spawn(initial: boolean): void {
-    const occupied = [];
-    for (const a of this.traffic.agents.values()) occupied.push({ s: a.s, lane: a.lane, length: a.length });
+    const occupied: Occupant[] = [];
+    for (const a of this.traffic.agents.values()) {
+      occupied.push({ s: a.s, lane: a.lane, length: a.length, v: a.v });
+      if (a.targetLane !== null && a.targetLane !== a.lane) occupied.push({ s: a.s, lane: a.targetLane, length: a.length, v: a.v });
+    }
+    const p = this.player.footprint();
+    for (const lane of lanesOccupied(p.dMin, p.dMax)) occupied.push({ s: p.s, lane, length: p.length, v: Math.max(0, this.player.speed) });
     for (const npc of this.npcs.values()) {
       if (!npc.wrecked) continue;
-      for (const o of npc.obstacles()) {
-        const lane = Math.round(((o.dMin + o.dMax) / 2) / 3.75 + 1.5);
-        occupied.push({ s: o.s, lane: Math.max(0, Math.min(3, lane)), length: o.length });
-      }
+      // A wreck blocks every lane it touches.
+      for (const o of npc.obstacles()) for (const lane of lanesOccupied(o.dMin, o.dMax)) occupied.push({ s: o.s, lane, length: o.length, v: 0 });
     }
     const reqs = planSpawns({
       playerS: this.player.s,
@@ -300,7 +315,8 @@ export class Game {
     });
     for (const r of reqs) {
       const agent = this.traffic.addAgent(r.kind, r.s, r.lane, this.rng);
-      this.npcs.set(agent.id, new NpcVehicle(this.physics, this.scene, agent, this.rng));
+      agent.v = Math.min(agent.v, r.vMax);
+      this.npcs.set(agent.id, new NpcVehicle(this.physics, this.scene, this.wheelPool, agent, this.rng));
     }
   }
 
@@ -326,6 +342,7 @@ export class Game {
   private render(dt: number, alpha: number): void {
     this.player.render(alpha);
     for (const npc of this.npcs.values()) npc.render(alpha);
+    this.wheelPool.commit();
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
     this.rig.update(dt, p, this.player.yaw, Math.max(0, this.player.speed), this.player.params.maxSpeed);

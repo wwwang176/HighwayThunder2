@@ -147,7 +147,7 @@ export function buildCar(w: number, h: number, l: number, color: number, sporty 
   return { root, lights };
 }
 
-export function buildTruck(w: number, h: number, l: number, color: number): VehicleModel {
+export function buildTruck(w: number, h: number, l: number, color: number, withWheels = true): VehicleModel {
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
   const g = -h / 2;
@@ -159,13 +159,13 @@ export function buildTruck(w: number, h: number, l: number, color: number): Vehi
   const cargoL = l - cabL - 0.2;
   box(root, w, h - 1.05, cargoL, std(0xe6e6e6, 0.7), 0, g + 1.05 + (h - 1.05) / 2, l / 2 - cargoL / 2);
   box(root, w + 0.01, 0.35, cargoL * 0.9, cab, 0, g + 2.2, l / 2 - cargoL / 2, false); // stripe
-  wheels(root, g, w / 2 - 0.2, [-l / 2 + 1.3, l / 2 - 2.2, l / 2 - 1.2], 0.5, 0.35);
+  if (withWheels) wheels(root, g, w / 2 - 0.2, [-l / 2 + 1.3, l / 2 - 2.2, l / 2 - 1.2], 0.5, 0.35);
   addLights(root, lights, w / 2, g + 0.9, -l / 2, l / 2);
   return { root, lights };
 }
 
 /** Container truck: separate cab and trailer models (each centered on its own body). */
-export function buildContainerCab(w: number, h: number, cabL: number, color: number): VehicleModel {
+export function buildContainerCab(w: number, h: number, cabL: number, color: number, withWheels = true): VehicleModel {
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
   const g = -h / 2;
@@ -176,12 +176,12 @@ export function buildContainerCab(w: number, h: number, cabL: number, color: num
   box(root, w * 0.9, 0.5, 0.8, paint, 0, g + 3.5, -cabL / 2 + 1.6); // roof fairing
   box(root, w * 0.8, 0.12, 0.6, CHROME, 0, g + 0.65, -cabL / 2 - 0.05, false); // bumper
   box(root, 1.3, 0.15, 1.4, DARK, 0, g + 1.1, cabL / 2 - 1.0); // fifth wheel
-  wheels(root, g, w / 2 - 0.2, [-cabL / 2 + 1.1, cabL / 2 - 1.5, cabL / 2 - 0.5], 0.52, 0.35);
+  if (withWheels) wheels(root, g, w / 2 - 0.2, [-cabL / 2 + 1.1, cabL / 2 - 1.5, cabL / 2 - 0.5], 0.52, 0.35);
   addLights(root, lights, w / 2, g + 1.0, -cabL / 2, cabL / 2 - 0.3);
   return { root, lights };
 }
 
-export function buildContainerTrailer(w: number, h: number, trailerL: number, color: number): VehicleModel {
+export function buildContainerTrailer(w: number, h: number, trailerL: number, color: number, withWheels = true): VehicleModel {
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
   const g = -h / 2;
@@ -196,7 +196,7 @@ export function buildContainerTrailer(w: number, h: number, trailerL: number, co
   for (let z = -trailerL / 2 + 0.6; z < trailerL / 2 - 0.4; z += 0.9) {
     box(root, w + 0.02, ch * 0.92, 0.08, rib, 0, g + 1.38 + ch / 2, z, false);
   }
-  wheels(root, g, w / 2 - 0.2, [trailerL / 2 - 3.0, trailerL / 2 - 2.0, trailerL / 2 - 1.0], 0.5, 0.35);
+  if (withWheels) wheels(root, g, w / 2 - 0.2, [trailerL / 2 - 3.0, trailerL / 2 - 2.0, trailerL / 2 - 1.0], 0.5, 0.35);
   addLights(root, lights, w / 2, g + 1.0, null, trailerL / 2);
   return { root, lights };
 }
@@ -274,4 +274,28 @@ export function cloneModel(template: VehicleModel): VehicleModel {
     else if (role === 'B') lights.brake.push(o as THREE.Mesh);
   });
   return { root, lights };
+}
+
+/**
+ * Unit wheel (radius 1, width 1, axle along X) as one vertex-coloured geometry,
+ * so every NPC wheel can share a single InstancedMesh.
+ */
+export function unitWheelGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const paint = (g: THREE.BufferGeometry, color: number) => {
+    const c = new THREE.Color(color);
+    const n = g.getAttribute('position').count;
+    const arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) arr.set([c.r, c.g, c.b], i * 3);
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    return g;
+  };
+  parts.push(paint(new THREE.CylinderGeometry(1, 1, 1, 14).rotateZ(Math.PI / 2), 0x151515));
+  parts.push(paint(new THREE.CylinderGeometry(0.6, 0.6, 1.06, 12).rotateZ(Math.PI / 2), 0x9a9a9a));
+  for (let i = 0; i < 3; i++) {
+    parts.push(paint(new THREE.BoxGeometry(1.1, 1.15, 0.16).rotateX((i * Math.PI) / 3), 0x2a2a2a));
+  }
+  const merged = mergeGeometries(parts.map((g) => g.toNonIndexed()))!;
+  parts.forEach((g) => g.dispose());
+  return merged;
 }

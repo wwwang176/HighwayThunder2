@@ -125,6 +125,23 @@ describe('TrafficSim', () => {
     });
   });
 
+  it('never changes lanes into a wreck that is alongside (center slightly behind)', () => {
+    for (const back of [1, 2, 3, 4]) {
+      const sim = new TrafficSim();
+      add(sim, 'car', 130, 3, 0, 0.01).cooldown = Infinity; // stopped leader forces a lane change
+      const a = add(sim, 'car', 120, 3, 0, 33);
+      a.cooldown = 0;
+      a.politeness = 0;
+      // 12.5 m trailer wreck in lane 2, its center a little behind the car's center.
+      const wreck: Obstacle = { id: -50, s: 120 - back, dMin: laneCenter(2) - 1.25, dMax: laneCenter(2) + 1.25, v: 0, length: 12.5 };
+      let entered = false;
+      run(sim, 4, [wreck], () => {
+        if (a.lcState === 'move' && a.targetLane === 2) entered = true;
+      });
+      expect(entered).toBe(false);
+    }
+  });
+
   it('does not start a lane change in front of a fast-approaching player', () => {
     const sim = new TrafficSim();
     add(sim, 'car', 260, 1, 12, 12).cooldown = Infinity;

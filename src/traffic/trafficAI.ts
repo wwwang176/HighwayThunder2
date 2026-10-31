@@ -10,7 +10,9 @@ export interface Agent {
   kind: VehicleKind;
   spec: VehicleSpec;
   s: number; // center position along the road
-  d: number; // lateral center
+  d: number; // lateral center (actual)
+  dPlan: number; // planned lateral center (lane-change path)
+  dPlanRate: number; // planned lateral velocity
   v: number;
   lane: number; // lane it is in (source lane while changing)
   targetLane: number | null;
@@ -80,6 +82,8 @@ export class TrafficSim {
       spec,
       s,
       d: laneCenter(lane),
+      dPlan: laneCenter(lane),
+      dPlanRate: 0,
       v: desiredV,
       lane,
       targetLane: null,
@@ -106,7 +110,12 @@ export class TrafficSim {
     this.agents.delete(id);
   }
 
-  step(dt: number, obstacles: Obstacle[], rng: () => number): void {
+  /**
+   * Plan one step. With `integrate` the sim also moves the agents (pure mode, used
+   * by tests); otherwise s/d/v/yaw are owned by physics and read back by the caller,
+   * and the sim only produces `accel` and the lateral path `dPlan`/`dPlanRate`.
+   */
+  step(dt: number, obstacles: Obstacle[], rng: () => number, integrate = true): void {
     this.buildBodies(obstacles);
 
     for (const a of this.agents.values()) {
@@ -127,12 +136,15 @@ export class TrafficSim {
     }
 
     for (const a of this.agents.values()) {
-      const prevD = a.d;
+      const prevPlan = a.dPlan;
       if (a.lcState === 'move') this.updateMove(a, dt, rng);
-      a.v = Math.max(0, a.v + a.accel * dt);
-      a.s += a.v * dt;
-      const lateral = (a.d - prevD) / dt;
-      a.yaw = Math.atan2(lateral, Math.max(a.v, 4));
+      a.dPlanRate = (a.dPlan - prevPlan) / dt;
+      if (integrate) {
+        a.v = Math.max(0, a.v + a.accel * dt);
+        a.s += a.v * dt;
+        a.d = a.dPlan;
+        a.yaw = Math.atan2(a.dPlanRate, Math.max(a.v, 4));
+      }
     }
   }
 
@@ -196,6 +208,12 @@ export class TrafficSim {
   }
 
   private changeIsSafe(a: Agent, target: number): boolean {
+    // Anything alongside in the target lane (including wrecks whose center is
+    // slightly behind us) blocks the change.
+    for (const b of this.bodies) {
+      if (b.id === a.id || !b.lanes.includes(target)) continue;
+      if (Math.abs(b.s - a.s) < (b.length + a.length) / 2 + 2) return false;
+    }
     const lead = this.leaderIn(target, a.s, a.length, a.id);
     if (lead && lead.gap < 2) return false;
     const rawF = this.followerIn(target, a.s, a.length, a.id);
@@ -266,7 +284,7 @@ export class TrafficSim {
     const target = a.targetLane!;
     if (a.lcTimer >= a.lcDuration && this.changeIsSafe(a, target)) {
       a.lcState = 'move';
-      a.lcFrom = a.d;
+      a.lcFrom = a.dPlan;
       a.lcTimer = 0;
       a.lcDuration = a.spec.laneChangeTime;
     } else if (a.lcTimer > a.lcDuration + SIGNAL_MAX_WAIT) {
@@ -279,21 +297,21 @@ export class TrafficSim {
     // Abort (steer back) if it became dangerous, e.g. the player showed up fast.
     if (target !== a.lane && a.lcTimer < a.lcDuration * 0.5 && !this.changeIsSafe(a, target)) {
       a.targetLane = a.lane;
-      a.lcFrom = a.d;
+      a.lcFrom = a.dPlan;
       a.lcTimer = 0;
-      a.lcDuration = Math.max(0.5, (a.spec.laneChangeTime * Math.abs(a.d - laneCenter(a.lane))) / LANE_WIDTH);
+      a.lcDuration = Math.max(0.5, (a.spec.laneChangeTime * Math.abs(a.dPlan - laneCenter(a.lane))) / LANE_WIDTH);
       return this.updateMove(a, dt, rng);
     }
     a.lcTimer += dt;
     const u = Math.min(1, a.lcTimer / a.lcDuration);
     const to = laneCenter(a.targetLane!);
-    a.d = a.lcFrom + (to - a.lcFrom) * smoothstep(u);
+    a.dPlan = a.lcFrom + (to - a.lcFrom) * smoothstep(u);
     if (u >= 1) this.endLaneChange(a, a.targetLane!, rng);
   }
 
   private endLaneChange(a: Agent, lane: number, rng: () => number): void {
     a.lane = lane;
-    a.d = laneCenter(lane);
+    a.dPlan = laneCenter(lane);
     a.lcState = 'none';
     a.targetLane = null;
     a.lcTimer = 0;

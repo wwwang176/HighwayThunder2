@@ -4,13 +4,18 @@ export interface SpawnRequest {
   kind: VehicleKind;
   s: number;
   lane: number;
+  /** Highest initial speed from which it can still stop behind whatever is ahead. */
+  vMax: number;
 }
 
 export interface Occupant {
   s: number;
   lane: number;
   length: number;
+  v?: number;
 }
+
+const SPAWN_BRAKE = 3; // m/s^2 assumed when choosing a safe initial speed
 
 export const MIN_CLEAR_GAP = 25;
 export const DEFAULT_SPACING = 100; // mean distance between vehicles in one lane (m)
@@ -52,6 +57,16 @@ function canPlace(s: number, lane: number, len: number, occ: Occupant[]): boolea
   return true;
 }
 
+function safeSpeed(s: number, lane: number, len: number, occ: Occupant[]): number {
+  let best = Infinity;
+  for (const o of occ) {
+    if (o.lane !== lane || o.s <= s) continue;
+    const gap = o.s - o.length / 2 - (s + len / 2);
+    best = Math.min(best, (o.v ?? Infinity) + Math.sqrt(2 * SPAWN_BRAKE * Math.max(0, gap)));
+  }
+  return best;
+}
+
 function fill(
   out: SpawnRequest[],
   occ: Occupant[],
@@ -61,10 +76,15 @@ function fill(
   spacing: number,
 ): void {
   const target = (countWindow[1] - countWindow[0]) / spacing;
+  // Never pack the placement band denser than the target spacing, even when the
+  // rest of the window is empty (e.g. the player is stopped and traffic drove off).
+  const bandCap = Math.max(1, Math.ceil((placeWindow[1] - placeWindow[0]) / spacing));
+  const inRange = (o: Occupant, lane: number, w: [number, number]) => o.lane === lane && o.s >= w[0] && o.s <= w[1];
   for (let lane = 0; lane < LANE_COUNT; lane++) {
-    let count = occ.filter((o) => o.lane === lane && o.s >= countWindow[0] && o.s <= countWindow[1]).length;
+    let count = occ.filter((o) => inRange(o, lane, countWindow)).length;
+    let band = occ.filter((o) => inRange(o, lane, placeWindow)).length;
     let attempts = 0;
-    while (count < target && attempts < 40) {
+    while (count < target && band < bandCap && attempts < 40) {
       attempts++;
       const kind = pickKindForLane(lane, rng);
       const len = VEHICLE_SPECS[kind].length;
@@ -73,10 +93,11 @@ function fill(
       if (hi <= lo) continue;
       const s = lo + rng() * (hi - lo);
       if (!canPlace(s, lane, len, occ)) continue;
-      const req = { kind, s, lane };
-      out.push(req);
-      occ.push({ s, lane, length: len });
+      const vMax = safeSpeed(s, lane, len, occ);
+      out.push({ kind, s, lane, vMax });
+      occ.push({ s, lane, length: len, v: Math.min(vMax, VEHICLE_SPECS[kind].speedRange[1]) });
       count++;
+      band++;
     }
   }
 }

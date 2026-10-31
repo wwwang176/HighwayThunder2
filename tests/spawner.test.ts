@@ -68,6 +68,33 @@ describe('planSpawns', () => {
   });
 });
 
+describe('planSpawns safety', () => {
+  it('a stopped player does not get the far edge packed: at most one new car per lane per 100 m band', () => {
+    // Player stopped; everything nearer has driven away, so the ahead window is empty.
+    const occupied: { s: number; lane: number; length: number; v?: number }[] = [];
+    for (let i = 0; i < 40; i++) {
+      const reqs = planSpawns({ playerS: 0, playerV: 0, raceTime: 30, occupied, rng: rngFrom(i + 1), initial: false });
+      for (const r of reqs) occupied.push({ s: r.s, lane: r.lane, length: VEHICLE_SPECS[r.kind].length, v: 30 });
+    }
+    for (let lane = 0; lane < 4; lane++) {
+      expect(occupied.filter((o) => o.lane === lane && o.s >= 600 && o.s <= 700).length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('new vehicles behind a stopped obstacle start slow enough to stop', () => {
+    const wreck = { s: 660, lane: 2, length: 4.5, v: 0 };
+    for (let seed = 1; seed < 30; seed++) {
+      const reqs = planSpawns({ playerS: 0, playerV: 80, raceTime: 30, occupied: [wreck], rng: rngFrom(seed), initial: false });
+      for (const r of reqs) {
+        if (r.lane !== 2 || r.s > 660) continue;
+        const gap = 660 - 4.5 / 2 - (r.s + VEHICLE_SPECS[r.kind].length / 2);
+        // Stopping distance at 3 m/s^2 must fit in the gap.
+        expect((r.vMax * r.vMax) / (2 * 3)).toBeLessThanOrEqual(gap + 1e-6);
+      }
+    }
+  });
+});
+
 describe('pickKind / shouldDespawn', () => {
   it('mix is mostly cars', () => {
     const rng = rngFrom(5);
