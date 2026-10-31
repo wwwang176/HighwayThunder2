@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { VehicleKind } from '../config';
+import { GRASS_GRIP, MEDIAN_FAR_X, MEDIAN_NEAR_X, VehicleKind } from '../config';
 import { G_PLAYER, G_STATIC, groups, NPC_LIVE_GROUPS, PhysicsWorld, WRECK_GROUPS } from '../physics/physicsWorld';
 import type { Agent, Obstacle } from '../traffic/trafficAI';
 import {
@@ -21,6 +21,8 @@ import {
 import { npcDriveForces, stanleySteer, wheelLoads } from './npcDriver';
 import { boxToFrame, RoadFrame } from '../road/frame';
 import { WheelInstances } from './wheelInstances';
+import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
+import type { TireParams } from './tireModel';
 
 // Container geometry (see config: total 16.9 m).
 const CAB_L = 6;
@@ -31,7 +33,17 @@ const KINGPIN_FROM_TRAILER_CENTER = TRAILER_L / 2 - 0.6;
 const FIFTH_WHEEL_Y = -CONTAINER_H / 2 + 1.25;
 
 const SAG = 0.06; // static suspension compression we design for (m)
-const WRECK_BRAKE_DECEL = 6;
+
+// Once wrecked, vehicles run on the same tyre/wheel model as the player's car.
+const WRECK_TIRE: TireParams = {
+  muPeak: 1.1,
+  muSlide: 0.8,
+  slipAnglePeak: 0.105,
+  rollingResistance: 0.015,
+  regripSpeed: 0.6,
+  slipFalloff: 18,
+};
+const wreckSurfaceGrip = (x: number) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
 const WHEEL_RAY_GROUPS = groups(G_PLAYER, G_STATIC); // NPC wheels only stand on the road
 const G = 9.81;
 
@@ -69,6 +81,7 @@ interface PartSpec {
 
 interface Wheel {
   slot: number;
+  staticLoad: number; // N, design load (sets spring rates)
   x: number;
   z: number;
   connY: number;
@@ -82,7 +95,8 @@ interface Part {
   spec: PartSpec;
   body: RAPIER.RigidBody;
   collider: RAPIER.Collider;
-  vehicle: RAPIER.DynamicRayCastVehicleController;
+  vehicle: RAPIER.DynamicRayCastVehicleController | null; // live: Rapier's controller
+  chassis: TyreChassis | null; // wrecked: the full tyre model
   wheels: Wheel[];
   mesh: THREE.Group;
   lights: VehicleLights;
@@ -244,6 +258,7 @@ export class NpcVehicle {
         vehicle.setWheelSideFrictionStiffness(idx, 1);
         wheels.push({
           slot: this.wheelPool.alloc(),
+          staticLoad: loads[ai],
           x: side * s.halfTrack,
           z,
           connY,
@@ -261,6 +276,7 @@ export class NpcVehicle {
       body,
       collider,
       vehicle,
+      chassis: null,
       wheels,
       mesh: m.root,
       lights: m.lights,
@@ -315,12 +331,13 @@ export class NpcVehicle {
     const decel = f.brakeImpulse > 0 ? (f.brakeImpulse * 4) / (this.totalMass * dt) : 0;
     for (const p of this.parts) {
       const nDriven = p.wheels.filter((w) => w.driven).length;
+      const vc = p.vehicle!;
       p.wheels.forEach((w, i) => {
-        p.vehicle.setWheelSteering(i, w.steer ? -steer : 0);
-        p.vehicle.setWheelEngineForce(i, w.driven ? -f.engineForce / nDriven : 0);
-        p.vehicle.setWheelBrake(i, (decel * p.spec.mass * dt) / p.wheels.length);
+        vc.setWheelSteering(i, w.steer ? -steer : 0);
+        vc.setWheelEngineForce(i, w.driven ? -f.engineForce / nDriven : 0);
+        vc.setWheelBrake(i, (decel * p.spec.mass * dt) / p.wheels.length);
       });
-      p.vehicle.updateVehicle(dt, undefined, WHEEL_RAY_GROUPS);
+      vc.updateVehicle(dt, undefined, WHEEL_RAY_GROUPS);
     }
 
     const ind =
@@ -343,22 +360,67 @@ export class NpcVehicle {
     this.wreckTime = 0;
     for (const p of this.parts) {
       p.collider.setCollisionGroups(WRECK_GROUPS);
-      p.body.setLinearDamping(0.2);
-      p.body.setAngularDamping(0.5);
       setBrake(p.lights, true);
+      this.switchToTyreModel(p);
     }
+  }
+
+  /** Replace Rapier's simple vehicle controller with the full tyre/wheel model. */
+  private switchToTyreModel(p: Part): void {
+    if (!p.vehicle) return;
+    const vc = p.vehicle;
+    const v = p.body.linvel();
+    const q = p.body.rotation();
+    TMP_V.set(0, 0, -1).applyQuaternion(TMP_Q.set(q.x, q.y, q.z, q.w));
+    const forward = v.x * TMP_V.x + v.z * TMP_V.z;
+    const wheels: ChassisWheel[] = p.wheels.map((w, i) => {
+      const mCorner = w.staticLoad / G;
+      const k = w.staticLoad / SAG;
+      const cw = makeWheel(
+        {
+          x: w.x,
+          z: w.z,
+          connY: w.connY,
+          r: w.r,
+          front: w.steer,
+          springK: k,
+          bump: 2 * 0.45 * Math.sqrt(k * mCorner),
+          rebound: 2 * 0.65 * Math.sqrt(k * mCorner),
+          mEff: mCorner * 0.9,
+          gripScale: 1,
+        },
+        vc.wheelSuspensionLength(i) ?? p.spec.rest - SAG,
+      );
+      cw.omega = forward / w.r;
+      cw.spin = vc.wheelRotation(i) ?? 0;
+      return cw;
+    });
+    this.physics.world.removeVehicleController(vc);
+    p.vehicle = null;
+    p.chassis = new TyreChassis(this.physics, p.body, wheels, {
+      rest: p.spec.rest,
+      travel: 0.2,
+      inertia: p.spec.mass > 3000 ? 4 : 1,
+      antiRoll: [],
+      tire: WRECK_TIRE,
+      surfaceGrip: wreckSurfaceGrip,
+    });
+  }
+
+  /** Wheels of wrecked parts (for skid marks / smoke). */
+  wreckWheels(): { part: number; wheels: ChassisWheel[]; body: RAPIER.RigidBody }[] {
+    return this.parts.filter((p) => p.chassis).map((p, i) => ({ part: i, wheels: p.chassis!.wheels, body: p.body }));
   }
 
   /** Wrecks keep their (braked) wheels and flash hazard lights. */
   updateWreck(dt: number, time: number): void {
     this.wreckTime += dt;
     for (const p of this.parts) {
-      p.wheels.forEach((_, i) => {
-        p.vehicle.setWheelSteering(i, 0);
-        p.vehicle.setWheelEngineForce(i, 0);
-        p.vehicle.setWheelBrake(i, (WRECK_BRAKE_DECEL * p.spec.mass * dt) / p.wheels.length);
-      });
-      p.vehicle.updateVehicle(dt, undefined, WHEEL_RAY_GROUPS);
+      if (!p.chassis) continue;
+      const n = p.wheels.length;
+      // The driver stands on the brakes: enough torque to lock every wheel.
+      const brake = p.wheels.map((w) => 1.5 * WRECK_TIRE.muPeak * w.staticLoad * w.r);
+      p.chassis.step(dt, new Array(n).fill(0), new Array(n).fill(0), brake);
     }
     const blink = time % 0.8 < 0.4;
     for (const p of this.parts) setIndicators(p.lights, blink, blink);
@@ -391,8 +453,11 @@ export class NpcVehicle {
       p.mesh.quaternion.slerpQuaternions(p.prevQuat, p.currQuat, alpha);
       p.mesh.updateMatrix();
       p.wheels.forEach((w, i) => {
-        const len = p.vehicle.wheelSuspensionLength(i) ?? p.spec.rest;
-        TMP_E.set(p.vehicle.wheelRotation(i) ?? 0, p.vehicle.wheelSteering(i) ?? 0, 0, 'YXZ');
+        const cw = p.chassis?.wheels[i];
+        const len = cw ? cw.susp : p.vehicle!.wheelSuspensionLength(i) ?? p.spec.rest;
+        const spin = cw ? cw.spin : p.vehicle!.wheelRotation(i) ?? 0;
+        const steer = cw ? -cw.steer : p.vehicle!.wheelSteering(i) ?? 0;
+        TMP_E.set(spin, steer, 0, 'YXZ');
         TMP_M2.compose(TMP_V.set(w.x, w.connY - len, w.z), TMP_Q.setFromEuler(TMP_E), TMP_S.set(w.width, w.r, w.r));
         TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2);
         this.wheelPool.set(w.slot, TMP_M);
@@ -425,7 +490,7 @@ export class NpcVehicle {
     if (this.joint) this.physics.world.removeImpulseJoint(this.joint, true);
     for (const p of this.parts) {
       for (const w of p.wheels) this.wheelPool.release(w.slot);
-      this.physics.world.removeVehicleController(p.vehicle);
+      if (p.vehicle) this.physics.world.removeVehicleController(p.vehicle);
       this.physics.unregister(p.collider);
       this.physics.world.removeRigidBody(p.body);
       this.scene.remove(p.mesh);
