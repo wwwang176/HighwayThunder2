@@ -21,6 +21,8 @@ import {
 import { npcDriveForces, stanleySteer, wheelLoads } from './npcDriver';
 import { boxToFrame, RoadFrame } from '../road/frame';
 import { WheelInstances } from './wheelInstances';
+import type { LightFlares } from '../render/lightFlares';
+import { BRAKE_ON, FlareSpot } from './models';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
 import type { TireParams } from './tireModel';
 
@@ -130,6 +132,27 @@ function model(key: string, build: () => VehicleModel): VehicleModel {
     templates.set(key, t);
   }
   return cloneModel(t);
+}
+
+const FLARE_V = new THREE.Vector3();
+
+/** Head/tail light glows (+ blinking indicators) for one vehicle body. */
+export function emitFlares(mesh: THREE.Object3D, lights: VehicleLights, flares: LightFlares): void {
+  const spots = mesh.userData.flares as FlareSpot[] | undefined;
+  if (spots) {
+    const braking = lights.brake.length > 0 && lights.brake[0].material === BRAKE_ON;
+    for (const f of spots) {
+      FLARE_V.set(f.x, f.y, f.z).applyMatrix4(mesh.matrix);
+      if (f.kind === 'head') flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.95, 0.85, 0.55);
+      else if (braking) flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.07, 0.05, 0.5);
+      else flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 0.55, 0.02, 0.02, 0.32);
+    }
+  }
+  for (const ind of [...lights.left, ...lights.right]) {
+    if (!ind.visible) continue;
+    FLARE_V.copy(ind.position).applyMatrix4(mesh.matrix);
+    flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.5, 0.04, 0.35);
+  }
 }
 
 function pick<T>(arr: T[], rng: () => number): T {
@@ -494,12 +517,13 @@ export class NpcVehicle {
     }
   }
 
-  /** Interpolated body pose; wheels placed from the live suspension state. */
-  render(alpha: number): void {
+  /** Interpolated body pose; wheels placed from the live suspension state; light flares. */
+  render(alpha: number, flares: LightFlares): void {
     for (const p of this.parts) {
       p.mesh.position.lerpVectors(p.prevPos, p.currPos, alpha);
       p.mesh.quaternion.slerpQuaternions(p.prevQuat, p.currQuat, alpha);
       p.mesh.updateMatrix();
+      emitFlares(p.mesh, p.lights, flares);
       p.wheels.forEach((w, i) => {
         const cw = p.chassis?.wheels[i];
         const len = cw ? cw.susp : p.vehicle!.wheelSuspensionLength(i) ?? p.spec.rest;

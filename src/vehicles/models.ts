@@ -47,13 +47,22 @@ function glowMat(r: number, g: number, b: number, extra: THREE.MeshBasicMaterial
 }
 
 // Night: tail lights always on (dim), brake lights bright, headlights brightest.
-export const BRAKE_DIM = glowMat(0.55, 0.01, 0.01);
-export const BRAKE_ON = glowMat(5, 0.25, 0.2);
-const INDICATOR = glowMat(5, 2.2, 0.2);
+// The glow itself comes from flare sprites (render/lightFlares), so these stay in range.
+export const BRAKE_DIM = glowMat(0.45, 0.01, 0.01);
+export const BRAKE_ON = glowMat(1, 0.1, 0.08);
+const INDICATOR = glowMat(1, 0.55, 0.05);
 const GLASS = std(0x1a2430, 0.15, 0.6);
 const TIRE = std(0x151515, 0.9);
 const RIM = std(0x9a9a9a, 0.4, 0.6);
-const HEADLIGHT = glowMat(7, 6.4, 5.4);
+const HEADLIGHT = glowMat(1, 0.97, 0.88);
+
+/** Where a model's lights glow (model-local), stored in root.userData.flares. */
+export interface FlareSpot {
+  x: number;
+  y: number;
+  z: number;
+  kind: 'head' | 'tail';
+}
 
 /** Soft pool of headlight light painted on the road in front of a vehicle. */
 function beamTexture(): THREE.CanvasTexture {
@@ -147,8 +156,11 @@ function addLights(
     beam.position.set(0, groundY + 0.04, frontZ - BEAM_LEN / 2 + 0.5);
     parent.add(beam);
   }
+  const flares: FlareSpot[] = (parent.userData.flares ??= []);
   for (const side of [-1, 1]) {
     const list = side < 0 ? lights.left : lights.right;
+    flares.push({ x: side * (halfW - 0.35), y, z: rearZ + 0.1, kind: 'tail' });
+    if (frontZ !== null) flares.push({ x: side * (halfW - 0.4), y, z: frontZ - 0.1, kind: 'head' });
     // Rear indicator + brake light.
     const ind = box(parent, 0.18, 0.14, 0.06, INDICATOR, side * (halfW - 0.12), y + 0.2, rearZ + 0.03, false);
     ind.visible = false;

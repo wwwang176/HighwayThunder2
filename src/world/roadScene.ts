@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { makeFlareMaterial } from '../render/lightFlares';
 import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH, ROAD_LENGTH } from '../config';
 
 const STRIP_PERIOD = 100; // m; lane-dash (20), rail-post (4) and lamp (50) periods all divide it
@@ -161,6 +162,7 @@ export class RoadScene {
   private trees = new THREE.Group();
   private far = new THREE.Group();
   private lampHeads: LampHead[] = [];
+  readonly lampFlareMaterial = makeFlareMaterial(2.5);
   private pools!: THREE.InstancedMesh;
   private realLights: THREE.SpotLight[] = [];
   private readonly poolColor = new THREE.Color(LAMP_COLOR);
@@ -241,9 +243,7 @@ export class RoadScene {
     // the median lamps have a second arm over the oncoming carriageway, which also
     // has lamps on its outer edge.
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3e44, roughness: 0.6, metalness: 0.5 });
-    // Lamp heads glow (HDR colour > 1 feeds the bloom pass).
-    const headMat = new THREE.MeshBasicMaterial({ toneMapped: false });
-    headMat.color.set(LAMP_COLOR).multiplyScalar(6);
+    const headMat = new THREE.MeshBasicMaterial({ color: LAMP_COLOR });
     const medianX = (MEDIAN_NEAR_X + MEDIAN_FAR_X) / 2;
     // Each pole: position, stagger, and arms as (direction, reach to the lamp head).
     const poleSpecs: { x: number; offset: number; arms: [number, number][] }[] = [
@@ -293,6 +293,25 @@ export class RoadScene {
       }
     }
     this.strip.add(poles, arms, heads, this.pools);
+
+    // Lamp-head glows: soft sprites that stay a few pixels wide in the distance.
+    const fpos = new Float32Array(this.lampHeads.length * 3);
+    const fcol = new Float32Array(this.lampHeads.length * 3);
+    const fsize = new Float32Array(this.lampHeads.length);
+    const c = new THREE.Color(LAMP_COLOR);
+    this.lampHeads.forEach((h, k) => {
+      fpos.set([h.x, LAMP_HEIGHT - 0.15, -h.s], k * 3);
+      fcol.set([c.r, c.g, c.b], k * 3);
+      fsize[k] = 1.6;
+    });
+    const fgeo = new THREE.BufferGeometry();
+    fgeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
+    fgeo.setAttribute('color', new THREE.BufferAttribute(fcol, 3));
+    fgeo.setAttribute('size', new THREE.BufferAttribute(fsize, 1));
+    const lampFlares = new THREE.Points(fgeo, this.lampFlareMaterial);
+    lampFlares.frustumCulled = false;
+    lampFlares.renderOrder = 3;
+    this.strip.add(lampFlares);
   }
 
   private buildTrees(): void {

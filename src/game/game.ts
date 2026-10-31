@@ -1,9 +1,6 @@
 import * as THREE from 'three';
 import Stats from 'stats.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import type GUI from 'lil-gui';
 import { GRASS_GRIP, MAX_FRAME_DT, MAX_SUBSTEPS, MAX_WRECKS, MEDIAN_FAR_X, MEDIAN_NEAR_X, PHYSICS_DT, RESET_SPEED, WRECK_LIFETIME } from '../config';
 import { boxToFrame, ONCOMING_FRAME, OUR_FRAME, RoadFrame } from '../road/frame';
@@ -43,8 +40,7 @@ interface Side {
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
-  private composer!: EffectComposer;
-  readonly bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.3, 1.2);
+  private flares!: LightFlares;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 3000);
   readonly keyboard = new Keyboard();
@@ -80,15 +76,13 @@ export class Game {
     physics.timestep = PHYSICS_DT;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    // Night: no sun, so no shadow maps; lights glow through a bloom pass.
+    // Night: no sun, so no shadow maps. Lights glow through flare sprites rather
+    // than a bloom pass (bloom made distant lights shimmer and blew out close ones).
     this.renderer.shadowMap.enabled = false;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
     container.appendChild(this.renderer.domElement);
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
+    this.flares = new LightFlares(this.scene);
     this.road = new RoadScene(this.scene, this.renderer);
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = (x) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
@@ -128,9 +122,7 @@ export class Game {
 
   private resize(): void {
     this.renderer.setSize(innerWidth, innerHeight);
-    this.composer?.setPixelRatio(this.renderer.getPixelRatio());
-    this.composer?.setSize(innerWidth, innerHeight);
-    this.bloom.resolution.set(innerWidth / 2, innerHeight / 2);
+
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
   }
@@ -449,8 +441,10 @@ export class Game {
   }
 
   private render(dt: number, alpha: number): void {
-    this.player.render(alpha);
-    for (const npc of this.npcs.values()) npc.render(alpha);
+    this.flares.begin();
+    this.player.render(alpha, this.flares);
+    for (const npc of this.npcs.values()) npc.render(alpha, this.flares);
+    this.flares.end();
     this.wheelPool.commit();
     this.smoke.update(this.flow.phase === 'paused' ? 0 : dt);
     const p = this.player.mesh.position;
@@ -468,6 +462,9 @@ export class Game {
       gear: this.player.gearbox.gear,
       rpm: this.player.rpm,
     });
-    this.composer.render(dt);
+    const h = this.renderer.domElement.height;
+    updateFlareScale(this.flares.material, this.camera, h);
+    updateFlareScale(this.road.lampFlareMaterial, this.camera, h);
+    this.renderer.render(this.scene, this.camera);
   }
 }

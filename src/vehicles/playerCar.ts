@@ -4,6 +4,8 @@ import { laneCenter } from '../road/coords';
 import { PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
 import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, steerAngle } from './handling';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
+import { emitFlares } from './npcVehicle';
+import type { LightFlares } from '../render/lightFlares';
 import { TireParams } from './tireModel';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
 
@@ -12,7 +14,7 @@ export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
 
 const WHEEL_R = 0.34;
-const HEADLIGHT_INTENSITY = 1800; // candela per lamp
+const HEADLIGHT_INTENSITY = 420; // candela per lamp (gentle falloff, see below)
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
@@ -120,7 +122,9 @@ export class PlayerCar {
     const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false, false);
     // Real headlights: the only car lights that actually light the scene.
     for (const side of [-1, 1]) {
-      const hl = new THREE.SpotLight(0xfff4e6, HEADLIGHT_INTENSITY, 110, 0.42, 0.55, 1.4);
+      // Decay 1 instead of the physical 2: close objects don't blow out to white,
+      // the road far ahead still gets light.
+      const hl = new THREE.SpotLight(0xfff4e6, HEADLIGHT_INTENSITY, 110, 0.42, 0.55, 1.0);
       hl.position.set(side * 0.55, -0.05, -PLAYER_L / 2);
       hl.target.position.set(side * 0.8, -1.2, -PLAYER_L / 2 - 30);
       model.root.add(hl, hl.target);
@@ -286,9 +290,13 @@ export class PlayerCar {
   }
 
   /** Interpolated chassis pose and current wheel poses for rendering. */
-  render(alpha: number): void {
+  render(alpha: number, flares?: LightFlares): void {
     this.mesh.position.lerpVectors(this.prevPos, this.currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
+    if (flares) {
+      this.mesh.updateMatrix();
+      emitFlares(this.mesh, this.lights, flares);
+    }
     this.wheels.forEach((w, i) => {
       const v = this.visuals[i];
       v.steer.position.set(w.x, CONNECTION_Y - w.susp, w.z);
