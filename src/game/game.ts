@@ -76,9 +76,11 @@ export class Game {
     physics.timestep = PHYSICS_DT;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    // Night: no sun, so no shadow maps. Lights glow through flare sprites rather
-    // than a bloom pass (bloom made distant lights shimmer and blew out close ones).
-    this.renderer.shadowMap.enabled = false;
+    // Night: lights glow through flare sprites rather than a bloom pass (bloom made
+    // distant lights shimmer and blew out close ones). Only the player's headlight
+    // casts shadows (needed for its low-beam cookie).
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
     container.appendChild(this.renderer.domElement);
