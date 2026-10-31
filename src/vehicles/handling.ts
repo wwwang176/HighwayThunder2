@@ -43,7 +43,8 @@ export interface CarParams {
   rearGrip: number; // rear tyre grip multiplier (wider rear tyres)
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
-  counterSteer: number; // 0..1 how strongly the steering neutral follows the slide (caster self-alignment)
+  counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
+  steerSlowdownSpeed: number; // m/s; turn-in rate is halved at this speed (Infinity = never slower)
 }
 
 export const DEFAULT_CAR: CarParams = {
@@ -83,6 +84,7 @@ export const DEFAULT_CAR: CarParams = {
   slipFalloff: 18,
   lsd: 150,
   counterSteer: 0.8,
+  steerSlowdownSpeed: Infinity,
 };
 
 export interface DriveInput {
@@ -146,10 +148,15 @@ export function steerLimit(speed: number, p: CarParams): number {
   return Math.min(p.maxSteer, Math.atan((p.latAccelLimit * p.wheelbase) / (v * v)));
 }
 
-/** Smooth the digital keyboard steering into a -1..1 value. */
-export function smoothSteer(current: number, target: number, p: CarParams, dt: number): number {
+/**
+ * Smooth the digital keyboard steering into a -1..1 value. Turning in slows with
+ * speed (a driver eases the wheel in at 200 km/h instead of yanking it), which
+ * avoids the yaw overshoot-and-dip a step input causes; returning stays quick.
+ */
+export function smoothSteer(current: number, target: number, p: CarParams, dt: number, speed = 0): number {
   const returning = target === 0 || (current !== 0 && Math.sign(target) !== Math.sign(current));
-  const rate = (returning ? p.steerFall : p.steerRise) * dt;
+  const rise = p.steerRise / (1 + Math.abs(speed) / p.steerSlowdownSpeed);
+  const rate = (returning ? p.steerFall : rise) * dt;
   if (current < target) return Math.min(target, current + rate);
   return Math.max(target, current - rate);
 }
@@ -227,8 +234,6 @@ export class Gearbox {
   }
 }
 
-const CENTER_FADE_LO = 3; // m/s
-const CENTER_FADE_HI = 8; // m/s
 
 const G = 9.81;
 
@@ -243,31 +248,25 @@ export function steerRange(speed: number, p: CarParams): number {
   return Math.min(p.maxSteer, Math.atan((p.wheelbase * p.muPeak * G) / (v * v)) + p.slipAnglePeak);
 }
 
+const FOLLOW_FADE_LO = 3; // m/s
+const FOLLOW_FADE_HI = 8; // m/s
+
 /**
- * Front wheel angle for a -1..1 steering input (rad, + = right).
+ * Front wheel angle for a -1..1 (smoothed) steering input (rad, + = right).
  *
- * Target: the front axle's actual direction of travel (body slip + rotation)
- * plus input × the tyre's peak slip angle, so a full input holds the front tyres
- * right at the edge of grip at any speed, and with hands off the wheels trail
- * the motion like caster self-alignment (a slide can be caught around that).
- * Bound: within ± the speed-derived grip-limit angle around the car's direction
- * of travel. At low speed the bound is wide and the wheels follow the car's
- * rotation into a tight turn; at high speed it is narrow, which keeps the
- * rotation term from feeding back into a spin.
+ * While the driver steers, the wheels do exactly what the input says, relative
+ * to the car's nose, up to the speed-derived grip-limit range - no automatic
+ * correction. With hands off, the wheels swing toward the direction the car is
+ * travelling (caster self-alignment) by `counterSteer`; a partly pressed key
+ * blends between the two.
  * @param vLat sideways speed of the car's centre, + = to its right
- * @param yawRate + = turning right
  */
-export function steerAngle(input: number, vLong: number, vLat: number, yawRate: number, p: CarParams): number {
+export function steerAngle(input: number, vLong: number, vLat: number, p: CarParams): number {
   if (vLong <= 0) return input * p.maxSteer;
-  const fade = Math.min(1, Math.max(0, (vLong - CENTER_FADE_LO) / (CENTER_FADE_HI - CENTER_FADE_LO)));
-  if (fade === 0) return input * p.maxSteer;
-  const k = p.counterSteer * fade;
-  const beta = Math.atan2(vLat, vLong) * k;
-  const frontTravel = Math.atan2(vLat + yawRate * (p.wheelbase / 2), vLong) * k;
-  const range = steerRange(vLong, p);
-  let a = frontTravel + input * p.slipAnglePeak;
-  a = Math.max(beta - range, Math.min(beta + range, a));
-  // Blend in from plain steering at walking pace (travel direction undefined at 0).
-  a = input * p.maxSteer * (1 - fade) + a * fade;
+  const driver = input * steerRange(vLong, p);
+  const fade = Math.min(1, Math.max(0, (vLong - FOLLOW_FADE_LO) / (FOLLOW_FADE_HI - FOLLOW_FADE_LO)));
+  const trail = Math.atan2(vLat, vLong) * p.counterSteer * fade;
+  const handsOff = 1 - Math.min(1, Math.abs(input));
+  const a = driver + trail * handsOff;
   return Math.max(-p.maxSteer, Math.min(p.maxSteer, a));
 }

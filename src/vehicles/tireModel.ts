@@ -63,12 +63,18 @@ export function kineticMu(slipSpeed: number, t: TireParams): number {
   return t.muSlide + (t.muPeak - t.muSlide) * Math.exp(-Math.abs(slipSpeed) / v0);
 }
 
-/** Cornering friction coefficient as a function of |slip angle|. */
+/**
+ * Cornering friction coefficient vs |slip angle|: linear up to the peak, then a
+ * gentle fall (real tyres keep ~90% of peak grip well past the peak slip angle)
+ * down to the sliding level only at large angles.
+ */
 export function lateralCurve(alpha: number, t: TireParams): number {
   const a = Math.abs(alpha);
   if (a <= t.slipAnglePeak) return (t.muPeak * a) / t.slipAnglePeak;
-  const k = Math.min(1, (a - t.slipAnglePeak) / t.slipAnglePeak);
-  return t.muPeak + (t.muSlide - t.muPeak) * k;
+  const plateau = Math.max(t.muSlide, t.muPeak * 0.9);
+  const k = (a - t.slipAnglePeak) / t.slipAnglePeak;
+  if (k <= 2) return t.muPeak + (plateau - t.muPeak) * (k / 2);
+  return plateau + (t.muSlide - plateau) * Math.min(1, (k - 2) / 4);
 }
 
 /** Apply brake torque to a spinning wheel: it slows towards zero but never reverses. */
@@ -106,9 +112,13 @@ export function solveWheel(w: WheelIn): WheelOut {
   const FyStop = (-w.mEff * w.vy) / dt; // what would cancel the side motion this step
   const FyReq = Math.abs(FyCurve) < Math.abs(FyStop) ? FyCurve : FyStop;
 
-  const slipNow = Math.hypot(w.omega * R - w.vx, w.vy);
-  const wasSliding = slipNow > t.regripSpeed && Math.abs(w.omega * R - w.vx) > t.regripSpeed;
-  const limit = (wasSliding ? kineticMu(slipNow, t) : t.muPeak) * mu * w.Fz;
+  // Friction falls with LONGITUDINAL slip speed (wheelspin / lock-up). Sideways
+  // overload is handled by the slip-angle curve, which falls off gently; using the
+  // sideways speed here would make grip collapse the moment a fast corner hits
+  // the limit, and the car would fishtail.
+  const longSlip = Math.abs(w.omega * R - w.vx);
+  const wasSliding = longSlip > t.regripSpeed;
+  const limit = (wasSliding ? kineticMu(longSlip, t) : t.muPeak) * mu * w.Fz;
   const req = Math.hypot(FxReq, FyReq);
 
   if (req <= limit) {
@@ -116,7 +126,7 @@ export function solveWheel(w: WheelIn): WheelOut {
   }
 
   // --- sliding --------------------------------------------------------------
-  const kinetic = kineticMu(slipNow, t) * mu * w.Fz;
+  const kinetic = kineticMu(longSlip, t) * mu * w.Fz;
   const scale = Math.min(1, kinetic / req);
   const Fx = FxReq * scale;
   const Fy = FyReq * scale;

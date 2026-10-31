@@ -73,6 +73,12 @@ describe('steering', () => {
       expect(a).toBeLessThanOrEqual(P.latAccelLimit + 1e-6);
     }
   });
+  it('optional speed-scaled turn-in (off by default), returning stays quick', () => {
+    expect(smoothSteer(0, 1, P, 0.05, 55)).toBeCloseTo(smoothSteer(0, 1, P, 0.05, 5));
+    const Q = { ...P, steerSlowdownSpeed: 40 };
+    expect(smoothSteer(0, 1, Q, 0.05, 55)).toBeLessThan(smoothSteer(0, 1, Q, 0.05, 0) / 2);
+    expect(smoothSteer(0.5, 0, Q, 0.05, 55)).toBeCloseTo(smoothSteer(0.5, 0, Q, 0.05, 5));
+  });
   it('input smoothing ramps and returns faster', () => {
     let s = 0;
     s = smoothSteer(s, 1, P, 0.05);
@@ -162,29 +168,31 @@ describe('steering range from speed (grip-limit turn + peak slip angle)', () => 
       prev = r;
     }
   });
-  it('target: front axle travel (slip + rotation) + input × peak slip angle', () => {
-    const v = 15;
-    const r = 0.8;
-    const travel = Math.atan2(0 + r * (P.wheelbase / 2), v) * P.counterSteer;
-    expect(steerAngle(1, v, 0, r, P)).toBeCloseTo(Math.min(travel + P.slipAnglePeak, steerRange(v, P)));
-    expect(steerAngle(0, v, 0, r, P)).toBeCloseTo(travel); // hands off: wheels trail the motion
-  });
-  it('driving straight at speed: full input = peak slip angle', () => {
-    expect(steerAngle(1, 250 / 3.6, 0, 0, P)).toBeCloseTo(P.slipAnglePeak);
-  });
-  it('at high speed the rotation term is bounded by the grip-limit range around the travel direction', () => {
-    const v = 250 / 3.6;
-    const a = steerAngle(1, v, 0, 3, P); // spinning hard
-    expect(a).toBeLessThanOrEqual(steerRange(v, P) + 1e-9);
-  });
-  it('in a slide the wheels turn toward the travel direction (by the follow strength)', () => {
+  it('while steering: exactly the input, relative to the nose (no automatic correction)', () => {
     const v = 40;
-    expect(steerAngle(0, v, 4, 0, P)).toBeCloseTo(Math.atan2(4, v) * P.counterSteer);
-    expect(steerAngle(0, v, 4, 0, { ...P, counterSteer: 1 })).toBeCloseTo(Math.atan2(4, v));
+    const slide = v * Math.tan(0.4);
+    expect(steerAngle(1, v, slide, P)).toBeCloseTo(steerRange(v, P));
+    expect(steerAngle(-1, v, slide, P)).toBeCloseTo(-steerRange(v, P));
+    expect(steerAngle(1, v, -slide, P)).toBeCloseTo(steerRange(v, P));
   });
-  it('reversing and walking pace: plain steering lock; never exceeds full lock', () => {
-    expect(steerAngle(1, -5, 1, 0.2, P)).toBeCloseTo(P.maxSteer);
-    expect(steerAngle(1, 2, 0, 0, P)).toBeCloseTo(P.maxSteer);
-    expect(Math.abs(steerAngle(1, 30, 30, 2, P))).toBeLessThanOrEqual(P.maxSteer);
+  it('hands off: the wheels trail the direction of travel at counterSteer strength', () => {
+    const v = 40;
+    const beta = 0.4;
+    expect(steerAngle(0, v, v * Math.tan(beta), P)).toBeCloseTo(beta * P.counterSteer);
+    expect(steerAngle(0, v, 0, P)).toBe(0);
+  });
+  it('a partly pressed key blends input and trailing', () => {
+    const v = 40;
+    const beta = 0.2;
+    const a = steerAngle(0.5, v, v * Math.tan(beta), P);
+    expect(a).toBeCloseTo(0.5 * steerRange(v, P) + 0.5 * beta * P.counterSteer);
+  });
+  it('driving at 250 km/h: full input just past the peak slip angle', () => {
+    expect(steerAngle(1, 250 / 3.6, 0, P)).toBeCloseTo(steerRange(250 / 3.6, P));
+    expect(steerAngle(1, 250 / 3.6, 0, P)).toBeGreaterThan(P.slipAnglePeak);
+  });
+  it('reversing: full lock; never exceeds full lock', () => {
+    expect(steerAngle(1, -5, 0, P)).toBeCloseTo(P.maxSteer);
+    expect(Math.abs(steerAngle(0, 30, 300, P))).toBeLessThanOrEqual(P.maxSteer);
   });
 });

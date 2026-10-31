@@ -11,11 +11,13 @@ const base = (o: Partial<WheelIn>): WheelIn => ({
 });
 
 describe('lateralCurve', () => {
-  it('rises to the peak then falls to sliding friction', () => {
+  it('rises to the peak then falls gently toward sliding friction', () => {
     const t = DEFAULT_TIRE;
     expect(lateralCurve(t.slipAnglePeak, t)).toBeCloseTo(t.muPeak);
     expect(lateralCurve(t.slipAnglePeak * 0.5, t)).toBeCloseTo(t.muPeak * 0.5);
-    expect(lateralCurve(t.slipAnglePeak * 3, t)).toBeCloseTo(t.muSlide);
+    // Still ~90% of peak at 3x the peak slip angle; sliding level only far beyond.
+    expect(lateralCurve(t.slipAnglePeak * 3, t)).toBeCloseTo(Math.max(t.muSlide, t.muPeak * 0.9));
+    expect(lateralCurve(t.slipAnglePeak * 8, t)).toBeCloseTo(t.muSlide);
   });
 });
 
@@ -105,6 +107,15 @@ describe('solveWheel', () => {
     expect(r.Fx).toBe(0);
     expect(r.Fy).toBe(0);
     expect(r.omega).toBeGreaterThan(10 / R);
+  });
+
+  it('cornering just past the limit at high speed keeps (nearly) peak grip - no sudden drop', () => {
+    const v = 55;
+    const alphaPeak = DEFAULT_TIRE.slipAnglePeak;
+    // A little drive torque, as when holding the throttle through a corner.
+    const below = solveWheel(base({ vx: v, vy: v * Math.tan(alphaPeak * 0.9), omega: v / R, driveTorque: 150 }));
+    const above = solveWheel(base({ vx: v, vy: v * Math.tan(alphaPeak * 1.1), omega: v / R, driveTorque: 150 }));
+    expect(Math.abs(above.Fy)).toBeGreaterThan(Math.abs(below.Fy) * 0.95);
   });
 
   it('total force always inside the friction circle', () => {

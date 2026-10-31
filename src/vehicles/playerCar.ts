@@ -53,6 +53,9 @@ interface WheelState {
   sliding: boolean;
   slip: number;
   load: number;
+  fx: number; // last tyre force along the wheel (N), for diagnostics
+  fy: number; // last tyre force across the wheel (N)
+  alpha: number; // last slip angle (rad)
   contactX: number;
   contactZ: number;
   dirX: number;
@@ -127,7 +130,7 @@ export class PlayerCar {
     ]) {
       this.wheels.push({
         x, z, front: z < 0, omega: 0, spin: 0, susp: p.suspensionRest - 0.09, steer: 0,
-        inContact: true, sliding: false, slip: 0, load: 0, contactX: 0, contactZ: 0, dirX: 0, dirZ: -1,
+        inContact: true, sliding: false, slip: 0, load: 0, fx: 0, fy: 0, alpha: 0, contactX: 0, contactZ: 0, dirX: 0, dirZ: -1,
       });
     }
 
@@ -160,10 +163,9 @@ export class PlayerCar {
     const p = this.params;
     this.readBack();
 
-    this.steer = smoothSteer(this.steer, input.steer, p, dt);
-    // Steering range is centred on the front axle's direction of travel and reaches
-    // the tyres' peak slip angle (the edge of front grip) at any speed.
-    const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, -this.body.angvel().y, p);
+    this.steer = smoothSteer(this.steer, input.steer, p, dt, this.vLong);
+    // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
+    const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, p);
     const targetThrottle = input.throttle;
     this.throttle += Math.sign(targetThrottle - this.throttle) * Math.min(Math.abs(targetThrottle - this.throttle), p.throttleRise * dt);
 
@@ -265,6 +267,9 @@ export class PlayerCar {
       w.spin -= res.omega * dt;
       w.sliding = res.sliding;
       w.slip = res.slip;
+      w.fx = res.Fx;
+      w.fy = res.Fy;
+      w.alpha = Math.atan2(vy, Math.max(Math.abs(vx), 0.5));
       w.contactX = CONTACT.x;
       w.contactZ = CONTACT.z;
       w.dirX = FWD.x;
