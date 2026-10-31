@@ -227,23 +227,47 @@ export class Gearbox {
   }
 }
 
-const NEUTRAL_FADE_LO = 3; // m/s
-const NEUTRAL_FADE_HI = 8; // m/s
-const NEUTRAL_DEADZONE = 0.035; // rad of body slip ignored (normal grip cornering)
+const CENTER_FADE_LO = 3; // m/s
+const CENTER_FADE_HI = 8; // m/s
+
+const G = 9.81;
 
 /**
- * Self-aligning steering: once the car is really sliding, the front wheels'
- * neutral position follows the direction the car is travelling (as caster
- * self-alignment does on a real car), so the driver steers ± around "pointing
- * where the car goes" instead of around the nose. Normal grip driving (a few
- * degrees of body slip at most) is left alone. Returns a wheel angle (rad, + = right).
- * @param vLat sideways speed of the car's centre, + = to its right
+ * Steering range from speed alone: the front wheel angle at which the car turns
+ * at its grip limit - the geometric angle for the tightest turn the tyres allow
+ * (wheelbase · μg / v²) plus the tyre's peak slip angle. Full lock at low speed,
+ * just past the peak slip angle at 250 km/h. One formula, no speed bands.
  */
-export function steerNeutral(vLong: number, vLat: number, p: CarParams): number {
-  if (p.counterSteer <= 0 || vLong <= NEUTRAL_FADE_LO) return 0;
-  const fade = Math.min(1, (vLong - NEUTRAL_FADE_LO) / (NEUTRAL_FADE_HI - NEUTRAL_FADE_LO));
-  const beta = Math.atan2(vLat, vLong);
-  const excess = Math.sign(beta) * Math.max(0, Math.abs(beta) - NEUTRAL_DEADZONE);
-  const a = excess * fade * p.counterSteer;
+export function steerRange(speed: number, p: CarParams): number {
+  const v = Math.max(Math.abs(speed), 1);
+  return Math.min(p.maxSteer, Math.atan((p.wheelbase * p.muPeak * G) / (v * v)) + p.slipAnglePeak);
+}
+
+/**
+ * Front wheel angle for a -1..1 steering input (rad, + = right).
+ *
+ * Target: the front axle's actual direction of travel (body slip + rotation)
+ * plus input × the tyre's peak slip angle, so a full input holds the front tyres
+ * right at the edge of grip at any speed, and with hands off the wheels trail
+ * the motion like caster self-alignment (a slide can be caught around that).
+ * Bound: within ± the speed-derived grip-limit angle around the car's direction
+ * of travel. At low speed the bound is wide and the wheels follow the car's
+ * rotation into a tight turn; at high speed it is narrow, which keeps the
+ * rotation term from feeding back into a spin.
+ * @param vLat sideways speed of the car's centre, + = to its right
+ * @param yawRate + = turning right
+ */
+export function steerAngle(input: number, vLong: number, vLat: number, yawRate: number, p: CarParams): number {
+  if (vLong <= 0) return input * p.maxSteer;
+  const fade = Math.min(1, Math.max(0, (vLong - CENTER_FADE_LO) / (CENTER_FADE_HI - CENTER_FADE_LO)));
+  if (fade === 0) return input * p.maxSteer;
+  const k = p.counterSteer * fade;
+  const beta = Math.atan2(vLat, vLong) * k;
+  const frontTravel = Math.atan2(vLat + yawRate * (p.wheelbase / 2), vLong) * k;
+  const range = steerRange(vLong, p);
+  let a = frontTravel + input * p.slipAnglePeak;
+  a = Math.max(beta - range, Math.min(beta + range, a));
+  // Blend in from plain steering at walking pace (travel direction undefined at 0).
+  a = input * p.maxSteer * (1 - fade) + a * fade;
   return Math.max(-p.maxSteer, Math.min(p.maxSteer, a));
 }

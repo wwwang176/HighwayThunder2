@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerNeutral } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange } from '../src/vehicles/handling';
 
 const P = DEFAULT_CAR;
 
@@ -148,27 +148,42 @@ describe('engine through the gearbox', () => {
   });
 });
 
-describe('steering neutral follows the slide (self-aligning)', () => {
-  it('no slide → neutral is straight ahead', () => {
-    expect(steerNeutral(60, 0, P)).toBe(0);
+describe('steering range from speed (grip-limit turn + peak slip angle)', () => {
+  it('one formula: full lock when slow, just past the peak slip angle at 250 km/h', () => {
+    expect(steerRange(25 / 3.6, P)).toBeCloseTo(P.maxSteer);
+    const r250 = steerRange(250 / 3.6, P);
+    expect(r250).toBeGreaterThan(P.slipAnglePeak);
+    expect(r250).toBeLessThan(P.slipAnglePeak + 0.01);
+    // Monotonic: never wider at higher speed.
+    let prev = Infinity;
+    for (let kmh = 10; kmh <= 300; kmh += 10) {
+      const r = steerRange(kmh / 3.6, P);
+      expect(r).toBeLessThanOrEqual(prev + 1e-12);
+      prev = r;
+    }
   });
-  it('normal grip cornering (tiny body slip) is untouched', () => {
-    expect(steerNeutral(60, 60 * Math.tan(0.02), P)).toBe(0);
+  it('target: front axle travel (slip + rotation) + input × peak slip angle', () => {
+    const v = 15;
+    const r = 0.8;
+    const travel = Math.atan2(0 + r * (P.wheelbase / 2), v);
+    expect(steerAngle(1, v, 0, r, P)).toBeCloseTo(Math.min(travel + P.slipAnglePeak, steerRange(v, P)));
+    expect(steerAngle(0, v, 0, r, P)).toBeCloseTo(travel); // hands off: wheels trail the motion
   });
-  it('sliding: neutral turns the front wheels toward the direction of travel', () => {
-    const beta = Math.atan2(6, 40);
-    const n = steerNeutral(40, 6, P);
-    expect(n).toBeGreaterThan(0);
-    expect(n).toBeLessThanOrEqual(beta);
-    expect(n).toBeGreaterThan(beta - 0.05);
-    expect(steerNeutral(40, -6, P)).toBeCloseTo(-n);
+  it('driving straight at speed: full input = peak slip angle', () => {
+    expect(steerAngle(1, 250 / 3.6, 0, 0, P)).toBeCloseTo(P.slipAnglePeak);
   });
-  it('fades out at low speed and when reversing, and never exceeds full lock', () => {
-    expect(steerNeutral(1, 1, P)).toBe(0);
-    expect(steerNeutral(-10, 3, P)).toBe(0);
-    expect(Math.abs(steerNeutral(10, 50, P))).toBeLessThanOrEqual(P.maxSteer);
+  it('at high speed the rotation term is bounded by the grip-limit range around the travel direction', () => {
+    const v = 250 / 3.6;
+    const a = steerAngle(1, v, 0, 3, P); // spinning hard
+    expect(a).toBeLessThanOrEqual(steerRange(v, P) + 1e-9);
   });
-  it('strength 0 disables it', () => {
-    expect(steerNeutral(40, 6, { ...P, counterSteer: 0 })).toBe(0);
+  it('in a slide the wheels already point along the travel direction', () => {
+    const v = 40;
+    expect(steerAngle(0, v, 4, 0, P)).toBeCloseTo(Math.atan2(4, v));
+  });
+  it('reversing and walking pace: plain steering lock; never exceeds full lock', () => {
+    expect(steerAngle(1, -5, 1, 0.2, P)).toBeCloseTo(P.maxSteer);
+    expect(steerAngle(1, 2, 0, 0, P)).toBeCloseTo(P.maxSteer);
+    expect(Math.abs(steerAngle(1, 30, 30, 2, P))).toBeLessThanOrEqual(P.maxSteer);
   });
 });
