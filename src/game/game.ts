@@ -20,7 +20,7 @@ import { WheelInstances } from '../vehicles/wheelInstances';
 import { PlayerCar } from '../vehicles/playerCar';
 import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
-import { TireSmoke } from '../world/tireSmoke';
+import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow } from './gameState';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
@@ -457,9 +457,13 @@ export class Game {
     this.flares.end();
     this.npcBeams.end();
     this.wheelPool.commit();
-    this.smoke.update(this.flow.phase === 'paused' ? 0 : dt);
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
+    // After the road has placed this frame's street lights.
+    this.smoke.update(this.flow.phase === 'paused' ? 0 : dt, [
+      ...this.road.activeLights().map(smokeLightFromSpot),
+      ...this.player.smokeLights(),
+    ]);
     const lookBack = this.flow.phase === 'racing' && this.keyboard.isDown('KeyC');
     this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     this.sound.setEngine(this.player.rpm, this.lastInput.throttle, this.flow.phase !== 'title');

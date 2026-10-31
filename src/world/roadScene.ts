@@ -174,6 +174,11 @@ export class RoadScene {
   readonly groundMaterials: THREE.MeshStandardMaterial[] = [];
   private pools!: THREE.InstancedMesh;
   private realLights: THREE.SpotLight[] = [];
+
+  /** The street lights currently shining (for things lit by hand, like tyre smoke). */
+  activeLights(): THREE.SpotLight[] {
+    return this.realLights.filter((l) => l.visible && l.intensity > 0);
+  }
   private readonly poolColor = new THREE.Color(LAMP_COLOR);
   private readonly tmpColor = new THREE.Color();
 
