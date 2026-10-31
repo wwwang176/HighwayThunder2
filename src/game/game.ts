@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import Stats from 'stats.js';
+import { LightFlares, updateFlareScale } from '../render/lightFlares';
+import { NpcBeams } from '../render/npcBeams';
 import type GUI from 'lil-gui';
 import { GRASS_GRIP, MAX_FRAME_DT, MAX_SUBSTEPS, MAX_WRECKS, MEDIAN_FAR_X, MEDIAN_NEAR_X, PHYSICS_DT, RESET_SPEED, WRECK_LIFETIME } from '../config';
 import { boxToFrame, ONCOMING_FRAME, OUR_FRAME, RoadFrame } from '../road/frame';
@@ -18,7 +20,7 @@ import { WheelInstances } from '../vehicles/wheelInstances';
 import { PlayerCar } from '../vehicles/playerCar';
 import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
-import { TireSmoke } from '../world/tireSmoke';
+import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow } from './gameState';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
@@ -39,6 +41,8 @@ interface Side {
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
+  private flares!: LightFlares;
+  readonly npcBeams = new NpcBeams();
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 3000);
   readonly keyboard = new Keyboard();
@@ -74,11 +78,17 @@ export class Game {
     physics.timestep = PHYSICS_DT;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // Night: lights glow through flare sprites rather than a bloom pass (bloom made
+    // distant lights shimmer and blew out close ones). Only the player's headlights
+    // cast shadows (needed for their low-beam cookie).
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.95;
     container.appendChild(this.renderer.domElement);
+    this.flares = new LightFlares(this.scene);
     this.road = new RoadScene(this.scene, this.renderer);
+    for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = (x) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
     this.wheelPool = new WheelInstances(this.scene);
@@ -117,6 +127,7 @@ export class Game {
 
   private resize(): void {
     this.renderer.setSize(innerWidth, innerHeight);
+
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
   }
@@ -435,12 +446,25 @@ export class Game {
   }
 
   private render(dt: number, alpha: number): void {
-    this.player.render(alpha);
-    for (const npc of this.npcs.values()) npc.render(alpha);
+    this.flares.begin();
+    this.npcBeams.begin();
+    this.player.render(alpha, this.flares);
+    const pp = this.player.mesh.position;
+    for (const npc of this.npcs.values()) {
+      npc.render(alpha, this.flares);
+      for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
+    }
+    this.flares.end();
+    this.npcBeams.end();
     this.wheelPool.commit();
-    this.smoke.update(this.flow.phase === 'paused' ? 0 : dt);
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
+    // After the road has placed this frame's street lights.
+    this.smoke.update(this.flow.phase === 'paused' ? 0 : dt, [
+      ...this.road.activeLights().map(smokeLightFromSpot),
+      ...this.player.smokeLights(),
+      ...this.npcBeams.smokeLights(),
+    ]);
     const lookBack = this.flow.phase === 'racing' && this.keyboard.isDown('KeyC');
     this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     this.sound.setEngine(this.player.rpm, this.lastInput.throttle, this.flow.phase !== 'title');
@@ -454,6 +478,9 @@ export class Game {
       gear: this.player.gearbox.gear,
       rpm: this.player.rpm,
     });
+    const h = this.renderer.domElement.height;
+    updateFlareScale(this.flares.material, this.camera, h);
+    updateFlareScale(this.road.lampFlareMaterial, this.camera, h);
     this.renderer.render(this.scene, this.camera);
   }
 }

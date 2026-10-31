@@ -4,6 +4,10 @@ import { laneCenter } from '../road/coords';
 import { PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
 import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, steerAngle } from './handling';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
+import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
+import { AIM_DOWN, createHeadlight } from './headlight';
+import { emitFlares } from './npcVehicle';
+import type { LightFlares } from '../render/lightFlares';
 import { TireParams } from './tireModel';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
 
@@ -12,6 +16,7 @@ export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
 
 const WHEEL_R = 0.34;
+const HEADLIGHT_INTENSITY = 900; // candela for both lamps together, brightest part of the beam (decay 1)
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
@@ -55,6 +60,7 @@ export class PlayerCar {
   private steer = 0;
   private throttle = 0;
   readonly gearbox = new Gearbox();
+  readonly headlights: THREE.SpotLight[] = [];
   rpm = 900;
   driveMode: DriveMode = 'D';
   /** Optional per-position grip multiplier (e.g. grass). */
@@ -115,7 +121,19 @@ export class PlayerCar {
     this.wheels = wheels;
     this.chassis = new TyreChassis(physics, this.body, wheels, this.chassisSetup());
 
-    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false);
+    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false, false);
+    // Real low-beam headlights, one per lamp: the only car lights that actually
+    // light the scene. Each is aimed a few degrees down (beams parallel) and
+    // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
+    // of a round cone; the two beams overlap ahead and each casts its own shadow.
+    for (const side of [-1, 1]) {
+      const x = side * (PLAYER_W / 2 - 0.4);
+      const hl = createHeadlight(HEADLIGHT_INTENSITY / 2);
+      hl.position.set(x, -0.05, -PLAYER_L / 2 - 0.15);
+      hl.target.position.set(x, -0.05 - Math.tan(AIM_DOWN) * 30, -PLAYER_L / 2 - 30);
+      model.root.add(hl, hl.target);
+      this.headlights.push(hl);
+    }
     this.mesh = model.root;
     this.lights = model.lights;
     for (let i = 0; i < 4; i++) {
@@ -276,15 +294,25 @@ export class PlayerCar {
   }
 
   /** Interpolated chassis pose and current wheel poses for rendering. */
-  render(alpha: number): void {
+  render(alpha: number, flares?: LightFlares): void {
     this.mesh.position.lerpVectors(this.prevPos, this.currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
+    if (flares) {
+      this.mesh.updateMatrix();
+      emitFlares(this.mesh, this.lights, flares);
+    }
     this.wheels.forEach((w, i) => {
       const v = this.visuals[i];
       v.steer.position.set(w.x, CONNECTION_Y - w.susp, w.z);
       v.steer.rotation.y = -w.steer;
       v.spin.rotation.x = w.spin;
     });
+  }
+
+  /** The headlights as seen by tyre smoke (call after render). Tail and brake lamps don't light it. */
+  smokeLights(): SmokeLight[] {
+    this.mesh.updateMatrixWorld();
+    return this.headlights.map(smokeLightFromSpot);
   }
 
   /** Road-space AABB for AI / reset checks. */

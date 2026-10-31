@@ -44,7 +44,10 @@ export class SkidMarks {
         varying float vAlpha;
         #include <fog_pars_fragment>
         void main() {
-          gl_FragColor = vec4(0.05, 0.05, 0.05, vAlpha);
+          // Black at vAlpha: the road under the mark keeps vAlpha less of its light,
+          // like rubber lowering its albedo. (A fixed dark grey instead brightened
+          // the road wherever it was darker than that grey, i.e. most of it at night.)
+          gl_FragColor = vec4(0.0, 0.0, 0.0, vAlpha);
           #include <fog_fragment>
         }`,
     });

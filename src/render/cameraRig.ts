@@ -10,8 +10,9 @@ export interface CameraParams {
 }
 
 export const DEFAULT_CAMERA: CameraParams = {
-  distance: 8,
-  height: 3.0,
+  distance: 6.8,
+  height: 1.7, // low chase camera, close to the road
+
   lookAhead: 14,
   fovMin: 62,
   fovMax: 84,

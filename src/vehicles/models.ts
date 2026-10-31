@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { BEAM_LAMP_H } from './headlight';
+import type { BeamSpot } from '../render/npcBeams';
 
 /**
  * Procedural low-poly vehicles. Every model's origin is the center of its
@@ -38,23 +40,32 @@ function std(color: number, roughness = 0.6, metalness = 0.1): THREE.MeshStandar
   }
   return m;
 }
-function basic(color: number): THREE.MeshBasicMaterial {
-  const key = `b${color}`;
-  let m = matCache.get(key) as THREE.MeshBasicMaterial | undefined;
-  if (!m) {
-    m = new THREE.MeshBasicMaterial({ color });
-    matCache.set(key, m);
-  }
+
+/** Self-lit material with HDR brightness (values > 1 feed the bloom glow at night). */
+function glowMat(r: number, g: number, b: number, extra: THREE.MeshBasicMaterialParameters = {}): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({ toneMapped: false, ...extra });
+  m.color.setRGB(r, g, b);
   return m;
 }
 
-export const BRAKE_DIM = std(0x5a0a0a, 0.5);
-export const BRAKE_ON = basic(0xff2020);
-const INDICATOR = basic(0xffa500);
+// Night: tail lights always on (dim), brake lights bright, headlights brightest.
+// The glow itself comes from flare sprites (render/lightFlares), so these stay in range.
+export const BRAKE_DIM = glowMat(0.45, 0.01, 0.01);
+export const BRAKE_ON = glowMat(1, 0.1, 0.08);
+const INDICATOR = glowMat(1, 0.55, 0.05);
 const GLASS = std(0x1a2430, 0.15, 0.6);
 const TIRE = std(0x151515, 0.9);
 const RIM = std(0x9a9a9a, 0.4, 0.6);
-const HEADLIGHT = basic(0xfff6d8);
+const HEADLIGHT = glowMat(1, 0.97, 0.88);
+
+/** Where a model's lights glow (model-local), stored in root.userData.flares. */
+export interface FlareSpot {
+  x: number;
+  y: number;
+  z: number;
+  kind: 'head' | 'tail';
+}
+
 const DARK = std(0x222222, 0.8);
 const CHROME = std(0xcccccc, 0.3, 0.8);
 
@@ -101,9 +112,19 @@ function addLights(
   y: number,
   frontZ: number | null,
   rearZ: number,
+  groundY?: number, // when given, the headlights light the road ahead
 ) {
+  if (frontZ !== null && groundY !== undefined) {
+    // NPC low beams light the road in its shader (render/npcBeams); the pattern
+    // on the ground scales with the lamps' height.
+    const beam: BeamSpot = { frontZ, groundY, k: (y - groundY) / BEAM_LAMP_H };
+    parent.userData.beam = beam;
+  }
+  const flares: FlareSpot[] = (parent.userData.flares ??= []);
   for (const side of [-1, 1]) {
     const list = side < 0 ? lights.left : lights.right;
+    flares.push({ x: side * (halfW - 0.35), y, z: rearZ + 0.1, kind: 'tail' });
+    if (frontZ !== null) flares.push({ x: side * (halfW - 0.4), y, z: frontZ - 0.1, kind: 'head' });
     // Rear indicator + brake light.
     const ind = box(parent, 0.18, 0.14, 0.06, INDICATOR, side * (halfW - 0.12), y + 0.2, rearZ + 0.03, false);
     ind.visible = false;
@@ -123,7 +144,7 @@ export const CONTAINER_COLORS = [0x1f5fa8, 0xb8352a, 0x2f7d4a, 0xd88a1a, 0x6b6b6
 export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
 
 /** Generic sedan / player car. */
-export function buildCar(w: number, h: number, l: number, color: number, sporty = false, withWheels = true): VehicleModel {
+export function buildCar(w: number, h: number, l: number, color: number, sporty = false, withWheels = true, beam = true): VehicleModel {
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
   const g = -h / 2;
@@ -143,7 +164,7 @@ export function buildCar(w: number, h: number, l: number, color: number, sporty 
     box(root, 0.35, 0.01, l * 0.98, std(0xffffff, 0.3), 0.25, g + 0.28 + bodyH + 0.005, 0, false);
   }
   if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.33);
-  addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2);
+  addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
   return { root, lights };
 }
 
@@ -160,7 +181,7 @@ export function buildTruck(w: number, h: number, l: number, color: number, withW
   box(root, w, h - 1.05, cargoL, std(0xe6e6e6, 0.7), 0, g + 1.05 + (h - 1.05) / 2, l / 2 - cargoL / 2);
   box(root, w + 0.01, 0.35, cargoL * 0.9, cab, 0, g + 2.2, l / 2 - cargoL / 2, false); // stripe
   if (withWheels) wheels(root, g, w / 2 - 0.2, [-l / 2 + 1.3, l / 2 - 2.2, l / 2 - 1.2], 0.5, 0.35);
-  addLights(root, lights, w / 2, g + 0.9, -l / 2, l / 2);
+  addLights(root, lights, w / 2, g + 0.9, -l / 2, l / 2, g);
   return { root, lights };
 }
 
@@ -177,7 +198,7 @@ export function buildContainerCab(w: number, h: number, cabL: number, color: num
   box(root, w * 0.8, 0.12, 0.6, CHROME, 0, g + 0.65, -cabL / 2 - 0.05, false); // bumper
   box(root, 1.3, 0.15, 1.4, DARK, 0, g + 1.1, cabL / 2 - 1.0); // fifth wheel
   if (withWheels) wheels(root, g, w / 2 - 0.2, [-cabL / 2 + 1.1, cabL / 2 - 1.5, cabL / 2 - 0.5], 0.52, 0.35);
-  addLights(root, lights, w / 2, g + 1.0, -cabL / 2, cabL / 2 - 0.3);
+  addLights(root, lights, w / 2, g + 1.0, -cabL / 2, cabL / 2 - 0.3, g);
   return { root, lights };
 }
 
