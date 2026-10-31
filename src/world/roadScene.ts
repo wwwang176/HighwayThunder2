@@ -1,12 +1,52 @@
 import * as THREE from 'three';
-import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH, ROAD_LENGTH } from '../config';
+import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH, ROAD_LENGTH } from '../config';
 
 const STRIP_PERIOD = 100; // m; lane-dash (20), rail-post (4) and lamp (50) periods all divide it
 const STRIP_BEHIND = 300;
 const STRIP_AHEAD = 1300;
 const STRIP_LEN = STRIP_BEHIND + STRIP_AHEAD;
 const TREE_PERIOD = 400;
-const SKY = 0xa9c8e6;
+// Night: near-black sky, distance fading into deep blue-black.
+const SKY = 0x03050b;
+const FOG = 0x05070d;
+// Street lights: neutral white, ~4700 K.
+export const LAMP_COLOR = 0xffe9d2;
+/** Night lighting levels (mutable: tuned live from the panel). */
+export const NIGHT = {
+  lampIntensity: 750, // candela, real street lights near the player
+  poolStrength: 0.5, // painted light pools on the road
+};
+const LAMP_SPACING = 50; // per side; right-side and median lamps are staggered by half
+const LAMP_HEIGHT = 9.8;
+const POOL_RADIUS = 14;
+// Real (shading) lights for the lamps over our carriageway inside this window;
+// everything else is a painted light pool on the road.
+const REAL_LIGHT_BEHIND = 40;
+const REAL_LIGHT_AHEAD = 160;
+const REAL_LIGHT_FADE = 25;
+const REAL_LIGHTS = Math.ceil((REAL_LIGHT_BEHIND + REAL_LIGHT_AHEAD) / (LAMP_SPACING / 2)) + 1;
+
+interface LampHead {
+  x: number;
+  s: number; // strip-local
+  ours: boolean; // lights our carriageway (gets a real light when near)
+}
+
+function poolTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(0.7, 'rgba(255,255,255,0.15)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 
 function seeded(seed: number) {
   let s = seed >>> 0;
@@ -117,28 +157,31 @@ function checkerTexture(cols: number, rows: number): THREE.CanvasTexture {
 }
 
 export class RoadScene {
-  readonly sun: THREE.DirectionalLight;
   private strip = new THREE.Group();
   private trees = new THREE.Group();
   private far = new THREE.Group();
+  private lampHeads: LampHead[] = [];
+  private pools!: THREE.InstancedMesh;
+  private realLights: THREE.SpotLight[] = [];
+  private readonly poolColor = new THREE.Color(LAMP_COLOR);
+  private readonly tmpColor = new THREE.Color();
 
   constructor(private scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
     scene.background = new THREE.Color(SKY);
-    scene.fog = new THREE.Fog(SKY, 220, 900);
+    scene.fog = new THREE.Fog(FOG, 60, 650);
 
-    scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x4d5e33, 1.1));
-    this.sun = new THREE.DirectionalLight(0xfff3e0, 2.4);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    const sc = this.sun.shadow.camera;
-    sc.left = -35;
-    sc.right = 35;
-    sc.top = 60;
-    sc.bottom = -30;
-    sc.near = 1;
-    sc.far = 250;
-    this.sun.shadow.bias = -0.0005;
-    scene.add(this.sun, this.sun.target);
+    // Faint sky glow and a weak bluish moonlight keep silhouettes readable.
+    scene.add(new THREE.HemisphereLight(0x1c2740, 0x07080a, 0.35));
+    const moon = new THREE.DirectionalLight(0x8fa4d8, 0.12);
+    moon.position.set(-200, 300, 100);
+    scene.add(moon);
+
+    for (let i = 0; i < REAL_LIGHTS; i++) {
+      const l = new THREE.SpotLight(LAMP_COLOR, 0, 38, 0.85, 0.5, 1.6);
+      l.visible = false;
+      scene.add(l, l.target);
+      this.realLights.push(l);
+    }
 
     this.buildStrip(renderer);
     this.buildTrees();
@@ -193,28 +236,63 @@ export class RoadScene {
       for (const x of railX) posts.setMatrixAt(i++, m.makeTranslation(x + Math.sign(x) * 0.2, 0.4, -s));
     this.strip.add(posts);
 
-    // Lamp posts every 50 m on both sides.
-    const lampCount = (STRIP_LEN / 50) * 2;
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x8c9196, roughness: 0.5, metalness: 0.5 });
-    const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.16, 10, 8), poleMat, lampCount);
-    const arms = new THREE.InstancedMesh(new THREE.BoxGeometry(2.6, 0.12, 0.12), poleMat, lampCount);
-    const heads = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.9, 0.18, 0.4),
-      new THREE.MeshStandardMaterial({ color: 0xf5f1dc, emissive: 0x6b6650 }),
-      lampCount,
+    // Street lights. Right shoulder and the median are staggered by half a spacing,
+    // so our carriageway gets a pool of light every 25 m from alternating sides;
+    // the median lamps have a second arm over the oncoming carriageway, which also
+    // has lamps on its outer edge.
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3e44, roughness: 0.6, metalness: 0.5 });
+    // Lamp heads glow (HDR colour > 1 feeds the bloom pass).
+    const headMat = new THREE.MeshBasicMaterial({ toneMapped: false });
+    headMat.color.set(LAMP_COLOR).multiplyScalar(6);
+    const medianX = (MEDIAN_NEAR_X + MEDIAN_FAR_X) / 2;
+    // Each pole: position, stagger, and arms as (direction, reach to the lamp head).
+    const poleSpecs: { x: number; offset: number; arms: [number, number][] }[] = [
+      { x: RAIL_D + 1.6, offset: 0, arms: [[-1, 2.3]] },
+      { x: medianX, offset: LAMP_SPACING / 2, arms: [[-1, 4.5], [1, 4.5]] },
+      { x: LEFT_RAIL_X - 1.6, offset: 0, arms: [[1, 2.3]] },
+    ];
+    const rows = STRIP_LEN / LAMP_SPACING;
+    const poleCount = rows * poleSpecs.length;
+    const armCount = rows * poleSpecs.reduce((n, p) => n + p.arms.length, 0);
+    const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.16, 10, 8), poleMat, poleCount);
+    const arms = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.12, 0.12), poleMat, armCount);
+    const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.16, 0.4), headMat, armCount);
+    this.pools = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(POOL_RADIUS * 2, POOL_RADIUS * 2).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        map: poolTexture(),
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+      }),
+      armCount,
     );
-    i = 0;
-    for (let s = -STRIP_BEHIND; s < STRIP_AHEAD; s += 50)
-      for (const rx of railX) {
-        const side = Math.sign(rx);
-        const x = rx + side * 1.6;
-        poles.setMatrixAt(i, m.makeTranslation(x, 5, -s));
-        arms.setMatrixAt(i, m.makeTranslation(x - side * 1.2, 9.9, -s));
-        heads.setMatrixAt(i, m.makeTranslation(x - side * 2.3, 9.8, -s));
-        i++;
+    this.pools.frustumCulled = false;
+    let pi = 0;
+    let ai = 0;
+    for (let r = 0; r < rows; r++) {
+      for (const spec of poleSpecs) {
+        const sPos = -STRIP_BEHIND + r * LAMP_SPACING + spec.offset;
+        poles.setMatrixAt(pi++, m.makeTranslation(spec.x, 5, -sPos));
+        for (const [dir, reach] of spec.arms) {
+          const hx = spec.x + dir * reach;
+          arms.setMatrixAt(
+            ai,
+            m.compose(new THREE.Vector3(spec.x + (dir * (reach + 0.2)) / 2, 9.9, -sPos), new THREE.Quaternion(), new THREE.Vector3(reach + 0.2, 1, 1)),
+          );
+          heads.setMatrixAt(ai, m.makeTranslation(hx, LAMP_HEIGHT, -sPos));
+          // Pool centred a little toward the road from the head.
+          this.pools.setMatrixAt(ai, m.makeTranslation(hx + dir * 1.0, 0.03, -sPos));
+          this.pools.setColorAt(ai, this.poolColor);
+          this.lampHeads.push({ x: hx, s: sPos, ours: hx > MEDIAN_NEAR_X - 4 });
+          ai++;
+        }
       }
-    poles.castShadow = true;
-    this.strip.add(poles, arms, heads);
+    }
+    this.strip.add(poles, arms, heads, this.pools);
   }
 
   private buildTrees(): void {
@@ -224,12 +302,12 @@ export class RoadScene {
     const count = per * reps;
     const trunks = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.25, 0.35, 2, 6),
-      new THREE.MeshStandardMaterial({ color: 0x5b4030 }),
+      new THREE.MeshStandardMaterial({ color: 0x3a2a20 }),
       count,
     );
     const crowns = new THREE.InstancedMesh(
       new THREE.ConeGeometry(2.2, 6, 7),
-      new THREE.MeshStandardMaterial({ color: 0x2f5d2a, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x1f3d1c, flatShading: true }),
       count,
     );
     const base: { x: number; s: number; k: number }[] = [];
@@ -257,8 +335,9 @@ export class RoadScene {
 
   private buildFar(): void {
     const rnd = seeded(9);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x6f8aa3, flatShading: true, fog: false });
-    const mat2 = new THREE.MeshStandardMaterial({ color: 0x7f9a86, flatShading: true, fog: false });
+    // Mountains: barely-there silhouettes against the night sky.
+    const mat = new THREE.MeshBasicMaterial({ color: 0x0a0e17, fog: false });
+    const mat2 = new THREE.MeshBasicMaterial({ color: 0x0c111a, fog: false });
     for (let i = 0; i < 26; i++) {
       const side = i % 2 ? 1 : -1;
       const h = 60 + rnd() * 160;
@@ -266,6 +345,24 @@ export class RoadScene {
       mtn.position.set(side * (700 + rnd() * 500), h / 2 - 5, -(rnd() * 3000 - 600));
       this.far.add(mtn);
     }
+    // Faint stars (no moon in the sky, so the street and car lights stand out).
+    const n = 900;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const az = rnd() * Math.PI * 2;
+      const el = 0.08 + Math.pow(rnd(), 0.7) * 1.4;
+      const r = 1800;
+      pos[i * 3] = Math.cos(az) * Math.cos(el) * r;
+      pos[i * 3 + 1] = Math.sin(el) * r;
+      pos[i * 3 + 2] = Math.sin(az) * Math.cos(el) * r;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const stars = new THREE.Points(
+      geo,
+      new THREE.PointsMaterial({ color: 0xbfcbe6, size: 1.6, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.7 }),
+    );
+    this.far.add(stars);
   }
 
   private buildLandmarks(): void {
@@ -315,13 +412,36 @@ export class RoadScene {
     this.scene.add(grp);
   }
 
-  /** Keep the repeating scenery under the player and the sun's shadow box on them. */
-  update(playerS: number, playerX: number): void {
-    this.strip.position.z = -Math.floor(playerS / STRIP_PERIOD) * STRIP_PERIOD;
+  /**
+   * Keep the repeating scenery under the player, and hand the real street lights to
+   * the lamps over our carriageway nearest ahead. Their painted pools fade out as
+   * the real light fades in, so nothing pops.
+   */
+  update(playerS: number, _playerX: number): void {
+    const stripS = Math.floor(playerS / STRIP_PERIOD) * STRIP_PERIOD;
+    this.strip.position.z = -stripS;
     this.trees.position.z = -Math.floor(playerS / TREE_PERIOD) * TREE_PERIOD;
     this.far.position.z = -playerS;
-    const z = -playerS;
-    this.sun.position.set(playerX + 40, 70, z + 25);
-    this.sun.target.position.set(playerX, 0, z - 15);
+
+    let li = 0;
+    this.lampHeads.forEach((h, i) => {
+      const ds = stripS + h.s - playerS;
+      let real = 0;
+      if (h.ours && ds > -REAL_LIGHT_BEHIND && ds < REAL_LIGHT_AHEAD && li < this.realLights.length) {
+        real = Math.min(1, (ds + REAL_LIGHT_BEHIND) / REAL_LIGHT_FADE, (REAL_LIGHT_AHEAD - ds) / REAL_LIGHT_FADE);
+        const l = this.realLights[li++];
+        const z = -(stripS + h.s);
+        l.visible = true;
+        l.intensity = NIGHT.lampIntensity * real;
+        l.position.set(h.x, LAMP_HEIGHT - 0.2, z);
+        // Aim a little toward the middle of our carriageway.
+        l.target.position.set(h.x + Math.max(-3, Math.min(3, -h.x)), 0, z);
+        l.target.updateMatrixWorld();
+      }
+      this.tmpColor.copy(this.poolColor).multiplyScalar((1 - real) * NIGHT.poolStrength);
+      this.pools.setColorAt(i, this.tmpColor);
+    });
+    for (; li < this.realLights.length; li++) this.realLights[li].visible = false;
+    if (this.pools.instanceColor) this.pools.instanceColor.needsUpdate = true;
   }
 }

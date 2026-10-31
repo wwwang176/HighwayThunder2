@@ -2,6 +2,7 @@ import GUI from 'lil-gui';
 import type { CarParams } from '../vehicles/handling';
 import type { CameraParams } from '../render/cameraRig';
 import { WRECK_TRIP } from '../vehicles/npcVehicle';
+import { NIGHT } from '../world/roadScene';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
 export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }): GUI {
@@ -43,6 +44,9 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   c.add(camera, 'fovMin', 40, 90, 1).name('FOV 最小');
   c.add(camera, 'fovMax', 50, 110, 1).name('FOV 最大');
   c.add(camera, 'yawTau', 0.02, 1, 0.01).name('轉向跟隨延遲 s');
+  const n = gui.addFolder('夜晚燈光');
+  n.add(NIGHT, 'lampIntensity', 0, 3000, 10).name('路燈亮度（近處真實光源）');
+  n.add(NIGHT, 'poolStrength', 0, 2, 0.05).name('路燈光區亮度（遠處）');
   const t = gui.addFolder('車流');
   t.add(traffic, 'spacing', 30, 250, 1).name('同車道平均間距 m');
   t.add(WRECK_TRIP, 'car', 1, 6, 0.1).name('事故轎車橫滑翻車摩擦');

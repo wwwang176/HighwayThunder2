@@ -38,23 +38,52 @@ function std(color: number, roughness = 0.6, metalness = 0.1): THREE.MeshStandar
   }
   return m;
 }
-function basic(color: number): THREE.MeshBasicMaterial {
-  const key = `b${color}`;
-  let m = matCache.get(key) as THREE.MeshBasicMaterial | undefined;
-  if (!m) {
-    m = new THREE.MeshBasicMaterial({ color });
-    matCache.set(key, m);
-  }
+
+/** Self-lit material with HDR brightness (values > 1 feed the bloom glow at night). */
+function glowMat(r: number, g: number, b: number, extra: THREE.MeshBasicMaterialParameters = {}): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({ toneMapped: false, ...extra });
+  m.color.setRGB(r, g, b);
   return m;
 }
 
-export const BRAKE_DIM = std(0x5a0a0a, 0.5);
-export const BRAKE_ON = basic(0xff2020);
-const INDICATOR = basic(0xffa500);
+// Night: tail lights always on (dim), brake lights bright, headlights brightest.
+export const BRAKE_DIM = glowMat(0.55, 0.01, 0.01);
+export const BRAKE_ON = glowMat(5, 0.25, 0.2);
+const INDICATOR = glowMat(5, 2.2, 0.2);
 const GLASS = std(0x1a2430, 0.15, 0.6);
 const TIRE = std(0x151515, 0.9);
 const RIM = std(0x9a9a9a, 0.4, 0.6);
-const HEADLIGHT = basic(0xfff6d8);
+const HEADLIGHT = glowMat(7, 6.4, 5.4);
+
+/** Soft pool of headlight light painted on the road in front of a vehicle. */
+function beamTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(128, 256);
+  for (let y = 0; y < 256; y++) {
+    const along = 1 - y / 255; // 0 at the far end (top), 1 at the car (bottom)
+    for (let x = 0; x < 128; x++) {
+      const across = Math.abs(x - 63.5) / 63.5;
+      const spread = 0.35 + 0.65 * (1 - along); // widens away from the car
+      const side = Math.max(0, 1 - across / spread);
+      const fall = Math.pow(along, 0.6) * Math.min(1, (1 - along) * 6);
+      const a = Math.max(0, Math.min(1, side * side * fall));
+      const i = (y * 128 + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(a * 255);
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+let beamMat: THREE.MeshBasicMaterial | null = null;
+let beamGeo: THREE.BufferGeometry | null = null;
+const BEAM_LEN = 22;
+const BEAM_W = 9;
 const DARK = std(0x222222, 0.8);
 const CHROME = std(0xcccccc, 0.3, 0.8);
 
@@ -101,7 +130,23 @@ function addLights(
   y: number,
   frontZ: number | null,
   rearZ: number,
+  groundY?: number, // when given, paint a headlight pool on the road ahead
 ) {
+  if (frontZ !== null && groundY !== undefined) {
+    beamMat ??= new THREE.MeshBasicMaterial({
+      map: beamTexture(),
+      color: new THREE.Color().setRGB(0.55, 0.52, 0.46),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+    });
+    beamGeo ??= new THREE.PlaneGeometry(BEAM_W, BEAM_LEN).rotateX(-Math.PI / 2);
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    beam.position.set(0, groundY + 0.04, frontZ - BEAM_LEN / 2 + 0.5);
+    parent.add(beam);
+  }
   for (const side of [-1, 1]) {
     const list = side < 0 ? lights.left : lights.right;
     // Rear indicator + brake light.
@@ -123,7 +168,7 @@ export const CONTAINER_COLORS = [0x1f5fa8, 0xb8352a, 0x2f7d4a, 0xd88a1a, 0x6b6b6
 export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
 
 /** Generic sedan / player car. */
-export function buildCar(w: number, h: number, l: number, color: number, sporty = false, withWheels = true): VehicleModel {
+export function buildCar(w: number, h: number, l: number, color: number, sporty = false, withWheels = true, beam = true): VehicleModel {
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
   const g = -h / 2;
@@ -143,7 +188,7 @@ export function buildCar(w: number, h: number, l: number, color: number, sporty 
     box(root, 0.35, 0.01, l * 0.98, std(0xffffff, 0.3), 0.25, g + 0.28 + bodyH + 0.005, 0, false);
   }
   if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.33);
-  addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2);
+  addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
   return { root, lights };
 }
 
@@ -160,7 +205,7 @@ export function buildTruck(w: number, h: number, l: number, color: number, withW
   box(root, w, h - 1.05, cargoL, std(0xe6e6e6, 0.7), 0, g + 1.05 + (h - 1.05) / 2, l / 2 - cargoL / 2);
   box(root, w + 0.01, 0.35, cargoL * 0.9, cab, 0, g + 2.2, l / 2 - cargoL / 2, false); // stripe
   if (withWheels) wheels(root, g, w / 2 - 0.2, [-l / 2 + 1.3, l / 2 - 2.2, l / 2 - 1.2], 0.5, 0.35);
-  addLights(root, lights, w / 2, g + 0.9, -l / 2, l / 2);
+  addLights(root, lights, w / 2, g + 0.9, -l / 2, l / 2, g);
   return { root, lights };
 }
 
@@ -177,7 +222,7 @@ export function buildContainerCab(w: number, h: number, cabL: number, color: num
   box(root, w * 0.8, 0.12, 0.6, CHROME, 0, g + 0.65, -cabL / 2 - 0.05, false); // bumper
   box(root, 1.3, 0.15, 1.4, DARK, 0, g + 1.1, cabL / 2 - 1.0); // fifth wheel
   if (withWheels) wheels(root, g, w / 2 - 0.2, [-cabL / 2 + 1.1, cabL / 2 - 1.5, cabL / 2 - 0.5], 0.52, 0.35);
-  addLights(root, lights, w / 2, g + 1.0, -cabL / 2, cabL / 2 - 0.3);
+  addLights(root, lights, w / 2, g + 1.0, -cabL / 2, cabL / 2 - 0.3, g);
   return { root, lights };
 }
 

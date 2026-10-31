@@ -12,6 +12,7 @@ export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
 
 const WHEEL_R = 0.34;
+const HEADLIGHT_INTENSITY = 1800; // candela per lamp
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
@@ -55,6 +56,7 @@ export class PlayerCar {
   private steer = 0;
   private throttle = 0;
   readonly gearbox = new Gearbox();
+  readonly headlights: THREE.SpotLight[] = [];
   rpm = 900;
   driveMode: DriveMode = 'D';
   /** Optional per-position grip multiplier (e.g. grass). */
@@ -115,7 +117,15 @@ export class PlayerCar {
     this.wheels = wheels;
     this.chassis = new TyreChassis(physics, this.body, wheels, this.chassisSetup());
 
-    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false);
+    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false, false);
+    // Real headlights: the only car lights that actually light the scene.
+    for (const side of [-1, 1]) {
+      const hl = new THREE.SpotLight(0xfff4e6, HEADLIGHT_INTENSITY, 110, 0.42, 0.55, 1.4);
+      hl.position.set(side * 0.55, -0.05, -PLAYER_L / 2);
+      hl.target.position.set(side * 0.8, -1.2, -PLAYER_L / 2 - 30);
+      model.root.add(hl, hl.target);
+      this.headlights.push(hl);
+    }
     this.mesh = model.root;
     this.lights = model.lights;
     for (let i = 0; i < 4; i++) {
