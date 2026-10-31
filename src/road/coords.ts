@@ -1,4 +1,9 @@
-import { LANE_COUNT, LANE_WIDTH } from '../config';
+import { GRASS_GRIP, LANE_COUNT, LANE_WIDTH, MEDIAN_FAR_X, MEDIAN_NEAR_X } from '../config';
+
+/** Tyre grip multiplier at world x: the median is grass. */
+export function surfaceGrip(x: number): number {
+  return x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1;
+}
 
 /** Lateral center of a lane. Lane 0 = leftmost, lane 3 = rightmost; d grows to the right. */
 export function laneCenter(lane: number): number {

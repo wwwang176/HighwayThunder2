@@ -4,7 +4,7 @@ import { Brain, createBrain } from '../src/ai/brain';
 import { BRAIN_LAYERS } from '../src/ai/evolution';
 import { mulberry32 } from '../src/ai/rng';
 import { TrainingSim } from '../src/ai/trainingSim';
-import { PHYSICS_DT } from '../src/config';
+import { GRASS_GRIP, PHYSICS_DT } from '../src/config';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -54,6 +54,14 @@ describe('TrainingSim', () => {
     expect(a.ghosts.map((g) => g.result.distance)).toEqual(b.ghosts.map((g) => g.result.distance));
     a.dispose();
     b.dispose();
+  });
+
+  it('ghosts have the same grass grip as the player car in the game', () => {
+    const sim = new TrainingSim([constant(0, 0.5)], 1, { speedCap: 40 });
+    const car = sim.ghosts[0].car;
+    expect(car.surfaceGrip(-15)).toBe(GRASS_GRIP);
+    expect(car.surfaceGrip(0)).toBe(1);
+    sim.dispose();
   });
 
   it('a car that never moves is dropped after the stall window', () => {

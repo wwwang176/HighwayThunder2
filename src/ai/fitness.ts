@@ -1,4 +1,5 @@
 import { MEDIAN_NEAR_X, RAIL_D, ROAD_LENGTH } from '../config';
+// (LEFT_LIMIT / RIGHT_LIMIT below are also what the sensors measure the edges against.)
 import type { TrafficBox } from './sensors';
 
 /** Scoring and elimination settings (mutable: tuned while training). */
@@ -16,11 +17,20 @@ export interface RunResult {
   finishTime: number | null;
 }
 
-/** Further and earlier is better; crashing costs a kilometre; finishing always beats not finishing. */
+/**
+ * Further and earlier is better; finishing always beats not finishing. A crash
+ * costs up to a kilometre, but never more than half the distance driven: a flat
+ * penalty made standing still the best thing a beginner network could do.
+ */
 export function fitness(r: RunResult): number {
   if (r.finishTime !== null) return ROAD_LENGTH + (FITNESS.finishBonus * Math.max(0, FITNESS.timeLimit - r.finishTime)) / FITNESS.timeLimit;
-  return r.crashed ? r.distance - FITNESS.crashPenalty : r.distance;
+  return r.crashed ? r.distance - Math.min(FITNESS.crashPenalty, r.distance / 2) : r.distance;
 }
+
+/** Furthest left the car may go: two wheels on the median grass (2 m past our inner shoulder) is allowed. */
+export const LEFT_LIMIT = MEDIAN_NEAR_X - 2;
+/** Furthest right: the outer edge of the right shoulder (the guardrail). */
+export const RIGHT_LIMIT = RAIL_D;
 
 const CAR_W = 1.86;
 const CAR_L = 4.4;
@@ -39,9 +49,9 @@ export function carCorners(s: number, d: number, yaw: number, w = CAR_W, l = CAR
   return out;
 }
 
-/** Any corner off our pavement (past the right shoulder or into the median). */
+/** Any corner past the right shoulder, or more than 2 m onto the median grass. */
 export function isOffRoad(s: number, d: number, yaw: number): boolean {
-  return carCorners(s, d, yaw).some((c) => c.d > RAIL_D || c.d < MEDIAN_NEAR_X);
+  return carCorners(s, d, yaw).some((c) => c.d > RIGHT_LIMIT || c.d < LEFT_LIMIT);
 }
 
 /** The car's bounding box overlaps a vehicle or wreck. */

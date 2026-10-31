@@ -1,5 +1,6 @@
-import { LANE_COUNT, MEDIAN_NEAR_X, RAIL_D } from '../config';
+import { LANE_COUNT, RAIL_D } from '../config';
 import { lanesOccupied } from '../road/coords';
+import { LEFT_LIMIT, RIGHT_LIMIT } from './fitness';
 
 /** The AI car's own state, in our carriageway's road coordinates. */
 export interface SelfState {
@@ -23,7 +24,7 @@ export interface TrafficBox {
 }
 
 /** Bump when the inputs below change: trained driver files record it. */
-export const SENSOR_LAYOUT = 'lane-radar-v1';
+export const SENSOR_LAYOUT = 'lane-radar-v2'; // v2: left edge = 2 m onto the median grass
 export const SENSOR_COUNT = LANE_COUNT * 4 + 8;
 
 const RADAR_AHEAD = 300;
@@ -45,7 +46,7 @@ const behindV = new Float32Array(LANE_COUNT);
  *  [lane*4+0] gap ahead / 300 m (1 = clear)   [lane*4+1] closing speed on it / 50 m/s
  *  [lane*4+2] gap behind / 50 m (1 = clear)   [lane*4+3] its closing speed on us / 50 m/s
  *  [16] vLong  [17] vLat  [18] yaw  [19] yaw rate  [20] d / rail
- *  [21] room to the right edge  [22] room to the left edge  [23] speed cap
+ *  [21] room to the right limit  [22] room to the left limit (2 m onto the grass)  [23] speed cap
  */
 export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Float32Array(SENSOR_COUNT)): Float32Array {
   aheadGap.fill(Infinity);
@@ -80,8 +81,8 @@ export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Fl
   out[o + 2] = clamp(self.yaw / 0.5);
   out[o + 3] = clamp(self.yawRate / 2);
   out[o + 4] = clamp(self.d / RAIL_D);
-  out[o + 5] = clamp((RAIL_D - (self.d + HALF_WIDTH)) / 10);
-  out[o + 6] = clamp((self.d - HALF_WIDTH - MEDIAN_NEAR_X) / 10);
+  out[o + 5] = clamp((RIGHT_LIMIT - (self.d + HALF_WIDTH)) / 10);
+  out[o + 6] = clamp((self.d - HALF_WIDTH - LEFT_LIMIT) / 10);
   out[o + 7] = clamp(self.speedCap / SPEED_SCALE);
   return out;
 }

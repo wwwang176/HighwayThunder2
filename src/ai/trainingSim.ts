@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PHYSICS_DT, ROAD_LENGTH } from '../config';
 import { PhysicsWorld } from '../physics/physicsWorld';
+import { surfaceGrip } from '../road/coords';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
 import { PlayerCar } from '../vehicles/playerCar';
 import { WheelInstances } from '../vehicles/wheelInstances';
@@ -61,6 +62,7 @@ export class TrainingSim {
     for (const brain of brains) {
       const car = new PlayerCar(this.physics, null);
       car.params.maxSpeed = this.speedCap;
+      car.surfaceGrip = surfaceGrip; // same ground as the player's car in the game
       car.resetTo(0, START_LANE, 0);
       this.ghosts.push({ car, driver: new AiDriver(brain), alive: true, result: { distance: 0, crashed: false, finishTime: null }, progressS: 0, progressT: 0 });
     }

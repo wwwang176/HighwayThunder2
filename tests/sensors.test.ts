@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readSensors, SelfState, SENSOR_COUNT, TrafficBox } from '../src/ai/sensors';
+import { LEFT_LIMIT } from '../src/ai/fitness';
 import { laneCenter } from '../src/road/coords';
 
 const self = (o: Partial<SelfState> = {}): SelfState => ({ s: 0, d: laneCenter(1), yaw: 0, vLong: 30, vLat: 0, yawRate: 0, speedCap: 83.3, ...o });
@@ -55,6 +56,7 @@ describe('readSensors', () => {
     expect(x[16]).toBeCloseTo(0.5, 2); // vLong / 83.3
     expect(x[21]).toBeCloseTo((10 - 9.93) / 10, 5); // right margin
     expect(x[22]).toBe(1); // left margin clamps
+    expect(readSensors(self({ d: -10 }), [])[22]).toBeCloseTo((-10.93 - LEFT_LIMIT) / 10, 5); // on the grass, 1 m to the limit
     expect(x[23]).toBeCloseTo(0.5, 2);
   });
 
