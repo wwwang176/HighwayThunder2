@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerNeutral } from '../src/vehicles/handling';
 
 const P = DEFAULT_CAR;
 
@@ -121,5 +121,30 @@ describe('engine through the gearbox', () => {
     const omega = 80 / R;
     const t = g.wheelTorque(1, omega, P);
     expect(t * omega).toBeLessThanOrEqual(P.power * P.driveEfficiency + 1);
+  });
+});
+
+describe('steering neutral follows the slide (self-aligning)', () => {
+  it('no slide → neutral is straight ahead', () => {
+    expect(steerNeutral(60, 0, P)).toBe(0);
+  });
+  it('normal grip cornering (tiny body slip) is untouched', () => {
+    expect(steerNeutral(60, 60 * Math.tan(0.02), P)).toBe(0);
+  });
+  it('sliding: neutral turns the front wheels toward the direction of travel', () => {
+    const beta = Math.atan2(6, 40);
+    const n = steerNeutral(40, 6, P);
+    expect(n).toBeGreaterThan(0);
+    expect(n).toBeLessThanOrEqual(beta);
+    expect(n).toBeGreaterThan(beta - 0.05);
+    expect(steerNeutral(40, -6, P)).toBeCloseTo(-n);
+  });
+  it('fades out at low speed and when reversing, and never exceeds full lock', () => {
+    expect(steerNeutral(1, 1, P)).toBe(0);
+    expect(steerNeutral(-10, 3, P)).toBe(0);
+    expect(Math.abs(steerNeutral(10, 50, P))).toBeLessThanOrEqual(P.maxSteer);
+  });
+  it('strength 0 disables it', () => {
+    expect(steerNeutral(40, 6, { ...P, counterSteer: 0 })).toBe(0);
   });
 });

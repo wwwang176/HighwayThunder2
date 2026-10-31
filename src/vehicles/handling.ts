@@ -43,6 +43,7 @@ export interface CarParams {
   rearGrip: number; // rear tyre grip multiplier (wider rear tyres)
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
+  counterSteer: number; // 0..1 how strongly the steering neutral follows the slide (caster self-alignment)
 }
 
 export const DEFAULT_CAR: CarParams = {
@@ -79,8 +80,9 @@ export const DEFAULT_CAR: CarParams = {
   muSlide: 0.85,
   slipAnglePeak: 0.08,
   rearGrip: 1.12,
-  slipFalloff: 22,
+  slipFalloff: 18,
   lsd: 150,
+  counterSteer: 1,
 };
 
 export interface DriveInput {
@@ -200,4 +202,25 @@ export class Gearbox {
     this.gear = 1;
     this.cooldown = 0;
   }
+}
+
+const NEUTRAL_FADE_LO = 3; // m/s
+const NEUTRAL_FADE_HI = 8; // m/s
+const NEUTRAL_DEADZONE = 0.035; // rad of body slip ignored (normal grip cornering)
+
+/**
+ * Self-aligning steering: once the car is really sliding, the front wheels'
+ * neutral position follows the direction the car is travelling (as caster
+ * self-alignment does on a real car), so the driver steers ± around "pointing
+ * where the car goes" instead of around the nose. Normal grip driving (a few
+ * degrees of body slip at most) is left alone. Returns a wheel angle (rad, + = right).
+ * @param vLat sideways speed of the car's centre, + = to its right
+ */
+export function steerNeutral(vLong: number, vLat: number, p: CarParams): number {
+  if (p.counterSteer <= 0 || vLong <= NEUTRAL_FADE_LO) return 0;
+  const fade = Math.min(1, (vLong - NEUTRAL_FADE_LO) / (NEUTRAL_FADE_HI - NEUTRAL_FADE_LO));
+  const beta = Math.atan2(vLat, vLong);
+  const excess = Math.sign(beta) * Math.max(0, Math.abs(beta) - NEUTRAL_DEADZONE);
+  const a = excess * fade * p.counterSteer;
+  return Math.max(-p.maxSteer, Math.min(p.maxSteer, a));
 }

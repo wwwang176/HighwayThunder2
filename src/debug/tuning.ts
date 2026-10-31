@@ -18,6 +18,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   d.add(car, 'latAccelLimit', 5, 60, 0.5).name('高速轉向極限');
   d.add(car, 'steerRise', 1, 20, 0.5).name('轉向上升速度');
   d.add(car, 'steerFall', 1, 30, 0.5).name('轉向回正速度');
+  d.add(car, 'counterSteer', 0, 1, 0.05).name('側滑時方向盤中立跟隨');
   const s = gui.addFolder('懸吊 / 輪胎');
   s.add(car, 'suspensionRest', 0.1, 0.6, 0.01).name('懸吊長度');
   s.add(car, 'suspensionTravel', 0.05, 0.4, 0.01).name('懸吊行程');

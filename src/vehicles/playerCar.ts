@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { G_PLAYER, G_STATIC, groups, PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
-import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, Gearbox, smoothSteer, steerLimit } from './handling';
+import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, Gearbox, smoothSteer, steerLimit, steerNeutral } from './handling';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { solveWheel, TireParams } from './tireModel';
 
@@ -160,7 +160,10 @@ export class PlayerCar {
     this.readBack();
 
     this.steer = smoothSteer(this.steer, input.steer, p, dt);
-    const steerAngle = this.steer * steerLimit(this.vLong, p);
+    // Steering acts around a neutral that follows the slide (self-aligning), so a
+    // sliding car can still be caught with the small high-speed steering range.
+    const neutral = steerNeutral(this.vLong, this.vLat, p);
+    const steerAngle = Math.max(-p.maxSteer, Math.min(p.maxSteer, neutral + this.steer * steerLimit(this.vLong, p)));
     const targetThrottle = input.throttle;
     this.throttle += Math.sign(targetThrottle - this.throttle) * Math.min(Math.abs(targetThrottle - this.throttle), p.throttleRise * dt);
 
