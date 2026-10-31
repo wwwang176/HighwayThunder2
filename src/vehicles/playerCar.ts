@@ -15,7 +15,7 @@ export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
 
 const WHEEL_R = 0.34;
-const HEADLIGHT_INTENSITY = 900; // candela at the brightest part of the beam (decay 1)
+const HEADLIGHT_INTENSITY = 900; // candela for both lamps together, brightest part of the beam (decay 1)
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
@@ -121,14 +121,18 @@ export class PlayerCar {
     this.chassis = new TyreChassis(physics, this.body, wheels, this.chassisSetup());
 
     const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false, false);
-    // Real low-beam headlight: the only car light that actually lights the scene.
-    // It is aimed a few degrees down and shaped by the low-beam cookie, so it
-    // lights the road with a sharp cut-off instead of a round cone.
-    const hl = createHeadlight(HEADLIGHT_INTENSITY);
-    hl.position.set(0, -0.05, -PLAYER_L / 2 - 0.15);
-    hl.target.position.set(0, -0.05 - Math.tan(AIM_DOWN) * 30, -PLAYER_L / 2 - 30);
-    model.root.add(hl, hl.target);
-    this.headlights.push(hl);
+    // Real low-beam headlights, one per lamp: the only car lights that actually
+    // light the scene. Each is aimed a few degrees down (beams parallel) and
+    // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
+    // of a round cone; the two beams overlap ahead and each casts its own shadow.
+    for (const side of [-1, 1]) {
+      const x = side * (PLAYER_W / 2 - 0.4);
+      const hl = createHeadlight(HEADLIGHT_INTENSITY / 2);
+      hl.position.set(x, -0.05, -PLAYER_L / 2 - 0.15);
+      hl.target.position.set(x, -0.05 - Math.tan(AIM_DOWN) * 30, -PLAYER_L / 2 - 30);
+      model.root.add(hl, hl.target);
+      this.headlights.push(hl);
+    }
     this.mesh = model.root;
     this.lights = model.lights;
     for (let i = 0; i < 4; i++) {

@@ -46,7 +46,7 @@ export function lowBeamCookie(size = 256): THREE.CanvasTexture {
 }
 
 /**
- * The player's low-beam headlight: one spot light with the low-beam cookie.
+ * One low-beam headlamp: a spot light with the low-beam cookie (the player has two).
  * (Three.js only applies light cookies to shadow-casting lights, so it casts
  * shadows too - the car ahead throws a shadow into your beam.)
  */

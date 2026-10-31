@@ -77,8 +77,8 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     // Night: lights glow through flare sprites rather than a bloom pass (bloom made
-    // distant lights shimmer and blew out close ones). Only the player's headlight
-    // casts shadows (needed for its low-beam cookie).
+    // distant lights shimmer and blew out close ones). Only the player's headlights
+    // cast shadows (needed for their low-beam cookie).
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
