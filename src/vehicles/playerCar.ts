@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { G_PLAYER, G_STATIC, groups, PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
-import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, Gearbox, smoothSteer, steerAngle } from './handling';
+import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, steerAngle } from './handling';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { solveWheel, TireParams } from './tireModel';
 
@@ -166,6 +166,11 @@ export class PlayerCar {
     this.steer = smoothSteer(this.steer, input.steer, p, dt, this.vLong);
     // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
     const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, p);
+    // Stability control: nudge the rotation toward what the steering asks for.
+    const yawRate = -this.body.angvel().y;
+    const esc = escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
+    if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);
+    const bodySlip = Math.abs(Math.atan2(this.vLat, Math.max(Math.abs(this.vLong), 1)));
     const targetThrottle = input.throttle;
     this.throttle += Math.sign(targetThrottle - this.throttle) * Math.min(Math.abs(targetThrottle - this.throttle), p.throttleRise * dt);
 
@@ -179,6 +184,10 @@ export class PlayerCar {
     // Forward drive comes from the engine through the current gear (reverse keeps
     // the simple pedal force). The rev limiter bounds wheelspin.
     if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / WHEEL_R;
+    // Stability control also trims power once the car is sliding sideways.
+    if (p.escGain > 0 && cmd.engineForce > 0 && bodySlip > 0.15) {
+      cmd.engineForce *= Math.max(0, 1 - (bodySlip - 0.15) / 0.2);
+    }
     const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * WHEEL_R;
     const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * WHEEL_R;
     const driveTorqueRear = cmd.engineForce * 0.5 * WHEEL_R;

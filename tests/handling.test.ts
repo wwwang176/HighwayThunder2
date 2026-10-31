@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque } from '../src/vehicles/handling';
 
 const P = DEFAULT_CAR;
 
@@ -159,7 +159,7 @@ describe('steering range from speed (grip-limit turn + peak slip angle)', () => 
     expect(steerRange(25 / 3.6, P)).toBeCloseTo(P.maxSteer);
     const r250 = steerRange(250 / 3.6, P);
     expect(r250).toBeGreaterThan(P.slipAnglePeak);
-    expect(r250).toBeLessThan(P.slipAnglePeak + 0.01);
+    expect(r250).toBeLessThan(P.slipAnglePeak + 0.02);
     // Monotonic: never wider at higher speed.
     let prev = Infinity;
     for (let kmh = 10; kmh <= 300; kmh += 10) {
@@ -194,5 +194,25 @@ describe('steering range from speed (grip-limit turn + peak slip angle)', () => 
   it('reversing: full lock; never exceeds full lock', () => {
     expect(steerAngle(1, -5, 0, P)).toBeCloseTo(P.maxSteer);
     expect(Math.abs(steerAngle(0, 30, 300, P))).toBeLessThanOrEqual(P.maxSteer);
+  });
+});
+
+describe('stability control (ESC)', () => {
+  const v = 250 / 3.6;
+  it('target yaw rate follows the steering but is capped by what the tyres (with downforce) allow', () => {
+    const cap = escYawCap(v, P);
+    expect(escTargetYawRate(0.02, v, P)).toBeCloseTo(Math.min(cap, (v * Math.tan(0.02)) / P.wheelbase));
+    expect(escTargetYawRate(0.3, v, P)).toBeCloseTo(cap);
+    expect(escTargetYawRate(-0.3, v, P)).toBeCloseTo(-cap);
+  });
+  it('downforce raises the cap at speed', () => {
+    expect(escYawCap(v, P) * v).toBeGreaterThan(P.muPeak * 9.81 * 1.3);
+  });
+  it('corrective torque pushes the yaw rate toward the target, both ways, limited', () => {
+    expect(escTorque(0.1, 0.3, v, P)).toBeGreaterThan(0); // understeering: help it rotate
+    expect(escTorque(0.6, 0.3, v, P)).toBeLessThan(0); // oversteering: pull it back
+    expect(Math.abs(escTorque(5, -5, v, P))).toBeLessThanOrEqual(P.escMaxTorque);
+    expect(escTorque(0.6, 0.3, v, { ...P, escGain: 0 })).toBe(0);
+    expect(escTorque(0.6, 0.3, 3, P)).toBe(0); // inactive when crawling
   });
 });

@@ -45,6 +45,8 @@ export interface CarParams {
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
   counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
   steerSlowdownSpeed: number; // m/s; turn-in rate is halved at this speed (Infinity = never slower)
+  escGain: number; // stability control: N·m of yaw correction per rad/s of yaw-rate error (0 = off)
+  escMaxTorque: number; // N·m
 }
 
 export const DEFAULT_CAR: CarParams = {
@@ -62,7 +64,7 @@ export const DEFAULT_CAR: CarParams = {
   brakeForceMax: 26_000,
   brakeFrontBias: 0.75,
   dragK: 0.4,
-  downforceK: 0.55,
+  downforceK: 1.6,
   wheelbase: 2.6,
   maxSteer: 0.55,
   latAccelLimit: 55,
@@ -85,6 +87,8 @@ export const DEFAULT_CAR: CarParams = {
   lsd: 150,
   counterSteer: 0.8,
   steerSlowdownSpeed: Infinity,
+  escGain: 9000,
+  escMaxTorque: 12000,
 };
 
 export interface DriveInput {
@@ -245,7 +249,37 @@ const G = 9.81;
  */
 export function steerRange(speed: number, p: CarParams): number {
   const v = Math.max(Math.abs(speed), 1);
-  return Math.min(p.maxSteer, Math.atan((p.wheelbase * p.muPeak * G) / (v * v)) + p.slipAnglePeak);
+  return Math.min(p.maxSteer, Math.atan((p.wheelbase * effectiveMu(v, p) * G) / (v * v)) + p.slipAnglePeak);
+}
+
+/** Grip coefficient including aerodynamic downforce at this speed. */
+export function effectiveMu(speed: number, p: CarParams): number {
+  return p.muPeak * (1 + (p.downforceK * speed * speed) / (p.mass * G));
+}
+
+/** Highest yaw rate the tyres (with downforce) can sustain at this speed. */
+export function escYawCap(speed: number, p: CarParams): number {
+  const v = Math.max(Math.abs(speed), 1);
+  return (effectiveMu(v, p) * G) / v;
+}
+
+/** Yaw rate the driver is asking for with this wheel angle, capped by grip. */
+export function escTargetYawRate(wheelAngle: number, speed: number, p: CarParams): number {
+  const cap = escYawCap(speed, p);
+  const r = (speed * Math.tan(wheelAngle)) / p.wheelbase;
+  return Math.max(-cap, Math.min(cap, r));
+}
+
+const ESC_MIN_SPEED = 5;
+
+/**
+ * Stability control (like a real car's ESC, which brakes single wheels): a yaw
+ * torque nudging the car's rotation toward what the driver asks for - helps it
+ * turn in when it pushes, pulls it back when the tail steps out.
+ */
+export function escTorque(yawRate: number, target: number, speed: number, p: CarParams): number {
+  if (p.escGain <= 0 || speed < ESC_MIN_SPEED) return 0;
+  return Math.max(-p.escMaxTorque, Math.min(p.escMaxTorque, p.escGain * (target - yawRate)));
 }
 
 const FOLLOW_FADE_LO = 3; // m/s
