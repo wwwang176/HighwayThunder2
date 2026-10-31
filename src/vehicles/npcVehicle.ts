@@ -31,6 +31,9 @@ const CONTAINER_H = 4.0;
 const HITCH_FROM_CAB_CENTER = 2.0; // fifth wheel, between the cab's rear axles
 const KINGPIN_FROM_TRAILER_CENTER = TRAILER_L / 2 - 0.6;
 const FIFTH_WHEEL_Y = -CONTAINER_H / 2 + 1.25;
+// Trailer-local z where the wheels / side underride guard begin: like real trailers,
+// ~3 m behind the kingpin (behind the landing gear), leaving room for the tractor to articulate.
+const TRAILER_TAIL_START = -KINGPIN_FROM_TRAILER_CENTER + 3.0;
 
 const SAG = 0.06; // static suspension compression we design for (m)
 
@@ -53,7 +56,7 @@ const TRUCK_WRECK_TIRE: TireParams = {
   slipFalloff: 18,
 };
 // Peak "trip" friction when dragged fully sideways (see SideTrip); tunable live in the panel.
-export const WRECK_TRIP = { car: 3.5, truck: 2.2 };
+export const WRECK_TRIP = { car: 3.5, truck: 2.6 };
 const wreckSurfaceGrip = (x: number) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
 const WHEEL_RAY_GROUPS = groups(G_PLAYER, G_STATIC); // NPC wheels only stand on the road
 const G = 9.81;
@@ -88,6 +91,8 @@ interface PartSpec {
   frictionSlip: number;
   extraLoad?: { load: number; z: number };
   kingpinZ?: number; // trailers: front supported by the fifth wheel
+  /** Explicit collision boxes (heights above ground, local z); the first one carries the mass. */
+  boxes?: { y0: number; y1: number; z0: number; z1: number }[];
 }
 
 interface Wheel {
@@ -165,12 +170,23 @@ function partSpecs(kind: VehicleKind, sp: Agent['spec']): PartSpec[] {
       axles: [-CAB_L / 2 + 1.1, CAB_L / 2 - 1.5, CAB_L / 2 - 0.5], steerAxles: 1, driven: [false, true, true],
       wheelR: 0.52, wheelW: 0.35, halfTrack: sp.width / 2 - 0.2, rest: 0.35, frictionSlip: 1.6,
       extraLoad: { load: KINGPIN_LOAD, z: HITCH_FROM_CAB_CENTER },
+      // Full-height cabin up front; behind it only a low chassis under the fifth wheel,
+      // so the trailer can sit over it without touching - and hit the cabin when it jackknifes.
+      boxes: [
+        { y0: 0.9, y1: CONTAINER_H, z0: -CAB_L / 2, z1: -CAB_L / 2 + 2.4 },
+        { y0: 0.3, y1: 1.2, z0: -CAB_L / 2, z1: CAB_L / 2 },
+      ],
     },
     {
       w: sp.width, h: CONTAINER_H, l: TRAILER_L, mass: TRAILER_MASS, clearance: 1.1,
       axles: TRAILER_AXLES, steerAxles: 0, driven: [false, false, false],
       wheelR: 0.5, wheelW: 0.35, halfTrack: sp.width / 2 - 0.2, rest: 0.35, frictionSlip: 1.6,
       kingpinZ: -KINGPIN_FROM_TRAILER_CENTER,
+      // Box body above the fifth wheel; wheels / underride guard only behind the tractor.
+      boxes: [
+        { y0: 1.3, y1: CONTAINER_H, z0: -TRAILER_L / 2, z1: TRAILER_L / 2 },
+        { y0: 0.3, y1: 1.1, z0: TRAILER_TAIL_START, z1: TRAILER_L / 2 },
+      ],
     },
   ];
 }
@@ -225,7 +241,9 @@ export class NpcVehicle {
         { x: 0, y: FIFTH_WHEEL_Y, z: -KINGPIN_FROM_TRAILER_CENTER },
       );
       this.joint = this.physics.world.createImpulseJoint(params, this.parts[0].body, this.parts[1].body, true);
-      this.joint.setContactsEnabled(false);
+      // Tractor and trailer collide with each other (their boxes don't overlap when lined up),
+      // so a jackknifing trailer slams into the cab instead of swinging through it.
+      this.joint.setContactsEnabled(true);
     }
   }
 
@@ -237,37 +255,33 @@ export class NpcVehicle {
       y: (s.mass / 12) * (s.w * s.w + s.l * s.l),
       z: (s.mass / 12) * (s.w * s.w + ch * ch),
     };
-    const collider = this.physics.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(s.w / 2, ch / 2, s.l / 2)
-        .setTranslation(0, s.clearance / 2, 0)
-        .setMassProperties(s.mass, { x: 0, y: -s.h / 2 + s.h * 0.35, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
+    // Collision boxes (heights above ground, local z). Default: the body box, plus on
+    // tall vehicles a lower box over wheels and chassis (like underride guards) so a
+    // car cannot drive under them; it stays clear of the road surface.
+    const boxes = s.boxes ?? [
+      { y0: s.clearance, y1: s.h, z0: -s.l / 2, z1: s.l / 2 },
+      ...(s.clearance > 0.45 ? [{ y0: 0.3, y1: s.clearance, z0: -s.l / 2, z1: s.l / 2 }] : []),
+    ];
+    const comY = -s.h / 2 + s.h * 0.35; // body-local centre of mass height
+    const colliders: RAPIER.Collider[] = boxes.map((b, i) => {
+      const cy = -s.h / 2 + (b.y0 + b.y1) / 2;
+      const cz = (b.z0 + b.z1) / 2;
+      const halfW = i === 0 ? s.w / 2 : s.w / 2 - 0.05;
+      let desc = RAPIER.ColliderDesc.cuboid(halfW, (b.y1 - b.y0) / 2, (b.z1 - b.z0) / 2)
+        .setTranslation(0, cy, cz)
         .setFriction(0.6)
         .setRestitution(0.1)
         .setCollisionGroups(NPC_LIVE_GROUPS)
-        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-      body,
-    );
-    this.physics.register(collider, { type: 'npc', id: this.id });
-    const colliders = [collider];
-    // Tall vehicles: the body box starts high, so add a massless lower box over the
-    // wheels and chassis (like real side/rear underride guards) - otherwise a car can
-    // drive straight under a trailer. It stays clear of the road surface.
-    const lowBottom = 0.3;
-    if (s.clearance > lowBottom + 0.15) {
-      const halfH = (s.clearance - lowBottom) / 2;
-      const low = this.physics.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(s.w / 2 - 0.05, halfH, s.l / 2)
-          .setTranslation(0, -s.h / 2 + lowBottom + halfH, 0)
-          .setDensity(0)
-          .setFriction(0.6)
-          .setRestitution(0.1)
-          .setCollisionGroups(NPC_LIVE_GROUPS)
-          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-        body,
-      );
-      this.physics.register(low, { type: 'npc', id: this.id });
-      colliders.push(low);
-    }
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+      // The first box carries all the mass; Rapier wants its centre of mass in the
+      // collider's own frame, so convert from body space.
+      desc = i === 0
+        ? desc.setMassProperties(s.mass, { x: 0, y: comY - cy, z: -cz }, inertia, { x: 0, y: 0, z: 0, w: 1 })
+        : desc.setDensity(0);
+      const c = this.physics.world.createCollider(desc, body);
+      this.physics.register(c, { type: 'npc', id: this.id });
+      return c;
+    });
 
     const vehicle = this.physics.world.createVehicleController(body);
     vehicle.indexUpAxis = 1;
