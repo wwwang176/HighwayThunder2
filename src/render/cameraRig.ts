@@ -6,8 +6,7 @@ export interface CameraParams {
   lookAhead: number;
   fovMin: number;
   fovMax: number;
-  lateralTau: number; // seconds
-  yawFollow: number; // share of car yaw the camera follows
+  yawTau: number; // seconds for the camera heading to catch up with the car
 }
 
 export const DEFAULT_CAMERA: CameraParams = {
@@ -16,18 +15,53 @@ export const DEFAULT_CAMERA: CameraParams = {
   lookAhead: 14,
   fovMin: 62,
   fovMax: 84,
-  lateralTau: 0.08,
-  yawFollow: 0.45,
+  yawTau: 0.18,
 };
 
+export function wrapAngle(a: number): number {
+  a = (a + Math.PI) % (2 * Math.PI);
+  if (a < 0) a += 2 * Math.PI;
+  const r = a - Math.PI;
+  return r <= -Math.PI ? r + 2 * Math.PI : r;
+}
+
+/** Move `current` toward `target` by fraction k, the short way round the circle. */
+export function approachAngle(current: number, target: number, k: number): number {
+  return current + wrapAngle(target - current) * k;
+}
+
+/** Look backwards while reversing (with hysteresis so it doesn't flicker at 0). */
+export function reverseView(current: boolean, vForward: number): boolean {
+  if (!current && vForward < -1) return true;
+  if (current && vForward > 1) return false;
+  return current;
+}
+
+const MOTION_SPEED = 3; // m/s above which the camera follows the direction of travel
+
 /**
- * Chase camera. Follows the car directly along the road (no lag along s, so gap
- * judgement stays exact) and only smooths sideways motion and heading.
+ * Camera heading: the direction the car is actually moving (so it trails a
+ * sliding or reversing car naturally). At walking pace, where the velocity
+ * direction is meaningless, it falls back to the car's heading (flipped when
+ * reversing). Blends smoothly between the two.
+ */
+export function cameraTargetYaw(carYaw: number, velX: number, velZ: number, reversing: boolean): number {
+  const headingYaw = carYaw + (reversing ? Math.PI : 0);
+  const speed = Math.hypot(velX, velZ);
+  if (speed < 0.5) return headingYaw;
+  const motionYaw = Math.atan2(velX, -velZ);
+  const k = Math.min(1, Math.max(0, (speed - 0.5) / (MOTION_SPEED - 0.5)));
+  return approachAngle(headingYaw, motionYaw, k);
+}
+
+/**
+ * Chase camera that trails the car along its direction of travel (never
+ * locked to the road / finish line).
  */
 export class CameraRig {
   params = { ...DEFAULT_CAMERA };
-  private camX = 0;
   private camYaw = 0;
+  private reversing = false;
   private shakeAmount = 0;
   private initialized = false;
 
@@ -41,22 +75,20 @@ export class CameraRig {
     this.initialized = false;
   }
 
-  update(dt: number, carPos: THREE.Vector3, carYaw: number, speed: number, maxSpeed: number): void {
+  update(dt: number, carPos: THREE.Vector3, carYaw: number, vel: { x: number; z: number }, vForward: number, maxSpeed: number): void {
     const p = this.params;
-    const targetYaw = carYaw * p.yawFollow;
+    this.reversing = reverseView(this.reversing, vForward);
+    const targetYaw = cameraTargetYaw(carYaw, vel.x, vel.z, this.reversing);
     if (!this.initialized) {
-      this.camX = carPos.x;
       this.camYaw = targetYaw;
       this.initialized = true;
     }
-    const k = 1 - Math.exp(-dt / p.lateralTau);
-    this.camX += (carPos.x - this.camX) * k;
-    this.camYaw += (targetYaw - this.camYaw) * (1 - Math.exp(-dt / 0.15));
+    this.camYaw = wrapAngle(approachAngle(this.camYaw, targetYaw, 1 - Math.exp(-dt / p.yawTau)));
 
     const fx = Math.sin(this.camYaw);
     const fz = -Math.cos(this.camYaw);
     const cam = this.camera;
-    cam.position.set(this.camX - fx * p.distance, carPos.y + p.height, carPos.z - fz * p.distance);
+    cam.position.set(carPos.x - fx * p.distance, carPos.y + p.height, carPos.z - fz * p.distance);
 
     if (this.shakeAmount > 0.001) {
       cam.position.x += (Math.random() - 0.5) * this.shakeAmount;
@@ -64,9 +96,10 @@ export class CameraRig {
       this.shakeAmount *= Math.exp(-dt * 8);
     }
 
-    cam.lookAt(this.camX + fx * p.lookAhead, carPos.y + 0.9, carPos.z + fz * p.lookAhead);
+    cam.lookAt(carPos.x + fx * p.lookAhead, carPos.y + 0.9, carPos.z + fz * p.lookAhead);
 
-    const fov = p.fovMin + (p.fovMax - p.fovMin) * Math.min(1, Math.max(0, speed / maxSpeed)) ** 1.5;
+    const speed = Math.abs(vForward);
+    const fov = p.fovMin + (p.fovMax - p.fovMin) * Math.min(1, speed / maxSpeed) ** 1.5;
     if (Math.abs(cam.fov - fov) > 0.01) {
       cam.fov = fov;
       cam.updateProjectionMatrix();

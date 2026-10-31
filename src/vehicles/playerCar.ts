@@ -2,8 +2,9 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { G_PLAYER, G_STATIC, groups, PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
-import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, smoothSteer, steerLimit } from './handling';
+import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, Gearbox, smoothSteer, steerLimit } from './handling';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
+import { solveWheel, TireParams } from './tireModel';
 
 export const PLAYER_W = 1.86;
 export const PLAYER_H = 1.1;
@@ -13,9 +14,9 @@ const WHEEL_R = 0.34;
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
-// Ride height: hard point - nominal suspension length - wheel radius sits on the ground.
-const RIDE_Y = 0.575;
+const RIDE_Y = 0.55; // chassis center height at static ride
 const WHEEL_RAY_GROUPS = groups(G_PLAYER, G_STATIC); // wheels only stand on the road
+const G = 9.81;
 
 /** Road-relative yaw from a Y-only quaternion (yaw = -rotation.y). */
 export function yawOf(q: { x: number; y: number; z: number; w: number }): number {
@@ -28,6 +29,11 @@ export function quatFromYaw(yaw: number): { x: number; y: number; z: number; w: 
 
 const TMP_Q = new THREE.Quaternion();
 const TMP_V = new THREE.Vector3();
+const UP = new THREE.Vector3();
+const FWD = new THREE.Vector3();
+const RIGHT = new THREE.Vector3();
+const HARD = new THREE.Vector3();
+const CONTACT = new THREE.Vector3();
 
 /** Heading of an arbitrarily rotated body, measured on the road plane. */
 function headingYaw(q: { x: number; y: number; z: number; w: number }): number {
@@ -35,19 +41,43 @@ function headingYaw(q: { x: number; y: number; z: number; w: number }): number {
   return Math.atan2(TMP_V.x, -TMP_V.z);
 }
 
+interface WheelState {
+  x: number;
+  z: number;
+  front: boolean;
+  omega: number;
+  spin: number; // accumulated visual rotation
+  susp: number; // current suspension length
+  steer: number;
+  inContact: boolean;
+  sliding: boolean;
+  slip: number;
+  load: number;
+  contactX: number;
+  contactZ: number;
+  dirX: number;
+  dirZ: number;
+}
+
 /**
- * The player's car: a Rapier chassis on four ray-cast wheels with real
- * suspension, front-wheel steering and rear-wheel drive.
+ * The player's car: a Rapier chassis on four ray-cast wheels with our own
+ * spring/damper suspension, anti-roll bars, rear-wheel drive and a tyre model
+ * with a friction limit (wheelspin, lock-up, slides, oversteer).
  */
 export class PlayerCar {
   readonly body: RAPIER.RigidBody;
   readonly collider: RAPIER.Collider;
-  readonly vehicle: RAPIER.DynamicRayCastVehicleController;
   readonly mesh: THREE.Group;
   private readonly lights: VehicleLights;
-  private readonly wheels: { steer: THREE.Group; spin: THREE.Group }[] = [];
+  private readonly visuals: { steer: THREE.Group; spin: THREE.Group }[] = [];
+  readonly wheels: WheelState[] = [];
   params: CarParams = { ...DEFAULT_CAR };
   private steer = 0;
+  private throttle = 0;
+  readonly gearbox = new Gearbox();
+  private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+  /** Optional per-position grip multiplier (e.g. grass). */
+  surfaceGrip: (x: number) => number = () => 1;
 
   // Read back from the body after each physics step.
   s = 0;
@@ -61,7 +91,7 @@ export class PlayerCar {
   private prevQuat = new THREE.Quaternion();
   private currQuat = new THREE.Quaternion();
 
-  constructor(physics: PhysicsWorld, scene: THREE.Scene) {
+  constructor(private physics: PhysicsWorld, scene: THREE.Scene) {
     const p = this.params;
     this.body = physics.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
@@ -86,22 +116,18 @@ export class PlayerCar {
     );
     physics.register(this.collider, { type: 'player' });
 
-    // Wheels: 0 FL, 1 FR, 2 RL, 3 RR. The controller's forward axis is chassis +Z,
-    // while the car's nose points to -Z, so engine force and steering are negated.
-    this.vehicle = physics.world.createVehicleController(this.body);
-    this.vehicle.indexUpAxis = 1;
-    this.vehicle.setIndexForwardAxis = 2;
-    const zFront = -p.wheelbase / 2;
-    const zRear = p.wheelbase / 2;
+    // Wheels: 0 FL, 1 FR, 2 RL, 3 RR.
     for (const [x, z] of [
-      [-HALF_TRACK, zFront],
-      [HALF_TRACK, zFront],
-      [-HALF_TRACK, zRear],
-      [HALF_TRACK, zRear],
+      [-HALF_TRACK, -p.wheelbase / 2],
+      [HALF_TRACK, -p.wheelbase / 2],
+      [-HALF_TRACK, p.wheelbase / 2],
+      [HALF_TRACK, p.wheelbase / 2],
     ]) {
-      this.vehicle.addWheel({ x, y: CONNECTION_Y, z }, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, p.suspensionRest, WHEEL_R);
+      this.wheels.push({
+        x, z, front: z < 0, omega: 0, spin: 0, susp: p.suspensionRest - 0.09, steer: 0,
+        inContact: true, sliding: false, slip: 0, load: 0, contactX: 0, contactZ: 0, dirX: 0, dirZ: -1,
+      });
     }
-    this.applyTyreParams();
 
     const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false);
     this.mesh = model.root;
@@ -109,7 +135,7 @@ export class PlayerCar {
     for (let i = 0; i < 4; i++) {
       const w = buildWheel(WHEEL_R, WHEEL_W);
       this.mesh.add(w.steer);
-      this.wheels.push(w);
+      this.visuals.push(w);
     }
     scene.add(this.mesh);
     this.readBack();
@@ -120,50 +146,131 @@ export class PlayerCar {
     return this.vLong;
   }
 
-  /** Push tuning values to the wheels (cheap; done every step so the panel is live). */
-  private applyTyreParams(): void {
-    const p = this.params;
-    for (let i = 0; i < 4; i++) {
-      this.vehicle.setWheelSuspensionRestLength(i, p.suspensionRest);
-      this.vehicle.setWheelMaxSuspensionTravel(i, p.suspensionTravel);
-      this.vehicle.setWheelSuspensionStiffness(i, p.suspensionStiffness);
-      this.vehicle.setWheelSuspensionCompression(i, p.suspensionCompression);
-      this.vehicle.setWheelSuspensionRelaxation(i, p.suspensionRelaxation);
-      this.vehicle.setWheelMaxSuspensionForce(i, p.maxSuspensionForce);
-      this.vehicle.setWheelFrictionSlip(i, p.frictionSlip);
-      this.vehicle.setWheelSideFrictionStiffness(i, p.sideFrictionStiffness);
-    }
+  /** Strongest tyre slide this step (m/s of slip), for sound. */
+  get maxSlip(): number {
+    let m = 0;
+    for (const w of this.wheels) if (w.inContact && w.sliding) m = Math.max(m, w.slip);
+    return m;
   }
 
-  /** Driver input → wheels, plus aero forces. Call before world.step. */
+  /** Driver input → wheel torques → tyre forces, plus suspension and aero. Call before world.step. */
   prePhysics(input: DriveInput, dt: number): void {
     const p = this.params;
     this.readBack();
-    this.applyTyreParams();
 
     this.steer = smoothSteer(this.steer, input.steer, p, dt);
-    const angle = this.steer * steerLimit(this.vLong, p);
-    // Positive steer = turn right (+d). Controller steering is about +Y with forward +Z.
-    this.vehicle.setWheelSteering(0, -angle);
-    this.vehicle.setWheelSteering(1, -angle);
+    const steerAngle = this.steer * steerLimit(this.vLong, p);
+    const targetThrottle = input.throttle;
+    this.throttle += Math.sign(targetThrottle - this.throttle) * Math.min(Math.abs(targetThrottle - this.throttle), p.throttleRise * dt);
 
-    const cmd = driveCommand(input, this.vLong, p, dt);
-    for (let i = 0; i < 4; i++) {
-      this.vehicle.setWheelEngineForce(i, i >= 2 ? -cmd.engineForce / 2 : 0);
-      this.vehicle.setWheelBrake(i, cmd.brakeImpulse);
+    // Engine power is limited by how fast the driven wheels turn (wheelspin eats power).
+    const rearSurface = ((this.wheels[2].omega + this.wheels[3].omega) / 2) * WHEEL_R;
+    this.gearbox.update(this.vLong, dt);
+    const cmd = driveCommand({ ...input, throttle: this.throttle }, Math.max(this.vLong, rearSurface), p);
+    // Rev limiter of the current gear bounds how fast the driven wheels can spin.
+    if (cmd.engineForce > 0 && rearSurface >= this.gearbox.wheelSpeedLimit()) cmd.engineForce = 0;
+    const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * WHEEL_R;
+    const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * WHEEL_R;
+    const driveTorqueRear = cmd.engineForce * 0.5 * WHEEL_R;
+    setBrake(this.lights, cmd.brake > 0 && this.vLong > 0.5);
+
+    const t = this.body.translation();
+    const r = this.body.rotation();
+    TMP_Q.set(r.x, r.y, r.z, r.w);
+    UP.set(0, 1, 0).applyQuaternion(TMP_Q);
+    const tire: TireParams = {
+      muPeak: p.muPeak,
+      muSlide: p.muSlide,
+      slipAnglePeak: p.slipAnglePeak,
+      rollingResistance: 0.012,
+      regripSpeed: 0.6,
+    };
+
+    // 1) Suspension: ray from each hard point down along the chassis.
+    const comp: number[] = [];
+    for (const w of this.wheels) {
+      HARD.set(w.x, CONNECTION_Y, w.z).applyQuaternion(TMP_Q).add(TMP_V.set(t.x, t.y, t.z));
+      this.ray.origin = { x: HARD.x, y: HARD.y, z: HARD.z };
+      this.ray.dir = { x: -UP.x, y: -UP.y, z: -UP.z };
+      const maxLen = p.suspensionRest + WHEEL_R;
+      const hit = this.physics.world.castRay(this.ray, maxLen, true, undefined, WHEEL_RAY_GROUPS, undefined, this.body);
+      const prev = w.susp;
+      if (hit) {
+        w.susp = Math.max(p.suspensionRest - p.suspensionTravel, hit.timeOfImpact - WHEEL_R);
+        w.inContact = true;
+      } else {
+        w.susp = p.suspensionRest;
+        w.inContact = false;
+      }
+      comp.push(w.inContact ? p.suspensionRest - w.susp : 0);
+      const compVel = (prev - w.susp) / dt;
+      let f = 0;
+      if (w.inContact) {
+        f = p.springK * (p.suspensionRest - w.susp) + (compVel > 0 ? p.damperBump : p.damperRebound) * compVel;
+      }
+      w.load = Math.max(0, f);
     }
-    setBrake(this.lights, cmd.brakeImpulse > 0 && this.vLong > 0.5);
+    // Anti-roll bars move load from the lightly to the heavily compressed side.
+    for (const [a, b, k] of [[0, 1, p.antiRollFront], [2, 3, p.antiRollRear]]) {
+      const ar = k * (comp[a] - comp[b]);
+      if (this.wheels[a].inContact) this.wheels[a].load = Math.max(0, this.wheels[a].load + ar);
+      if (this.wheels[b].inContact) this.wheels[b].load = Math.max(0, this.wheels[b].load - ar);
+    }
 
-    // Aerodynamics: drag against motion, downforce growing with speed.
-    const v = this.body.linvel();
-    const sp = Math.hypot(v.x, v.z);
+    // 2) Tyres.
+    this.wheels.forEach((w, i) => {
+      w.steer = w.front ? steerAngle : 0;
+      HARD.set(w.x, CONNECTION_Y, w.z).applyQuaternion(TMP_Q).add(TMP_V.set(t.x, t.y, t.z));
+      // Suspension force at the hard point.
+      if (w.load > 0) {
+        this.body.applyImpulseAtPoint({ x: UP.x * w.load * dt, y: UP.y * w.load * dt, z: UP.z * w.load * dt }, HARD, true);
+      }
+      CONTACT.copy(HARD).addScaledVector(UP, -(w.susp + WHEEL_R));
+      // Wheel heading: car forward is -Z; positive steer turns right.
+      FWD.set(Math.sin(w.steer), 0, -Math.cos(w.steer)).applyQuaternion(TMP_Q);
+      FWD.y = 0;
+      FWD.normalize();
+      RIGHT.set(-FWD.z, 0, FWD.x);
+      const v = this.body.velocityAtPoint(CONTACT);
+      const vx = v.x * FWD.x + v.z * FWD.z;
+      const vy = v.x * RIGHT.x + v.z * RIGHT.z;
+      const res = solveWheel({
+        vx,
+        vy,
+        omega: w.omega,
+        Fz: w.inContact ? w.load : 0,
+        driveTorque: i >= 2 ? driveTorqueRear : 0,
+        brakeTorque: w.front ? brakeTorqueFront : brakeTorqueRear,
+        R: WHEEL_R,
+        I: p.wheelInertia,
+        dt,
+        mEff: (p.mass / 4) * 0.9,
+        tire,
+        muScale: this.surfaceGrip(CONTACT.x) * (w.front ? 1 : p.rearGrip),
+      });
+      w.omega = res.omega;
+      w.spin -= res.omega * dt;
+      w.sliding = res.sliding;
+      w.slip = res.slip;
+      w.contactX = CONTACT.x;
+      w.contactZ = CONTACT.z;
+      w.dirX = FWD.x;
+      w.dirZ = FWD.z;
+      if (w.inContact && (res.Fx !== 0 || res.Fy !== 0)) {
+        const fx = FWD.x * res.Fx + RIGHT.x * res.Fy;
+        const fz = FWD.z * res.Fx + RIGHT.z * res.Fy;
+        this.body.applyImpulseAtPoint({ x: fx * dt, y: 0, z: fz * dt }, CONTACT, true);
+      }
+    });
+
+    // 3) Aerodynamics: drag against motion, downforce growing with speed.
+    const lv = this.body.linvel();
+    const sp = Math.hypot(lv.x, lv.z);
     if (sp > 0.1) {
       const drag = p.dragK * sp * dt;
       const down = p.downforceK * sp * sp * dt;
-      this.body.applyImpulse({ x: -v.x * drag, y: -down, z: -v.z * drag }, true);
+      this.body.applyImpulse({ x: -lv.x * drag, y: -down, z: -lv.z * drag }, true);
     }
-
-    this.vehicle.updateVehicle(dt, undefined, WHEEL_RAY_GROUPS);
 
     this.prevPos.copy(this.currPos);
     this.prevQuat.copy(this.currQuat);
@@ -201,11 +308,19 @@ export class PlayerCar {
 
   /** Place the car in a lane, upright, pointing down the road, at the given speed. */
   resetTo(s: number, lane: number, speed: number): void {
-    this.body.setTranslation({ x: laneCenter(lane), y: RIDE_Y + 0.05, z: -s }, true);
+    const p = this.params;
+    this.body.setTranslation({ x: laneCenter(lane), y: RIDE_Y + 0.02, z: -s }, true);
     this.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
     this.body.setLinvel({ x: 0, y: 0, z: -speed }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.steer = 0;
+    this.throttle = 0;
+    this.gearbox.reset();
+    for (const w of this.wheels) {
+      w.omega = speed / WHEEL_R;
+      w.susp = p.suspensionRest - (p.mass * G) / 4 / p.springK;
+      w.sliding = false;
+    }
     this.readBack();
     this.snapInterpolation();
   }
@@ -214,14 +329,12 @@ export class PlayerCar {
   render(alpha: number): void {
     this.mesh.position.lerpVectors(this.prevPos, this.currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
-    const zs = [-this.params.wheelbase / 2, -this.params.wheelbase / 2, this.params.wheelbase / 2, this.params.wheelbase / 2];
-    for (let i = 0; i < 4; i++) {
-      const w = this.wheels[i];
-      const len = this.vehicle.wheelSuspensionLength(i) ?? this.params.suspensionRest;
-      w.steer.position.set(i % 2 === 0 ? -HALF_TRACK : HALF_TRACK, CONNECTION_Y - len, zs[i]);
-      w.steer.rotation.y = this.vehicle.wheelSteering(i) ?? 0;
-      w.spin.rotation.x = this.vehicle.wheelRotation(i) ?? 0;
-    }
+    this.wheels.forEach((w, i) => {
+      const v = this.visuals[i];
+      v.steer.position.set(w.x, CONNECTION_Y - w.susp, w.z);
+      v.steer.rotation.y = -w.steer;
+      v.spin.rotation.x = w.spin;
+    });
   }
 
   /** Road-space AABB for AI / reset checks. */

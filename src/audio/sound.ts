@@ -9,6 +9,7 @@ export class Sound {
   private oscB!: OscillatorNode;
   private filter!: BiquadFilterNode;
   private noise!: AudioBuffer;
+  private skidGain!: GainNode;
   muted = false;
 
   /** Must be called from a user gesture. */
@@ -45,6 +46,26 @@ export class Sound {
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+    // Tyre squeal: looping noise through a resonant band-pass, volume follows slip.
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1400;
+    bp.Q.value = 6;
+    this.skidGain = ctx.createGain();
+    this.skidGain.gain.value = 0;
+    src.connect(bp).connect(this.skidGain).connect(this.master);
+    src.start();
+  }
+
+  /** Tyre slip speed in m/s (0 = gripping). */
+  setSkid(slip: number): void {
+    if (!this.ctx) return;
+    const k = Math.min(1, Math.max(0, (slip - 1.5) / 10));
+    this.skidGain.gain.setTargetAtTime(k * 0.35, this.ctx.currentTime, 0.04);
   }
 
   toggleMute(): void {

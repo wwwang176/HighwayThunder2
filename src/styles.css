@@ -66,3 +66,4 @@ button.secondary { background: #e6e6e6; box-shadow: 0 4px 0 #999; font-size: 16p
 .big { font-size: 56px; font-weight: 900; font-variant-numeric: tabular-nums; color: #ffd400; }
 .record { margin: 6px 0; font-size: 22px; font-weight: 800; color: #7dffb0; }
 .stats { margin: 8px 0 14px; opacity: 0.85; }
+.gear { font-weight: 900; color: #ffd400; font-size: 20px; }

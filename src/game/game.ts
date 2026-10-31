@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import Stats from 'stats.js';
 import type GUI from 'lil-gui';
 import { MAX_FRAME_DT, MAX_SUBSTEPS, MAX_WRECKS, PHYSICS_DT, RESET_SPEED, WRECK_LIFETIME } from '../config';
 import { Sound } from '../audio/sound';
@@ -15,6 +16,7 @@ import { NpcVehicle } from '../vehicles/npcVehicle';
 import { WheelInstances } from '../vehicles/wheelInstances';
 import { PlayerCar } from '../vehicles/playerCar';
 import { RoadScene } from '../world/roadScene';
+import { SkidMarks } from '../world/skidMarks';
 import { GameFlow } from './gameState';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
@@ -39,6 +41,8 @@ export class Game {
   traffic = new TrafficSim();
   readonly npcs = new Map<number, NpcVehicle>();
   private wheelPool!: WheelInstances;
+  private skids!: SkidMarks;
+  readonly stats = new Stats();
   private gui: GUI;
   private accumulator = 0;
   private lastTime = 0;
@@ -64,6 +68,9 @@ export class Game {
     this.road = new RoadScene(this.scene, this.renderer);
     this.player = new PlayerCar(physics, this.scene);
     this.wheelPool = new WheelInstances(this.scene);
+    this.skids = new SkidMarks(this.scene);
+    this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
+    document.body.appendChild(this.stats.dom);
     this.hud = new Hud(uiRoot, this.flow, {
       onStart: () => this.startRace(),
       onResume: () => this.togglePause(),
@@ -126,6 +133,7 @@ export class Game {
     this.prevRelS.clear();
     this.touched.clear();
     this.player.resetTo(-3, 1, 0);
+    this.skids.clear();
     this.rig.snap();
     this.spawn(true);
   }
@@ -148,6 +156,7 @@ export class Game {
     }
     const spot = computeResetSpot(this.player.s, this.player.d, blockers, RESET_SPEED);
     this.player.resetTo(spot.s, spot.lane, RESET_SPEED);
+    this.skids.cut();
     this.flow.markReset();
     this.rig.snap();
   }
@@ -157,9 +166,11 @@ export class Game {
   start(): void {
     this.lastTime = performance.now();
     const loop = (now: number) => {
+      this.stats.begin();
       const dt = Math.min(MAX_FRAME_DT, (now - this.lastTime) / 1000);
       this.lastTime = now;
       this.frame(dt);
+      this.stats.end();
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -222,6 +233,10 @@ export class Game {
     this.physics.step((a, b) => this.onContact(a, b));
     this.player.postPhysics();
     for (const npc of this.npcs.values()) npc.capture();
+    this.player.wheels.forEach((w, i) => {
+      const k = w.inContact && w.sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
+      this.skids.add(i, w.contactX, w.contactZ, w.dirX, w.dirZ, k);
+    });
 
     this.cullVehicles();
     this.spawnTimer -= dt;
@@ -345,13 +360,15 @@ export class Game {
     this.wheelPool.commit();
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
-    this.rig.update(dt, p, this.player.yaw, Math.max(0, this.player.speed), this.player.params.maxSpeed);
+    this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed);
     this.sound.setEngine(this.player.speed, this.lastInput.throttle, this.flow.phase !== 'title');
+    this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     this.hud.update(dt, {
       speedKmh: this.player.speed * 3.6,
       playerS: this.player.s,
       resetCooldown: this.flow.resetCooldown,
       muted: this.sound.muted,
+      gear: this.player.gearbox.gear,
     });
     this.renderer.render(this.scene, this.camera);
   }

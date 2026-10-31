@@ -12,6 +12,7 @@ export interface HudFrame {
   playerS: number;
   resetCooldown: number;
   muted: boolean;
+  gear: number;
 }
 
 const html = String.raw;
@@ -47,7 +48,7 @@ export class Hud {
           <div class="label">險過</div><div class="value" data-id="nm">0</div>
           <div class="reset" data-id="reset"></div>
         </div>
-        <div class="hud-br"><div class="speed" data-id="speed">0</div><div class="unit">km/h</div></div>
+        <div class="hud-br"><div class="speed" data-id="speed">0</div><div class="unit"><span class="gear" data-id="gear">1</span> 檔 · km/h</div></div>
         <div class="mute" data-id="mute">🔇 靜音</div>
       </div>
       <div id="toast" class="toast" data-id="toast">險過！</div>
@@ -119,6 +120,7 @@ export class Hud {
     this.el.bar.style.width = `${Math.min(100, Math.max(0, (f.playerS / ROAD_LENGTH) * 100))}%`;
     this.el.speed.textContent = String(Math.max(0, Math.round(f.speedKmh)));
     this.el.nm.textContent = String(flow.nearMisses);
+    this.el.gear.textContent = f.speedKmh < -1 ? 'R' : String(f.gear);
     this.el.reset.textContent =
       phase === 'racing' ? (f.resetCooldown > 0 ? `R 重置 ${f.resetCooldown.toFixed(1)}s` : 'R 重置 可用') : '';
     this.el.reset.classList.toggle('ready', phase === 'racing' && f.resetCooldown <= 0);
