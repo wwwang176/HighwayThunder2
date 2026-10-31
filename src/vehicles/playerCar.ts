@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { G_PLAYER, G_STATIC, groups, PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
-import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, Gearbox, smoothSteer, steerLimit, steerNeutral } from './handling';
+import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, Gearbox, smoothSteer, steerLimit, steerNeutral } from './handling';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { solveWheel, TireParams } from './tireModel';
 
@@ -76,6 +76,7 @@ export class PlayerCar {
   private throttle = 0;
   readonly gearbox = new Gearbox();
   rpm = 900;
+  driveMode: DriveMode = 'D';
   private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   /** Optional per-position grip multiplier (e.g. grass). */
   surfaceGrip: (x: number) => number = () => 1;
@@ -172,14 +173,15 @@ export class PlayerCar {
     this.gearbox.update(this.vLong, dt);
     // Displayed / audible rpm bounces off the limiter but never far past it.
     this.rpm = Math.min(p.redline * 1.03, this.gearbox.engineRpm(rearOmega, p));
-    const cmd = driveCommand({ ...input, throttle: this.throttle }, this.vLong, p);
+    const cmd = driveCommand({ ...input, throttle: this.throttle }, this.vLong, p, this.driveMode);
+    this.driveMode = cmd.mode;
     // Forward drive comes from the engine through the current gear (reverse keeps
     // the simple pedal force). The rev limiter bounds wheelspin.
     if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / WHEEL_R;
     const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * WHEEL_R;
     const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * WHEEL_R;
     const driveTorqueRear = cmd.engineForce * 0.5 * WHEEL_R;
-    setBrake(this.lights, cmd.brake > 0 && this.vLong > 0.5);
+    setBrake(this.lights, cmd.brake > 0 && Math.abs(this.vLong) > 0.5);
 
     const t = this.body.translation();
     const r = this.body.rotation();
@@ -328,6 +330,7 @@ export class PlayerCar {
     this.steer = 0;
     this.throttle = 0;
     this.gearbox.reset();
+    this.driveMode = 'D';
     for (const w of this.wheels) {
       w.omega = speed / WHEEL_R;
       w.susp = p.suspensionRest - (p.mass * G) / 4 / p.springK;

@@ -95,25 +95,48 @@ export interface DriveInput {
 /** Kept for callers that only deal with pedals and steering. */
 export type HandlingInput = DriveInput;
 
+export type DriveMode = 'D' | 'R';
+
+const STOPPED = 0.5; // m/s
+
 /**
- * Pedal mapping. The S key brakes while rolling forward and reverses once stopped.
- * @param vForward speed along the car's nose (m/s, negative when reversing)
- * @returns rear-axle engine force (N, + = forward) and brake pedal 0..1
+ * Pedal mapping with an explicit D / R selector. R is engaged only when the
+ * car is (nearly) stopped and the back key is pressed; D again only when
+ * stopped and the throttle key is pressed. Otherwise the key that opposes the
+ * car's motion or the selected direction is a brake (so after a spin, throttle
+ * in D first brakes the backwards slide).
+ * @param vForward speed along the car's nose (m/s, negative when moving backwards)
+ * @returns engine force (N, + = forward), brake pedal 0..1 and the selected mode
  */
-export function driveCommand(input: DriveInput, vForward: number, p: CarParams): { engineForce: number; brake: number } {
-  if (input.handbrake) return { engineForce: 0, brake: 1 };
-  if (input.brake > 0) {
-    if (vForward > 0.5) return { engineForce: 0, brake: input.brake };
-    if (vForward < -p.reverseMax) return { engineForce: 0, brake: 0 };
-    return { engineForce: -p.reverseForce * input.brake, brake: 0 };
+export function driveCommand(
+  input: DriveInput,
+  vForward: number,
+  p: CarParams,
+  mode: DriveMode = 'D',
+): { engineForce: number; brake: number; mode: DriveMode } {
+  if (input.handbrake) return { engineForce: 0, brake: 1, mode };
+  let m = mode;
+  if (Math.abs(vForward) < STOPPED) {
+    if (input.brake > 0 && input.throttle === 0) m = 'R';
+    else if (input.throttle > 0 && input.brake === 0) m = 'D';
   }
-  if (input.throttle > 0) {
-    if (vForward < -0.5) return { engineForce: 0, brake: input.throttle };
-    if (vForward >= p.maxSpeed) return { engineForce: 0, brake: 0 };
-    const f = Math.min(p.maxDriveForce, p.power / Math.max(vForward, 1));
-    return { engineForce: f * input.throttle, brake: 0 };
+  if (m === 'D') {
+    if (input.brake > 0) return { engineForce: 0, brake: input.brake, mode: m };
+    if (input.throttle > 0) {
+      if (vForward < -STOPPED) return { engineForce: 0, brake: input.throttle, mode: m };
+      if (vForward >= p.maxSpeed) return { engineForce: 0, brake: 0, mode: m };
+      const f = Math.min(p.maxDriveForce, p.power / Math.max(vForward, 1));
+      return { engineForce: f * input.throttle, brake: 0, mode: m };
+    }
+  } else {
+    if (input.throttle > 0) return { engineForce: 0, brake: input.throttle, mode: m };
+    if (input.brake > 0) {
+      if (vForward > STOPPED) return { engineForce: 0, brake: input.brake, mode: m };
+      if (vForward < -p.reverseMax) return { engineForce: 0, brake: 0, mode: m };
+      return { engineForce: -p.reverseForce * input.brake, brake: 0, mode: m };
+    }
   }
-  return { engineForce: 0, brake: 0 };
+  return { engineForce: 0, brake: 0, mode: m };
 }
 
 /** Front-wheel lock allowed at this speed (speed-sensitive steering). */

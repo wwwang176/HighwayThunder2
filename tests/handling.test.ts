@@ -4,33 +4,57 @@ import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_K
 const P = DEFAULT_CAR;
 
 describe('driveCommand', () => {
-  it('full throttle from standstill is traction limited', () => {
-    const c = driveCommand({ throttle: 1, brake: 0, steer: 0 }, 0, P);
+  const T = { throttle: 1, brake: 0, steer: 0 };
+  const B = { throttle: 0, brake: 1, steer: 0 };
+  it('D: full throttle from standstill is traction limited', () => {
+    const c = driveCommand(T, 0, P, 'D');
     expect(c.engineForce).toBeCloseTo(P.maxDriveForce);
     expect(c.brake).toBe(0);
+    expect(c.mode).toBe('D');
   });
-  it('power limited at high speed', () => {
-    expect(driveCommand({ throttle: 1, brake: 0, steer: 0 }, 60, P).engineForce).toBeCloseTo(P.power / 60);
+  it('D: power limited at speed, nothing past the limiter', () => {
+    expect(driveCommand(T, 60, P, 'D').engineForce).toBeCloseTo(P.power / 60);
+    expect(driveCommand(T, P.maxSpeed + 0.1, P, 'D').engineForce).toBe(0);
   });
-  it('no drive beyond the rev limiter', () => {
-    expect(driveCommand({ throttle: 1, brake: 0, steer: 0 }, P.maxSpeed + 0.1, P).engineForce).toBe(0);
+  it('D: brake key brakes while moving, in either direction', () => {
+    for (const v of [20, -20, -3]) {
+      const c = driveCommand(B, v, P, 'D');
+      expect(c.engineForce).toBe(0);
+      expect(c.brake).toBe(1);
+      expect(c.mode).toBe('D');
+    }
   });
-  it('brake key brakes while rolling forward', () => {
-    const c = driveCommand({ throttle: 0, brake: 1, steer: 0 }, 20, P);
+  it('D: throttle while rolling backwards (e.g. after a spin) brakes, stays in D', () => {
+    const c = driveCommand(T, -15, P, 'D');
+    expect(c.engineForce).toBe(0);
+    expect(c.brake).toBe(1);
+    expect(c.mode).toBe('D');
+  });
+  it('R is only selected when stopped and the back key is pressed', () => {
+    const c = driveCommand(B, 0.2, P, 'D');
+    expect(c.mode).toBe('R');
+    expect(c.engineForce).toBeLessThan(0);
+  });
+  it('R: back key reverses up to reverseMax, throttle key brakes', () => {
+    expect(driveCommand(B, -3, P, 'R').engineForce).toBeLessThan(0);
+    expect(driveCommand(B, -P.reverseMax - 0.1, P, 'R').engineForce).toBe(0);
+    const w = driveCommand(T, -5, P, 'R');
+    expect(w.engineForce).toBe(0);
+    expect(w.brake).toBe(1);
+    expect(w.mode).toBe('R');
+  });
+  it('R: back key brakes if the car is rolling forwards', () => {
+    const c = driveCommand(B, 10, P, 'R');
     expect(c.engineForce).toBe(0);
     expect(c.brake).toBe(1);
   });
-  it('brake key reverses when (almost) stopped, up to reverseMax', () => {
-    expect(driveCommand({ throttle: 0, brake: 1, steer: 0 }, 0.2, P).engineForce).toBeLessThan(0);
-    expect(driveCommand({ throttle: 0, brake: 1, steer: 0 }, -P.reverseMax - 0.1, P).engineForce).toBe(0);
-  });
-  it('throttle while rolling backwards brakes first', () => {
-    const c = driveCommand({ throttle: 1, brake: 0, steer: 0 }, -3, P);
-    expect(c.engineForce).toBe(0);
-    expect(c.brake).toBeGreaterThan(0);
+  it('D is selected again when stopped and the throttle is pressed', () => {
+    const c = driveCommand(T, -0.1, P, 'R');
+    expect(c.mode).toBe('D');
+    expect(c.engineForce).toBeGreaterThan(0);
   });
   it('handbrake holds the car', () => {
-    const c = driveCommand({ throttle: 0, brake: 0, steer: 0, handbrake: true }, 0, P);
+    const c = driveCommand({ throttle: 0, brake: 0, steer: 0, handbrake: true }, 0, P, 'D');
     expect(c.engineForce).toBe(0);
     expect(c.brake).toBe(1);
   });

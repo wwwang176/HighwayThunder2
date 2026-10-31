@@ -14,6 +14,7 @@ export interface HudFrame {
   muted: boolean;
   gear: number;
   rpm: number;
+  reverse: boolean;
 }
 
 export const TACHO_MAX = 8000;
@@ -173,7 +174,7 @@ export class Hud {
     this.el.bar.style.width = `${Math.min(100, Math.max(0, (f.playerS / ROAD_LENGTH) * 100))}%`;
     this.el.speed.textContent = String(Math.max(0, Math.round(f.speedKmh)));
     this.el.nm.textContent = String(flow.nearMisses);
-    this.el.gear.textContent = f.speedKmh < -1 ? 'R' : String(f.gear);
+    this.el.gear.textContent = f.reverse ? 'R' : String(f.gear);
     this.el.rpm.textContent = String(Math.round(f.rpm / 50) * 50);
     this.el.needle.setAttribute('transform', `rotate(${tachoAngle(f.rpm).toFixed(1)} 100 100)`);
     this.el.rpm.classList.toggle('red', f.rpm >= TACHO_RED);

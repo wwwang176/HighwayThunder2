@@ -431,7 +431,8 @@ export class Game {
     this.sound.setEngine(this.player.rpm, this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     this.hud.update(dt, {
-      speedKmh: this.player.speed * 3.6,
+      speedKmh: Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6,
+      reverse: this.player.driveMode === 'R',
       playerS: this.player.s,
       resetCooldown: this.flow.resetCooldown,
       muted: this.sound.muted,
