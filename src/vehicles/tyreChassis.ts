@@ -36,7 +36,30 @@ export interface ChassisWheel {
   dirZ: number;
 }
 
+/**
+ * "Tripping": a tyre dragged sideways digs in (sidewall folds, rim catches) and
+ * grips far harder than in a normal slide - that is what flips cars in real
+ * crashes. From `from` to `to` (rad of slip angle, normally 30 -> 90 deg) the grip
+ * rises along a cubic curve up to `mu`: a spinning car mostly slides, and only
+ * when it is dragged nearly sideways does it dig in and roll.
+ */
+export interface SideTrip {
+  from: number;
+  to: number;
+  mu: number;
+}
+
+/** Grip multiplier for a slip angle under a SideTrip setup (1 = no change). */
+export function tripGripScale(alpha: number, trip: SideTrip | undefined, muPeak: number): number {
+  if (!trip) return 1;
+  const a = Math.abs(alpha);
+  if (a <= trip.from) return 1;
+  const k = Math.min(1, (a - trip.from) / (trip.to - trip.from));
+  return 1 + (trip.mu / muPeak - 1) * k * k * k;
+}
+
 export interface ChassisSetup {
+  sideTrip?: SideTrip; // only for traffic wrecks (spectacular rollovers)
   rest: number; // suspension rest length (m)
   travel: number; // max compression from rest (m)
   inertia: number; // wheel + driveline inertia (kg·m²)
@@ -136,6 +159,8 @@ export class TyreChassis {
       const v = this.body.velocityAtPoint(CONTACT);
       const vx = v.x * FWD.x + v.z * FWD.z;
       const vy = v.x * RIGHT.x + v.z * RIGHT.z;
+      const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 0.5));
+      const trip = tripGripScale(alpha, s.sideTrip, s.tire.muPeak);
       const res = solveWheel({
         vx,
         vy,
@@ -148,7 +173,7 @@ export class TyreChassis {
         dt,
         mEff: w.mEff,
         tire: s.tire,
-        muScale: s.surfaceGrip(CONTACT.x) * w.gripScale,
+        muScale: s.surfaceGrip(CONTACT.x) * w.gripScale * trip,
       });
       w.omega = res.omega;
       w.spin -= res.omega * dt;
@@ -156,7 +181,7 @@ export class TyreChassis {
       w.slip = res.slip;
       w.fx = res.Fx;
       w.fy = res.Fy;
-      w.alpha = Math.atan2(vy, Math.max(Math.abs(vx), 0.5));
+      w.alpha = alpha;
       w.contactX = CONTACT.x;
       w.contactZ = CONTACT.z;
       w.dirX = FWD.x;

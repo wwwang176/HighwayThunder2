@@ -52,6 +52,8 @@ const TRUCK_WRECK_TIRE: TireParams = {
   regripSpeed: 0.6,
   slipFalloff: 18,
 };
+// Peak "trip" friction when dragged fully sideways (see SideTrip); tunable live in the panel.
+export const WRECK_TRIP = { car: 3.5, truck: 2.2 };
 const wreckSurfaceGrip = (x: number) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
 const WHEEL_RAY_GROUPS = groups(G_PLAYER, G_STATIC); // NPC wheels only stand on the road
 const G = 9.81;
@@ -413,6 +415,8 @@ export class NpcVehicle {
       antiRoll: [],
       tire: this.kind === 'car' ? WRECK_TIRE : TRUCK_WRECK_TIRE,
       surfaceGrip: wreckSurfaceGrip,
+      // Sideways-sliding wrecks trip and roll (car tipping threshold ~2.0, trucks ~0.8).
+      sideTrip: { from: Math.PI / 6, to: Math.PI / 2, mu: this.kind === 'car' ? WRECK_TRIP.car : WRECK_TRIP.truck },
     });
   }
 

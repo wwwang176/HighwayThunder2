@@ -1,6 +1,7 @@
 import GUI from 'lil-gui';
 import type { CarParams } from '../vehicles/handling';
 import type { CameraParams } from '../render/cameraRig';
+import { WRECK_TRIP } from '../vehicles/npcVehicle';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
 export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }): GUI {
@@ -44,6 +45,8 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   c.add(camera, 'yawTau', 0.02, 1, 0.01).name('轉向跟隨延遲 s');
   const t = gui.addFolder('車流');
   t.add(traffic, 'spacing', 30, 250, 1).name('同車道平均間距 m');
+  t.add(WRECK_TRIP, 'car', 1, 6, 0.1).name('事故轎車橫滑翻車摩擦');
+  t.add(WRECK_TRIP, 'truck', 0.8, 4, 0.1).name('事故貨車橫滑翻車摩擦');
   gui.hide();
   return gui;
 }
