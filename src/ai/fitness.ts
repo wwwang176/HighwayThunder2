@@ -4,7 +4,9 @@ import type { TrafficBox } from './sensors';
 
 /** Scoring and elimination settings (mutable: tuned while training). */
 export const FITNESS = {
-  timeLimit: 240, // s per generation
+  // s per generation: long enough for a careful driver (~90 km/h) to finish, so the
+  // finish-time bonus is what pushes it faster (at 240 s, safe drivers timed out at ~6.5 km).
+  timeLimit: 420,
   finishBonus: 4000, // shared out by how early a car finishes
   crashPenalty: 1000, // a crash costs this many metres
   stallWindow: 10, // s: a car that moves less than stallMinProgress in this long is out

@@ -1,8 +1,8 @@
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { serializeDriver } from '../src/ai/driverFile';
+import { parseDriver, serializeDriver } from '../src/ai/driverFile';
 import { Trainer } from '../src/ai/trainer';
 
 /**
@@ -24,7 +24,11 @@ it('train', async () => {
   // vitest holds console output until the test ends, so progress also goes to a file.
   const log = (s: string) => appendFileSync(logFile, `${s}\n`);
 
-  const t = new Trainer({ seed });
+  // TRAIN_FROM: comma-separated driver files to continue from (the population starts as them + mutations).
+  const from = (process.env.TRAIN_FROM ?? '').split(',').filter(Boolean);
+  const seedBrains = from.map((p) => parseDriver(JSON.parse(readFileSync(resolve(p), 'utf8'))));
+  if (seedBrains.length) log(`starting from ${from.join(', ')}`);
+  const t = new Trainer({ seed, seedBrains });
   let bestSaved = -Infinity;
   const t0 = Date.now();
   while (t.generation <= generations) {

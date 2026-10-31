@@ -29,6 +29,16 @@ describe('Trainer', () => {
     t.dispose();
   });
 
+  it('can start from already trained networks (copies plus mutated copies)', () => {
+    const base = new Trainer({ seed: 9, population: 2, timeLimit: 1 });
+    const seedBrain = base.population[0];
+    base.dispose();
+    const t = new Trainer({ seed: 10, population: 5, timeLimit: 1, seedBrains: [seedBrain] });
+    expect([...t.population[0].weights]).toEqual([...seedBrain.weights]);
+    for (const b of t.population.slice(1)) expect([...b.weights]).not.toEqual([...seedBrain.weights]);
+    t.dispose();
+  });
+
   it('validates the best of a generation on unseen traffic and keeps the best', () => {
     const t = new Trainer({ seed: 2, population: 4, timeLimit: 1 });
     t.tick(200);

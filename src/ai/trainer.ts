@@ -1,7 +1,7 @@
 import type * as THREE from 'three';
 import { KMH } from '../config';
 import type { WheelInstances } from '../vehicles/wheelInstances';
-import { Brain, cloneBrain, createBrain } from './brain';
+import { Brain, cloneBrain, createBrain, mutate } from './brain';
 import { BRAIN_LAYERS, DEFAULT_EVO, EvoParams, nextGeneration } from './evolution';
 import { FITNESS, fitness } from './fitness';
 import { hashSeed, mulberry32 } from './rng';
@@ -43,6 +43,8 @@ export interface TrainerOptions {
   population?: number;
   timeLimit?: number;
   storage?: Storage | null;
+  /** Start from these trained networks (kept as they are, the rest of the population are mutated copies). */
+  seedBrains?: Brain[];
   /** Where to draw the visible generation's traffic (training page). */
   scene?: THREE.Scene;
   wheelPool?: WheelInstances;
@@ -86,7 +88,14 @@ export class Trainer {
     this.scene = opts.scene;
     this.wheelPool = opts.wheelPool;
     const rng = mulberry32(this.seed);
-    this.population = Array.from({ length: this.evo.population }, () => createBrain(BRAIN_LAYERS, rng));
+    const seeds = opts.seedBrains ?? [];
+    this.population = Array.from({ length: this.evo.population }, (_, i) =>
+      seeds.length === 0
+        ? createBrain(BRAIN_LAYERS, rng)
+        : i < seeds.length
+          ? cloneBrain(seeds[i])
+          : mutate(seeds[i % seeds.length], rng, this.evo.sigma, this.evo.rate),
+    );
     this.startGeneration();
   }
 
