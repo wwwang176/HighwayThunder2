@@ -43,6 +43,15 @@ const WRECK_TIRE: TireParams = {
   regripSpeed: 0.6,
   slipFalloff: 18,
 };
+// Heavy-truck tyres: harder compound, much less grip than a car's.
+const TRUCK_WRECK_TIRE: TireParams = {
+  muPeak: 0.8,
+  muSlide: 0.6,
+  slipAnglePeak: 0.105,
+  rollingResistance: 0.008,
+  regripSpeed: 0.6,
+  slipFalloff: 18,
+};
 const wreckSurfaceGrip = (x: number) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
 const WHEEL_RAY_GROUPS = groups(G_PLAYER, G_STATIC); // NPC wheels only stand on the road
 const G = 9.81;
@@ -402,7 +411,7 @@ export class NpcVehicle {
       travel: 0.2,
       inertia: p.spec.mass > 3000 ? 4 : 1,
       antiRoll: [],
-      tire: WRECK_TIRE,
+      tire: this.kind === 'car' ? WRECK_TIRE : TRUCK_WRECK_TIRE,
       surfaceGrip: wreckSurfaceGrip,
     });
   }
@@ -419,7 +428,8 @@ export class NpcVehicle {
       if (!p.chassis) continue;
       const n = p.wheels.length;
       // The driver stands on the brakes: enough torque to lock every wheel.
-      const brake = p.wheels.map((w) => 1.5 * WRECK_TIRE.muPeak * w.staticLoad * w.r);
+      const mu = p.chassis.setup.tire.muPeak;
+      const brake = p.wheels.map((w) => 1.5 * mu * w.staticLoad * w.r);
       p.chassis.step(dt, new Array(n).fill(0), new Array(n).fill(0), brake);
     }
     const blink = time % 0.8 < 0.4;
