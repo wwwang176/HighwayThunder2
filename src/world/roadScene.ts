@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { makeFlareMaterial } from '../render/lightFlares';
-import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH, ROAD_LENGTH } from '../config';
+import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 
 const STRIP_PERIOD = 100; // m; lane-dash (20), rail-post (4) and lamp (50) periods all divide it
 const STRIP_BEHIND = 300;
@@ -126,43 +126,6 @@ function grassTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-function textPanel(lines: string[], w: number, h: number, bg: string, fg: string): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const g = c.getContext('2d')!;
-  g.fillStyle = bg;
-  g.fillRect(0, 0, w, h);
-  g.strokeStyle = fg;
-  g.lineWidth = 8;
-  g.strokeRect(10, 10, w - 20, h - 20);
-  g.fillStyle = fg;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  const size = Math.floor((h * 0.7) / lines.length);
-  g.font = `bold ${size}px "Microsoft JhengHei", "Noto Sans TC", sans-serif`;
-  lines.forEach((l, i) => g.fillText(l, w / 2, (h / (lines.length + 1)) * (i + 1)));
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function checkerTexture(cols: number, rows: number): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = cols * 16;
-  c.height = rows * 16;
-  const g = c.getContext('2d')!;
-  for (let y = 0; y < rows; y++)
-    for (let x = 0; x < cols; x++) {
-      g.fillStyle = (x + y) % 2 ? '#111' : '#f4f4f4';
-      g.fillRect(x * 16, y * 16, 16, 16);
-    }
-  const tex = new THREE.CanvasTexture(c);
-  tex.magFilter = THREE.NearestFilter;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 export class RoadScene {
   private strip = new THREE.Group();
   private trees = new THREE.Group();
@@ -182,7 +145,7 @@ export class RoadScene {
   private readonly poolColor = new THREE.Color(LAMP_COLOR);
   private readonly tmpColor = new THREE.Color();
 
-  constructor(private scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
+  constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
     scene.background = new THREE.Color(SKY);
     scene.fog = new THREE.Fog(FOG, 60, 650);
 
@@ -203,7 +166,6 @@ export class RoadScene {
     this.buildStrip(renderer);
     this.buildTrees();
     this.buildFar();
-    this.buildLandmarks();
     scene.add(this.strip, this.trees, this.far);
   }
 
@@ -407,53 +369,6 @@ export class RoadScene {
       new THREE.PointsMaterial({ color: 0xbfcbe6, size: 1.6, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.7 }),
     );
     this.far.add(stars);
-  }
-
-  private buildLandmarks(): void {
-    const grp = new THREE.Group();
-    // Start and finish lines on the road.
-    const lineGeo = new THREE.PlaneGeometry(2 * ROAD_HALF_WIDTH, 2).rotateX(-Math.PI / 2);
-    const checker = new THREE.MeshBasicMaterial({ map: checkerTexture(30, 4) });
-    const start = new THREE.Mesh(lineGeo, checker);
-    start.position.set(0, 0.03, 0);
-    const finish = new THREE.Mesh(lineGeo, checker);
-    finish.position.set(0, 0.03, -ROAD_LENGTH);
-    grp.add(start, finish);
-
-    // Gantries.
-    const steel = new THREE.MeshStandardMaterial({ color: 0x7d838a, metalness: 0.6, roughness: 0.4 });
-    // Gantries span both carriageways.
-    const spanL = LEFT_RAIL_X - 1;
-    const spanR = RAIL_D + 1;
-    const gantry = (s: number, tex: THREE.Texture) => {
-      for (const x of [spanL, spanR]) {
-        const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, 8, 0.6), steel);
-        p.position.set(x, 4, -s);
-        p.castShadow = true;
-        grp.add(p);
-      }
-      const banner = new THREE.Mesh(
-        new THREE.BoxGeometry(spanR - spanL + 0.6, 2.4, 0.3),
-        [steel, steel, steel, steel, new THREE.MeshBasicMaterial({ map: tex }), new THREE.MeshBasicMaterial({ map: tex })],
-      );
-      banner.position.set((spanL + spanR) / 2, 7.6, -s);
-      banner.castShadow = true;
-      grp.add(banner);
-    };
-    gantry(40, textPanel(['START 起點'], 2048, 128, '#1b3d7a', '#ffffff'));
-    gantry(ROAD_LENGTH, textPanel(['FINISH  終點'], 2048, 128, '#111111', '#ffd400'));
-
-    // Distance signs every km on the right shoulder.
-    for (let k = 1; k <= 9; k++) {
-      const s = k * 1000;
-      const tex = textPanel(['終點', `${10 - k} km`], 256, 192, '#1f6e3a', '#ffffff');
-      const board = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.4), new THREE.MeshBasicMaterial({ map: tex }));
-      board.position.set(RAIL_D + 2.2, 4.2, -s);
-      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.15, 3.2, 0.15), steel);
-      pole.position.set(RAIL_D + 2.2, 1.6, -s - 0.05);
-      grp.add(board, pole);
-    }
-    this.scene.add(grp);
   }
 
   /**
