@@ -16,6 +16,8 @@ export interface VehicleLights {
 export interface VehicleModel {
   root: THREE.Group;
   lights: VehicleLights;
+  /** Headlight beam painted on the road (posed by alignBeam, not by the body). */
+  beam?: THREE.Mesh;
 }
 
 const geoCache = new Map<string, THREE.BoxGeometry>();
@@ -69,6 +71,7 @@ export interface FlareSpot {
 // as an additive decal computed from the same pattern as the player's lights.
 let beamMat: THREE.MeshBasicMaterial | null = null;
 let beamGeo: THREE.BufferGeometry | null = null;
+const BEAM_ROWS = 40;
 const DARK = std(0x222222, 0.8);
 const CHROME = std(0xcccccc, 0.3, 0.8);
 
@@ -127,12 +130,16 @@ function addLights(
       polygonOffset: true,
       polygonOffsetFactor: -2,
     });
-    beamGeo ??= new THREE.PlaneGeometry(BEAM_GROUND_W, BEAM_GROUND_L).rotateX(-Math.PI / 2);
+    // Rows along the length so the pattern can be warped as the body pitches (warpBeam).
+    beamGeo ??= new THREE.PlaneGeometry(BEAM_GROUND_W, BEAM_GROUND_L, 1, BEAM_ROWS).rotateX(-Math.PI / 2);
     const beam = new THREE.Mesh(beamGeo, beamMat);
     // The pattern on the ground scales with the lamps' height.
     const k = (y - groundY) / BEAM_LAMP_H;
     beam.scale.set(k, 1, k);
     beam.position.set(0, groundY + 0.04, frontZ - (BEAM_GROUND_L * k) / 2);
+    beam.matrixAutoUpdate = false;
+    beam.updateMatrix();
+    beam.userData = { role: 'beam', frontZ, groundY, len: BEAM_GROUND_L * k };
     parent.add(beam);
   }
   const flares: FlareSpot[] = (parent.userData.flares ??= []);
@@ -282,7 +289,7 @@ export function compactModel(model: VehicleModel): VehicleModel {
   const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
   for (const child of [...root.children]) {
     const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh || keep.has(mesh)) continue;
+    if (!mesh.isMesh || keep.has(mesh) || mesh.userData.role === 'beam') continue;
     mesh.updateMatrix();
     const g = mesh.geometry.clone().applyMatrix4(mesh.matrix);
     const mat = mesh.material as THREE.Material;
@@ -303,13 +310,52 @@ export function compactModel(model: VehicleModel): VehicleModel {
 export function cloneModel(template: VehicleModel): VehicleModel {
   const root = template.root.clone(true);
   const lights: VehicleLights = { left: [], right: [], brake: [] };
+  let beam: THREE.Mesh | undefined;
   root.traverse((o) => {
     const role = o.userData.role;
     if (role === 'L') lights.left.push(o);
     else if (role === 'R') lights.right.push(o);
     else if (role === 'B') lights.brake.push(o as THREE.Mesh);
+    else if (role === 'beam') {
+      // Own copy of the geometry: each vehicle warps its beam to its own pitch.
+      beam = o as THREE.Mesh;
+      beam.geometry = beam.geometry.clone();
+      beam.frustumCulled = false;
+    }
   });
-  return { root, lights };
+  return { root, lights, beam };
+}
+
+const BEAM_Y = 0.05; // just above the road surface (0.01) and its markings
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const BV = new THREE.Vector3();
+const BD = new THREE.Vector3();
+const BQ = new THREE.Quaternion();
+const BM = new THREE.Matrix4();
+const BINV = new THREE.Matrix4();
+
+/**
+ * Pose a vehicle's road beam: flat on the road in front of the lamps, following
+ * the vehicle's heading, and warped for its pitch the way real lamps' light
+ * moves on the road (nose down: the cut-off comes closer). Tilting the decal
+ * with the body instead sank its far end into the road, so even a slight
+ * nose-dive under braking left only a metre or so of light. Hidden once the
+ * vehicle is rolled or flipped. Call after root.matrix is updated.
+ */
+export function alignBeam(root: THREE.Object3D, beam: THREE.Mesh): void {
+  BD.set(0, 1, 0).applyQuaternion(root.quaternion);
+  beam.visible = BD.y > 0.7;
+  if (!beam.visible) return;
+  BD.set(0, 0, -1).applyQuaternion(root.quaternion);
+  warpBeam(beam, -Math.asin(BD.y));
+  BQ.setFromAxisAngle(Y_AXIS, Math.atan2(-BD.x, -BD.z));
+  const u = beam.userData as { frontZ: number; groundY: number; len: number };
+  BV.set(0, u.groundY, u.frontZ).applyMatrix4(root.matrix);
+  BV.y = BEAM_Y;
+  BV.addScaledVector(BD.set(0, 0, -1).applyQuaternion(BQ), u.len / 2);
+  BM.compose(BV, BQ, beam.scale);
+  beam.matrix.multiplyMatrices(BINV.copy(root.matrix).invert(), BM);
+  beam.matrixWorldNeedsUpdate = true;
 }
 
 /**
@@ -334,4 +380,28 @@ export function unitWheelGeometry(): THREE.BufferGeometry {
   const merged = mergeGeometries(parts.map((g) => g.toNonIndexed()))!;
   parts.forEach((g) => g.dispose());
   return merged;
+}
+
+/**
+ * Move the beam pattern on the ground for a body pitch (rad, nose down > 0): the
+ * light that hit the ground at depression angle a now hits it at a + pitch.
+ * Works in the unscaled texture space (lamps BEAM_LAMP_H up, at the near edge).
+ */
+function warpBeam(beam: THREE.Mesh, pitch: number): void {
+  const u = beam.userData as { pitch?: number };
+  if (u.pitch !== undefined && Math.abs(pitch - u.pitch) < 2e-4) return;
+  u.pitch = pitch;
+  const base = beamGeo!.attributes.position as THREE.BufferAttribute;
+  const pos = beam.geometry.attributes.position as THREE.BufferAttribute;
+  const h = BEAM_LAMP_H;
+  for (let i = 0; i < base.count; i++) {
+    const d0 = BEAM_GROUND_L / 2 - base.getZ(i); // distance ahead of the lamps
+    let d = d0;
+    if (d0 > 1e-3) {
+      const a = Math.atan(h / d0) + pitch;
+      d = a > 1e-3 ? Math.min(h / Math.tan(a), d0 * 3) : d0 * 3;
+    }
+    pos.setXYZ(i, d0 > 1e-3 ? (base.getX(i) * d) / d0 : base.getX(i), base.getY(i), BEAM_GROUND_L / 2 - d);
+  }
+  pos.needsUpdate = true;
 }
