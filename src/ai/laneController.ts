@@ -70,21 +70,26 @@ export class LaneController {
     return { d: this.from + (to - this.from) * smoothstep(u), rate: ((to - this.from) * 6 * u * (1 - u)) / LANE_CHANGE_TIME };
   }
 
-  /**
-   * Steering input (-1..1) that tracks the planned path: Stanley (cross-track
-   * error at the front axle, planned lateral speed fed forward), but on the
-   * direction the car actually travels (heading plus body slip) and limited
-   * only by the car's own grip-derived steering range - the player car
-   * understeers far more than the kinematic model the traffic's tracker caps
-   * its wheel angle by, and would never finish a change at speed under that cap.
-   */
+  /** Steering input (-1..1) that tracks the planned path (aiming `LANE_TUNING.preview` s ahead on it). */
   steer(d: number, yaw: number, vLong: number, vLat: number, p: CarParams): number {
-    const v = Math.max(vLong, 1);
-    const course = yaw + Math.atan2(vLat, v);
-    // Aim a little ahead on the path: the car's sideways response lags the wheel.
     const plan = this.planAt(this.t + LANE_TUNING.preview);
-    const e = plan.d - (d + Math.sin(yaw) * (p.wheelbase / 2));
-    const angle = Math.atan2(plan.rate, v) - course + Math.atan2(LANE_TUNING.k * e, v + 2);
-    return Math.max(-1, Math.min(1, angle / steerRange(vLong, p)));
+    return trackSteer(plan.d, plan.rate, d, yaw, vLong, vLat, p);
   }
+}
+
+/**
+ * Steering input (-1..1) toward lateral position `dAim` moving sideways at
+ * `rate` (both taken a preview time ahead on a path): Stanley (cross-track
+ * error at the front axle, the path's lateral speed fed forward), but on the
+ * direction the car actually travels (heading plus body slip) and limited only
+ * by the car's own grip-derived steering range - the player car understeers far
+ * more than the kinematic model the traffic's tracker caps its wheel angle by,
+ * and would never finish a lane change at speed under that cap.
+ */
+export function trackSteer(dAim: number, rate: number, d: number, yaw: number, vLong: number, vLat: number, p: CarParams): number {
+  const v = Math.max(vLong, 1);
+  const course = yaw + Math.atan2(vLat, v);
+  const e = dAim - (d + Math.sin(yaw) * (p.wheelbase / 2));
+  const angle = Math.atan2(rate, v) - course + Math.atan2(LANE_TUNING.k * e, v + 2);
+  return Math.max(-1, Math.min(1, angle / steerRange(vLong, p)));
 }

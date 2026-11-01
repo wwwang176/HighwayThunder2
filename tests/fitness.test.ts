@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fitness, hitsTraffic, isOffRoad } from '../src/ai/fitness';
+import { fitness, FITNESS, hitsTraffic, isOffRoad, touching } from '../src/ai/fitness';
 import { laneCenter } from '../src/road/coords';
 
 describe('fitness', () => {
@@ -37,6 +37,20 @@ describe('crash rules', () => {
     expect(hitsTraffic(0, laneCenter(1), 0, t)).toBe(true);
     expect(hitsTraffic(-7, laneCenter(1), 0, t)).toBe(false);
     expect(hitsTraffic(0, laneCenter(2), 0, t)).toBe(false);
+  });
+
+  it('light contacts cost a little each, a crash a lot', () => {
+    const clean = fitness({ distance: 5000, crashed: false, finishTime: null });
+    const twice = fitness({ distance: 5000, crashed: false, finishTime: null, contacts: 2 });
+    expect(twice).toBe(clean - 2 * FITNESS.contactPenalty);
+    expect(fitness({ distance: 5000, crashed: true, finishTime: null })).toBeLessThan(twice);
+  });
+
+  it('lists what the car is touching', () => {
+    const t = [1, 2].map((lane) => ({ id: lane, s: 3, dMin: laneCenter(lane) - 1.25, dMax: laneCenter(lane) + 1.25, v: 20, length: 8.5 })); // trucks
+    expect(touching(0, laneCenter(1), 0, t).map((x) => x.id)).toEqual([1]);
+    expect(touching(0, (laneCenter(1) + laneCenter(2)) / 2, 0, t).map((x) => x.id)).toEqual([1, 2]);
+    expect(touching(30, laneCenter(1), 0, t)).toEqual([]);
   });
 
   it('the lane a car is about to move into is not a crash', () => {

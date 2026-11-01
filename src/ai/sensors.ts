@@ -16,6 +16,8 @@ export interface SelfState {
 
 /** A vehicle (or wreck) on our carriageway as an axis-aligned box in road coordinates. */
 export interface TrafficBox {
+  /** Which vehicle (or wreck part) it is: the same from one step to the next. */
+  id?: number;
   s: number;
   dMin: number;
   dMax: number;

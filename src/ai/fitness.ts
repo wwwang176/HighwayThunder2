@@ -14,12 +14,20 @@ export const FITNESS = {
   crashPenalty: 1000, // a crash costs this many metres
   stallWindow: 10, // s: a car that moves less than stallMinProgress in this long is out
   stallMinProgress: 5, // m
+  // Light contact is allowed (street racing): touching at under this relative speed (m/s)
+  // is not a crash, but each contact costs contactPenalty metres so rubbing does not pay.
+  lightContactSpeed: 15 / 3.6,
+  contactPenalty: 50,
+  // Overlapping the same vehicle longer than this (s) is driving through it: a crash.
+  maxContactTime: 0.5,
 };
 
 export interface RunResult {
   distance: number;
   crashed: boolean;
   finishTime: number | null;
+  /** Light contacts (each counted once, when it starts). */
+  contacts?: number;
 }
 
 /**
@@ -28,8 +36,9 @@ export interface RunResult {
  * penalty made standing still the best thing a beginner network could do.
  */
 export function fitness(r: RunResult): number {
-  if (r.finishTime !== null) return ROAD_LENGTH + (FITNESS.finishBonus * Math.max(0, FITNESS.timeLimit - r.finishTime)) / FITNESS.timeLimit;
-  return r.crashed ? r.distance - Math.min(FITNESS.crashPenalty, r.distance / 2) : r.distance;
+  const contacts = (r.contacts ?? 0) * FITNESS.contactPenalty;
+  if (r.finishTime !== null) return ROAD_LENGTH + (FITNESS.finishBonus * Math.max(0, FITNESS.timeLimit - r.finishTime)) / FITNESS.timeLimit - contacts;
+  return (r.crashed ? r.distance - Math.min(FITNESS.crashPenalty, r.distance / 2) : r.distance) - contacts;
 }
 
 /** Furthest left the car may go: two wheels on the median grass (2 m past our inner shoulder) is allowed. */
@@ -68,6 +77,12 @@ export function isOffRoad(s: number, d: number, yaw: number): boolean {
  * Cutting into another lane in front of traffic still is.
  */
 export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficBox[], ownLane: number | null = null): boolean {
+  return touching(s, d, yaw, traffic, ownLane).length > 0;
+}
+
+/** What `hitsTraffic` would count as hit, one entry per vehicle or wreck touched. */
+export function touching(s: number, d: number, yaw: number, traffic: TrafficBox[], ownLane: number | null = null, out: TrafficBox[] = []): TrafficBox[] {
+  out.length = 0;
   const cs = carCorners(s, d, yaw);
   let sMin = Infinity;
   let sMax = -Infinity;
@@ -84,7 +99,7 @@ export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficB
     if (ownLane !== null && t.s < s && lanesOccupied(t.dMin, t.dMax).includes(ownLane)) continue;
     if (t.s + t.length / 2 < sMin || t.s - t.length / 2 > sMax) continue;
     if (t.dMax < dMin || t.dMin > dMax) continue;
-    return true;
+    out.push(t);
   }
-  return false;
+  return out;
 }

@@ -26,6 +26,14 @@ const BRAKE_RAMP = 5;
  */
 const LANE_DEADZONE = 0.15;
 
+/** Something that drives the AI car: the trained network, or the planner with plain controllers. */
+export interface Driver {
+  /** Driving input for one physics step. */
+  drive(self: SelfState, traffic: TrafficBox[], p?: CarParams): HandlingInput;
+  /** The car was put somewhere (start, reset, respawn) or the AI just took over at `d`. */
+  reset(d: number): void;
+}
+
 /** The AI car's state as the sensors expect it. */
 export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
   return { s: car.s, d: car.d, yaw: car.yaw, vLong: car.vLong, vLat: car.vLat, yawRate: car.yawRate, speedCap };
@@ -85,7 +93,7 @@ export function cruisePedals(target: number, self: SelfState, traffic: TrafficBo
  * Now the way to go faster is the network's own: pick a lane that is free.
  * Used by the trainer's ghost cars and by the game alike, once per physics step.
  */
-export class AiDriver {
+export class AiDriver implements Driver {
   private readonly sensors = new Float32Array(SENSOR_COUNT);
   private readonly out = new Float32Array(2);
   private lanes: LaneController | null = null;

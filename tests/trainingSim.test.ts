@@ -3,9 +3,9 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { Brain, createBrain } from '../src/ai/brain';
 import { BRAIN_LAYERS } from '../src/ai/evolution';
 import { mulberry32 } from '../src/ai/rng';
-import { TrainingSim } from '../src/ai/trainingSim';
+import { judgeContacts, ownLane, TrainingSim } from '../src/ai/trainingSim';
 import { GRASS_GRIP, PHYSICS_DT } from '../src/config';
-import { isOffRoad } from '../src/ai/fitness';
+import { FITNESS, isOffRoad } from '../src/ai/fitness';
 import { laneAt, laneCenter } from '../src/road/coords';
 import { OUR_FRAME } from '../src/road/frame';
 
@@ -28,6 +28,34 @@ const run = (sim: TrainingSim, seconds: number) => {
   for (let i = 0; i < Math.round(seconds / PHYSICS_DT) && !sim.done; i++) sim.step();
 };
 
+describe('judgeContacts (light contact is allowed)', () => {
+  const box = (id: number, v: number) => ({ id, s: 0, dMin: 0, dMax: 1, v, length: 4.5 });
+
+  it('a light touch is counted once per contact, not per step, and is not a crash', () => {
+    const open = new Map<number, number>();
+    expect(judgeContacts([box(1, 30)], 32, 0.5, 1, open)).toBe(1);
+    expect(judgeContacts([box(1, 30)], 32, 0.5, 1.1, open)).toBe(0); // same contact going on
+    expect(judgeContacts([], 32, 0, 1.2, open)).toBe(0); // over
+    expect(judgeContacts([box(1, 30)], 32, 0.5, 2, open)).toBe(1); // a new one
+  });
+
+  it('a hard hit is a crash, and so is staying inside another car', () => {
+    expect(judgeContacts([box(1, 20)], 30, 0, 1, new Map())).toBe('crash'); // 36 km/h faster
+    expect(judgeContacts([box(1, 30)], 30, 5, 1, new Map())).toBe('crash'); // swiped at 18 km/h sideways
+    const open = new Map<number, number>();
+    judgeContacts([box(1, 30)], 31, 0, 1, open);
+    expect(judgeContacts([box(1, 30)], 31, 0, 1 + FITNESS.maxContactTime + 0.01, open)).toBe('crash');
+  });
+});
+
+describe('ownLane', () => {
+  it('the lane it is settled in; none while moving across or between lanes', () => {
+    expect(ownLane(laneCenter(2) + 0.2, 0.3)).toBe(2);
+    expect(ownLane(laneCenter(2), 2)).toBeNull();
+    expect(ownLane((laneCenter(1) + laneCenter(2)) / 2, 0)).toBeNull();
+  });
+});
+
 describe('TrainingSim', () => {
   it('cars driving straight stay alive and make progress', () => {
     const sim = new TrainingSim([constant(0, 0.5), constant(0, 0.5), constant(0, 0.5)], 11, { speedCap: 40 });
@@ -49,7 +77,7 @@ describe('TrainingSim', () => {
     }
     expect(isOffRoad(g.car.s, g.car.d, g.car.yaw)).toBe(false);
     expect(laneAt(g.car.d)).toBe(3);
-    expect(g.laneChanges).toBe(2); // 1 → 2 → 3
+    expect(g.laneChanges).toBe(1); // counted where it settles: 1 → 3 without settling in 2
     expect(worst).toBeLessThan(laneCenter(3) + 0.3);
     sim.dispose();
   });
