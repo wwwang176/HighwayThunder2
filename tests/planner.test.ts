@@ -230,6 +230,14 @@ describe('plan', () => {
     }
   });
 
+  it('on the bumper of a car ahead, cuts into the next lane as soon as the car behind there is clear of its tail', () => {
+    // Lane 1: a car 9 m ahead (centre to centre), same speed. Lane 0: a car whose nose is just past our tail.
+    const ahead = car(9, 1, 100);
+    const leftBehind = car(-(2.2 + 2.25 + 0.4), 0, 100); // 0.4 m between its front and our rear
+    const p = plan(ego(100), [ahead, leftBehind, car(9, 2, 100), car(9, 3, 100)]);
+    expect(p.points[2].d).toBeLessThan(laneCenter(1) - 0.5); // on its way left within the first second
+  });
+
   it('nothing behind blocks it when it is mid lane change with traffic alongside', () => {
     // Halfway into lane 2, a car level with it in lane 2 and one in lane 1: a full plan still comes out.
     const boxes = [car(-1, 2, 120), car(-3, 1, 120)];

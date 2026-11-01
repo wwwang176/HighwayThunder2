@@ -43,12 +43,12 @@ export const PLANNER = {
   headway: 0.1,
   /**
    * Room (m, bumper to bumper) left to what is behind when moving in front of
-   * it, plus its closing speed × `cutInTime`. Small: in the game traffic coming
-   * up behind brakes for the player - a street racer cuts in and lets them
-   * brake. Raise both for a more considerate driver.
+   * it, plus its closing speed × `cutInTime`. Next to nothing: in the game
+   * traffic coming up behind brakes for a car cutting in - a street racer goes
+   * the moment the gap is its own length. Raise both for a more considerate driver.
    */
-  gapBehind: 1,
-  cutInTime: 0.2,
+  gapBehind: 0.3,
+  cutInTime: 0,
   /**
    * Sideways room kept to other vehicles (each side): the tracker's measured
    * error (p95, 0.75 s after a plan) is 0.18 m holding a line and 0.45 m moving
@@ -366,7 +366,8 @@ function collides(n: Node, s1: number, d1: number, v1: number, t0: number, dt: n
     if (Math.sign(r0) !== Math.sign(r1)) return true; // passed through it
     let r = Math.abs(r0) < Math.abs(r1) ? r0 : r1;
     if (sideways && t.dMax > d1 - HALF_WIDTH && t.dMin < d1 + HALF_WIDTH) {
-      // Moving toward it: the car starts across up to TRACKER_LEAD s early, so where it was then counts too.
+      // Moving toward it: the car starts across up to TRACKER_LEAD s early, so where it was then counts too
+      // (only stricter for one being passed - it was still alongside - braking does not help a sideswipe).
       const rEarly = t.s + t.v * (t0 - TRACKER_LEAD) - (n.s - n.v * TRACKER_LEAD);
       if (Math.sign(rEarly) !== Math.sign(r0)) return true;
       if (Math.abs(rEarly) < Math.abs(r)) r = rEarly;
