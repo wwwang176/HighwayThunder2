@@ -76,26 +76,17 @@ it('turnIn', async () => {
     const marks: string[] = [];
     let laneAt = NaN;
     let slipMax = 0;
-    let tiltMax = 0;
-    let gMax = 0;
-    let vLatPrev = 0;
-    const steer = Number(process.env.STEER ?? 1); // 0.3: a gentle lane change
     for (let i = 1; i <= Math.round(1.5 / PHYSICS_DT); i++) {
       const t = i * PHYSICS_DT;
-      car.prePhysics({ throttle: 1, brake: 0, steer: t < 1 ? steer : 0 }, PHYSICS_DT);
+      car.prePhysics({ throttle: 1, brake: 0, steer: t < 1 ? 1 : 0 }, PHYSICS_DT);
       physics.step(() => {});
       car.postPhysics();
       const moved = Math.abs(car.d - d0);
       slipMax = Math.max(slipMax, Math.abs(Math.atan2(car.vLat, Math.max(1, car.vLong))));
-      const q = car.body.rotation();
-      tiltMax = Math.max(tiltMax, Math.acos(Math.min(1, 1 - 2 * (q.x * q.x + q.z * q.z))));
-      const vD = car.vLong * Math.sin(car.yaw) + car.vLat * Math.cos(car.yaw);
-      gMax = Math.max(gMax, Math.abs(vD - vLatPrev) / PHYSICS_DT / 9.81);
-      vLatPrev = vD;
       if ([0.25, 0.5, 0.75, 1].some((x) => Math.abs(t - x) < PHYSICS_DT / 2)) marks.push(`${t.toFixed(2)}s ${moved.toFixed(2)} m`);
       if (isNaN(laneAt) && moved >= 3.75) laneAt = t;
     }
-    out.push(`${name.padEnd(14)} ${marks.join(' | ')} | lane in ${laneAt.toFixed(2)} s | slip max ${(slipMax * 57.3).toFixed(0)}° | sideways g max ${gMax.toFixed(2)} | tilt max ${(tiltMax * 57.3).toFixed(1)}°`);
+    out.push(`${name.padEnd(14)} ${marks.join(' | ')} | lane in ${laneAt.toFixed(2)} s | slip max ${(slipMax * 57.3).toFixed(0)}°`);
     physics.free();
   }
   process.stdout.write(out.join('\n') + '\n');

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, speedGripScale, visualLean, VISUAL_LEAN_MAX } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, speedGripScale } from '../src/vehicles/handling';
 
 const P = DEFAULT_CAR;
 
@@ -225,19 +225,5 @@ describe('speedGripScale', () => {
     expect(speedGripScale(100 / 3.6, p)).toBeCloseTo(1.1, 5); // grows with v²: a quarter at half the speed
     expect(speedGripScale(200 / 3.6, p)).toBeCloseTo(1.4, 5);
     expect(speedGripScale(300 / 3.6, p)).toBeCloseTo(1.4, 5);
-  });
-});
-
-describe('visualLean', () => {
-  const p = { ...DEFAULT_CAR, visualRoll: 4 };
-  const deg = (r: number) => (r * 180) / Math.PI;
-  it('leans out of the turn, visualRoll degrees per g', () => {
-    expect(deg(visualLean(9.81, p))).toBeCloseTo(4, 5); // pulled right: top to the left (+)
-    expect(deg(visualLean(-4.905, p))).toBeCloseTo(-2, 5);
-    expect(visualLean(0, p)).toBe(0);
-  });
-  it('never more than the cap (a knock is not a lean)', () => {
-    expect(visualLean(500, p)).toBe(VISUAL_LEAN_MAX);
-    expect(visualLean(-500, p)).toBe(-VISUAL_LEAN_MAX);
   });
 });

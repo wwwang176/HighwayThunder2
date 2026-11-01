@@ -1,9 +1,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, speedGripScale, steerAngle, visualLean } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, speedGripScale, steerAngle } from './handling';
 import { CarSpec, STREET_RACER } from './cars';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
@@ -36,8 +35,6 @@ const HALF_TRACK = 0.8;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
 const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
-/** Share of the way the drawn lean moves toward its target each physics step (settles in ~0.15 s). */
-const LEAN_FOLLOW = 1 - Math.exp(-PHYSICS_DT / 0.15);
 
 /** Road-relative yaw from a Y-only quaternion (yaw = -rotation.y). */
 export function yawOf(q: { x: number; y: number; z: number; w: number }): number {
@@ -94,10 +91,6 @@ export class PlayerCar {
   private currPos = new THREE.Vector3();
   private prevQuat = new THREE.Quaternion();
   private currQuat = new THREE.Quaternion();
-  /** The drawn body without the wheels: leans by `lean` on top of the physics (`visualRoll`). */
-  private readonly shell = new THREE.Group();
-  private lean = 0;
-  private readonly lastVel = new THREE.Vector3();
 
   /**
    * @param scene where to add the car's model (and, for the player, its real
@@ -182,9 +175,6 @@ export class PlayerCar {
     }
     this.mesh = model.root;
     this.lights = model.lights;
-    // Everything but the wheels leans together (the wheels stay on the road).
-    this.shell.add(...this.mesh.children);
-    this.mesh.add(this.shell);
     for (let i = 0; i < 4; i++) {
       const w = buildWheel(WHEEL_R, WHEEL_W);
       this.mesh.add(w.steer);
@@ -306,12 +296,6 @@ export class PlayerCar {
     const q = this.body.rotation();
     this.currPos.set(t.x, t.y, t.z);
     this.currQuat.set(q.x, q.y, q.z, q.w);
-    // Drawn lean: from the sideways acceleration, lagging it like a suspension settling.
-    const v = this.body.linvel();
-    TMP_V.set(1, 0, 0).applyQuaternion(this.currQuat);
-    const aRight = ((v.x - this.lastVel.x) * TMP_V.x + (v.z - this.lastVel.z) * TMP_V.z) / PHYSICS_DT;
-    this.lastVel.set(v.x, v.y, v.z);
-    this.lean += (visualLean(aRight, this.params) - this.lean) * LEAN_FOLLOW;
   }
 
   private readBack(): void {
@@ -333,9 +317,6 @@ export class PlayerCar {
     this.prevPos.copy(this.currPos);
     this.currQuat.set(q.x, q.y, q.z, q.w);
     this.prevQuat.copy(this.currQuat);
-    const v = this.body.linvel();
-    this.lastVel.set(v.x, v.y, v.z);
-    this.lean = 0;
   }
 
   /** Place the car in a lane, upright, pointing down the road, at the given speed. */
@@ -362,7 +343,6 @@ export class PlayerCar {
   render(alpha: number, flares?: LightFlares): void {
     this.mesh.position.lerpVectors(this.prevPos, this.currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
-    this.shell.rotation.z = this.lean;
     if (flares) {
       this.mesh.updateMatrix();
       emitFlares(this.mesh, this.lights, flares);

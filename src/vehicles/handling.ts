@@ -44,7 +44,6 @@ export interface CarParams {
   muSlide: number;
   slipAnglePeak: number; // rad
   rearGrip: number; // rear tyre grip multiplier (wider rear tyres)
-  visualRoll: number; // degrees of extra body lean drawn (physics untouched) per g of sideways acceleration
   rollInfluence: number; // 0..1 share of the tyres' rolling torque the body gets (1 real; lower leans but does not tip over)
   speedGrip: number; // extra tyre grip at 200 km/h (grows with v²) without the downforce that bottoms the suspension: high-speed handling feel
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
@@ -277,18 +276,4 @@ export function steerAngle(input: number, vLong: number, vLat: number, p: CarPar
   const handsOff = 1 - Math.min(1, Math.abs(input));
   const a = driver + trail * handsOff;
   return Math.max(-p.maxSteer, Math.min(p.maxSteer, a));
-}
-
-/** Most extra lean `visualLean` draws (rad). */
-export const VISUAL_LEAN_MAX = (8 * Math.PI) / 180;
-
-/**
- * Extra body lean to draw (rad, + = top toward the car's left) for a sideways
- * acceleration `aRight` (m/s², + = toward the car's right): the body leans out
- * of the turn by `visualRoll` degrees per g. Drawn only - the stiff suspension
- * really leans about a degree changing lanes, which does not show.
- */
-export function visualLean(aRight: number, p: CarParams): number {
-  const lean = (p.visualRoll * Math.PI) / 180 * (aRight / G);
-  return Math.max(-VISUAL_LEAN_MAX, Math.min(VISUAL_LEAN_MAX, lean));
 }
