@@ -1,14 +1,34 @@
 import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
-import { Driver, speedPedals } from './driver';
+import type { Driver } from './driver';
 import { trackSteer } from './laneController';
-import { plan, Plan, planAt, PlanEgo, PreviousPlan, TRACKER_LEAD } from './planner';
+import { maxAccel, plan, Plan, planAt, PlanEgo, PreviousPlan, TRACKER_LEAD } from './planner';
 import type { SelfState, TrafficBox } from './sensors';
 
 /** s between new plans. */
 export const REPLAN_EVERY = 0.25;
-/** s ahead on the plan the speed is taken from (the car needs a moment to get there). */
-const SPEED_PREVIEW = 0.3;
+/** s of plan the acceleration it wants is read over. */
+const ACCEL_WINDOW = 0.3;
+/** 1/s: how hard it pulls back to the plan's speed when off it. */
+const SPEED_GAIN = 1.5;
+/** m/s² the car loses with no pedal (drag, rolling); and what full brake gives (measured 10.8-14). */
+const COAST_DECEL = 1;
+const FULL_BRAKE_DECEL = 11;
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+
+/**
+ * Pedals for the acceleration the plan wants now (read straight off it, so a
+ * plan going flat out gets the throttle all the way down - a speed-error
+ * controller only gave ~70 % and the car fell behind its plans), plus a pull
+ * back toward the plan's speed.
+ */
+export function planPedals(p: Plan, age: number, v: number): { throttle: number; brake: number } {
+  const now = planAt(p, age);
+  const a = (planAt(p, age + ACCEL_WINDOW).v - now.v) / ACCEL_WINDOW + SPEED_GAIN * (now.v - v);
+  if (a >= 0) return { throttle: clamp01(a / (0.95 * maxAccel(v))), brake: 0 }; // near flat out is flat out
+  if (a > -COAST_DECEL) return { throttle: 0, brake: 0 };
+  return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / FULL_BRAKE_DECEL) };
+}
 /**
  * s ahead on the plan the steering aims. Shorter than the lane controller's
  * preview: that one leads on purpose (smooth lane changes) and here made the car
@@ -125,7 +145,7 @@ export class PlannerDriver implements Driver {
     const age = this.planAge;
     const aim = planAt(this.plan, age + PLAN_PREVIEW);
     const steer = trackSteer(aim.d, aim.dRate, self.d, self.yaw, self.vLong, self.vLat, p);
-    const pedals = speedPedals(planAt(this.plan, age + SPEED_PREVIEW).v, self.vLong);
+    const pedals = planPedals(this.plan, age, self.vLong);
     const brake = emergencyBrake(self, traffic, planAt(this.plan, age).dRate);
     if (brake > pedals.brake) {
       this.overrides++;

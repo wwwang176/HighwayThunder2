@@ -66,6 +66,12 @@ export const PLANNER = {
    * would race the whole way down a shoulder instead of through the traffic.
    */
   useShoulders: false,
+  /**
+   * Most cells (quarter lanes) moved sideways per step. 1: a lane in 2 s. 2: a
+   * lane in 1 s, ramping up and down a cell per step (a sudden stop swung the
+   * car 0.6 m past) - the lattice then tells lateral speeds apart (slower).
+   */
+  maxLateral: 1,
 };
 
 const HALF_LENGTH = 2.2;
@@ -113,8 +119,8 @@ class Grid {
   }
 }
 const GRIDS = { lanes: new Grid(false), shoulders: new Grid(true) };
-/** Sideways moves per step, in cells: a quarter lane, so one lane in 2 s (the rate the lane tracker was tuned at). */
-const MOVES = [0, -1, 1];
+/** Sideways moves per step, in cells (quarter lanes), up to PLANNER.maxLateral. */
+const MOVES = [0, -1, 1, -2, 2];
 
 /** Full-throttle acceleration of the player car (m/s²) at a speed (km/h), measured. */
 const ACCEL_KMH: [number, number][] = [
@@ -239,7 +245,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
   const grid = P.useShoulders ? GRIDS.shoulders : GRIDS.lanes;
   const lat = Math.max(-2, Math.min(2, ((ego.vD ?? 0) * dt) / CELL));
   const start: Node = { s: ego.s, v: ego.v, cell: grid.nearest(ego.d), d: ego.d, score: 0, parent: null, lat };
-  layer.set(key(start.cell, start.v), start);
+  layer.set(key(start.cell, start.v, start.lat), start);
   let deepest: Node[] = [start];
 
   for (let k = 0; k < steps; k++) {
@@ -270,6 +276,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
       const top = maxAccel(n.v);
       const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -P.hardBrake];
       for (const move of MOVES) {
+        if (Math.abs(move) > P.maxLateral || (P.maxLateral > 1 && Math.abs(move - n.lat) > 1.01)) continue;
         const cell = n.cell + move;
         if (cell < 0 || cell >= grid.cells) continue;
         const d = grid.d(cell);
@@ -279,7 +286,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
           if (collides(n, s, d, v, t0, dt, byCell[n.cell], move, merging, margin, grid, tight) || (move !== 0 && collides(n, s, d, v, t0, dt, byCell[cell], move, merging, margin, grid, tight))) continue;
           let score = n.score + (s - n.s) - (move !== 0 ? P.lateralCost : 0) - (grid.isLaneCentre(cell) ? 0 : P.lineCost) - P.brakeCost * Math.max(0, n.v - v);
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus;
-          const kk = key(cell, v);
+          const kk = key(cell, v, move);
           const old = next.get(kk);
           if (!old || score > old.score) next.set(kk, { s, v, cell, d, score, parent: n, lat: move });
         }
@@ -318,7 +325,7 @@ export function planAt(p: Plan, t: number): PlanPoint & { dRate: number } {
   return { t, s: a.s + (b.s - a.s) * u, d: a.d + (b.d - a.d) * u, v: a.v + (b.v - a.v) * u, dRate };
 }
 
-const key = (cell: number, v: number) => cell * 1000 + Math.round(v / PLANNER.speedCell);
+const key = (cell: number, v: number, lat: number) => (cell * 1000 + Math.round(v / PLANNER.speedCell)) * 8 + (PLANNER.maxLateral > 1 ? Math.round(lat) + 3 : 0);
 
 /**
  * Whether moving from node `n` to (s1, d1, v1) over [t0, t0 + dt] touches any

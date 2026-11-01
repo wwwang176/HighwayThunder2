@@ -129,6 +129,13 @@ describe('emergencyBrake', () => {
 });
 
 describe('PlannerDriver', () => {
+  it('flat out means the throttle all the way down, not most of the way', () => {
+    const ai = new PlannerDriver();
+    const self = { s: 0, d: laneCenter(1), yaw: 0, vLong: 30, vLat: 0, yawRate: 0, speedCap: 83.3 };
+    expect(ai.drive(self, []).throttle).toBe(1);
+    expect(new PlannerDriver().drive({ ...self, vLong: 60 }, []).throttle).toBe(1); // 216 km/h: still flat out
+  });
+
   it('empty road: flat out, holding its lane', () => {
     const { car, touched, maxD } = drive(100, 1, [], 6);
     expect(touched).toBe(0);
