@@ -1,3 +1,5 @@
+// Whole-system check: rival / player / ghost bodies really collide (or not) in the physics world.
+//   npx vitest run --config training/vitest.config.ts training/rivalPhysics.train.ts
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { EntityRef, PhysicsWorld } from '../src/physics/physicsWorld';
