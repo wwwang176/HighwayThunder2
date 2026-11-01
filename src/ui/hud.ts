@@ -107,7 +107,7 @@ export class Hud {
           </div>
         </div>
         <div class="mute" data-id="mute">🔇 靜音</div>
-        <div class="ai-badge" data-id="ai">AI 駕駛中 <small>I 拿回控制</small></div>
+        <div class="ai-badge" data-id="ai">AI 駕駛中 <small>I 拿回控制 · P 路線</small></div>
       </div>
       <div id="toast" class="toast" data-id="toast">險過！</div>
       <div id="pause" class="panel center">

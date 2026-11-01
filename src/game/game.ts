@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import Stats from 'stats.js';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
+import { PlanPath } from '../render/planPath';
+import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
 import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED } from '../config';
 import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
@@ -54,6 +56,9 @@ export class Game {
   /** AI strength: its top speed. */
   readonly aiSettings = { speedCapKmh: 300 };
   private humanMaxSpeed = 0;
+  /** Draw the AI's planned path on the road (P). */
+  showPlan = true;
+  private planPath!: PlanPath;
   private aiTraffic: TrafficBox[] = [];
   private wheelPool!: WheelInstances;
   private skids!: SkidMarks;
@@ -89,6 +94,7 @@ export class Game {
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = surfaceGrip;
     this.wheelPool = new WheelInstances(this.scene);
+    this.planPath = new PlanPath(this.scene);
     this.trafficWorld = new TrafficWorld(physics, this.scene, this.wheelPool, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.scene);
@@ -121,6 +127,7 @@ export class Game {
     k.onPress('KeyR', () => this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
     k.onPress('KeyI', () => this.toggleAi());
+    k.onPress('KeyP', () => (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
   }
 
@@ -400,6 +407,9 @@ export class Game {
     this.flares.end();
     this.npcBeams.end();
     this.wheelPool.commit();
+    const planned = this.aiDriver as { plan?: Plan | null; planAge?: number } | null;
+    if (this.showPlan && this.aiActive && this.flow.phase === 'racing' && planned?.plan) this.planPath.show(planned.plan, planned.planAge ?? 0);
+    else this.planPath.hide();
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
     // After the road has placed this frame's street lights.

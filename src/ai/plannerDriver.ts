@@ -53,6 +53,11 @@ export class PlannerDriver implements Driver {
   plan: Plan | null = null;
   /** s since the current plan was made. */
   private age = 0;
+
+  /** s since the current plan was made (to draw it from where the car is now). */
+  get planAge(): number {
+    return this.age;
+  }
   /** Steps the emergency brake had to step in (the plan cut it too fine). */
   overrides = 0;
   /** How far the car ends up from where plans said it would be (benchmarks only: `measure()`). */
