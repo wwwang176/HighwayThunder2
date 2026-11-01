@@ -56,6 +56,25 @@ describe('ownLane', () => {
   });
 });
 
+describe('TrainingSim traffic awareness', () => {
+  it('traffic can be made to see the AI cars, as it sees the player in the game', () => {
+    const seen: number[] = [];
+    for (const sees of [false, true]) {
+      const sim = new TrainingSim([constant(0, 0.5), constant(0, 0.5)], 1, { speedCap: 40, trafficSeesCars: sees });
+      const orig = sim.traffic.stepAI.bind(sim.traffic);
+      let count = 0;
+      sim.traffic.stepAI = (dt, t, obstacles) => {
+        count = obstacles(OUR_FRAME).filter((o) => o.isPlayer).length;
+        orig(dt, t, obstacles);
+      };
+      sim.step();
+      seen.push(count);
+      sim.dispose();
+    }
+    expect(seen).toEqual([0, 2]);
+  });
+});
+
 describe('TrainingSim', () => {
   it('cars driving straight stay alive and make progress', () => {
     const sim = new TrainingSim([constant(0, 0.5), constant(0, 0.5), constant(0, 0.5)], 11, { speedCap: 40 });

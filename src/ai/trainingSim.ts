@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { PHYSICS_DT, ROAD_LENGTH } from '../config';
 import { PhysicsWorld } from '../physics/physicsWorld';
 import { laneAt, laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
-import type { RoadFrame } from '../road/frame';
+import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
 import type { Occupant } from '../traffic/spawner';
+import type { Obstacle } from '../traffic/trafficAI';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
 import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
 import { WheelInstances } from '../vehicles/wheelInstances';
@@ -77,6 +78,12 @@ export interface TrainingSimOptions {
   /** Where the traffic is drawn; a throwaway scene when omitted (headless runs). */
   scene?: THREE.Scene;
   wheelPool?: WheelInstances;
+  /**
+   * Traffic sees the AI cars and gives way to them, as it does the player in
+   * the game (for evaluating a single driver). Off for training: dozens of
+   * ghosts it all had to dodge would make a traffic jam no race has.
+   */
+  trafficSeesCars?: boolean;
 }
 
 /**
@@ -92,6 +99,7 @@ export class TrainingSim {
   readonly traffic: TrafficWorld;
   readonly speedCap: number;
   readonly timeLimit: number;
+  private readonly trafficSeesCars: boolean;
   time = 0;
   private boxes: TrafficBox[] = [];
   private touched: TrafficBox[] = [];
@@ -101,6 +109,7 @@ export class TrainingSim {
   constructor(drivers: (Brain | Driver)[], seed: number, opts: TrainingSimOptions) {
     this.speedCap = opts.speedCap;
     this.timeLimit = opts.timeLimit ?? FITNESS.timeLimit;
+    this.trafficSeesCars = opts.trafficSeesCars ?? false;
     this.physics = PhysicsWorld.createSync();
     this.physics.timestep = PHYSICS_DT;
     this.scene = opts.scene ?? new THREE.Scene();
@@ -157,7 +166,7 @@ export class TrainingSim {
       if (!g.alive) continue;
       g.car.prePhysics(g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes, g.car.params), dt);
     }
-    this.traffic.stepAI(dt, this.time, () => []);
+    this.traffic.stepAI(dt, this.time, (frame) => (this.trafficSeesCars ? this.carObstacles(frame) : []));
     this.physics.step((a, b) => {
       this.traffic.onNpcContact(a, b);
     });
@@ -182,6 +191,19 @@ export class TrainingSim {
       const s = frame.fromWorld(c.d, -c.s).s;
       for (const lane of lanesOccupied(c.d - CAR_HALF_W, c.d + CAR_HALF_W)) out.push({ s, lane, length: PLAYER_L, v: Math.max(0, c.speed) });
     }
+    return out;
+  }
+
+  /** The live ghosts as the traffic sees the player in the game (with `trafficSeesCars`). */
+  private carObstacles(frame: RoadFrame): Obstacle[] {
+    const out: Obstacle[] = [];
+    this.ghosts.forEach((g, i) => {
+      if (!g.alive) return;
+      const t = g.car.body.translation();
+      const v = g.car.body.linvel();
+      const f = OUR_FRAME.forwardWorld(g.car.yaw);
+      out.push({ ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: PLAYER_W, l: PLAYER_L, vx: v.x, vz: v.z }), id: -1000 - i, isPlayer: true });
+    });
     return out;
   }
 

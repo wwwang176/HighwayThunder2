@@ -19,6 +19,20 @@ function makeWorld(seed = 1) {
   return { physics, world };
 }
 
+describe('TrafficWorld.ourBoxes', () => {
+  it('shows the lane a car is moving into, not one it only signals for (it waits for the player then)', () => {
+    const { world } = makeWorld();
+    world.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, () => []);
+    const agents = (world as unknown as { sides: { sim: { agents: Map<number, { id: number; lane: number; targetLane: number | null; lcState: string }> } }[] }).sides[0].sim.agents;
+    const a = [...agents.values()][0];
+    a.targetLane = a.lane === 0 ? 1 : a.lane - 1;
+    a.lcState = 'signal';
+    expect(world.ourBoxes().some((b) => b.phantom && b.id === a.id)).toBe(false);
+    a.lcState = 'move';
+    expect(world.ourBoxes().some((b) => b.phantom && b.id === a.id)).toBe(true);
+  });
+});
+
 describe('TrafficWorld', () => {
   it('fills the road ahead of the focus on reset', () => {
     const { world } = makeWorld();

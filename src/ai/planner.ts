@@ -342,13 +342,21 @@ function collides(n: Node, s1: number, d1: number, v1: number, t0: number, dt: n
     const r1 = t.s + t.v * (t0 + dt) - s1;
     if (inLane && r0 < 0 && r1 < 0 && t.dMin < n.d && t.dMax > n.d) continue; // behind us in our lane: it brakes for us
     const reach = HALF_LENGTH + t.length / 2;
-    if (inLane && t.id !== undefined && merging.has(t.id) && Math.abs(r0) < reach + MERGE_YIELD) continue; // merging alongside: it waits for us
+    // Merging in alongside or from behind: it waits for us (in the game). Merging in ahead: let it in.
+    if (inLane && t.id !== undefined && merging.has(t.id) && r0 < HALF_LENGTH && r0 > -(reach + MERGE_YIELD)) continue;
     // Ahead: right on the bumper, but never closer than it takes to brake down to its speed - without this
     // the plan closed in fast up to the last moment and the emergency brake did the braking (all five
     // benchmark runs crashed with the emergency brake held back past the plan's own hardest braking).
     const closing = Math.max(0, Math.max(n.v, v1) - t.v);
-    const stop = (closing * closing) / (2 * P.hardBrake);
-    const ahead = reach + stop + (P.gapAhead + P.headway * Math.max(n.v, v1)) * margin;
+    let keep = (closing * closing) / (2 * P.hardBrake) + P.headway * Math.max(n.v, v1) * margin;
+    if (move !== 0 && (move > 0 ? t.dMax < n.d : t.dMin > n.d)) {
+      // Moving away from it sideways: it only has to stay ahead until the car is clear of it - swerve
+      // out at speed instead of braking to its speed first (keeps going sideways or the next step fails).
+      const overlap = move > 0 ? t.dMax + P.sideMargin - (d1 - HALF_WIDTH) : d1 + HALF_WIDTH - (t.dMin - P.sideMargin);
+      const clearIn = Math.max(0, overlap) / (CELL / dt);
+      keep = Math.min(keep, closing * clearIn);
+    }
+    const ahead = reach + keep + P.gapAhead * margin;
     const behind = reach + (P.gapBehind + P.cutInTime * Math.max(0, t.v - Math.min(n.v, v1))) * margin;
     if (Math.sign(r0) !== Math.sign(r1)) return true; // passed through it
     let r = Math.abs(r0) < Math.abs(r1) ? r0 : r1;

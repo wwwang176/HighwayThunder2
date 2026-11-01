@@ -137,7 +137,9 @@ export class TrafficWorld {
     const ours = this.sides[0];
     for (const a of ours.sim.agents.values()) {
       out.push({ id: a.id, s: a.s, dMin: a.d - a.width / 2, dMax: a.d + a.width / 2, v: a.v, length: a.length });
-      if (a.targetLane !== null && a.targetLane !== a.lane) {
+      // The lane it is moving into counts as taken. Only signalling, it still waits until the change is
+      // safe (for the player too, in the game), so that lane is not blocked yet.
+      if (a.lcState === 'move' && a.targetLane !== null && a.targetLane !== a.lane) {
         const c = laneCenter(a.targetLane);
         out.push({ id: a.id, s: a.s, dMin: c - a.width / 2, dMax: c + a.width / 2, v: a.v, length: a.length, phantom: true });
       }

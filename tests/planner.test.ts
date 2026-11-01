@@ -119,13 +119,14 @@ describe('plan', () => {
     expect(last(p).v).toBeGreaterThan(130 * KMH);
   });
 
-  it('a car merging in a little ahead while it holds its lane a few cm off the centre: still a full plan', () => {
+  it('a car cutting in just ahead while it holds its lane a few cm off the centre: brakes, stays in its lane', () => {
     const boxes: TrafficBox[] = [
       { ...car(6.4, 3, 77), id: 26, dMin: 4.3, dMax: 6.2 },
       { ...car(6.4, 2, 77), id: 26, phantom: true },
     ];
     const p = plan({ ...ego(115, 2), d: laneCenter(2) - 0.025 }, boxes);
-    expect(p.points.length).toBe(Math.round(PLANNER.horizon / PLANNER.step) + 1);
+    expect(p.points[1].v).toBeLessThan(p.points[0].v);
+    expect(laneAt(p.points[1].d)).toBe(2);
   });
 
   it('never squeezes into a long truck alongside, even when planning without margins', () => {
@@ -200,6 +201,28 @@ describe('plan', () => {
         const bumperGap = r - 2.2 - t.length / 2;
         expect(bumperGap).toBeGreaterThanOrEqual((closing * closing) / (2 * PLANNER.hardBrake) - 0.01);
       }
+    }
+  });
+
+  it('swerves out from behind a slower car at speed, instead of braking first and then changing lanes', () => {
+    // 180 km/h, a 100 km/h car 45 m ahead in its lane, the next lane free: it should be gone before it gets there.
+    const p = plan(ego(180), [car(45, 1, 100)]);
+    const minV = Math.min(...p.points.map((x) => x.v));
+    expect(minV).toBeGreaterThan(170 * KMH);
+    expect(laneAt(last(p).d)).not.toBe(1);
+  });
+
+  it('a car merging into its lane ahead of it is let in (braked for), not ignored', () => {
+    // 7005: 10 m ahead, sliding over from lane 3 into lane 2, slower.
+    const boxes: TrafficBox[] = [
+      { ...car(9.9, 3, 77), id: 26, dMin: 4.3, dMax: 6.2 },
+      { ...car(9.9, 2, 77), id: 26, phantom: true },
+      car(3, 1, 90), // lane 1 taken alongside
+    ];
+    const p = plan(ego(90, 2), boxes);
+    for (const x of p.points) {
+      const ahead = 9.9 + 77 * KMH * x.t - x.s;
+      if (Math.abs(x.d - laneCenter(2)) < 1) expect(ahead).toBeGreaterThan(4.45);
     }
   });
 

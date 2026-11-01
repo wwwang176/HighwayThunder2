@@ -3,7 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { selfStateOf } from '../src/ai/driver';
 import { touching } from '../src/ai/fitness';
 import { planAt, plan, Plan, PlanEgo, PreviousPlan } from '../src/ai/planner';
-import { PlannerDriver, PlanSource } from '../src/ai/plannerDriver';
+import { emergencyBrake, PlannerDriver, PlanSource } from '../src/ai/plannerDriver';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH, PHYSICS_DT } from '../src/config';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
@@ -108,6 +108,23 @@ describe('PlannerDriver with plans worked out elsewhere', () => {
     ai.drive({ ...self, s: 500, d: laneCenter(3) }, []);
     ai.drive({ ...self, s: 500, d: laneCenter(3) }, []);
     expect(ai.plan === null || ai.plan.points[0].s === 500).toBe(true);
+  });
+});
+
+describe('emergencyBrake', () => {
+  // A car 12 m ahead (bumper to bumper) 72 km/h slower, overlapping 0.3 m of our left side.
+  const self = { s: 0, d: laneCenter(1) + 1.6, yaw: 0, vLong: 45, vLat: 0, yawRate: 0, speedCap: 80 };
+  const slow = { id: 1, s: 2.2 + 12 + 2.25, dMin: laneCenter(1) - 0.925, dMax: self.d - 0.93 + 0.3, v: 25, length: 4.5 };
+
+  it('brakes hard for what is right ahead and not getting out of the way', () => {
+    expect(emergencyBrake(self, [slow])).toBeGreaterThan(0.5);
+  });
+
+  it('not for a car it is swerving clear of before it gets there', () => {
+    // Moving right at 2 m/s: clear of the 0.3 m overlap in 0.15 s, while closing 20 m/s eats 3 of the 12 m.
+    expect(emergencyBrake({ ...self, vLat: 2 }, [slow])).toBe(0);
+    // Moving toward it: no such luck.
+    expect(emergencyBrake({ ...self, vLat: -2 }, [slow])).toBeGreaterThan(0.5);
   });
 });
 

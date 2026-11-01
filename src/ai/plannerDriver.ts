@@ -23,6 +23,8 @@ const STOP_GAP = 1.5;
 /** m/s² of braking it takes before the emergency brake steps in, and how much more is full brake. */
 const EMERGENCY_FROM = 4;
 const EMERGENCY_RANGE = 6;
+/** m/s sideways that counts as getting out of the way. */
+const SWERVING = 0.5;
 
 /**
  * Brake needed (0..1) not to run into what is right ahead of the car's own
@@ -31,13 +33,22 @@ const EMERGENCY_RANGE = 6;
  * (or something changed since it was made), not a cruise control: the planner
  * decides how close to follow.
  */
-export function emergencyBrake(self: SelfState, traffic: TrafficBox[]): number {
+export function emergencyBrake(self: SelfState, traffic: TrafficBox[], plannedVD = 0): number {
   let need = 0;
+  // Sideways speed: what the car has, or what the plan is taking it to if more (the car lags the plan).
+  const actual = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
+  const vD = Math.abs(plannedVD) > Math.abs(actual) && Math.sign(plannedVD) !== -Math.sign(actual) ? plannedVD : actual;
   for (const t of traffic) {
     if (t.phantom || t.s <= self.s || t.dMax < self.d - HALF_WIDTH || t.dMin > self.d + HALF_WIDTH) continue;
     const closing = self.vLong - t.v;
     if (closing <= 0) continue;
     const room = t.s - t.length / 2 - (self.s + HALF_LENGTH) - STOP_GAP;
+    // Swerving away from it: no brake if the car is clear of it sideways before it gets there.
+    const away = vD > SWERVING ? t.dMax < self.d : vD < -SWERVING ? t.dMin > self.d : false;
+    if (away) {
+      const overlap = vD > 0 ? t.dMax - (self.d - HALF_WIDTH) : self.d + HALF_WIDTH - t.dMin;
+      if (closing * (overlap / Math.abs(vD)) < room) continue;
+    }
     need = Math.max(need, room <= 0.1 ? Infinity : (closing * closing) / (2 * room));
   }
   return Math.min(1, Math.max(0, (need - EMERGENCY_FROM) / EMERGENCY_RANGE));
@@ -115,7 +126,7 @@ export class PlannerDriver implements Driver {
     const aim = planAt(this.plan, age + PLAN_PREVIEW);
     const steer = trackSteer(aim.d, aim.dRate, self.d, self.yaw, self.vLong, self.vLat, p);
     const pedals = speedPedals(planAt(this.plan, age + SPEED_PREVIEW).v, self.vLong);
-    const brake = emergencyBrake(self, traffic);
+    const brake = emergencyBrake(self, traffic, planAt(this.plan, age).dRate);
     if (brake > pedals.brake) {
       this.overrides++;
       this.tracking?.speedAtOverride.push(self.vLong - planAt(this.plan, age).v);

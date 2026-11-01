@@ -24,7 +24,8 @@ it('planner', async () => {
   for (const seed of (process.env.EVAL_SEEDS ?? '7001,7002,7003,7004,7005').split(',').map(Number)) {
     const driver = new PlannerDriver();
     const st = driver.measure();
-    const sim = new TrainingSim([driver], seed, { speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6 });
+    // Traffic gives way to the AI car as it does the player in the game (TRAFFIC_BLIND=1: as in training).
+    const sim = new TrainingSim([driver], seed, { speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND });
     let maxV = 0;
     let offCentre = 0;
     let steps = 0;
