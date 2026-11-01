@@ -20,6 +20,11 @@ export const PLANNER = {
   /** Cost of a sideways move (m of progress), so it does not weave for nothing. */
   lateralCost: 0.5,
   /**
+   * Cost (m) per m/s of speed shed: braking is a last resort - it would rather
+   * slip past at speed than brake, wait and then change lanes (street racing).
+   */
+  brakeCost: 0, // off: at 1.5 the benchmark got no faster (140-151 km/h) and crashed once
+  /**
    * Cost per plan point (m) of being off a lane centre (between lanes, splitting
    * two cars): fine when it pays, but not where to cruise - with only an end
    * cost the car spent 80 % of the time on the lines, where traffic coming up
@@ -272,7 +277,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
           const v = Math.max(0, Math.min(ego.speedCap, n.v + a * dt));
           const s = n.s + ((n.v + v) / 2) * dt;
           if (collides(n, s, d, v, t0, dt, byCell[n.cell], move, merging, margin, grid, tight) || (move !== 0 && collides(n, s, d, v, t0, dt, byCell[cell], move, merging, margin, grid, tight))) continue;
-          let score = n.score + (s - n.s) - (move !== 0 ? P.lateralCost : 0) - (grid.isLaneCentre(cell) ? 0 : P.lineCost);
+          let score = n.score + (s - n.s) - (move !== 0 ? P.lateralCost : 0) - (grid.isLaneCentre(cell) ? 0 : P.lineCost) - P.brakeCost * Math.max(0, n.v - v);
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus;
           const kk = key(cell, v);
           const old = next.get(kk);
