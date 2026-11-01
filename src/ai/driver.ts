@@ -1,4 +1,5 @@
-import { KMH, LANE_WIDTH, PHYSICS_DT } from '../config';
+import { IdmParams, KMH, LANE_WIDTH, PHYSICS_DT } from '../config';
+import { idmAccel } from '../traffic/idm';
 import { laneCenter } from '../road/coords';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { PlayerCar } from '../vehicles/playerCar';
@@ -30,19 +31,54 @@ export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
   return { s: car.s, d: car.d, yaw: car.yaw, vLong: car.vLong, vLat: car.vLat, yawRate: car.yawRate, speedCap };
 }
 
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+
 /** Pedals that bring the car from `v` to `target` (m/s). */
 export function speedPedals(target: number, v: number): { throttle: number; brake: number } {
-  const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
   return { throttle: clamp01((target - v) / THROTTLE_RAMP), brake: clamp01((v - target - COAST_BAND) / BRAKE_RAMP) };
+}
+
+/** Adaptive cruise: the traffic's car-following model, a little sportier (shorter headway, harder accel / braking). */
+const CRUISE: Omit<IdmParams, 'v0'> = { T: 1, s0: 2.5, a: 4, b: 4 };
+/** m/s² of slowing the car gets without the brake (coasting); braking covers the rest up to this much more. */
+const COAST_DECEL = 1;
+const FULL_BRAKE_DECEL = 9;
+const HALF_LENGTH = 2.2;
+const HALF_WIDTH = 0.93;
+
+/**
+ * `speedPedals`, but never into what is ahead between `dLo` and `dHi` (the
+ * lane it is in, or the path of a lane change): the car follows like the
+ * traffic does (IDM), so the only way past a slower car is another lane.
+ */
+export function cruisePedals(target: number, self: SelfState, traffic: TrafficBox[], dLo: number, dHi: number): { throttle: number; brake: number } {
+  let gap: number | null = null;
+  let vLead = 0;
+  for (const t of traffic) {
+    if (t.s <= self.s || t.dMax < dLo || t.dMin > dHi) continue;
+    const g = t.s - t.length / 2 - (self.s + HALF_LENGTH);
+    if (gap === null || g < gap) {
+      gap = g;
+      vLead = t.v;
+    }
+  }
+  const pedals = speedPedals(target, self.vLong);
+  if (gap === null) return pedals;
+  const accel = idmAccel(self.vLong, Math.max(0, gap), self.vLong - vLead, { ...CRUISE, v0: Math.max(target, 0.1) });
+  if (accel >= 0) return { throttle: Math.min(pedals.throttle, accel / (CRUISE.a / 2)), brake: pedals.brake };
+  return { throttle: 0, brake: Math.max(pedals.brake, clamp01((-accel - COAST_DECEL) / FULL_BRAKE_DECEL)) };
 }
 
 /**
  * Turns a trained network into driving input. The network decides; simple
  * controllers drive: outputs are lane (left / keep / right) and target speed
- * (0 .. 300 km/h, never over the car's cap). A lane controller steers and `speedPedals` works
- * the pedals - with throttle and brake as outputs, fresh networks almost never
- * braked only when something was ahead, and could not learn to. Used by the
- * trainer's ghost cars and by the game alike, once per physics step.
+ * (0 .. 300 km/h, never over the car's cap). A lane controller steers and
+ * `cruisePedals` works the pedals, keeping a safe distance to what is ahead.
+ * With throttle and brake as outputs, fresh networks almost never braked only
+ * when something was ahead; with the target speed alone, they learned to be
+ * slow everywhere rather than to slow down behind a car - and stayed behind it.
+ * Now the way to go faster is the network's own: pick a lane that is free.
+ * Used by the trainer's ghost cars and by the game alike, once per physics step.
  */
 export class AiDriver {
   private readonly sensors = new Float32Array(SENSOR_COUNT);
@@ -85,7 +121,10 @@ export class AiDriver {
     }
     lanes.update(PHYSICS_DT);
     const steer = lanes.steer(self.d, self.yaw, self.vLong, self.vLat, p);
-    const { throttle, brake } = speedPedals(Math.min(self.speedCap, (MAX_TARGET_SPEED * (o[1] + 1)) / 2), self.vLong);
+    const target = Math.min(self.speedCap, (MAX_TARGET_SPEED * (o[1] + 1)) / 2);
+    // Watch ahead across where the car is and where it is going (the whole lane change path).
+    const goal = laneCenter(lanes.targetLane);
+    const { throttle, brake } = cruisePedals(target, self, traffic, Math.min(self.d, goal) - HALF_WIDTH, Math.max(self.d, goal) + HALF_WIDTH);
     return { steer, throttle, brake };
   }
 }

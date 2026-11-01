@@ -4,6 +4,7 @@ import { Brain, createBrain } from '../src/ai/brain';
 import { AiDriver, selfStateOf, speedPedals } from '../src/ai/driver';
 import { BRAIN_LAYERS } from '../src/ai/evolution';
 import { mulberry32 } from '../src/ai/rng';
+import type { TrafficBox } from '../src/ai/sensors';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { laneCenter } from '../src/road/coords';
 import { PlayerCar } from '../src/vehicles/playerCar';
@@ -90,6 +91,18 @@ describe('AiDriver', () => {
     expect(ai.targetLane).toBe(3);
     ai.reset(laneCenter(0));
     expect(ai.targetLane).toBe(0);
+  });
+
+  it('adaptive cruise: never runs into what is ahead in its lane, whatever speed the network wants', () => {
+    const fast = { ...self, vLong: 30 }; // wants 150 km/h (41.7 m/s)
+    const slowAhead = (lane: number, gap: number): TrafficBox => ({ s: 2.2 + gap + 2.25, dMin: laneCenter(lane) - 0.9, dMax: laneCenter(lane) + 0.9, v: 15, length: 4.5 });
+    const blocked = new AiDriver(constant(0, 0.5)).drive(fast, [slowAhead(1, 25)]);
+    expect(blocked.throttle).toBe(0);
+    expect(blocked.brake).toBeGreaterThan(0.3);
+    expect(new AiDriver(constant(0, 0.5)).drive(fast, [slowAhead(2, 25)]).throttle).toBe(1); // next lane: not in the way
+    expect(new AiDriver(constant(0, 0.5)).drive(fast, [slowAhead(1, 290)]).throttle).toBe(1); // far: no need yet
+    // Moving into lane 2: what is ahead there counts too.
+    expect(new AiDriver(constant(1, 0.5)).drive(fast, [slowAhead(2, 25)]).brake).toBeGreaterThan(0.3);
   });
 
   it('outputs stay in range', () => {
