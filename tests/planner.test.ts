@@ -255,6 +255,21 @@ describe('plan', () => {
     expect(at(1.5).v).toBeGreaterThan(175 * KMH);
   });
 
+  it('does not look back: a car wholly behind in the next lane, however fast, does not stop it moving over', () => {
+    // On the bumper of a car ahead; lane 2 holds a car 10 m behind its tail, 60 km/h faster - it would be
+    // alongside in ~0.7 s, mid lane change. It brakes for us: we go now, not after it.
+    const ahead = car(9, 1, 100);
+    const fastBehind = car(-(2.2 + 2.25 + 10), 2, 160);
+    const p = plan(ego(100), [ahead, fastBehind, car(9, 0, 100), car(9, 3, 100)]);
+    expect(p.points[1].d).toBeGreaterThan(laneCenter(1) + 0.1); // moving over from the first step
+  });
+
+  it('still never moves into a car alongside (that is a crash, not something to brake for)', () => {
+    const alongside = car(-1, 2, 100); // level with it in lane 2
+    const p = plan(ego(100), [car(9, 1, 100), alongside, car(9, 0, 100), car(9, 3, 100)]);
+    expect(clearOfAll({ points: p.points.slice(0, 3) }, [alongside])).toBe(true);
+  });
+
   it('nothing behind blocks it when it is mid lane change with traffic alongside', () => {
     // Halfway into lane 2, a car level with it in lane 2 and one in lane 1: a full plan still comes out.
     const boxes = [car(-1, 2, 120), car(-3, 1, 120)];

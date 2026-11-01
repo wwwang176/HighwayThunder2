@@ -79,6 +79,12 @@ export const PLANNER = {
    * car 0.6 m past) - the lattice then tells lateral speeds apart (slower).
    */
   maxLateral: 1,
+  /**
+   * Look behind before moving over: keep clear of where traffic coming up from
+   * behind will be (`gapBehind`, `cutInTime`). Off: what is wholly behind is
+   * not looked at - it brakes for us (street racing). A car alongside always counts.
+   */
+  lookBehind: false,
 };
 
 const HALF_LENGTH = 2.2;
@@ -200,7 +206,11 @@ export const PLAN_STATS = { normal: 0, relaxed: 0, fallback: 0 };
 export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null = null): Plan {
   // Only what can matter within the horizon.
   const reachAhead = ego.s + Math.max(ego.v, ego.speedCap) * PLANNER.horizon + 50;
-  const boxes = traffic.filter((t) => t.s < reachAhead && t.s > ego.s - 150);
+  // Street racing does not look back: what is wholly behind (its nose behind our tail) brakes for us,
+  // so it is left out of the whole plan - not predicted to drive on into us. (Plans come every 0.25 s:
+  // one that does get alongside is in the next.)
+  const behind = (t: TrafficBox) => t.s + t.length / 2 < ego.s - HALF_LENGTH;
+  const boxes = traffic.filter((t) => t.s < reachAhead && t.s > ego.s - 150 && (PLANNER.lookBehind || !behind(t)));
   const merging = new Set<number>();
   for (const t of boxes) if (t.phantom && t.id !== undefined) merging.add(t.id);
   const normal = search(ego, boxes, merging, previous, false);

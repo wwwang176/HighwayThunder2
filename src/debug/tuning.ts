@@ -62,6 +62,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'gapAhead', 0, 10, 0.5).name('跟車：保險桿距離 m');
   a.add(PLANNER, 'headway', 0, 1.5, 0.05).name('跟車：再加車速 × 秒');
   a.add(PLANNER, 'gapBehind', 0, 15, 0.5).name('切入：留給後車距離 m');
+  a.add(PLANNER, 'lookBehind').name('換道看後方（關：完全不管後車）');
   a.add(PLANNER, 'cutInTime', 0, 1.5, 0.05).name('切入：再加後車追近速度 × 秒');
   a.add(PLANNER, 'sideMargin', 0, 1, 0.05).name('並行：側向留距 m');
   a.add(PLANNER, 'swingMargin', 0, 1, 0.05).name('橫移時往移動側再多留 m');
