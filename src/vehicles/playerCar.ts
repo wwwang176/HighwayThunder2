@@ -112,9 +112,9 @@ export class PlayerCar {
     if (ghost) {
       // No collider at all: a ghost stands on its wheel rays only, and with dozens
       // of them stacked on the start line, the rays must not have to test each other.
-      // Same mass properties as the player's collider gives (COM at body y -0.05).
+      // Same mass properties as the player's collider gives (COM at body y + comY).
       this.body = physics.world.createRigidBody(
-        bodyDesc.setAdditionalMassProperties(p.mass, { x: 0, y: -0.05, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 }),
+        bodyDesc.setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 }),
       );
       this.collider = null;
     } else {
@@ -122,7 +122,8 @@ export class PlayerCar {
       this.collider = physics.world.createCollider(
         RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
           .setTranslation(0, 0.1, 0)
-          .setMassProperties(p.mass, { x: 0, y: -0.15, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
+          // The collider sits 0.1 m up the body: its mass centre is placed to land at body y + comY.
+          .setMassProperties(p.mass, { x: 0, y: p.comY - 0.1, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
           .setFriction(0.3)
           .setRestitution(0.05)
           .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)

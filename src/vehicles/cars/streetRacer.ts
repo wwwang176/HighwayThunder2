@@ -7,6 +7,7 @@ export const STREET_RACER: CarSpec = {
   color: 0xd62828,
   params: {
     mass: 1300,
+    comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h
     power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
     maxDriveForce: 14_250,
     engineTorque: 600,
@@ -47,15 +48,16 @@ export const STREET_RACER: CarSpec = {
     escMaxTorque: 12000,
   },
   ai: {
-    // training/measureCar.train.ts
+    // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp)
     accel: [
-      [0, 7.5],
-      [100, 7.5],
-      [150, 5.3],
-      [200, 3.7],
-      [250, 2.4],
+      [0, 6.8],
+      [50, 6.8],
+      [100, 7.6],
+      [150, 5.4],
+      [200, 3.8],
+      [250, 2.5],
       [300, 1.2],
     ],
-    brake: 10.8,
+    brake: 11.2,
   },
 };

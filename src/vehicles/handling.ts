@@ -9,6 +9,7 @@ import { STREET_RACER } from './cars/streetRacer';
 
 export interface CarParams {
   mass: number; // kg
+  comY: number; // m, centre of mass height relative to the body's centre (which rides 0.55 m up); lower = harder to roll
   power: number; // W, engine peak power
   maxDriveForce: number; // N at the rear axle when reversing / pedal-mapping limit
   engineTorque: number; // N·m, engine peak torque
