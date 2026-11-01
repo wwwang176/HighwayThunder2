@@ -51,3 +51,40 @@ it('cornering', async () => {
   }
   process.stdout.write(out.join('\n') + '\n');
 });
+
+/**
+ * How quickly it answers the wheel at speed: full steering from straight ahead at 200 km/h,
+ * then (after HOLD s) straight again - the sideways distance moved after 0.25 / 0.5 / 0.75 / 1 s,
+ * the time to move one lane (3.75 m), and the heading left when it settles (a lane change, not a turn).
+ *   TURN_JSON='{"quick":{"steerRise":12}}' npx vitest run --config training/vitest.config.ts training/cornering.train.ts -t turnIn
+ */
+it('turnIn', async () => {
+  await RAPIER.init();
+  const variants: Record<string, Record<string, number>> = process.env.TURN_JSON ? JSON.parse(process.env.TURN_JSON) : { now: {} };
+  const kmh = Number(process.env.KMH ?? 200);
+  const out: string[] = [];
+  for (const [name, change] of Object.entries(variants)) {
+    const physics = PhysicsWorld.createSync();
+    physics.timestep = PHYSICS_DT;
+    const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
+    car.params.maxSpeed = kmh * KMH;
+    car.resetTo(0, 1, kmh * KMH);
+    const d0 = car.d;
+    const marks: string[] = [];
+    let laneAt = NaN;
+    let slipMax = 0;
+    for (let i = 1; i <= Math.round(1.5 / PHYSICS_DT); i++) {
+      const t = i * PHYSICS_DT;
+      car.prePhysics({ throttle: 1, brake: 0, steer: t < 1 ? 1 : 0 }, PHYSICS_DT);
+      physics.step(() => {});
+      car.postPhysics();
+      const moved = Math.abs(car.d - d0);
+      slipMax = Math.max(slipMax, Math.abs(Math.atan2(car.vLat, Math.max(1, car.vLong))));
+      if ([0.25, 0.5, 0.75, 1].some((x) => Math.abs(t - x) < PHYSICS_DT / 2)) marks.push(`${t.toFixed(2)}s ${moved.toFixed(2)} m`);
+      if (isNaN(laneAt) && moved >= 3.75) laneAt = t;
+    }
+    out.push(`${name.padEnd(14)} ${marks.join(' | ')} | lane in ${laneAt.toFixed(2)} s | slip max ${(slipMax * 57.3).toFixed(0)}°`);
+    physics.free();
+  }
+  process.stdout.write(out.join('\n') + '\n');
+});

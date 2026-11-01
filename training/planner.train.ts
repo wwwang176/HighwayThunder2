@@ -3,6 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { PLAN_STATS, PLANNER } from '../src/ai/planner';
 import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
 import { TrainingSim } from '../src/ai/trainingSim';
+import { LANE_TUNING } from '../src/ai/laneController';
 import { laneAt, laneCenter } from '../src/road/coords';
 
 const pct = (xs: number[], p: number) => {
@@ -21,6 +22,7 @@ it('planner', async () => {
   // PLANNER_JSON='{"hardBrake":11}': try planner settings without editing the code.
   if (process.env.PLANNER_JSON) Object.assign(PLANNER, JSON.parse(process.env.PLANNER_JSON));
   if (process.env.EMERGENCY_FROM) DRIVER_TUNING.emergencyFrom = Number(process.env.EMERGENCY_FROM);
+  if (process.env.LANE_K) LANE_TUNING.k = Number(process.env.LANE_K); // the tracker's pull back onto the plan (1/s)
   await RAPIER.init();
   const out: string[] = [];
   const all = { lateralMoving: [] as number[], lateralHolding: [] as number[], along: [] as number[], speedAtOverride: [] as number[] };
