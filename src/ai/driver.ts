@@ -38,8 +38,13 @@ export function speedPedals(target: number, v: number): { throttle: number; brak
   return { throttle: clamp01((target - v) / THROTTLE_RAMP), brake: clamp01((v - target - COAST_BAND) / BRAKE_RAMP) };
 }
 
-/** Adaptive cruise: the traffic's car-following model, a little sportier (shorter headway, harder accel / braking). */
-const CRUISE: Omit<IdmParams, 'v0'> = { T: 1, s0: 2.5, a: 4, b: 4 };
+/**
+ * Adaptive cruise: the traffic's car-following model, driven like a street
+ * racer - right on the bumper (0.1 s headway) so it is there the moment a gap
+ * opens beside it. At 1 s it hung 30+ m back and every gap closed before it
+ * got there. The closing-speed term still brakes in time for a slower car.
+ */
+const CRUISE: Omit<IdmParams, 'v0'> = { T: 0.1, s0: 1.5, a: 4, b: 6 };
 /** m/s² of slowing the car gets without the brake (coasting); braking covers the rest up to this much more. */
 const COAST_DECEL = 1;
 const FULL_BRAKE_DECEL = 9;
