@@ -44,6 +44,7 @@ export interface CarParams {
   muSlide: number;
   slipAnglePeak: number; // rad
   rearGrip: number; // rear tyre grip multiplier (wider rear tyres)
+  speedGrip: number; // extra tyre grip at 200 km/h (grows with v²) without the downforce that bottoms the suspension: high-speed handling feel
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
   counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
@@ -218,7 +219,14 @@ export function steerRange(speed: number, p: CarParams): number {
 
 /** Grip coefficient including aerodynamic downforce at this speed. */
 export function effectiveMu(speed: number, p: CarParams): number {
-  return p.muPeak * (1 + (p.downforceK * speed * speed) / (p.mass * G));
+  return p.muPeak * (1 + (p.downforceK * speed * speed) / (p.mass * G)) * speedGripScale(speed, p);
+}
+
+const SPEED_GRIP_REF = 200 / 3.6;
+
+/** Tyre grip multiplier from `speedGrip` at this speed: 1 standing still, growing to 1 + speedGrip at 200 km/h and no more past it. */
+export function speedGripScale(speed: number, p: CarParams): number {
+  return 1 + p.speedGrip * Math.min(1, (speed / SPEED_GRIP_REF) ** 2);
 }
 
 /** Highest yaw rate the tyres (with downforce) can sustain at this speed. */

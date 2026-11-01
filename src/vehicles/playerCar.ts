@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, steerAngle } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, speedGripScale, steerAngle } from './handling';
 import { CarSpec, STREET_RACER } from './cars';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
@@ -261,11 +261,12 @@ export class PlayerCar {
     // so both rears light up (and hook up) together instead of one-wheel peel.
     const lsd = Math.max(-1500, Math.min(1500, p.lsd * (this.wheels[2].omega - this.wheels[3].omega)));
     this.chassis.setup = this.chassisSetup();
+    const grip = speedGripScale(Math.hypot(this.vLong, this.vLat), p);
     for (const w of this.wheels) {
       w.springK = p.springK;
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
-      w.gripScale = w.front ? 1 : p.rearGrip;
+      w.gripScale = (w.front ? 1 : p.rearGrip) * grip;
     }
     this.chassis.step(
       dt,

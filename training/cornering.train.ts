@@ -31,6 +31,7 @@ it('cornering', async () => {
       let speedSum = 0;
       let n = 0;
       let slipMax = 0;
+      let rollMax = 0;
       const steps = Math.round(1.5 / PHYSICS_DT);
       for (let i = 0; i < steps; i++) {
         car.prePhysics({ throttle: 1, brake: 0, steer: 1 }, PHYSICS_DT);
@@ -42,9 +43,11 @@ it('cornering', async () => {
           n++;
         }
         slipMax = Math.max(slipMax, Math.abs(Math.atan2(car.vLat, Math.max(1, car.vLong))));
+        const q = car.body.rotation();
+        rollMax = Math.max(rollMax, Math.acos(Math.min(1, 1 - 2 * (q.x * q.x + q.z * q.z))));
       }
       const lat = (Math.abs(course() - c0) / (n * PHYSICS_DT)) * (speedSum / n);
-      row.push(`${kmh}: ${(lat / 9.81).toFixed(2)} g, slip ${(slipMax * 57.3).toFixed(0)}°${slipMax > 0.35 ? ' SPUN' : ''}`);
+      row.push(`${kmh}: ${(lat / 9.81).toFixed(2)} g, slip ${(slipMax * 57.3).toFixed(0)}° tilt ${(rollMax * 57.3).toFixed(0)}°${slipMax > 0.35 ? ' SPUN' : ''}${rollMax > 1 ? ' ROLLED' : ''}`);
       physics.free();
     }
     out.push(`${name.padEnd(14)} ${row.join(' | ')}`);

@@ -7,7 +7,7 @@ export const STREET_RACER: CarSpec = {
   color: 0xd62828,
   params: {
     mass: 1300,
-    comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h
+    comY: -0.5, // centre of mass 0.05 m up: at 0.5 m it rolled over turning hard at 280 km/h, at 0.3 m with speedGrip 0.3 at 200
     power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
     maxDriveForce: 14_250,
     engineTorque: 600,
@@ -40,6 +40,7 @@ export const STREET_RACER: CarSpec = {
     muSlide: 0.85,
     slipAnglePeak: 0.105, // ~6 deg, performance street tyre
     rearGrip: 1.12,
+    speedGrip: 0.4, // high-speed feel: 1.67 -> 2.1 g at 200 km/h, a lane in 0.70 s instead of 0.82 (training/cornering.train.ts)
     slipFalloff: 18,
     lsd: 150,
     counterSteer: 0.8,
@@ -48,7 +49,9 @@ export const STREET_RACER: CarSpec = {
     escMaxTorque: 12000,
   },
   ai: {
-    // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp)
+    // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
+    // Re-measured with the low centre of mass: within 0.6 m/s² (50: 6.2, brake 10.7) - kept, the benchmark did
+    // better with these (105.2 s, no crash vs 106.4 s, one crash in 15).
     accel: [
       [0, 6.8],
       [50, 6.8],

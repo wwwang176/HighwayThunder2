@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, speedGripScale } from '../src/vehicles/handling';
 
 const P = DEFAULT_CAR;
 
@@ -215,5 +215,15 @@ describe('stability control (ESC)', () => {
     expect(Math.abs(escTorque(5, -5, v, P))).toBeLessThanOrEqual(P.escMaxTorque);
     expect(escTorque(0.6, 0.3, v, { ...P, escGain: 0 })).toBe(0);
     expect(escTorque(0.6, 0.3, 3, P)).toBe(0); // inactive when crawling
+  });
+});
+
+describe('speedGripScale', () => {
+  const p = { ...DEFAULT_CAR, speedGrip: 0.4 };
+  it('no extra grip standing still, all of it at 200 km/h, no more past it', () => {
+    expect(speedGripScale(0, p)).toBe(1);
+    expect(speedGripScale(100 / 3.6, p)).toBeCloseTo(1.1, 5); // grows with v²: a quarter at half the speed
+    expect(speedGripScale(200 / 3.6, p)).toBeCloseTo(1.4, 5);
+    expect(speedGripScale(300 / 3.6, p)).toBeCloseTo(1.4, 5);
   });
 });
