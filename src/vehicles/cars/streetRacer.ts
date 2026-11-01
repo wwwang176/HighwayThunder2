@@ -7,7 +7,7 @@ export const STREET_RACER: CarSpec = {
   color: 0xd62828,
   params: {
     mass: 1300,
-    comY: -0.5, // centre of mass 0.05 m up: at 0.5 m it rolled over turning hard at 280 km/h, at 0.3 m with speedGrip 0.3 at 200
+    comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h
     power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
     maxDriveForce: 14_250,
     engineTorque: 600,
@@ -40,7 +40,8 @@ export const STREET_RACER: CarSpec = {
     muSlide: 0.85,
     slipAnglePeak: 0.105, // ~6 deg, performance street tyre
     rearGrip: 1.12,
-    speedGrip: 0.4, // high-speed feel: 1.67 -> 2.1 g at 200 km/h, a lane in 0.70 s instead of 0.82 (training/cornering.train.ts)
+    rollInfluence: 0.5, // half the tyres' rolling torque: leans 7-9 deg turning hard, never tips over (with speedGrip it did at 200 km/h)
+    speedGrip: 0.4, // high-speed feel: 1.67 -> 1.9 g at 200 km/h, a lane in 0.70 s instead of 0.82 (training/cornering.train.ts)
     slipFalloff: 18,
     lsd: 150,
     counterSteer: 0.8,

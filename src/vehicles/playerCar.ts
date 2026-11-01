@@ -217,6 +217,7 @@ export class PlayerCar {
         [0, 1, p.antiRollFront],
         [2, 3, p.antiRollRear],
       ] as [number, number, number][],
+      rollInfluence: p.rollInfluence,
       tire,
       surfaceGrip: (x: number) => this.surfaceGrip(x),
     };

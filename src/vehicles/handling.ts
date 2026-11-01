@@ -44,6 +44,7 @@ export interface CarParams {
   muSlide: number;
   slipAnglePeak: number; // rad
   rearGrip: number; // rear tyre grip multiplier (wider rear tyres)
+  rollInfluence: number; // 0..1 share of the tyres' rolling torque the body gets (1 real; lower leans but does not tip over)
   speedGrip: number; // extra tyre grip at 200 km/h (grows with v²) without the downforce that bottoms the suspension: high-speed handling feel
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
