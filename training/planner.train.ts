@@ -30,7 +30,10 @@ it('planner', async () => {
     const driver = new PlannerDriver();
     const st = driver.measure();
     // Traffic gives way to the AI car as it does the player in the game (TRAFFIC_BLIND=1: as in training).
-    const sim = new TrainingSim([driver], seed, { speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND });
+    const sim = new TrainingSim([driver], seed, { speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND,
+      // RESET_ON_CRASH=60: a crash puts the car back on the road at 60 km/h, as a rival in the game, and it races on.
+      resetOnCrash: process.env.RESET_ON_CRASH ? Number(process.env.RESET_ON_CRASH) / 3.6 : undefined,
+    });
     let maxV = 0;
     let offCentre = 0;
     let steps = 0;
@@ -48,7 +51,7 @@ it('planner', async () => {
     const end = r.finishTime !== null ? `FINISH ${r.finishTime.toFixed(0)}s` : r.crashed ? `CRASH at ${Math.round(r.distance)} m` : `timeout at ${Math.round(r.distance)} m`;
     out.push(
       `${seed}: ${end}, avg ${Math.round((r.distance / sim.time) * 3.6)} km/h, max ${Math.round(maxV * 3.6)}, lane changes ${g.laneChanges}, ` +
-        `off lane centre ${Math.round((100 * offCentre) / steps)}%, light contacts ${r.contacts}, emergency brake ${Math.round((100 * driver.overrides) / steps)}% of steps, ${(ms / 1000).toFixed(1)} s cpu`,
+        `off lane centre ${Math.round((100 * offCentre) / steps)}%, light contacts ${r.contacts}, resets ${r.resets ?? 0}, emergency brake ${Math.round((100 * driver.overrides) / steps)}% of steps, ${(ms / 1000).toFixed(1)} s cpu`,
     );
     for (const k of Object.keys(all) as (keyof typeof all)[]) all[k].push(...st[k]);
     sim.dispose();

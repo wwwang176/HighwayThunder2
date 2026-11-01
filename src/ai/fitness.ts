@@ -28,6 +28,8 @@ export interface RunResult {
   finishTime: number | null;
   /** Light contacts (each counted once, when it starts). */
   contacts?: number;
+  /** Times put back on the road after a crash (TrainingSimOptions.resetOnCrash). */
+  resets?: number;
 }
 
 /**

@@ -13,6 +13,7 @@ import { AiDriver, Driver, selfStateOf } from './driver';
 import { FITNESS, isOffRoad, RunResult, touching } from './fitness';
 import { mulberry32 } from './rng';
 import type { TrafficBox } from './sensors';
+import { computeResetSpot } from '../game/reset';
 
 const START_LANE = 1;
 const CAR_HALF_W = PLAYER_W / 2;
@@ -84,6 +85,8 @@ export interface TrainingSimOptions {
    * ghosts it all had to dodge would make a traffic jam no race has.
    */
   trafficSeesCars?: boolean;
+  /** m/s: a crash does not end the run - the car is put back nearby at this speed, as a rival in the game (resets counted). */
+  resetOnCrash?: number;
 }
 
 /**
@@ -100,6 +103,7 @@ export class TrainingSim {
   readonly speedCap: number;
   readonly timeLimit: number;
   private readonly trafficSeesCars: boolean;
+  private readonly resetOnCrash: number | null;
   time = 0;
   private boxes: TrafficBox[] = [];
   private touched: TrafficBox[] = [];
@@ -110,6 +114,7 @@ export class TrainingSim {
     this.speedCap = opts.speedCap;
     this.timeLimit = opts.timeLimit ?? FITNESS.timeLimit;
     this.trafficSeesCars = opts.trafficSeesCars ?? false;
+    this.resetOnCrash = opts.resetOnCrash ?? null;
     this.physics = PhysicsWorld.createSync();
     this.physics.timestep = PHYSICS_DT;
     this.scene = opts.scene ?? new THREE.Scene();
@@ -224,7 +229,14 @@ export class TrainingSim {
       return;
     }
     const contact = isOffRoad(c.s, c.d, c.yaw) ? 'crash' : judgeContacts(touching(c.s, c.d, c.yaw, this.boxes, own, this.touched), vS, vD, this.time, g.touching);
-    if (contact === 'crash') {
+    if (contact === 'crash' && this.resetOnCrash !== null) {
+      // As a rival in the game: put back on the road nearby at a reset speed, and race on.
+      const spot = computeResetSpot(c.s, c.d, this.boxes.filter((b) => !b.phantom), this.resetOnCrash);
+      c.resetTo(spot.s, spot.lane, this.resetOnCrash);
+      g.driver.reset(c.d);
+      g.touching.clear();
+      g.result.resets = (g.result.resets ?? 0) + 1;
+    } else if (contact === 'crash') {
       g.result.crashed = true;
       this.retire(g);
     } else {
