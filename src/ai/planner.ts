@@ -322,12 +322,13 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
         for (const a of accels) {
           const v = Math.max(0, Math.min(ego.speedCap, n.v + a * dt));
           const s = n.s + ((n.v + v) / 2) * dt;
-          if (collides(n, d, v, t0, dt, byCell[n.cell], move, merging, margin, grid, tight) || (move !== 0 && collides(n, d, v, t0, dt, byCell[cell], move, merging, margin, grid, tight))) continue;
           let score = n.score + (s - n.s) - (move !== 0 ? P.lateralCost : 0) - (grid.isLaneCentre(cell) ? 0 : P.lineCost) - P.brakeCost * Math.max(0, n.v - v);
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus;
           const kk = key(cell, v, move);
           const old = next.get(kk);
-          if (!old || score > old.score) next.set(kk, { s, v, cell, d, score, parent: n, lat: move });
+          if (old && score <= old.score) continue; // something as good gets there already: no need to check this way is clear
+          if (collides(n, d, v, t0, dt, byCell[n.cell], move, merging, margin, grid, tight) || (move !== 0 && collides(n, d, v, t0, dt, byCell[cell], move, merging, margin, grid, tight))) continue;
+          next.set(kk, { s, v, cell, d, score, parent: n, lat: move });
         }
       }
     }

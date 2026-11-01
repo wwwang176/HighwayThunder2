@@ -25,6 +25,7 @@ it('planSpeed', () => {
   let ms = 0;
   let worst = 0;
   let reach = 0;
+  let print = 0; // every point of every plan: an optimisation must not change it
   for (const boxes of scenes) {
     const t0 = performance.now();
     const p = plan({ s: 0, d: laneCenter(1), v: 180 * KMH, speedCap: 300 * KMH }, boxes);
@@ -32,6 +33,7 @@ it('planSpeed', () => {
     ms += t;
     worst = Math.max(worst, t);
     reach += p.points[p.points.length - 1].s;
+    for (const x of p.points) print += x.s * 1.3 + x.d * 7.1 + x.v * 3.7;
   }
-  process.stdout.write(`plan ${(ms / scenes.length).toFixed(1)} ms average, worst ${worst.toFixed(1)} ms, reaches ${(reach / scenes.length).toFixed(0)} m in ${PLANNER.horizon} s\n`);
+  process.stdout.write(`plan ${(ms / scenes.length).toFixed(1)} ms average, worst ${worst.toFixed(1)} ms, reaches ${(reach / scenes.length).toFixed(0)} m in ${PLANNER.horizon} s, fingerprint ${print.toFixed(3)}\n`);
 });
