@@ -68,9 +68,9 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'gapBehind', 0, 15, 0.5).name('切入：留給後車距離 m');
   // How finely the plan is cut: S-lines and gaps against swinging past (all the AI cars, from their next plan).
   const grids: Record<string, Partial<typeof PLANNER>> = {
-    '標準 0.5 秒': { step: 0.5, maxLateral: 3, maxLateralChange: 2 },
-    '細 0.25 秒（會衝過頭）': { step: 0.25, maxLateral: 2, maxLateralChange: 1 },
+    '細 0.25 秒・衝一半': { step: 0.25, maxLateral: 1, maxLateralChange: 1 },
     '細 0.25 秒＋猛（很衝）': { step: 0.25, maxLateral: 2, maxLateralChange: 2 },
+    '標準 0.5 秒（穩）': { step: 0.5, maxLateral: 3, maxLateralChange: 2 },
   };
   const grid = { choice: Object.keys(grids)[0] };
   a.add(grid, 'choice', Object.keys(grids))
