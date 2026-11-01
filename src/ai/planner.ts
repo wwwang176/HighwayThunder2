@@ -58,13 +58,13 @@ export const PLANNER = {
    * two cars side by side only where they leave 2.3 m (the car is 1.86) - two
    * cars centred in their lanes leave 1.9 m.
    */
-  sideMargin: 0.2,
+  sideMargin: 0.05, // street racing: next to nothing (0 crashed all five benchmark runs within 800 m)
   /**
    * m extra room on the side the car is moving toward, and still for the step
    * after the move ends (it swings a little past): with `sideMargin`, the
    * measured p95 tracking error while moving sideways (0.45 m).
    */
-  swingMargin: 0.25,
+  swingMargin: 0.1,
   /** Hardest braking it plans with, and assumes for the room to slow down to a car ahead (measured: 10.8-14). */
   hardBrake: 11, // m/s² (10: the benchmark was ~3 km/h slower)
   softBrake: 3,
