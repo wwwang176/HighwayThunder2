@@ -25,7 +25,7 @@ it('planner', async () => {
   if (process.env.LANE_K) LANE_TUNING.k = Number(process.env.LANE_K); // the tracker's pull back onto the plan (1/s)
   await RAPIER.init();
   const out: string[] = [];
-  const all = { lateralMoving: [] as number[], lateralHolding: [] as number[], along: [] as number[], speedAtOverride: [] as number[] };
+  const all = { lateralMoving: [] as number[], lateralHolding: [] as number[], along: [] as number[], speedAtOverride: [] as number[], nowMoving: [] as number[], nowHolding: [] as number[] };
   for (const seed of (process.env.EVAL_SEEDS ?? '7001,7002,7003,7004,7005').split(',').map(Number)) {
     const driver = new PlannerDriver();
     const st = driver.measure();
@@ -57,6 +57,10 @@ it('planner', async () => {
     `tracking 0.75 s after a plan (p50 / p95 / max, m): lateral while moving ${f(pct(all.lateralMoving, 0.5))} / ${f(pct(all.lateralMoving, 0.95))} / ${f(pct(all.lateralMoving, 1))}` +
       `, holding ${f(pct(all.lateralHolding, 0.5))} / ${f(pct(all.lateralHolding, 0.95))} / ${f(pct(all.lateralHolding, 1))}` +
       `, along ${f(pct(all.along, 0.5))} / ${f(pct(all.along, 0.95))} / ${f(pct(all.along, 1))} (ahead of plan ${Math.round((100 * all.along.filter((x) => x > 0).length) / Math.max(1, all.along.length))}%)`,
+  );
+  out.push(
+    `tracker alone (off the plan it follows, now; p50 / p95 / max, m): moving ${f(pct(all.nowMoving, 0.5))} / ${f(pct(all.nowMoving, 0.95))} / ${f(pct(all.nowMoving, 1))}` +
+      `, holding ${f(pct(all.nowHolding, 0.5))} / ${f(pct(all.nowHolding, 0.95))} / ${f(pct(all.nowHolding, 1))}`,
   );
   const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
   out.push(`plans: ${plans}, relaxed ${Math.round((100 * PLAN_STATS.relaxed) / plans)}%, boxed-in fallback ${Math.round((100 * PLAN_STATS.fallback) / plans)}%`);

@@ -129,7 +129,7 @@ export class PlannerDriver implements Driver {
 
   /** Record plan-vs-actual errors from now on. */
   measure(): TrackingStats {
-    this.tracking = { lateralMoving: [], lateralHolding: [], along: [], speedAtOverride: [] };
+    this.tracking = { lateralMoving: [], lateralHolding: [], along: [], speedAtOverride: [], nowMoving: [], nowHolding: [] };
     return this.tracking;
   }
 
@@ -182,6 +182,10 @@ export class PlannerDriver implements Driver {
   /** Compare where the car is with where the plan made MEASURE_AFTER s ago put it now. */
   private record(self: SelfState): void {
     const st = this.tracking!;
+    if (this.plan) {
+      const now = planAt(this.plan, this.planAge);
+      (Math.abs(now.dRate) > 0.1 ? st.nowMoving : st.nowHolding).push(self.d - now.d);
+    }
     while (this.recent.length && this.clock - this.recent[0].t > MEASURE_AFTER + 1e-9) {
       const r = this.recent.shift()!;
       if (this.clock - r.t > MEASURE_AFTER + PHYSICS_DT) continue;
@@ -202,6 +206,9 @@ export interface TrackingStats {
   lateralHolding: number[];
   /** Actual minus planned distance along the road (+: ahead of the plan). */
   along: number[];
+  /** Actual minus planned lateral position right now on the plan being followed (the tracker alone, not replans), moving / holding. */
+  nowMoving: number[];
+  nowHolding: number[];
   /** Speed over the plan's when the emergency brake stepped in (+: faster than planned). */
   speedAtOverride: number[];
 }

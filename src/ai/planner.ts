@@ -74,11 +74,21 @@ export const PLANNER = {
    */
   useShoulders: false,
   /**
-   * Most cells (quarter lanes) moved sideways per step. 1: a lane in 2 s. 2: a
-   * lane in 1 s, ramping up and down a cell per step (a sudden stop swung the
-   * car 0.6 m past) - the lattice then tells lateral speeds apart (slower).
+   * Most cells (quarter lanes) moved sideways per step. 1: a lane in 2 s. 3:
+   * 5.6 m/s, about the most the car does (a lane in 0.7 s at full lock) - the
+   * lattice then tells lateral speeds apart. 3 (with maxLateralChange 2, beam
+   * 250): 15 benchmark runs 104.7 -> 102.1 s, none crashed (swingMargin grows
+   * with the speed sideways; with 0.1 m whatever the speed two crashed).
    */
-  maxLateral: 1,
+  maxLateral: 3,
+  /** Most change in the sideways move from one step to the next (cells per step), with maxLateral > 1: a swing one way, then hard the other. */
+  maxLateralChange: 2,
+  /**
+   * Nodes kept per step, the most promising (progress so far plus the value of
+   * the speed): with sideways speeds in the state the lattice grows several
+   * times over (950 ms a plan with all of them, 32 ms with 250 - and as far). 0: keep all.
+   */
+  beam: 250,
   /**
    * Look behind before moving over: keep clear of where traffic coming up from
    * behind will be (`gapBehind`, `cutInTime`). Off: what is wholly behind is
@@ -147,7 +157,7 @@ class Grid {
 }
 const GRIDS = { lanes: new Grid(false), shoulders: new Grid(true) };
 /** Sideways moves per step, in cells (quarter lanes), up to PLANNER.maxLateral. */
-const MOVES = [0, -1, 1, -2, 2];
+const MOVES = [0, -1, 1, -2, 2, -3, 3];
 
 /** A car's full-throttle acceleration (m/s²) at speeds (km/h): CarSpec.ai.accel. */
 export type AccelTable = [kmh: number, accel: number][];
@@ -271,7 +281,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
 
   let layer = new Map<number, Node>();
   const grid = P.useShoulders ? GRIDS.shoulders : GRIDS.lanes;
-  const lat = Math.max(-2, Math.min(2, ((ego.vD ?? 0) * dt) / CELL));
+  const lat = Math.max(-P.maxLateral, Math.min(P.maxLateral, ((ego.vD ?? 0) * dt) / CELL));
   const start: Node = { s: ego.s, v: ego.v, cell: grid.nearest(ego.d), d: ego.d, score: 0, parent: null, lat };
   layer.set(key(start.cell, start.v, start.lat), start);
   let deepest: Node[] = [start];
@@ -294,7 +304,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
     });
     // ...and by lateral position: each cell lists the boxes that can touch a car there (with every margin).
     const byCell: TrafficBox[][] = Array.from({ length: grid.cells }, () => []);
-    const reachSide = HALF_WIDTH + P.sideMargin + P.swingMargin + ON_CELL;
+    const reachSide = HALF_WIDTH + P.sideMargin + P.swingMargin * P.maxLateral + ON_CELL;
     for (const t of near) {
       const c0 = Math.max(0, grid.nearest(t.dMin - reachSide) - 1);
       const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + reachSide) + 1);
@@ -304,7 +314,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
       const top = maxAccel(n.v, ego.accel);
       const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -P.hardBrake];
       for (const move of MOVES) {
-        if (Math.abs(move) > P.maxLateral || (P.maxLateral > 1 && Math.abs(move - n.lat) > 1.01)) continue;
+        if (Math.abs(move) > P.maxLateral || (P.maxLateral > 1 && Math.abs(move - n.lat) > P.maxLateralChange + 0.01)) continue;
         const cell = n.cell + move;
         if (cell < 0 || cell >= grid.cells) continue;
         const d = grid.d(cell);
@@ -321,8 +331,15 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
       }
     }
     if (next.size === 0) break;
-    layer = next;
     deepest = [...next.values()];
+    if (P.beam > 0 && deepest.length > P.beam) {
+      // Keep the most promising: as the plan's own end is valued (progress plus what the speed is worth).
+      deepest.sort((a, b) => b.score + P.endSpeedValue * b.v - (a.score + P.endSpeedValue * a.v));
+      deepest.length = P.beam;
+      next.clear();
+      for (const n of deepest) next.set(key(n.cell, n.v, n.lat), n);
+    }
+    layer = next;
   }
 
   let best: Node | null = null;
@@ -384,7 +401,7 @@ function collides(n: Node, d1: number, v1: number, t0: number, dt: number, boxes
   const sideways = move !== 0 || Math.abs(n.d - d1) > ON_CELL;
   // Extra room toward where it is heading sideways (this step's move, or the one just ended): it swings past.
   const heading = move !== 0 ? move : n.lat;
-  const swing = P.swingMargin * Math.min(1, Math.abs(heading));
+  const swing = P.swingMargin * Math.abs(heading); // more the faster it moves (the tracker swings further past)
   const accel = (v1 - n.v) / dt;
   /** Where the car is a fraction u of the way through the step (before it: at its starting speed). */
   const sAt = (u: number) => n.s + n.v * u * dt + (u > 0 ? 0.5 * accel * (u * dt) ** 2 : 0);
@@ -414,7 +431,10 @@ function collides(n: Node, d1: number, v1: number, t0: number, dt: number, boxes
     // Which way the car can steer clear of it (+1 / -1): away from the side it is on, or (`steerClear`) the
     // way the car is moving when it is dead ahead.
     const away = t.dMax < n.d ? 1 : t.dMin > n.d ? -1 : P.steerClear ? Math.sign(move) : 0;
-    const swerving = away !== 0 && (move !== 0 ? Math.sign(move) === away : P.steerClear);
+    // ...and only where the road goes on that way far enough to get clear of it (not off the edge).
+    const clearAt = away > 0 ? t.dMax + P.sideMargin + HALF_WIDTH : t.dMin - P.sideMargin - HALF_WIDTH;
+    const roomThere = away !== 0 && (away > 0 ? clearAt <= grid.d(grid.cells - 1) : clearAt >= grid.d(0));
+    const swerving = roomThere && (move !== 0 ? Math.sign(move) === away : P.steerClear);
     const ahead = (v: number) => {
       const closing = Math.max(0, v - t.v);
       let keep = (closing * closing) / (2 * P.hardBrake) + P.headway * v * margin;
