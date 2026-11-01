@@ -5,6 +5,8 @@
  * aids: the car goes wherever its nose points.
  */
 
+import { STREET_RACER } from './cars/streetRacer';
+
 export interface CarParams {
   mass: number; // kg
   power: number; // W, engine peak power
@@ -49,47 +51,8 @@ export interface CarParams {
   escMaxTorque: number; // N·m
 }
 
-export const DEFAULT_CAR: CarParams = {
-  mass: 1300,
-  power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
-  maxDriveForce: 14_250,
-  engineTorque: 600,
-  redline: 7500,
-  idleRpm: 900,
-  driveEfficiency: 0.9,
-  wheelRadius: 0.34,
-  maxSpeed: 83.3,
-  reverseMax: 8,
-  reverseForce: 4_000,
-  brakeForceMax: 26_000,
-  brakeFrontBias: 0.75,
-  dragK: 0.4,
-  downforceK: 1.6,
-  wheelbase: 2.6,
-  maxSteer: 0.55,
-  latAccelLimit: 55,
-  steerRise: 6,
-  steerFall: 9,
-  throttleRise: 20,
-  suspensionRest: 0.3,
-  suspensionTravel: 0.2,
-  springK: 35_000,
-  damperBump: 3_000,
-  damperRebound: 4_500,
-  antiRollFront: 18_000,
-  antiRollRear: 8_000,
-  wheelInertia: 1.2,
-  muPeak: 1.3,
-  muSlide: 0.85,
-  slipAnglePeak: 0.105, // ~6 deg, performance street tyre
-  rearGrip: 1.12,
-  slipFalloff: 18,
-  lsd: 150,
-  counterSteer: 0.8,
-  steerSlowdownSpeed: Infinity,
-  escGain: 9000,
-  escMaxTorque: 12000,
-};
+/** The player car's handling (the street racer: src/vehicles/cars/streetRacer.ts). */
+export const DEFAULT_CAR: CarParams = STREET_RACER.params;
 
 export interface DriveInput {
   throttle: number; // 0..1

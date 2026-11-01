@@ -1,6 +1,7 @@
 import { KMH, LANE_COUNT, LANE_WIDTH, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 import { laneAt, laneCenter } from '../road/coords';
 import type { TrafficBox } from './sensors';
+import { STREET_RACER } from '../vehicles/cars/streetRacer';
 
 /**
  * Planner settings (mutable: tuned while testing).
@@ -122,25 +123,20 @@ const GRIDS = { lanes: new Grid(false), shoulders: new Grid(true) };
 /** Sideways moves per step, in cells (quarter lanes), up to PLANNER.maxLateral. */
 const MOVES = [0, -1, 1, -2, 2];
 
-/** Full-throttle acceleration of the player car (m/s²) at a speed (km/h), measured. */
-const ACCEL_KMH: [number, number][] = [
-  [0, 7.5],
-  [100, 7.5],
-  [150, 5.3],
-  [200, 3.7],
-  [250, 2.4],
-  [300, 1.2],
-];
-export function maxAccel(v: number): number {
+/** A car's full-throttle acceleration (m/s²) at speeds (km/h): CarSpec.ai.accel. */
+export type AccelTable = [kmh: number, accel: number][];
+
+/** Full-throttle acceleration (m/s²) at speed `v` (m/s), from the car's table (default: the street racer). */
+export function maxAccel(v: number, table: AccelTable = STREET_RACER.ai.accel): number {
   const kmh = v / KMH;
-  for (let i = 1; i < ACCEL_KMH.length; i++) {
-    const [k1, a1] = ACCEL_KMH[i];
+  for (let i = 1; i < table.length; i++) {
+    const [k1, a1] = table[i];
     if (kmh <= k1) {
-      const [k0, a0] = ACCEL_KMH[i - 1];
+      const [k0, a0] = table[i - 1];
       return a0 + ((a1 - a0) * (kmh - k0)) / (k1 - k0);
     }
   }
-  return ACCEL_KMH[ACCEL_KMH.length - 1][1];
+  return table[table.length - 1][1];
 }
 
 export interface PlanPoint {
@@ -167,6 +163,8 @@ export interface PlanEgo {
   speedCap: number;
   /** Sideways speed (m/s, + toward +d) it has now. */
   vD?: number;
+  /** Its full-throttle acceleration (default: the street racer's), boosted or not. */
+  accel?: AccelTable;
 }
 
 interface Node {
@@ -257,7 +255,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
     let sHi = -Infinity;
     for (const n of layer.values()) {
       sLo = Math.min(sLo, n.s);
-      sHi = Math.max(sHi, n.s + n.v * dt + maxAccel(n.v) * dt * dt);
+      sHi = Math.max(sHi, n.s + n.v * dt + maxAccel(n.v, ego.accel) * dt * dt);
     }
     const near = boxes.filter((t) => {
       const lo = Math.min(t.s + t.v * t0, t.s + t.v * (t0 + dt)) - t.length / 2;
@@ -273,7 +271,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
       for (let c = c0; c <= c1; c++) if (t.dMax > grid.d(c) - reachSide && t.dMin < grid.d(c) + reachSide) byCell[c].push(t);
     }
     for (const n of layer.values()) {
-      const top = maxAccel(n.v);
+      const top = maxAccel(n.v, ego.accel);
       const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -P.hardBrake];
       for (const move of MOVES) {
         if (Math.abs(move) > P.maxLateral || (P.maxLateral > 1 && Math.abs(move - n.lat) > 1.01)) continue;

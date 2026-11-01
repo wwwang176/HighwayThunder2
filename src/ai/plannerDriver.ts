@@ -2,7 +2,8 @@ import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import { trackSteer } from './laneController';
-import { maxAccel, plan, Plan, planAt, PlanEgo, PreviousPlan, TRACKER_LEAD } from './planner';
+import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PreviousPlan, TRACKER_LEAD } from './planner';
+import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
 
 /** s between new plans. */
@@ -22,10 +23,10 @@ const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
  * controller only gave ~70 % and the car fell behind its plans), plus a pull
  * back toward the plan's speed.
  */
-export function planPedals(p: Plan, age: number, v: number): { throttle: number; brake: number } {
+export function planPedals(p: Plan, age: number, v: number, table?: AccelTable): { throttle: number; brake: number } {
   const now = planAt(p, age);
   const a = (planAt(p, age + ACCEL_WINDOW).v - now.v) / ACCEL_WINDOW + SPEED_GAIN * (now.v - v);
-  if (a >= 0) return { throttle: clamp01(a / (0.95 * maxAccel(v))), brake: 0 }; // near flat out is flat out
+  if (a >= 0) return { throttle: clamp01(a / (0.95 * maxAccel(v, table))), brake: 0 }; // near flat out is flat out
   if (a > -COAST_DECEL) return { throttle: 0, brake: 0 };
   return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / FULL_BRAKE_DECEL) };
 }
@@ -108,6 +109,10 @@ export class PlannerDriver implements Driver {
   tracking: TrackingStats | null = null;
   private recent: { plan: Plan; t: number }[] = [];
   private clock = 0;
+  /** The car's full-throttle acceleration (CarSpec.ai.accel). */
+  accel: AccelTable = STREET_RACER.ai.accel;
+  /** Engine boost on top (the rivals' rubber band): the plan and the pedals count on it. */
+  accelScale = 1;
   /** Answers to requests made up to this clock time are thrown away (the car was moved since). */
   private staleUpTo = -1;
 
@@ -135,7 +140,7 @@ export class PlannerDriver implements Driver {
     if (!this.plan || this.planAge >= REPLAN_EVERY) {
       const previous = this.plan && { plan: this.plan, age: this.planAge };
       const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
-      const ego = { s: self.s, d: self.d, v: self.vLong, speedCap: self.speedCap, vD };
+      const ego = { s: self.s, d: self.d, v: self.vLong, speedCap: self.speedCap, vD, accel: this.accelTable() };
       if (!this.source) this.adopt(plan(ego, traffic, previous), this.clock);
       else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);
     }
@@ -146,7 +151,7 @@ export class PlannerDriver implements Driver {
     const age = this.planAge;
     const aim = planAt(this.plan, age + PLAN_PREVIEW);
     const steer = trackSteer(aim.d, aim.dRate, self.d, self.yaw, self.vLong, self.vLat, p);
-    const pedals = planPedals(this.plan, age, self.vLong);
+    const pedals = planPedals(this.plan, age, self.vLong, this.accelTable());
     const brake = emergencyBrake(self, traffic, planAt(this.plan, age).dRate);
     if (brake > pedals.brake) {
       this.overrides++;
@@ -154,6 +159,12 @@ export class PlannerDriver implements Driver {
       return { steer, throttle: 0, brake };
     }
     return { steer, ...pedals };
+  }
+
+  /** The acceleration it can count on now (the car's table times the boost). */
+  private accelTable(): AccelTable {
+    if (this.accelScale === 1) return this.accel;
+    return this.accel.map(([kmh, a]) => [kmh, a * this.accelScale]);
   }
 
   private adopt(p: Plan, stamp: number): void {

@@ -129,6 +129,18 @@ describe('emergencyBrake', () => {
 });
 
 describe('PlannerDriver', () => {
+  it('an engine boost is planned with and used (not cancelled by the pedal controller)', () => {
+    const self = { s: 0, d: laneCenter(1), yaw: 0, vLong: 50, vLat: 0, yawRate: 0, speedCap: 83.3 };
+    const plain = new PlannerDriver();
+    const boosted = new PlannerDriver();
+    boosted.accelScale = 1.25;
+    plain.drive(self, []);
+    boosted.drive(self, []);
+    const gain = (d: PlannerDriver) => d.plan!.points[1].v - d.plan!.points[0].v;
+    expect(gain(boosted)).toBeCloseTo(gain(plain) * 1.25, 5);
+    expect(boosted.drive(self, []).throttle).toBe(1);
+  });
+
   it('flat out means the throttle all the way down, not most of the way', () => {
     const ai = new PlannerDriver();
     const self = { s: 0, d: laneCenter(1), yaw: 0, vLong: 30, vLat: 0, yawRate: 0, speedCap: 83.3 };
