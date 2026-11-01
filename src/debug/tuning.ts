@@ -7,6 +7,7 @@ import { NPC_BEAM } from '../render/npcBeams';
 import { PLANNER } from '../ai/planner';
 import { DRIVER_TUNING } from '../ai/plannerDriver';
 import { RIVAL_TUNING } from '../game/rivals';
+import { CONTACT_TUNING } from '../game/contact';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
 export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }, ai: { speedCapKmh: number }): GUI {
@@ -75,6 +76,8 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   r.add(RIVAL_TUNING, 'waitFull', 100, 1000, 10).name('領先幾 m 等到最慢');
   r.add(RIVAL_TUNING, 'waitSpeed', 0.5, 1, 0.05).name('等待時速度 × 玩家車速');
   r.add(RIVAL_TUNING, 'teleportBehind', 100, 2000, 50).name('落後幾 m 拉回玩家附近');
+  const k = gui.addFolder('碰撞');
+  k.add(CONTACT_TUNING, 'npcWreckSpeed', 0, 30, 0.5).name('撞 NPC 多快（m/s 相對速度）才失控');
   gui.hide();
   return gui;
 }

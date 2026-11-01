@@ -28,6 +28,7 @@ import { SkidMarks } from '../world/skidMarks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow } from './gameState';
 import { RaceView, RIVAL_TUNING, Rivals } from './rivals';
+import { knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
@@ -65,6 +66,8 @@ export class Game {
   rivals!: Rivals;
   private rivalTraffic: TrafficBox[] = [];
   private rivalBoxes: TrafficBox[] = [];
+  /** Velocities (world x/z) of the player [0] and the rivals [1..] going into the physics step. */
+  private racerVelBefore: { x: number; z: number }[] = [];
   private aiTraffic: TrafficBox[] = [];
   private wheelPool!: WheelInstances;
   private skids!: SkidMarks;
@@ -336,6 +339,13 @@ export class Game {
     this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
 
     this.player.prePhysics(input, dt);
+    // How the racers were moving going into the step: a contact is judged on that, not on the bounce.
+    const before = this.player.body.linvel();
+    this.racerVelBefore[0] = { x: before.x, z: before.z };
+    this.rivals.list.forEach((r, i) => {
+      const v = r.car.body.linvel();
+      this.racerVelBefore[i + 1] = { x: v.x, z: v.z };
+    });
     this.physics.step((a, b) => this.onContact(a, b));
     this.player.postPhysics();
     this.trafficWorld.afterPhysics();
@@ -395,20 +405,19 @@ export class Game {
     // NPC pile-ups are handled by the traffic; we get the NPC the player or a rival hit.
     const id = this.trafficWorld.onNpcContact(a, b);
     if (id === null) return;
-    if (!playerHit) {
-      this.trafficWorld.wreck(id); // a rival hit it: it loses control like any car hit
-      return;
-    }
     const npc = this.npcs.get(id);
     if (!npc) return;
-    const pv = this.player.body.linvel();
+    // Only a real hit knocks it out of control; a scrape it drives on from (street racing).
+    const racerV = this.racerVelBefore[playerHit ? 0 : (rival?.id ?? -1) + 1];
     const nv = npc.parts[0].body.linvel();
-    const rel = Math.hypot(pv.x - nv.x, pv.z - nv.z);
-    this.trafficWorld.wreck(id);
+    const hard = !racerV || knocksOut(racerV, nv);
+    if (hard) this.trafficWorld.wreck(id);
+    if (!playerHit) return;
+    const rel = racerV ? Math.hypot(racerV.x - nv.x, racerV.z - nv.z) : 0;
     this.touched.add(id);
     this.prevRelS.delete(id);
     this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
-    this.sound.crash(rel);
+    if (hard) this.sound.crash(rel);
   }
 
   /** Drop near-miss bookkeeping for vehicles the traffic has removed. */
