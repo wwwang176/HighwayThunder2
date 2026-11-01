@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PHYSICS_DT, ROAD_LENGTH } from '../config';
 import { PhysicsWorld } from '../physics/physicsWorld';
-import { lanesOccupied, surfaceGrip } from '../road/coords';
+import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import type { RoadFrame } from '../road/frame';
 import type { Occupant } from '../traffic/spawner';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
@@ -15,6 +15,7 @@ import type { TrafficBox } from './sensors';
 
 const START_LANE = 1;
 const CAR_HALF_W = PLAYER_W / 2;
+const HOLDING_LANE_TOLERANCE = 0.5; // m from the lane centre
 
 /** One AI car in a generation. */
 export interface Ghost {
@@ -134,7 +135,7 @@ export class TrainingSim {
     if (c.s >= ROAD_LENGTH) {
       g.result.finishTime = this.time;
       this.retire(g);
-    } else if (isOffRoad(c.s, c.d, c.yaw) || hitsTraffic(c.s, c.d, c.yaw, this.boxes)) {
+    } else if (isOffRoad(c.s, c.d, c.yaw) || hitsTraffic(c.s, c.d, c.yaw, this.boxes, this.holdingLane(g))) {
       g.result.crashed = true;
       this.retire(g);
     } else if (c.s - g.progressS >= FITNESS.stallMinProgress) {
@@ -143,6 +144,11 @@ export class TrainingSim {
     } else if (this.time - g.progressT > FITNESS.stallWindow) {
       this.retire(g);
     }
+  }
+
+  /** Settled in a lane, not moving across (the traffic would brake for it in the game). */
+  private holdingLane(g: Ghost): boolean {
+    return !g.driver.changingLanes && Math.abs(g.car.d - laneCenter(g.driver.targetLane)) < HOLDING_LANE_TOLERANCE;
   }
 
   /** Out of the race: the body stops simulating (no more cost) but keeps its last pose for drawing. */

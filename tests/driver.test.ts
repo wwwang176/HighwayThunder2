@@ -56,6 +56,7 @@ describe('AiDriver', () => {
     ai.drive(self, []);
     for (let i = 0; i < 60; i++) ai.drive(self, []); // half a second, car not moved
     expect(ai.targetLane).toBe(2);
+    expect(ai.changingLanes).toBe(true);
     const edge = new AiDriver(constant(2));
     edge.drive({ ...self, d: laneCenter(3) }, []);
     expect(edge.targetLane).toBe(3);

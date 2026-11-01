@@ -33,6 +33,10 @@ export class AiDriver {
     return this.lanes?.targetLane ?? -1;
   }
 
+  get changingLanes(): boolean {
+    return this.lanes?.changing ?? false;
+  }
+
   /** Forget any lane change and hold the lane at `d` (the car was moved, or the AI just took over). */
   reset(d: number): void {
     this.lanes ??= new LaneController(0);

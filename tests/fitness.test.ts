@@ -43,4 +43,12 @@ describe('crash rules', () => {
     const t = [{ s: 3, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 20, length: 4.6, phantom: true }];
     expect(hitsTraffic(0, laneCenter(1), 0, t)).toBe(false);
   });
+
+  it('a car running into it from behind is its fault only when it was not holding its lane', () => {
+    const behind = [{ s: -3, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 30, length: 4.6 }];
+    const ahead = [{ s: 3, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 10, length: 4.6 }];
+    expect(hitsTraffic(0, laneCenter(1), 0, behind)).toBe(true); // cutting in, or no lane info
+    expect(hitsTraffic(0, laneCenter(1), 0, behind, true)).toBe(false); // holding its lane: the other car's doing
+    expect(hitsTraffic(0, laneCenter(1), 0, ahead, true)).toBe(true); // what is in front is always its own business
+  });
 });

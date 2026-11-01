@@ -58,8 +58,14 @@ export function isOffRoad(s: number, d: number, yaw: number): boolean {
   return carCorners(s, d, yaw).some((c) => c.d > RIGHT_LIMIT || c.d < LEFT_LIMIT);
 }
 
-/** The car's bounding box overlaps a vehicle or wreck. */
-export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficBox[]): boolean {
+/**
+ * The car's bounding box overlaps a vehicle or wreck. With `holdingLane`,
+ * something whose centre is behind ours does not count: the traffic does not
+ * see the AI cars in training, but in the game it brakes for the player, so a
+ * car running into the AI's back while it keeps its lane is not the AI's crash
+ * (otherwise slowing down behind a blocked lane is never safe to learn).
+ */
+export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficBox[], holdingLane = false): boolean {
   const cs = carCorners(s, d, yaw);
   let sMin = Infinity;
   let sMax = -Infinity;
@@ -72,7 +78,7 @@ export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficB
     dMax = Math.max(dMax, c.d);
   }
   for (const t of traffic) {
-    if (t.phantom) continue;
+    if (t.phantom || (holdingLane && t.s < s)) continue;
     if (t.s + t.length / 2 < sMin || t.s - t.length / 2 > sMax) continue;
     if (t.dMax < dMin || t.dMin > dMax) continue;
     return true;
