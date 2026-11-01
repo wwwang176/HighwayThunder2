@@ -74,6 +74,8 @@ export function isOffRoad(s: number, d: number, yaw: number): boolean {
  * does not see the AI cars in training, but in the game it brakes for the
  * player, so a car running into the AI's back there is not the AI's crash
  * (otherwise slowing down behind a blocked lane is never safe to learn).
+ * For the same reason a vehicle changing lanes into the car while it holds its
+ * lane does not count (in the game it would have waited for the player).
  * Cutting into another lane in front of traffic still is.
  */
 export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficBox[], ownLane: number | null = null): boolean {
@@ -97,6 +99,7 @@ export function touching(s: number, d: number, yaw: number, traffic: TrafficBox[
   for (const t of traffic) {
     if (t.phantom) continue;
     if (ownLane !== null && t.s < s && lanesOccupied(t.dMin, t.dMax).includes(ownLane)) continue;
+    if (ownLane !== null && t.id !== undefined && traffic.some((x) => x.phantom && x.id === t.id)) continue; // merging into us
     if (t.s + t.length / 2 < sMin || t.s - t.length / 2 > sMax) continue;
     if (t.dMax < dMin || t.dMin > dMax) continue;
     out.push(t);

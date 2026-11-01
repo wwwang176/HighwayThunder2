@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { plan, PLANNER, Plan } from '../src/ai/planner';
+import { OVERSHOOT_MARGIN, plan, PLANNER, Plan, TRACKER_LEAD } from '../src/ai/planner';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH } from '../src/config';
 import { laneAt, laneCenter } from '../src/road/coords';
@@ -100,5 +100,97 @@ describe('plan', () => {
     const p = plan(ego(150), boxes);
     expect(p.points.length).toBeGreaterThan(1);
     expect(p.points[1].v).toBeLessThan(p.points[0].v);
+  });
+
+  it('boxed in halfway between lanes: heads for a lane centre, not frozen on the line', () => {
+    const boxes = [car(3, 1, 0), car(3, 2, 0), car(3, 0, 0), car(3, 3, 0)];
+    const p = plan({ ...ego(150), d: laneCenter(1) + 1.1 }, boxes);
+    expect(Math.abs(last(p).d - laneCenter(laneAt(last(p).d)))).toBeLessThan(0.01);
+  });
+
+  it('a car merging into its lane from alongside does not stop it (in the game it would wait for us)', () => {
+    const mergingId = 5;
+    const boxes: TrafficBox[] = [
+      { ...car(1, 2, 100), id: mergingId, dMin: laneCenter(2) - 1.5, dMax: laneCenter(2) + 0.4 }, // sliding over from lane 2
+      { ...car(1, 1, 100), id: mergingId, phantom: true }, // its target: our lane
+    ];
+    const p = plan(ego(140), boxes);
+    expect(p.points.length).toBe(Math.round(PLANNER.horizon / PLANNER.step) + 1); // a full plan, not the boxed-in fallback
+    expect(last(p).v).toBeGreaterThan(130 * KMH);
+  });
+
+  it('a car merging in a little ahead while it holds its lane a few cm off the centre: still a full plan', () => {
+    const boxes: TrafficBox[] = [
+      { ...car(6.4, 3, 77), id: 26, dMin: 4.3, dMax: 6.2 },
+      { ...car(6.4, 2, 77), id: 26, phantom: true },
+    ];
+    const p = plan({ ...ego(115, 2), d: laneCenter(2) - 0.025 }, boxes);
+    expect(p.points.length).toBe(Math.round(PLANNER.horizon / PLANNER.step) + 1);
+  });
+
+  it('never squeezes into a long truck alongside, even when planning without margins', () => {
+    // A container truck in lane 3 level with it (centre just behind), and the way ahead in lane 2 blocked right now.
+    const truck = { ...car(-6.6, 3, 80, 16.9, 2.5), id: 28 };
+    const boxes = [truck, { ...car(4.6, 2, 0), id: 29 }];
+    const p = plan({ ...ego(150, 2), d: 2.85 }, boxes);
+    for (const x of p.points.slice(0, 4)) expect(x.d + 0.93).toBeLessThan(truck.dMin + 0.01);
+  });
+
+  it('splits two slower cars side by side where they leave room for it (and its tracking error), not where they do not', () => {
+    // Two cars abreast 30 m ahead in lanes 1 and 2, slower; lanes 0 and 3 blocked by slower cars still.
+    const lineD = (laneCenter(1) + laneCenter(2)) / 2;
+    const walls = [car(30, 0, 90), car(30, 3, 90)]; // as fast as the pair: no going round
+    const nudged = (lane: number, by: number) => ({ ...car(30, lane, 90), dMin: laneCenter(lane) - 0.925 + by, dMax: laneCenter(lane) + 0.925 + by });
+    const wide = [nudged(1, -0.25), nudged(2, 0.25), ...walls]; // 2.4 m between them
+    const through = plan({ ...ego(120), d: lineD }, wide);
+    expect(clearOfAll(through, wide)).toBe(true);
+    expect(last(through).s).toBeGreaterThan(30 + 90 * KMH * PLANNER.horizon + 10); // past them, between them
+    const tight = [car(30, 1, 90), car(30, 2, 90), ...walls]; // centred: 1.9 m, less than 1.86 + 2 × sideMargin
+    const behind = plan({ ...ego(120), d: lineD }, tight);
+    expect(last(behind).s).toBeLessThan(30 + 90 * KMH * PLANNER.horizon);
+    // Passing a truck 70 km/h slower: never within a few cm of its side.
+    const truck = car(10, 3, 80, 16.9, 2.5);
+    const p = plan(ego(150, 2), [truck]);
+    for (const x of p.points) {
+      const level = Math.abs(truck.s + truck.v * x.t - x.s) < 2.2 + truck.length / 2;
+      if (level) expect(truck.dMin - (x.d + 0.93)).toBeGreaterThan(0.3);
+    }
+  });
+
+  it('moves in front of a truck it is passing only once clear of it by more than the tracker cuts the corner', () => {
+    // 7001: passing a container truck at 150 vs 80 km/h, lane 2 blocked ahead, lane 3 free once past the truck.
+    const truck = { ...car(-3.1, 3, 80, 16.9, 2.5), id: 28 };
+    const blocker = { ...car(60, 2, 60), id: 30 };
+    const p = plan({ ...ego(150, 2), d: 2.77 }, [truck, blocker]);
+    // The car starts moving up to TRACKER_LEAD s before a plan point; where the plan moves toward the truck's lane,
+    // the truck must already have been behind it that long before.
+    for (let k = 0; k + 1 < p.points.length; k++) {
+      const a = p.points[k];
+      const b = p.points[k + 1];
+      if (b.d <= a.d || b.d + 0.93 < truck.dMin) continue; // only moves that would reach the truck's side
+      const tEarly = Math.max(0, a.t - TRACKER_LEAD);
+      const egoEarly = a.s - a.v * (a.t - tEarly);
+      const truckFront = truck.s + truck.v * tEarly + truck.length / 2;
+      expect(egoEarly - 2.2 - truckFront).toBeGreaterThan(0);
+    }
+  });
+
+  it('ending a fast diagonal, leaves room on that side for the swing past the end point', () => {
+    // 7004: sweeping right across the lanes at full lateral speed toward a truck in lane 3.
+    const truck = { ...car(23.6, 3, 79, 8.5, 2.4), id: 43 };
+    const p = plan({ ...ego(170, 0), d: -0.69 }, [truck]);
+    const pts = p.points;
+    for (let k = 1; k < pts.length; k++) {
+      const level = Math.abs(truck.s + truck.v * pts[k].t - pts[k].s) < 2.2 + truck.length / 2;
+      const cameRight = pts[k].d > pts[k - 1].d + 0.01 || (k > 1 && pts[k - 1].d > pts[k - 2].d + 0.01);
+      if (level && cameRight) expect(truck.dMin - (pts[k].d + 0.93)).toBeGreaterThan(OVERSHOOT_MARGIN / 2);
+    }
+  });
+
+  it('nothing behind blocks it when it is mid lane change with traffic alongside', () => {
+    // Halfway into lane 2, a car level with it in lane 2 and one in lane 1: a full plan still comes out.
+    const boxes = [car(-1, 2, 120), car(-3, 1, 120)];
+    const p = plan({ ...ego(120), d: (laneCenter(1) + laneCenter(2)) / 2 }, boxes);
+    expect(p.points.length).toBe(Math.round(PLANNER.horizon / PLANNER.step) + 1);
   });
 });

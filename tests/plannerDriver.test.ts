@@ -84,6 +84,8 @@ describe('PlannerDriver', () => {
     const { car, touched } = drive(130, 1, boxes, 8);
     expect(touched).toBe(0);
     expect(laneAt(car.d)).toBe(2);
-    expect(boxes[2].s - car.s).toBeLessThan(15); // right behind it
+    // Right behind it: under 20 m centre to centre (~13 m bumper to bumper, 0.4 s at 110 km/h; the
+    // plan keeps ~5 m, the car lags its speed changes a little).
+    expect(boxes[2].s - car.s).toBeLessThan(20);
   });
 });

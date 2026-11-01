@@ -53,6 +53,17 @@ describe('crash rules', () => {
     expect(touching(30, laneCenter(1), 0, t)).toEqual([]);
   });
 
+  it('a car changing lanes into it while it holds its lane is not its doing (in the game it would have waited)', () => {
+    const merging = [
+      { id: 7, s: 2, dMin: laneCenter(1) - 0.2, dMax: laneCenter(1) + 1.6, v: 25, length: 4.5 }, // sliding across from lane 2
+      { id: 7, s: 2, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 25, length: 4.5, phantom: true }, // its target: our lane
+    ];
+    expect(touching(0, laneCenter(1), 0, merging).length).toBe(1); // no lane held: it counts
+    expect(touching(0, laneCenter(1), 0, merging, 1)).toEqual([]);
+    const steady = [{ id: 8, s: 2, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 25, length: 4.5 }];
+    expect(touching(0, laneCenter(1), 0, steady, 1).length).toBe(1); // one that is not changing lanes still counts
+  });
+
   it('the lane a car is about to move into is not a crash', () => {
     const t = [{ s: 3, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 20, length: 4.6, phantom: true }];
     expect(hitsTraffic(0, laneCenter(1), 0, t)).toBe(false);
