@@ -345,7 +345,7 @@ function collides(n: Node, s1: number, d1: number, v1: number, t0: number, dt: n
     if (t.dMin > right + (P.sideMargin + (heading > 0 ? swing : 0)) * side) continue;
     const r0 = t.s + t.v * t0 - n.s; // box centre relative to ours
     const r1 = t.s + t.v * (t0 + dt) - s1;
-    if (inLane && r0 < 0 && r1 < 0 && t.dMin < n.d && t.dMax > n.d) continue; // behind us in our lane: it brakes for us
+    if (inLane && r0 < 0 && r1 < 0 && t.dMin < n.d && t.dMax > n.d) continue; // behind us in our lane: it brakes for us (traffic, and racers are drivers too)
     const reach = HALF_LENGTH + t.length / 2;
     // Merging in alongside or from behind: it waits for us (in the game). Merging in ahead: let it in.
     if (inLane && t.id !== undefined && merging.has(t.id) && r0 < HALF_LENGTH && r0 > -(reach + MERGE_YIELD)) continue;
