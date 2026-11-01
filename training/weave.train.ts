@@ -124,3 +124,24 @@ it('slot', () => {
   const out = p.points.slice(0, 9).map((x) => `${x.t.toFixed(1)}s d=${x.d.toFixed(2)} v=${(x.v / KMH).toFixed(0)} A${(a.s + a.v * x.t - x.s).toFixed(0)} B${(b.s + b.v * x.t - x.s).toFixed(0)}`);
   process.stdout.write(`gap ${gap} m: ${through ? 'THROUGH' : 'stays behind'}, end speed ${(p.points[p.points.length - 1].v / KMH).toFixed(0)} km/h\n  ${out.join('\n  ')}\n`);
 });
+
+/**
+ * Staggered traffic, the S-line the user means: cars at 100 km/h taking turns in lanes 1 and 2
+ * (SPACING m apart, nose to nose), the outer lanes walled off - weaving through is the only way.
+ * The slowest the plan goes and how far it gets.
+ *   SPACING=25 EGO=180 npx vitest run --config training/vitest.config.ts training/weave.train.ts -t slalom
+ */
+it('slalom', () => {
+  if (process.env.PLANNER_JSON) Object.assign(PLANNER, JSON.parse(process.env.PLANNER_JSON));
+  const spacing = Number(process.env.SPACING ?? 25);
+  const stagger = Array.from({ length: 14 }, (_, k) => car(30 + k * spacing, k % 2 === 0 ? 1 : 2, 100));
+  const walls = [0, 3].flatMap((lane) => Array.from({ length: 40 }, (_, k) => car(-20 + k * 12, lane, 100)));
+  const p = plan({ s: 0, d: laneCenter(2), v: Number(process.env.EGO ?? 180) * KMH, speedCap: 300 * KMH }, [...stagger, ...walls]);
+  const passed = stagger.filter((b) => b.s + b.v * PLANNER.horizon < p.points[p.points.length - 1].s).length;
+  const minV = Math.min(...p.points.map((x) => x.v)) / KMH;
+  const weaves = p.points.slice(1).filter((x, i) => Math.sign(x.d - p.points[i].d) !== 0).length;
+  process.stdout.write(
+    `spacing ${spacing} m: slowest ${minV.toFixed(0)} km/h, end ${(p.points[p.points.length - 1].v / KMH).toFixed(0)} km/h, passed ${passed} cars, ${weaves} sideways steps | ` +
+      p.points.map((x) => x.d.toFixed(1)).join(' ') + '\n',
+  );
+});
