@@ -21,7 +21,7 @@ export const STREET_RACER: CarSpec = {
     brakeForceMax: 26_000,
     brakeFrontBias: 0.75,
     dragK: 0.4,
-    downforceK: 1.6,
+    downforceK: 0.4, // the real part (presses the springs); most of the aero grip is aeroGrip
     wheelbase: 2.6,
     maxSteer: 0.55,
     latAccelLimit: 55,
@@ -40,8 +40,11 @@ export const STREET_RACER: CarSpec = {
     muSlide: 0.85,
     slipAnglePeak: 0.105, // ~6 deg, performance street tyre
     rearGrip: 1.12,
-    rollInfluence: 1, // real at up to 200 km/h; less past it as downforce adds grip (rollInfluenceAt)
-    speedGrip: 0.4, // high-speed feel: 1.67 -> 1.9 g at 200 km/h, a lane in 0.70 s instead of 0.82 (training/cornering.train.ts)
+    rollInfluence: 1, // real up to rollRefKmh; less past it as aero adds grip (rollInfluenceAt)
+    aeroGrip: 0.78, // S-curve 50 -> 220 km/h: grip at 100 / 200 km/h as before (with half the real downforce), 280 km/h 15 % less
+    aeroGripFrom: 50,
+    aeroGripTo: 220,
+    rollRefKmh: 150,
     slipFalloff: 18,
     lsd: 150,
     counterSteer: 0.8,

@@ -45,7 +45,10 @@ export interface CarParams {
   slipAnglePeak: number; // rad
   rearGrip: number; // rear tyre grip multiplier (wider rear tyres)
   rollInfluence: number; // 0..1 share of the tyres' rolling torque the body gets (1 real; lower leans but does not tip over)
-  speedGrip: number; // extra tyre grip at 200 km/h (grows with v²) without the downforce that bottoms the suspension: high-speed handling feel
+  aeroGrip: number; // extra tyre grip from aero at full effect (no spring load: see aeroGripScale)
+  aeroGripFrom: number; // km/h where it starts
+  aeroGripTo: number; // km/h where it is all there
+  rollRefKmh: number; // km/h up to which rollInfluence is as set (less past it: rollInfluenceAt)
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
   counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
@@ -220,14 +223,19 @@ export function steerRange(speed: number, p: CarParams): number {
 
 /** Grip coefficient including aerodynamic downforce at this speed. */
 export function effectiveMu(speed: number, p: CarParams): number {
-  return p.muPeak * (1 + (p.downforceK * speed * speed) / (p.mass * G)) * speedGripScale(speed, p);
+  return p.muPeak * (1 + (p.downforceK * speed * speed) / (p.mass * G)) * aeroGripScale(speed, p);
 }
 
-const SPEED_GRIP_REF = 200 / 3.6;
-
-/** Tyre grip multiplier from `speedGrip` at this speed: 1 standing still, growing to 1 + speedGrip at 200 km/h and no more past it. */
-export function speedGripScale(speed: number, p: CarParams): number {
-  return 1 + p.speedGrip * Math.min(1, (speed / SPEED_GRIP_REF) ** 2);
+/**
+ * Tyre grip multiplier from aero at this speed, without pressing the car into
+ * its springs (real downforce that size bottoms the suspension): 1 up to
+ * `aeroGripFrom` km/h, rising along an S-curve to 1 + `aeroGrip` at
+ * `aeroGripTo` and staying there - no kink, and no grip that keeps growing
+ * with v² (2.7 g at 280 km/h was twitchy and leaned too far).
+ */
+export function aeroGripScale(speed: number, p: CarParams): number {
+  const u = Math.max(0, Math.min(1, ((Math.abs(speed) * 3.6 - p.aeroGripFrom) / (p.aeroGripTo - p.aeroGripFrom))));
+  return 1 + p.aeroGrip * u * u * (3 - 2 * u);
 }
 
 /** Highest yaw rate the tyres (with downforce) can sustain at this speed. */
@@ -279,12 +287,13 @@ export function steerAngle(input: number, vLong: number, vLat: number, p: CarPar
 }
 
 /**
- * The rollInfluence to use at this speed: as set up to 200 km/h, then less as
- * downforce and speedGrip add grip, so the most rolling torque the tyres can
- * put on the body stays what it is at 200 km/h (2.7 g at 280 tipped a car set
- * up to lean at 200 over).
+ * The rollInfluence to use at this speed: as set up to `rollRefKmh`, then less
+ * as aero adds grip, so the most rolling torque the tyres can put on the body
+ * stays what it is there - the body leans by how close to the limit the car
+ * turns, not by how much grip speed has added.
  */
 export function rollInfluenceAt(speed: number, p: CarParams): number {
+  const ref = p.rollRefKmh / 3.6;
   const v = Math.abs(speed);
-  return v <= SPEED_GRIP_REF ? p.rollInfluence : (p.rollInfluence * effectiveMu(SPEED_GRIP_REF, p)) / effectiveMu(v, p);
+  return v <= ref ? p.rollInfluence : (p.rollInfluence * effectiveMu(ref, p)) / effectiveMu(v, p);
 }

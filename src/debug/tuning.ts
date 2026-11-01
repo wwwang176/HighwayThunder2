@@ -35,7 +35,9 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   s.add(car, 'antiRollFront', 0, 60_000, 1_000).name('前防傾桿');
   s.add(car, 'antiRollRear', 0, 60_000, 1_000).name('後防傾桿');
   s.add(car, 'rearGrip', 0.7, 1.5, 0.01).name('後輪抓地倍率');
-  s.add(car, 'speedGrip', 0, 1, 0.01).name('高速額外抓地（200 km/h）');
+  s.add(car, 'aeroGrip', 0, 1.5, 0.01).name('氣動抓地（飽和時多幾成）');
+  s.add(car, 'aeroGripTo', 100, 300, 1).name('氣動抓地飽和速度 km/h');
+  s.add(car, 'rollRefKmh', 50, 300, 1).name('此速度以上側傾隨抓地減少 km/h');
   s.add(car, 'rollInfluence', 0, 1, 0.01).name('車身傾斜（翻滾力矩比例）');
   s.add(car, 'muPeak', 0.5, 2, 0.01).name('輪胎抓地（臨界）');
   s.add(car, 'muSlide', 0.3, 1.5, 0.01).name('輪胎抓地（滑動）');

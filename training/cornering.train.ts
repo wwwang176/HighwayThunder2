@@ -4,6 +4,7 @@ import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { STREET_RACER } from '../src/vehicles/cars';
 import { KMH, PHYSICS_DT } from '../src/config';
+import * as THREE from 'three';
 
 /**
  * How hard the car corners: at a steady speed, full steering for 1.5 s; the
@@ -19,7 +20,7 @@ it('cornering', async () => {
   const out: string[] = [];
   for (const [name, change] of Object.entries(variants)) {
     const row: string[] = [];
-    for (const kmh of [100, 200, 280]) {
+    for (const kmh of speeds([100, 200, 280])) {
       const physics = openGround();
       physics.timestep = PHYSICS_DT;
       // Settings go in before the car is built: the centre of mass is fixed then.
@@ -117,7 +118,7 @@ it('maneuvers', async () => {
   const out: string[] = [];
   for (const [name, change] of Object.entries(variants)) {
     const row: string[] = [];
-    for (const kmh of [200, 280]) {
+    for (const kmh of speeds([200, 280])) {
       for (const [move, keys] of Object.entries(moves)) {
         const physics = openGround();
         physics.timestep = PHYSICS_DT;
@@ -156,4 +157,79 @@ function openGround(): PhysicsWorld {
   });
   for (const c of rails) physics.world.removeCollider(c, false);
   return physics;
+}
+
+/**
+ * What a tap of the key leaves behind: steer for TAP s at speed, then hands off. The body's roll
+ * and the car's yaw rate afterwards - how far they swing back the other way, how often they
+ * cross over, and how long until both settle (roll < 0.3 deg, yaw rate < 0.5 deg/s).
+ *   TURN_JSON='{"stiff":{"antiRollFront":18000}}' TAP=0.15 npx vitest run --config training/vitest.config.ts training/cornering.train.ts -t tap
+ */
+it('tap', async () => {
+  await RAPIER.init();
+  const variants: Record<string, Record<string, number>> = process.env.TURN_JSON ? JSON.parse(process.env.TURN_JSON) : { now: {} };
+  const tap = Number(process.env.TAP ?? 0.15);
+  const out: string[] = [];
+  for (const [name, change] of Object.entries(variants)) {
+    const row: string[] = [];
+    for (const kmh of speeds([200, 280])) {
+      const physics = openGround();
+      physics.timestep = PHYSICS_DT;
+      const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
+      car.params.maxSpeed = kmh * KMH;
+      car.resetTo(0, 1, kmh * KMH);
+      const roll = () => {
+        const q = car.body.rotation();
+        // Signed lean about the car's own length: + = right side down.
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w));
+        return Math.asin(Math.max(-1, Math.min(1, -right.y)));
+      };
+      const yawRate = () => car.body.angvel().y;
+      const steps = (s: number) => Math.round(s / PHYSICS_DT);
+      for (let i = 0; i < steps(0.5); i++) {
+        car.prePhysics({ throttle: 1, brake: 0, steer: 0 }, PHYSICS_DT);
+        physics.step(() => {});
+        car.postPhysics();
+      }
+      let rollPeak = 0;
+      let yawPeak = 0;
+      let rollBack = 0;
+      let yawBack = 0;
+      let rollCross = 0;
+      let yawCross = 0;
+      let settled = NaN;
+      let lastRoll = 0;
+      let lastYaw = 0;
+      for (let i = 0; i < steps(tap + 3); i++) {
+        const t = i * PHYSICS_DT;
+        car.prePhysics({ throttle: 1, brake: 0, steer: t < tap ? 1 : 0 }, PHYSICS_DT);
+        physics.step(() => {});
+        car.postPhysics();
+        const r = roll();
+        const y = yawRate();
+        if (Math.abs(r) > Math.abs(rollPeak) && Math.sign(r) === Math.sign(rollPeak || r)) rollPeak = r;
+        if (Math.abs(y) > Math.abs(yawPeak) && Math.sign(y) === Math.sign(yawPeak || y)) yawPeak = y;
+        if (rollPeak && Math.sign(r) === -Math.sign(rollPeak)) rollBack = Math.max(rollBack, Math.abs(r));
+        if (yawPeak && Math.sign(y) === -Math.sign(yawPeak)) yawBack = Math.max(yawBack, Math.abs(y));
+        if (t > tap && Math.abs(r) > 0.001 && Math.sign(r) !== Math.sign(lastRoll)) rollCross++;
+        if (t > tap && Math.abs(y) > 0.002 && Math.sign(y) !== Math.sign(lastYaw)) yawCross++;
+        if (Math.abs(r) > 0.001) lastRoll = r;
+        if (Math.abs(y) > 0.002) lastYaw = y;
+        if (t > tap && (Math.abs(r) * 57.3 > 0.3 || Math.abs(y) * 57.3 > 0.5)) settled = NaN;
+        else if (t > tap && isNaN(settled)) settled = t - tap;
+      }
+      const deg = (x: number) => (Math.abs(x) * 57.3).toFixed(1);
+      row.push(
+        `${kmh}: roll ${deg(rollPeak)}° back ${deg(rollBack)}° x${rollCross} | yaw ${deg(yawPeak)}°/s back ${deg(yawBack)}°/s x${yawCross} | settled ${isNaN(settled) ? '>3' : settled.toFixed(2)} s`,
+      );
+      physics.free();
+    }
+    out.push(`${name}\n  ${row.join('\n  ')}`);
+  }
+  process.stdout.write(out.join('\n') + '\n');
+});
+
+/** Speeds (km/h) to test at: KMHS=100,150,200 or the test's own. */
+function speeds(own: number[]): number[] {
+  return process.env.KMHS ? process.env.KMHS.split(',').map(Number) : own;
 }

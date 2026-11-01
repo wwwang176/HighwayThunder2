@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, speedGripScale } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale } from '../src/vehicles/handling';
 
 const P = DEFAULT_CAR;
 
@@ -218,23 +218,29 @@ describe('stability control (ESC)', () => {
   });
 });
 
-describe('speedGripScale', () => {
-  const p = { ...DEFAULT_CAR, speedGrip: 0.4 };
-  it('no extra grip standing still, all of it at 200 km/h, no more past it', () => {
-    expect(speedGripScale(0, p)).toBe(1);
-    expect(speedGripScale(100 / 3.6, p)).toBeCloseTo(1.1, 5); // grows with v²: a quarter at half the speed
-    expect(speedGripScale(200 / 3.6, p)).toBeCloseTo(1.4, 5);
-    expect(speedGripScale(300 / 3.6, p)).toBeCloseTo(1.4, 5);
+describe('aeroGripScale', () => {
+  const p = { ...DEFAULT_CAR, aeroGrip: 0.8, aeroGripFrom: 50, aeroGripTo: 250 };
+  const at = (kmh: number) => aeroGripScale(kmh / 3.6, p);
+  it('none below where it starts, all of it from where it ends, half way in the middle', () => {
+    expect(at(0)).toBe(1);
+    expect(at(50)).toBe(1);
+    expect(at(150)).toBeCloseTo(1.4, 5);
+    expect(at(250)).toBeCloseTo(1.8, 5);
+    expect(at(320)).toBeCloseTo(1.8, 5);
+  });
+  it('an S-curve: slow to start and to finish, no kink', () => {
+    expect(at(60) - at(50)).toBeLessThan(at(155) - at(145));
+    expect(at(250) - at(240)).toBeLessThan(at(155) - at(145));
   });
 });
 
 describe('rollInfluenceAt', () => {
-  const p = { ...DEFAULT_CAR, rollInfluence: 1 };
-  it('as set up to 200 km/h, then less as the grip grows: the most rolling torque stays that at 200', () => {
+  const p = { ...DEFAULT_CAR, rollInfluence: 1, rollRefKmh: 150 };
+  it('as set up to rollRefKmh, then less as the grip grows: the most rolling torque stays that there', () => {
     expect(rollInfluenceAt(100 / 3.6, p)).toBe(1);
-    expect(rollInfluenceAt(200 / 3.6, p)).toBe(1);
+    expect(rollInfluenceAt(150 / 3.6, p)).toBe(1);
     const at280 = rollInfluenceAt(280 / 3.6, p);
     expect(at280).toBeLessThan(1);
-    expect(at280 * effectiveMu(280 / 3.6, p)).toBeCloseTo(effectiveMu(200 / 3.6, p), 5);
+    expect(at280 * effectiveMu(280 / 3.6, p)).toBeCloseTo(effectiveMu(150 / 3.6, p), 5);
   });
 });
