@@ -59,6 +59,16 @@ describe('emergencyBrake', () => {
     expect(emergencyBrake(self, [slow])).toBeGreaterThan(0.5);
   });
 
+  it('nothing until it is needed, then the braking it needs: late and hard', () => {
+    // Closing 25 m/s on a car straight ahead: needs 25² / (2 · room) m/s².
+    const ahead = (room: number) => [{ id: 1, s: 2.2 + 1.5 + room + 2.25, dMin: laneCenter(1) - 0.925, dMax: laneCenter(1) + 0.925, v: 25, length: 4.5 }];
+    const me = { ...self, d: laneCenter(1), vLong: 50 };
+    expect(emergencyBrake(me, ahead(40))).toBe(0); // needs 7.8 m/s²: not yet
+    const b = emergencyBrake(me, ahead(32)); // needs 9.8 m/s²
+    expect(b).toBeGreaterThan(0.85); // ~9.8 of the ~11 a full brake gives
+    expect(emergencyBrake(me, ahead(20))).toBe(1);
+  });
+
   it('not for a car it is swerving clear of before it gets there', () => {
     // Moving right at 2 m/s: clear of the 0.3 m overlap in 0.15 s, while closing 20 m/s eats 3 of the 12 m.
     expect(emergencyBrake({ ...self, vLat: 2 }, [slow])).toBe(0);

@@ -352,27 +352,35 @@ function collides(n: Node, s1: number, d1: number, v1: number, t0: number, dt: n
     // Ahead: right on the bumper, but never closer than it takes to brake down to its speed - without this
     // the plan closed in fast up to the last moment and the emergency brake did the braking (all five
     // benchmark runs crashed with the emergency brake held back past the plan's own hardest braking).
-    const closing = Math.max(0, Math.max(n.v, v1) - t.v);
-    let keep = (closing * closing) / (2 * P.hardBrake) + P.headway * Math.max(n.v, v1) * margin;
-    if (move !== 0 && (move > 0 ? t.dMax < n.d : t.dMin > n.d)) {
-      // Moving away from it sideways: it only has to stay ahead until the car is clear of it - swerve
-      // out at speed instead of braking to its speed first (keeps going sideways or the next step fails).
-      const overlap = move > 0 ? t.dMax + P.sideMargin - (d1 - HALF_WIDTH) : d1 + HALF_WIDTH - (t.dMin - P.sideMargin);
-      const clearIn = Math.max(0, overlap) / (CELL / dt);
-      keep = Math.min(keep, closing * clearIn);
-    }
-    const ahead = reach + keep + P.gapAhead * margin;
+    // Each end of the step with its own speed: checking the end with the speed before braking made it
+    // start braking half a second (~15 m at 200 km/h) early.
+    const swerving = move !== 0 && (move > 0 ? t.dMax < n.d : t.dMin > n.d);
+    const ahead = (v: number) => {
+      const closing = Math.max(0, v - t.v);
+      let keep = (closing * closing) / (2 * P.hardBrake) + P.headway * v * margin;
+      if (swerving) {
+        // Moving away from it sideways: it only has to stay ahead until the car is clear of it - swerve
+        // out at speed instead of braking to its speed first (keeps going sideways or the next step fails).
+        const overlap = move > 0 ? t.dMax + P.sideMargin - (d1 - HALF_WIDTH) : d1 + HALF_WIDTH - (t.dMin - P.sideMargin);
+        keep = Math.min(keep, closing * (Math.max(0, overlap) / (CELL / dt)));
+      }
+      return reach + keep + P.gapAhead * margin;
+    };
     const behind = reach + (P.gapBehind + P.cutInTime * Math.max(0, t.v - Math.min(n.v, v1))) * margin;
     if (Math.sign(r0) !== Math.sign(r1)) return true; // passed through it
-    let r = Math.abs(r0) < Math.abs(r1) ? r0 : r1;
+    let rEarly: number | null = null;
     if (sideways && t.dMax > d1 - HALF_WIDTH && t.dMin < d1 + HALF_WIDTH) {
       // Moving toward it: the car starts across up to TRACKER_LEAD s early, so where it was then counts too
       // (only stricter for one being passed - it was still alongside - braking does not help a sideswipe).
-      const rEarly = t.s + t.v * (t0 - TRACKER_LEAD) - (n.s - n.v * TRACKER_LEAD);
+      rEarly = t.s + t.v * (t0 - TRACKER_LEAD) - (n.s - n.v * TRACKER_LEAD);
       if (Math.sign(rEarly) !== Math.sign(r0)) return true;
-      if (Math.abs(rEarly) < Math.abs(r)) r = rEarly;
     }
-    if (r >= 0 ? r < ahead : -r < behind) return true;
+    if (r0 >= 0) {
+      if (r0 < ahead(n.v) || r1 < ahead(v1) || (rEarly !== null && rEarly < ahead(n.v))) return true;
+    } else {
+      const r = Math.min(-r0, -r1, rEarly !== null ? -rEarly : Infinity);
+      if (r < behind) return true;
+    }
   }
   return false;
 }

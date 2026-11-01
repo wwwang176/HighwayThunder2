@@ -87,9 +87,18 @@ describe('plan', () => {
     expect(p.points.every((x) => x.d === laneCenter(1))).toBe(true);
   });
 
-  it('can cross several lanes on a diagonal', () => {
-    // Lane 3 blocked by a slow truck, lanes 1-2 by slow cars; lane 0 open.
+  it('boxed in by slow traffic in three lanes: gets through and away, touching nothing', () => {
+    // Lane 3 blocked by a slow truck, lanes 1-2 by slow cars; lane 0 open. (Its way through may be lane 0,
+    // or slipping past the truck via lane 2 and back - whichever gets it furthest.)
     const boxes = [car(25, 3, 70, 8.5, 2.4), car(35, 2, 75), car(35, 1, 75)];
+    const p = plan(ego(110, 3), boxes);
+    expect(clearOfAll(p, boxes)).toBe(true);
+    expect(last(p).s).toBeGreaterThan(Math.max(...boxes.map((b) => b.s + b.v * PLANNER.horizon)) + 10);
+  });
+
+  it('on a diagonal it crosses several lanes when only the far one is free', () => {
+    // A wall of trucks in lanes 1-3 at 70 km/h, lane 0 open.
+    const boxes = [1, 2, 3].map((lane) => car(30, lane, 70, 16.9, 2.5));
     const p = plan(ego(110, 3), boxes);
     expect(clearOfAll(p, boxes)).toBe(true);
     expect(laneAt(last(p).d)).toBe(0);
@@ -236,6 +245,14 @@ describe('plan', () => {
     const leftBehind = car(-(2.2 + 2.25 + 0.4), 0, 100); // 0.4 m between its front and our rear
     const p = plan(ego(100), [ahead, leftBehind, car(9, 2, 100), car(9, 3, 100)]);
     expect(p.points[2].d).toBeLessThan(laneCenter(1) - 0.5); // on its way left within the first second
+  });
+
+  it('walled in by slower traffic far ahead: keeps its speed and brakes late and hard, not early and gently', () => {
+    // 180 km/h, every lane blocked 120 m ahead by cars at 100 km/h: braking at 11 m/s² takes ~2 s and ~25 m,
+    // so it can hold its speed for the first couple of seconds.
+    const p = plan(ego(180), [0, 1, 2, 3].map((lane) => car(120, lane, 100)));
+    const at = (t: number) => p.points.find((x) => Math.abs(x.t - t) < 1e-9)!;
+    expect(at(1.5).v).toBeGreaterThan(175 * KMH);
   });
 
   it('nothing behind blocks it when it is mid lane change with traffic alongside', () => {
