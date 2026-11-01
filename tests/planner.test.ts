@@ -187,6 +187,22 @@ describe('plan', () => {
     }
   });
 
+  it('every approach it plans is one it can brake out of itself (no rescue by an emergency brake)', () => {
+    // Coming up fast on slower traffic in every lane.
+    const boxes = [car(120, 0, 90), car(110, 1, 80), car(130, 2, 85), car(125, 3, 70)];
+    const p = plan(ego(220), boxes);
+    for (const x of p.points) {
+      for (const t of boxes) {
+        const r = t.s + t.v * x.t - x.s;
+        const lateral = x.d + 0.93 > t.dMin && x.d - 0.93 < t.dMax;
+        if (!lateral || r <= 0) continue;
+        const closing = Math.max(0, x.v - t.v);
+        const bumperGap = r - 2.2 - t.length / 2;
+        expect(bumperGap).toBeGreaterThanOrEqual((closing * closing) / (2 * PLANNER.hardBrake) - 0.01);
+      }
+    }
+  });
+
   it('nothing behind blocks it when it is mid lane change with traffic alongside', () => {
     // Halfway into lane 2, a car level with it in lane 2 and one in lane 1: a full plan still comes out.
     const boxes = [car(-1, 2, 120), car(-3, 1, 120)];
