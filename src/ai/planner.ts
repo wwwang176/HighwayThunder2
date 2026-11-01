@@ -13,9 +13,10 @@ import { STREET_RACER } from '../vehicles/cars/streetRacer';
  * diagonal) and change speed within what the car can do.
  */
 export const PLANNER = {
-  // s between plan points. 0.25 (with maxLateral 2): faster S-lines and gaps, but the car swings past the
-  // plans - 30 of 30 benchmark runs crashed (0.5 with maxLateral 3: 27 of 30 finished, 101 s). The user wants it.
-  step: 0.25,
+  // s between plan points. 0.25 s (panel: Plan grid) makes faster S-lines and gaps on paper, but the tracker
+  // swings past plans that turn that often: 27-30 of 30 benchmark runs crashed however it was eased (half the
+  // sideways speed, more room, a longer lead); 0.5 s with maxLateral 3: 27 of 30 finished, 101 s.
+  step: 0.5,
   horizon: 8, // s looked ahead (~650 m at 300 km/h)
   speedCell: 2, // m/s: speeds closer than this count as the same state
   /** Value of speed at the end of the plan: metres per m/s (s it would keep going). */
@@ -82,7 +83,7 @@ export const PLANNER = {
    * 250): 15 benchmark runs 104.7 -> 102.1 s, none crashed (swingMargin grows
    * with the speed sideways; with 0.1 m whatever the speed two crashed).
    */
-  maxLateral: 2, // cells a step: at 0.25 s steps 7.5 m/s, more than the car does - it swings past (0.5 s steps: 3)
+  maxLateral: 3,
   /** Most change in the sideways move from one step to the next (cells per step), with maxLateral > 1: a swing one way, then hard the other. */
   maxLateralChange: 2,
   /**
