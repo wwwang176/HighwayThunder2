@@ -5,19 +5,21 @@ import { BRAIN_LAYERS } from '../src/ai/evolution';
 import { mulberry32 } from '../src/ai/rng';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { GRASS_GRIP, PHYSICS_DT } from '../src/config';
+import { isOffRoad } from '../src/ai/fitness';
+import { laneAt, laneCenter } from '../src/road/coords';
 import { OUR_FRAME } from '../src/road/frame';
 
 beforeAll(async () => {
   await RAPIER.init();
 });
 
-/** A network that ignores its inputs: steer, throttle and brake set by the output biases. */
-function constant(steer: number, throttle: number): Brain {
+/** A network that ignores its inputs: lane choice (-1 left, 0 keep, 1 right), throttle and brake set by the output biases. */
+function constant(lane: number, throttle: number): Brain {
   const b = createBrain(BRAIN_LAYERS, mulberry32(1));
   b.weights.fill(0);
   const n = b.weights.length;
   const row = 16 + 1;
-  b.weights[n - 3 * row + 16] = Math.atanh(steer);
+  b.weights[n - 3 * row + 16] = 3 * lane;
   b.weights[n - 2 * row + 16] = Math.atanh(throttle * 2 - 1);
   b.weights[n - 1 * row + 16] = -3; // no brake
   return b;
@@ -38,18 +40,23 @@ describe('TrainingSim', () => {
     sim.dispose();
   });
 
-  it('a car that steers hard right leaves the road and is out', () => {
-    const sim = new TrainingSim([constant(0.95, 0.6)], 11, { speedCap: 40 });
-    run(sim, 10);
-    expect(sim.ghosts[0].alive).toBe(false);
-    expect(sim.ghosts[0].result.crashed).toBe(true);
-    expect(sim.done).toBe(true);
+  it('a car that always wants to go right ends up in the right lane, still on the road', () => {
+    const sim = new TrainingSim([constant(1, 0.6)], 11, { speedCap: 40 });
+    const g = sim.ghosts[0];
+    let worst = 0;
+    for (let i = 0; i < Math.round(8 / PHYSICS_DT) && g.alive; i++) {
+      sim.step();
+      worst = Math.max(worst, g.car.d);
+    }
+    expect(isOffRoad(g.car.s, g.car.d, g.car.yaw)).toBe(false);
+    expect(laneAt(g.car.d)).toBe(3);
+    expect(worst).toBeLessThan(laneCenter(3) + 0.3);
     sim.dispose();
   });
 
   it('is repeatable for a seed', () => {
-    const a = new TrainingSim([constant(0.05, 0.7), constant(-0.05, 0.4)], 5, { speedCap: 60 });
-    const b = new TrainingSim([constant(0.05, 0.7), constant(-0.05, 0.4)], 5, { speedCap: 60 });
+    const a = new TrainingSim([constant(1, 0.7), constant(-1, 0.4)], 5, { speedCap: 60 });
+    const b = new TrainingSim([constant(1, 0.7), constant(-1, 0.4)], 5, { speedCap: 60 });
     run(a, 5);
     run(b, 5);
     expect(a.ghosts.map((g) => g.result.distance)).toEqual(b.ghosts.map((g) => g.result.distance));

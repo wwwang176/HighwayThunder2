@@ -98,7 +98,7 @@ export class TrainingSim {
     const dt = PHYSICS_DT;
     for (const g of this.ghosts) {
       if (!g.alive) continue;
-      g.car.prePhysics(g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes), dt);
+      g.car.prePhysics(g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes, g.car.params), dt);
     }
     this.traffic.stepAI(dt, this.time, () => []);
     this.physics.step((a, b) => {

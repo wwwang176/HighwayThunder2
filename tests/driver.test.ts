@@ -1,10 +1,11 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { createBrain } from '../src/ai/brain';
+import { Brain, createBrain } from '../src/ai/brain';
 import { AiDriver, selfStateOf } from '../src/ai/driver';
 import { BRAIN_LAYERS } from '../src/ai/evolution';
 import { mulberry32 } from '../src/ai/rng';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
+import { laneCenter } from '../src/road/coords';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { PHYSICS_DT } from '../src/config';
 
@@ -12,16 +13,61 @@ beforeAll(async () => {
   await RAPIER.init();
 });
 
-const self = { s: 0, d: 0, yaw: 0, vLong: 20, vLat: 0, yawRate: 0, speedCap: 83.3 };
+const self = { s: 0, d: laneCenter(1), yaw: 0, vLong: 20, vLat: 0, yawRate: 0, speedCap: 83.3 };
+const ROW = 16 + 1;
+
+/** A network that ignores its inputs: lane choice and throttle set by the output biases. */
+function constant(lane: number, throttle = 0.5): Brain {
+  const b = createBrain(BRAIN_LAYERS, mulberry32(1));
+  b.weights.fill(0);
+  const n = b.weights.length;
+  b.weights[n - 3 * ROW + 16] = lane;
+  b.weights[n - 2 * ROW + 16] = Math.atanh(throttle * 2 - 1);
+  b.weights[n - 1 * ROW + 16] = -3; // no brake
+  return b;
+}
 
 describe('AiDriver', () => {
-  it('a blank network holds the wheel straight at half throttle', () => {
+  it('a blank network keeps its lane at half throttle', () => {
     const b = createBrain(BRAIN_LAYERS, mulberry32(1));
     b.weights.fill(0);
-    const input = new AiDriver(b).drive(self, []);
-    expect(input.steer).toBe(0);
+    const ai = new AiDriver(b);
+    const input = ai.drive(self, []);
+    expect(input.steer).toBeCloseTo(0, 5);
     expect(input.throttle).toBeCloseTo(0.5);
     expect(input.brake).toBe(0);
+    expect(ai.targetLane).toBe(1);
+  });
+
+  it('the lane output picks a neighbouring lane; small outputs keep the lane', () => {
+    const keep = new AiDriver(constant(0.3));
+    keep.drive(self, []);
+    expect(keep.targetLane).toBe(1);
+    const right = new AiDriver(constant(2));
+    expect(right.drive(self, []).steer).toBeGreaterThan(0);
+    expect(right.targetLane).toBe(2);
+    const left = new AiDriver(constant(-2));
+    expect(left.drive(self, []).steer).toBeLessThan(0);
+    expect(left.targetLane).toBe(0);
+  });
+
+  it('one lane at a time: no new choice until the change is done, none past the edge', () => {
+    const ai = new AiDriver(constant(2));
+    ai.drive(self, []);
+    for (let i = 0; i < 60; i++) ai.drive(self, []); // half a second, car not moved
+    expect(ai.targetLane).toBe(2);
+    const edge = new AiDriver(constant(2));
+    edge.drive({ ...self, d: laneCenter(3) }, []);
+    expect(edge.targetLane).toBe(3);
+  });
+
+  it('follows the car to wherever it was put (reset, respawn, AI switched on)', () => {
+    const ai = new AiDriver(constant(0));
+    ai.drive(self, []);
+    ai.drive({ ...self, d: laneCenter(3) }, []);
+    expect(ai.targetLane).toBe(3);
+    ai.reset(laneCenter(0));
+    expect(ai.targetLane).toBe(0);
   });
 
   it('a slightly positive brake output does not brake (and so does not cut the engine)', () => {

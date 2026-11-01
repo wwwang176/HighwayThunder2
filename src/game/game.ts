@@ -189,6 +189,7 @@ export class Game {
     this.prevRelS.clear();
     this.touched.clear();
     this.player.resetTo(-3, 1, 0);
+    this.aiDriver?.reset(this.player.d);
     this.skids.clear();
     this.smoke.clear();
     this.rig.snap();
@@ -214,6 +215,7 @@ export class Game {
     }
     const spot = computeResetSpot(this.player.s, this.player.d, blockers, RESET_SPEED);
     this.player.resetTo(spot.s, spot.lane, RESET_SPEED);
+    this.aiDriver?.reset(this.player.d);
     this.skids.cut();
     this.flow.markReset();
     this.rig.snap();
@@ -265,8 +267,10 @@ export class Game {
       return;
     }
     this.aiActive = !this.aiActive;
-    if (this.aiActive) this.humanMaxSpeed = this.player.params.maxSpeed;
-    else this.player.params.maxSpeed = this.humanMaxSpeed;
+    if (this.aiActive) {
+      this.humanMaxSpeed = this.player.params.maxSpeed;
+      this.aiDriver.reset(this.player.d);
+    } else this.player.params.maxSpeed = this.humanMaxSpeed;
   }
 
   private currentInput(): HandlingInput {
@@ -276,7 +280,7 @@ export class Game {
           // Same inputs as in training: our carriageway's traffic, and its own top speed.
           const cap = this.aiSettings.speedCapKmh / 3.6;
           this.player.params.maxSpeed = cap;
-          return this.aiDriver.drive(selfStateOf(this.player, cap), this.trafficWorld.ourBoxes(this.aiTraffic));
+          return this.aiDriver.drive(selfStateOf(this.player, cap), this.trafficWorld.ourBoxes(this.aiTraffic), this.player.params);
         }
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':

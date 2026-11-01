@@ -18,7 +18,7 @@ describe('readSensors (radar relative to the own lane)', () => {
   it('empty road: lanes that exist are clear, lanes that do not are blocked', () => {
     const x = readSensors(self(), []); // own lane = 1
     expect(x.length).toBe(SENSOR_COUNT);
-    expect(SENSOR_COUNT).toBe(29);
+    expect(SENSOR_COUNT).toBe(30);
     for (const rel of [-1, 0, 1, 2]) {
       expect(x[slot(rel)]).toBe(1);
       expect(x[slot(rel) + 1]).toBe(0);
@@ -82,6 +82,12 @@ describe('readSensors (radar relative to the own lane)', () => {
     const edge = readSensors(self({ d: 9 }), []);
     expect(edge[25]).toBeCloseTo((10 - 9.93) / 10, 5); // right margin
     expect(readSensors(self({ d: -10 }), [])[26]).toBeCloseTo((-10.93 - LEFT_LIMIT) / 10, 5); // left margin on the grass
+  });
+
+  it('where the lane controller is taking the car: the target lane centre, in lanes', () => {
+    expect(readSensors(self(), [])[29]).toBe(0); // holding its lane
+    expect(readSensors(self(), [], undefined, 2)[29]).toBeCloseTo(1, 5); // one lane right to go
+    expect(readSensors(self({ d: laneCenter(1) - 1 }), [], undefined, 0)[29]).toBeCloseTo((laneCenter(0) - laneCenter(1) + 1) / 3.75, 5);
   });
 
   it('all values stay within [-1, 1]', () => {

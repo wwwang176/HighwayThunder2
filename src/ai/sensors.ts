@@ -32,11 +32,12 @@ export interface TrafficBox {
  * Bump when the inputs below change: trained driver files record it.
  * v2: left edge = 2 m onto the median grass. v3: shoulder / grass objects count in the edge lanes.
  * v4: radar relative to the own lane (much easier for a small network to learn than absolute lanes).
+ * v5: the network picks lanes (a lane controller steers): adds where the car is being taken.
  */
-export const SENSOR_LAYOUT = 'ego-radar-v4';
+export const SENSOR_LAYOUT = 'ego-radar-v5-lanes';
 /** Radar lanes, relative to the car's own lane: two to the left, own, two to the right. */
 const REL_LANES = [-2, -1, 0, 1, 2];
-export const SENSOR_COUNT = REL_LANES.length * 4 + 9;
+export const SENSOR_COUNT = REL_LANES.length * 4 + 10;
 
 const RADAR_AHEAD = 300;
 const RADAR_BEHIND = 50;
@@ -75,8 +76,9 @@ const behindV = new Float32Array(LANE_COUNT);
  * Then its own state:
  *  [20] vLong  [21] vLat  [22] yaw  [23] yaw rate  [24] offset from the own lane's centre (±half lane)
  *  [25] room to the right limit  [26] room to the left limit (2 m onto the grass)  [27] speed cap  [28] d / rail
+ *  [29] how far the lane controller still has to take it: (target lane centre - d) / lane width
  */
-export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Float32Array(SENSOR_COUNT)): Float32Array {
+export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Float32Array(SENSOR_COUNT), targetLane = laneAt(self.d)): Float32Array {
   aheadGap.fill(Infinity);
   behindGap.fill(Infinity);
   for (const t of traffic) {
@@ -123,5 +125,6 @@ export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Fl
   out[o + 6] = clamp((self.d - HALF_WIDTH - LEFT_LIMIT) / 10);
   out[o + 7] = clamp(self.speedCap / SPEED_SCALE);
   out[o + 8] = clamp(self.d / RAIL_D);
+  out[o + 9] = clamp((laneCenter(targetLane) - self.d) / LANE_WIDTH);
   return out;
 }
