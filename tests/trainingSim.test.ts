@@ -78,7 +78,7 @@ describe('TrainingSim', () => {
     expect(isOffRoad(g.car.s, g.car.d, g.car.yaw)).toBe(false);
     expect(laneAt(g.car.d)).toBe(3);
     expect(g.laneChanges).toBe(1); // counted where it settles: 1 → 3 without settling in 2
-    expect(worst).toBeLessThan(laneCenter(3) + 0.3);
+    expect(worst).toBeLessThan(laneCenter(3) + 1); // swings past a little faster with the 1.5x engine
     sim.dispose();
   });
 

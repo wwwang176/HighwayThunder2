@@ -108,14 +108,12 @@ const MOVES = [0, -1, 1];
 
 /** Full-throttle acceleration of the player car (m/s²) at a speed (km/h), measured. */
 const ACCEL_KMH: [number, number][] = [
-  [0, 7],
-  [80, 7],
-  [100, 4.9],
-  [140, 3.4],
-  [180, 2.3],
-  [220, 1.4],
-  [260, 0.9],
-  [300, 0.5],
+  [0, 7.5],
+  [100, 7.5],
+  [150, 5.3],
+  [200, 3.7],
+  [250, 2.4],
+  [300, 1.2],
 ];
 export function maxAccel(v: number): number {
   const kmh = v / KMH;

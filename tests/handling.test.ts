@@ -112,13 +112,14 @@ describe('Gearbox', () => {
 
 describe('engine through the gearbox', () => {
   const R = 0.34;
-  it('1st gear at launch overpowers the rear tyres (burnout), but not once rolling with weight transfer', () => {
+  it('1st gear overpowers the rear tyres, at launch and still rolling (the 1.5x engine: a street racer)', () => {
     const g = new Gearbox();
     const rearStatic = (P.mass * 9.81) / 2;
     expect(g.wheelTorque(1, 0, P) / R).toBeGreaterThan(P.muPeak * P.rearGrip * (rearStatic + 1900));
-    // Mid 1st gear, wheels rolling: peak grip with weight transfer holds the engine.
+    // Mid 1st gear, wheels rolling: even with weight transfer the tyres cannot hold it all (it was the
+    // other way round before the engine was made 1.5x stronger for more pull at 150-250 km/h).
     const omega = 45 / 3.6 / R;
-    expect(g.wheelTorque(1, omega, P) / R).toBeLessThan(P.muPeak * P.rearGrip * (rearStatic + 1900));
+    expect(g.wheelTorque(1, omega, P) / R).toBeGreaterThan(P.muPeak * P.rearGrip * (rearStatic + 1900));
   });
   it('2nd gear (from its upshift speed) does not overpower the rear tyres', () => {
     const g = new Gearbox();

@@ -51,9 +51,9 @@ export interface CarParams {
 
 export const DEFAULT_CAR: CarParams = {
   mass: 1300,
-  power: 290_000,
-  maxDriveForce: 9_500,
-  engineTorque: 400,
+  power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
+  maxDriveForce: 14_250,
+  engineTorque: 600,
   redline: 7500,
   idleRpm: 900,
   driveEfficiency: 0.9,
