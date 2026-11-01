@@ -6,7 +6,12 @@ import { Brain, forward } from './brain';
 import { LaneController } from './laneController';
 import { readSensors, SelfState, SENSOR_COUNT, TrafficBox } from './sensors';
 
-const BRAKE_DEADZONE = 0.25;
+/** m/s under the target where the throttle eases off (full throttle below that). */
+const THROTTLE_RAMP = 3;
+/** m/s over the target the car just coasts: any brake at all cuts the engine (driveCommand). */
+const COAST_BAND = 1;
+/** m/s further over the target to full brake. */
+const BRAKE_RAMP = 5;
 /**
  * The lane output has to pass this to ask for a lane change. Low on purpose:
  * fresh networks' outputs rarely reach ±0.3, and at 0.5 only 7 of 80 ever
@@ -19,15 +24,23 @@ export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
   return { s: car.s, d: car.d, yaw: car.yaw, vLong: car.vLong, vLat: car.vLat, yawRate: car.yawRate, speedCap };
 }
 
+/** Pedals that bring the car from `v` to `target` (m/s). */
+export function speedPedals(target: number, v: number): { throttle: number; brake: number } {
+  const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+  return { throttle: clamp01((target - v) / THROTTLE_RAMP), brake: clamp01((v - target - COAST_BAND) / BRAKE_RAMP) };
+}
+
 /**
- * Turns a trained network into driving input. The network chooses lanes and
- * works the pedals: outputs are lane (left / keep / right), throttle and brake;
- * a lane controller does the steering. Used by the trainer's ghost cars and by
- * the game alike, once per physics step.
+ * Turns a trained network into driving input. The network decides; simple
+ * controllers drive: outputs are lane (left / keep / right) and target speed
+ * (0 .. the car's top speed). A lane controller steers and `speedPedals` works
+ * the pedals - with throttle and brake as outputs, fresh networks almost never
+ * braked only when something was ahead, and could not learn to. Used by the
+ * trainer's ghost cars and by the game alike, once per physics step.
  */
 export class AiDriver {
   private readonly sensors = new Float32Array(SENSOR_COUNT);
-  private readonly out = new Float32Array(3);
+  private readonly out = new Float32Array(2);
   private lanes: LaneController | null = null;
 
   constructor(readonly brain: Brain) {}
@@ -66,10 +79,7 @@ export class AiDriver {
     }
     lanes.update(PHYSICS_DT);
     const steer = lanes.steer(self.d, self.yaw, self.vLong, self.vLat, p);
-    // Brake only above a dead zone: any brake at all cuts the engine (driveCommand),
-    // so without it about half of all random networks could never accelerate.
-    const brake = Math.max(0, (o[2] - BRAKE_DEADZONE) / (1 - BRAKE_DEADZONE));
-    const throttle = brake > 0 ? 0 : (o[1] + 1) / 2;
+    const { throttle, brake } = speedPedals((self.speedCap * (o[1] + 1)) / 2, self.vLong);
     return { steer, throttle, brake };
   }
 }

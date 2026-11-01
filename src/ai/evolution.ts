@@ -2,8 +2,8 @@ import { Brain, cloneBrain, mutate } from './brain';
 import type { Rng } from './rng';
 import { SENSOR_COUNT } from './sensors';
 
-/** Inputs → two hidden layers → lane (left / keep / right), throttle, brake. */
-export const BRAIN_LAYERS = [SENSOR_COUNT, 16, 16, 3];
+/** Inputs → two hidden layers → lane (left / keep / right), target speed. */
+export const BRAIN_LAYERS = [SENSOR_COUNT, 16, 16, 2];
 
 export interface EvoParams {
   population: number;

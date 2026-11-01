@@ -13,15 +13,14 @@ beforeAll(async () => {
   await RAPIER.init();
 });
 
-/** A network that ignores its inputs: lane choice (-1 left, 0 keep, 1 right), throttle and brake set by the output biases. */
-function constant(lane: number, throttle: number): Brain {
+/** A network that ignores its inputs: lane choice (-1 left, 0 keep, 1 right) and target speed (fraction of the cap) set by the output biases. */
+function constant(lane: number, speed: number): Brain {
   const b = createBrain(BRAIN_LAYERS, mulberry32(1));
   b.weights.fill(0);
   const n = b.weights.length;
   const row = 16 + 1;
-  b.weights[n - 3 * row + 16] = 3 * lane;
-  b.weights[n - 2 * row + 16] = Math.atanh(throttle * 2 - 1);
-  b.weights[n - 1 * row + 16] = -3; // no brake
+  b.weights[n - 2 * row + 16] = 3 * lane;
+  b.weights[n - 1 * row + 16] = Math.atanh(speed * 2 - 1);
   return b;
 }
 

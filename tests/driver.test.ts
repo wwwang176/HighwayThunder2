@@ -1,7 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { Brain, createBrain } from '../src/ai/brain';
-import { AiDriver, selfStateOf } from '../src/ai/driver';
+import { AiDriver, selfStateOf, speedPedals } from '../src/ai/driver';
 import { BRAIN_LAYERS } from '../src/ai/evolution';
 import { mulberry32 } from '../src/ai/rng';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
@@ -16,27 +16,43 @@ beforeAll(async () => {
 const self = { s: 0, d: laneCenter(1), yaw: 0, vLong: 20, vLat: 0, yawRate: 0, speedCap: 83.3 };
 const ROW = 16 + 1;
 
-/** A network that ignores its inputs: lane choice and throttle set by the output biases. */
-function constant(lane: number, throttle = 0.5): Brain {
+/** A network that ignores its inputs: lane output and target speed (fraction of the cap) set by the output biases. */
+function constant(lane: number, speed = 0.5): Brain {
   const b = createBrain(BRAIN_LAYERS, mulberry32(1));
   b.weights.fill(0);
   const n = b.weights.length;
-  b.weights[n - 3 * ROW + 16] = lane;
-  b.weights[n - 2 * ROW + 16] = Math.atanh(throttle * 2 - 1);
-  b.weights[n - 1 * ROW + 16] = -3; // no brake
+  b.weights[n - 2 * ROW + 16] = lane;
+  b.weights[n - 1 * ROW + 16] = Math.atanh(speed * 2 - 1);
   return b;
 }
 
+describe('speedPedals', () => {
+  it('full throttle well below the target, coasting just above it, braking well above', () => {
+    expect(speedPedals(30, 20)).toEqual({ throttle: 1, brake: 0 });
+    expect(speedPedals(30, 29).throttle).toBeGreaterThan(0);
+    expect(speedPedals(30, 29).brake).toBe(0);
+    expect(speedPedals(30, 30.5)).toEqual({ throttle: 0, brake: 0 }); // no brake for a little over: it cuts the engine
+    expect(speedPedals(30, 40)).toEqual({ throttle: 0, brake: 1 });
+    expect(speedPedals(30, 33).brake).toBeGreaterThan(0);
+  });
+});
+
 describe('AiDriver', () => {
-  it('a blank network keeps its lane at half throttle', () => {
+  it('a blank network keeps its lane and aims for half its top speed', () => {
     const b = createBrain(BRAIN_LAYERS, mulberry32(1));
     b.weights.fill(0);
     const ai = new AiDriver(b);
-    const input = ai.drive(self, []);
+    const input = ai.drive(self, []); // 20 m/s, cap 83.3: target 41.7
     expect(input.steer).toBeCloseTo(0, 5);
-    expect(input.throttle).toBeCloseTo(0.5);
+    expect(input.throttle).toBe(1);
     expect(input.brake).toBe(0);
     expect(ai.targetLane).toBe(1);
+    expect(ai.drive({ ...self, vLong: 60 }, []).brake).toBe(1);
+  });
+
+  it('the speed output is a target speed: up to the cap, down to standing', () => {
+    expect(new AiDriver(constant(0, 1)).drive({ ...self, vLong: 80 }, []).throttle).toBeGreaterThan(0);
+    expect(new AiDriver(constant(0, 0)).drive({ ...self, vLong: 3 }, []).brake).toBeGreaterThan(0);
   });
 
   it('the lane output picks a neighbouring lane; small outputs keep the lane', () => {
@@ -71,26 +87,7 @@ describe('AiDriver', () => {
     expect(ai.targetLane).toBe(0);
   });
 
-  it('a slightly positive brake output does not brake (and so does not cut the engine)', () => {
-    const b = createBrain(BRAIN_LAYERS, mulberry32(1));
-    b.weights.fill(0);
-    const n = b.weights.length;
-    b.weights[n - 1] = 0.1; // brake output ~0.1
-    b.weights[n - 1 - (16 + 1)] = 2; // throttle output ~0.96
-    const input = new AiDriver(b).drive(self, []);
-    expect(input.brake).toBe(0);
-    expect(input.throttle).toBeGreaterThan(0.9);
-  });
-
-  it('outputs stay in range and braking hard lifts off the throttle', () => {
-    const b = createBrain(BRAIN_LAYERS, mulberry32(2));
-    b.weights.fill(0);
-    const n = b.weights.length;
-    b.weights[n - 1] = 5; // brake bias
-    b.weights[n - 1 - (16 + 1)] = 5; // throttle bias
-    const input = new AiDriver(b).drive(self, []);
-    expect(input.brake).toBeGreaterThan(0.5);
-    expect(input.throttle).toBe(0);
+  it('outputs stay in range', () => {
     const r = new AiDriver(createBrain(BRAIN_LAYERS, mulberry32(3))).drive(self, []);
     expect(Math.abs(r.steer)).toBeLessThanOrEqual(1);
     expect(r.throttle).toBeGreaterThanOrEqual(0);
