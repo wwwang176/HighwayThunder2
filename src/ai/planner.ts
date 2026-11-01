@@ -59,7 +59,7 @@ export const PLANNER = {
    */
   sideMargin: 0.2,
   /** Hardest braking it plans with, and assumes for the room to slow down to a car ahead (measured: 10.8-14). */
-  hardBrake: 10, // m/s²
+  hardBrake: 11, // m/s² (10: the benchmark was ~3 km/h slower)
   softBrake: 3,
   /**
    * Drive on the shoulders too. Off: they are always empty, so the planner

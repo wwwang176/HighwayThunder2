@@ -41,7 +41,8 @@ const HALF_WIDTH = 0.93;
 /** Bumper gap (m) the emergency brake keeps when it has to step in. */
 const STOP_GAP = 1.5;
 /** m/s² of braking it takes before the emergency brake steps in, and how much more is full brake. */
-const EMERGENCY_FROM = 4;
+/** Mutable: the tuning panel and benchmarks change it. */
+export const DRIVER_TUNING = { emergencyFrom: 9.5 }; // only past what the plan brakes with itself: tailgate, brake late and hard
 const EMERGENCY_RANGE = 6;
 /** m/s sideways that counts as getting out of the way. */
 const SWERVING = 0.5;
@@ -49,7 +50,7 @@ const SWERVING = 0.5;
 /**
  * Brake needed (0..1) not to run into what is right ahead of the car's own
  * width: nothing until matching the leader's speed in the room left would take
- * more than `EMERGENCY_FROM` m/s². A last resort when the plan cut it too fine
+ * more than `DRIVER_TUNING.emergencyFrom` m/s². A last resort when the plan cut it too fine
  * (or something changed since it was made), not a cruise control: the planner
  * decides how close to follow.
  */
@@ -71,7 +72,7 @@ export function emergencyBrake(self: SelfState, traffic: TrafficBox[], plannedVD
     }
     need = Math.max(need, room <= 0.1 ? Infinity : (closing * closing) / (2 * room));
   }
-  return Math.min(1, Math.max(0, (need - EMERGENCY_FROM) / EMERGENCY_RANGE));
+  return Math.min(1, Math.max(0, (need - DRIVER_TUNING.emergencyFrom) / EMERGENCY_RANGE));
 }
 
 /**

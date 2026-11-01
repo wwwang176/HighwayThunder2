@@ -5,6 +5,7 @@ import { WRECK_TRIP } from '../vehicles/npcVehicle';
 import { NIGHT } from '../world/roadScene';
 import { NPC_BEAM } from '../render/npcBeams';
 import { PLANNER } from '../ai/planner';
+import { DRIVER_TUNING } from '../ai/plannerDriver';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
 export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }, ai: { speedCapKmh: number }): GUI {
@@ -63,6 +64,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'sideMargin', 0, 1, 0.05).name('並行：側向留距 m');
   a.add(PLANNER, 'hardBrake', 4, 12, 0.5).name('規劃最大煞車 m/s²');
   a.add(PLANNER, 'brakeCost', 0, 10, 0.1).name('不愛煞車（每減 1 m/s 扣 m）');
+  a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');
   gui.hide();
   return gui;
 }
