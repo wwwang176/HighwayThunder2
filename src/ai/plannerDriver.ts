@@ -2,7 +2,7 @@ import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import { trackSteer } from './laneController';
-import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan, TRACKER_LEAD } from './planner';
+import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
 
@@ -30,13 +30,6 @@ export function planPedals(p: Plan, age: number, v: number, table?: AccelTable):
   if (a > -COAST_DECEL) return { throttle: 0, brake: 0 };
   return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / FULL_BRAKE_DECEL) };
 }
-/**
- * s ahead on the plan the steering aims. Shorter than the lane controller's
- * preview: that one leads on purpose (smooth lane changes) and here made the car
- * run 0.7 m (p50) ahead of the plan's sideways moves, into what the plan was
- * still waiting to clear.
- */
-export const PLAN_PREVIEW = TRACKER_LEAD;
 const HALF_LENGTH = 2.2;
 const HALF_WIDTH = 0.93;
 /** Bumper gap (m) the emergency brake keeps when it has to step in. */
@@ -153,7 +146,9 @@ export class PlannerDriver implements Driver {
     if (!this.plan) return { steer: 0, throttle: 0, brake: 0 }; // the first plan is on its way
     if (this.tracking) this.record(self);
     const age = this.planAge;
-    const aim = planAt(this.plan, age + PLAN_PREVIEW);
+    // Aims trackerLead s ahead on the plan (shorter than the lane controller's preview: that one leads on purpose;
+    // here it ran the car 0.7 m ahead of the plan's sideways moves, into what the plan was still waiting to clear).
+    const aim = planAt(this.plan, age + PLANNER.trackerLead);
     const steer = trackSteer(aim.d, aim.dRate, self.d, self.yaw, self.vLong, self.vLat, p);
     const pedals = planPedals(this.plan, age, self.vLong, this.accelTable());
     // Sideways rate the plan has now, or (`steerClear`) where the steering already aims, if more: it is on its way out.

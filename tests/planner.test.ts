@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { crossing, plan, PLANNER, Plan, TRACKER_LEAD } from '../src/ai/planner';
+import { crossing, plan, PLANNER, Plan } from '../src/ai/planner';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH } from '../src/config';
 import { laneAt, laneCenter } from '../src/road/coords';
@@ -14,21 +14,39 @@ const car = (s: number, lane: number, kmh: number, length = 4.5, width = 1.85): 
 const ego = (kmh: number, lane = 1) => ({ s: 0, d: laneCenter(lane), v: kmh * KMH, speedCap: 300 * KMH });
 const last = (p: Plan) => p.points[p.points.length - 1];
 
-/** Every step of the plan (and between steps, straight from point to point) stays clear of every box. */
+/**
+ * Every step of the plan (and between steps, straight from point to point) stays clear of every box -
+ * the car's body pointing along that straight line (a diagonal turns it), boxes lined up with the road.
+ */
 function clearOfAll(p: Plan, boxes: TrafficBox[]): boolean {
   for (let k = 0; k + 1 < p.points.length; k++) {
     const a = p.points[k];
     const b = p.points[k + 1];
+    const yaw = Math.atan2(b.d - a.d, Math.max(0.1, b.s - a.s));
     for (let i = 0; i <= 20; i++) {
       const u = i / 20;
       const t = a.t + (b.t - a.t) * u;
       const s = a.s + (b.s - a.s) * u;
       const d = a.d + (b.d - a.d) * u;
-      for (const x of boxes) {
-        const level = d + 0.93 > x.dMin && d - 0.93 < x.dMax;
-        if (level && Math.abs(x.s + x.v * t - s) < (4.4 + x.length) / 2) return false;
-      }
+      for (const x of boxes) if (bodyTouchesBox(s, d, yaw, x.s + x.v * t, x.length, x.dMin, x.dMax)) return false;
     }
+  }
+  return true;
+}
+
+/** The car's body (4.4 × 1.86, centre s, d, turned yaw toward +d) overlaps a road-aligned box (separating axes). */
+function bodyTouchesBox(s: number, d: number, yaw: number, bs: number, bl: number, dMin: number, dMax: number): boolean {
+  const c = Math.cos(yaw);
+  const sn = Math.sin(yaw);
+  const corners = [-1, 1].flatMap((i) => [-1, 1].map((j) => ({ s: s + i * 2.2 * c - j * 0.93 * sn, d: d + i * 2.2 * sn + j * 0.93 * c })));
+  // The road's axes: the body's extent against the box's.
+  if (Math.max(...corners.map((q) => q.s)) <= bs - bl / 2 || Math.min(...corners.map((q) => q.s)) >= bs + bl / 2) return false;
+  if (Math.max(...corners.map((q) => q.d)) <= dMin || Math.min(...corners.map((q) => q.d)) >= dMax) return false;
+  // The body's axes: the box's corners against the body's half length / half width.
+  const box = [bs - bl / 2, bs + bl / 2].flatMap((qs) => [dMin, dMax].map((qd) => ({ s: qs - s, d: qd - d })));
+  for (const [ax, ay, half] of [[c, sn, 2.2], [-sn, c, 0.93]] as const) {
+    const proj = box.map((q) => q.s * ax + q.d * ay);
+    if (Math.max(...proj) <= -half || Math.min(...proj) >= half) return false;
   }
   return true;
 }
@@ -173,14 +191,14 @@ describe('plan', () => {
     const truck = { ...car(-3.1, 3, 80, 16.9, 2.5), id: 28 };
     const blocker = { ...car(60, 2, 60), id: 30 };
     const p = plan({ ...ego(150, 2), d: 2.77 }, [truck, blocker]);
-    // The car follows the diagonal up to TRACKER_LEAD s early; where the diagonal gets level with the truck's side,
+    // The car follows the diagonal up to trackerLead s early; where the diagonal gets level with the truck's side,
     // the truck must already have been behind it that long before.
     for (let k = 0; k + 1 < p.points.length; k++) {
       const a = p.points[k];
       const b = p.points[k + 1];
       if (b.d <= a.d || b.d + 0.93 < truck.dMin) continue; // only moves that would reach the truck's side
       const u = Math.max(0, (truck.dMin - 0.93 - a.d) / (b.d - a.d));
-      const tEarly = Math.max(0, a.t + u * (b.t - a.t) - TRACKER_LEAD);
+      const tEarly = Math.max(0, a.t + u * (b.t - a.t) - PLANNER.trackerLead);
       const egoEarly = a.s + (b.s - a.s) * ((tEarly - a.t) / (b.t - a.t));
       const truckFront = truck.s + truck.v * tEarly + truck.length / 2;
       expect(egoEarly - 2.2 - truckFront).toBeGreaterThan(0);
@@ -269,7 +287,7 @@ describe('plan', () => {
     const ahead = car(9, 1, 100);
     const fastBehind = car(-(2.2 + 2.25 + 10), 2, 160);
     const p = plan(ego(100), [ahead, fastBehind, car(9, 0, 100), car(9, 3, 100)]);
-    expect(p.points[1].d).toBeGreaterThan(laneCenter(1) + 0.1); // moving over from the first step
+    expect(p.points[2].d).toBeGreaterThan(laneCenter(1) + 0.1); // moving over within the first second (fast sideways: it may wait a step)
   });
 
   it('still never moves into a car alongside (that is a crash, not something to brake for)', () => {

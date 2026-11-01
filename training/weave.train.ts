@@ -104,3 +104,23 @@ it('lastSeconds', async () => {
   process.stdout.write(`${r.crashed ? 'CRASH' : 'ok'} at ${Math.round(r.distance)} m\n${log.slice(-40).join('\n')}\n`);
   sim.dispose();
 });
+
+/**
+ * The gap the user means: car A ahead in our lane, car B in the next lane on the left just behind it
+ * (GAP m from A's tail to B's nose), both at 100 km/h, the right-hand lanes walled off. Does the plan
+ * cut through between them (nose first), or sit behind A?
+ *   GAP=4.4 EGO=140 npx vitest run --config training/vitest.config.ts training/weave.train.ts -t slot
+ */
+it('slot', () => {
+  if (process.env.PLANNER_JSON) Object.assign(PLANNER, JSON.parse(process.env.PLANNER_JSON));
+  const gap = Number(process.env.GAP ?? 4.4);
+  const aS = Number(process.env.A_S ?? 40);
+  const a = car(aS, 1, 100);
+  const b = car(aS - 4.5 - gap, 0, 100);
+  const wall = [2, 3].flatMap((lane) => [0, 1, 2, 3, 4, 5].map((k) => car(aS - 20 + k * 12, lane, 100)));
+  const boxes = [a, b, ...wall];
+  const p = plan({ s: 0, d: laneCenter(1), v: Number(process.env.EGO ?? 140) * KMH, speedCap: 300 * KMH }, boxes);
+  const through = p.points.some((x) => x.d < laneCenter(0) + 0.5 && x.s > b.s + b.v * x.t);
+  const out = p.points.slice(0, 9).map((x) => `${x.t.toFixed(1)}s d=${x.d.toFixed(2)} v=${(x.v / KMH).toFixed(0)} A${(a.s + a.v * x.t - x.s).toFixed(0)} B${(b.s + b.v * x.t - x.s).toFixed(0)}`);
+  process.stdout.write(`gap ${gap} m: ${through ? 'THROUGH' : 'stays behind'}, end speed ${(p.points[p.points.length - 1].v / KMH).toFixed(0)} km/h\n  ${out.join('\n  ')}\n`);
+});
