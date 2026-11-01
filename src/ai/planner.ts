@@ -52,13 +52,19 @@ export const PLANNER = {
   /**
    * Sideways room kept to other vehicles (each side): the tracker's measured
    * error (p95, 0.75 s after a plan) is 0.18 m holding a line and 0.45 m moving
-   * sideways (`OVERSHOOT_MARGIN` adds the difference on the side it moves
+   * sideways (`swingMargin` adds the difference on the side it moves
    * toward). Not less alongside a car at its speed either: with no room it sat
    * touching one for seconds (a crash past FITNESS.maxContactTime). So it splits
    * two cars side by side only where they leave 2.3 m (the car is 1.86) - two
    * cars centred in their lanes leave 1.9 m.
    */
   sideMargin: 0.2,
+  /**
+   * m extra room on the side the car is moving toward, and still for the step
+   * after the move ends (it swings a little past): with `sideMargin`, the
+   * measured p95 tracking error while moving sideways (0.45 m).
+   */
+  swingMargin: 0.25,
   /** Hardest braking it plans with, and assumes for the room to slow down to a car ahead (measured: 10.8-14). */
   hardBrake: 11, // m/s² (10: the benchmark was ~3 km/h slower)
   softBrake: 3,
@@ -88,12 +94,6 @@ const NEAR_MARGIN = 40;
  * sideways is only planned where that lane is clear this much earlier too.
  */
 export const TRACKER_LEAD = 0.3;
-/**
- * m extra room on the side the car is moving toward, and still for the step
- * after the move ends (it swings a little past): with `sideMargin` it makes the
- * measured p95 tracking error while moving sideways, 0.45 m.
- */
-export const OVERSHOOT_MARGIN = 0.25;
 /** m off a lateral position that still counts as on it (the car is never exactly on a cell). */
 const ON_CELL = 0.3;
 
@@ -264,7 +264,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
     });
     // ...and by lateral position: each cell lists the boxes that can touch a car there (with every margin).
     const byCell: TrafficBox[][] = Array.from({ length: grid.cells }, () => []);
-    const reachSide = HALF_WIDTH + P.sideMargin + OVERSHOOT_MARGIN + ON_CELL;
+    const reachSide = HALF_WIDTH + P.sideMargin + P.swingMargin + ON_CELL;
     for (const t of near) {
       const c0 = Math.max(0, grid.nearest(t.dMin - reachSide) - 1);
       const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + reachSide) + 1);
@@ -335,7 +335,7 @@ function collides(n: Node, s1: number, d1: number, v1: number, t0: number, dt: n
   const sideways = move !== 0 || Math.abs(n.d - d1) > ON_CELL;
   // Extra room toward where it is heading sideways (this step's move, or the one just ended): it swings past.
   const heading = move !== 0 ? move : n.lat;
-  const swing = OVERSHOOT_MARGIN * Math.min(1, Math.abs(heading));
+  const swing = P.swingMargin * Math.min(1, Math.abs(heading));
   const left = Math.min(n.d, d1) - HALF_WIDTH;
   const right = Math.max(n.d, d1) + HALF_WIDTH;
   const inLane = !sideways && grid.isLaneCentre(n.cell);

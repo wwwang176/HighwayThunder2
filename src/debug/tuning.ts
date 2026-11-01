@@ -63,6 +63,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'gapBehind', 0, 15, 0.5).name('切入：留給後車距離 m');
   a.add(PLANNER, 'cutInTime', 0, 1.5, 0.05).name('切入：再加後車追近速度 × 秒');
   a.add(PLANNER, 'sideMargin', 0, 1, 0.05).name('並行：側向留距 m');
+  a.add(PLANNER, 'swingMargin', 0, 1, 0.05).name('橫移時往移動側再多留 m');
   a.add(PLANNER, 'hardBrake', 4, 12, 0.5).name('規劃最大煞車 m/s²');
   a.add(PLANNER, 'brakeCost', 0, 10, 0.1).name('不愛煞車（每減 1 m/s 扣 m）');
   a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');

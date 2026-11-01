@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { OVERSHOOT_MARGIN, plan, PLANNER, Plan, TRACKER_LEAD } from '../src/ai/planner';
+import { plan, PLANNER, Plan, TRACKER_LEAD } from '../src/ai/planner';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH } from '../src/config';
 import { laneAt, laneCenter } from '../src/road/coords';
@@ -193,7 +193,7 @@ describe('plan', () => {
     for (let k = 1; k < pts.length; k++) {
       const level = Math.abs(truck.s + truck.v * pts[k].t - pts[k].s) < 2.2 + truck.length / 2;
       const cameRight = pts[k].d > pts[k - 1].d + 0.01 || (k > 1 && pts[k - 1].d > pts[k - 2].d + 0.01);
-      if (level && cameRight) expect(truck.dMin - (pts[k].d + 0.93)).toBeGreaterThan(OVERSHOOT_MARGIN / 2);
+      if (level && cameRight) expect(truck.dMin - (pts[k].d + 0.93)).toBeGreaterThan(PLANNER.swingMargin / 2);
     }
   });
 
