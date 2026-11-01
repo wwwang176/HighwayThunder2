@@ -6,6 +6,7 @@ import { NIGHT } from '../world/roadScene';
 import { NPC_BEAM } from '../render/npcBeams';
 import { PLANNER } from '../ai/planner';
 import { DRIVER_TUNING } from '../ai/plannerDriver';
+import { RIVAL_TUNING } from '../game/rivals';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
 export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }, ai: { speedCapKmh: number }): GUI {
@@ -65,6 +66,14 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'hardBrake', 4, 12, 0.5).name('規劃最大煞車 m/s²');
   a.add(PLANNER, 'brakeCost', 0, 10, 0.1).name('不愛煞車（每減 1 m/s 扣 m）');
   a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');
+  const r = gui.addFolder('電腦對手（橡皮筋）');
+  r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
+  r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');
+  r.add(RIVAL_TUNING, 'maxBoost', 0, 1, 0.05).name('最多加強（抓地＋引擎）');
+  r.add(RIVAL_TUNING, 'waitFrom', 50, 600, 10).name('領先幾 m 開始等');
+  r.add(RIVAL_TUNING, 'waitFull', 100, 1000, 10).name('領先幾 m 等到最慢');
+  r.add(RIVAL_TUNING, 'waitSpeed', 0.5, 1, 0.05).name('等待時速度 × 玩家車速');
+  r.add(RIVAL_TUNING, 'teleportBehind', 100, 2000, 50).name('落後幾 m 拉回玩家附近');
   gui.hide();
   return gui;
 }

@@ -27,6 +27,8 @@ import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow } from './gameState';
+import { RaceView, RIVAL_TUNING, Rivals } from './rivals';
+import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
 
@@ -59,6 +61,10 @@ export class Game {
   /** Draw the AI's planned path on the road (P). */
   showPlan = true;
   private planPath!: PlanPath;
+  /** The rival racers (RIVAL_TUNING.count of them). */
+  rivals!: Rivals;
+  private rivalTraffic: TrafficBox[] = [];
+  private rivalBoxes: TrafficBox[] = [];
   private aiTraffic: TrafficBox[] = [];
   private wheelPool!: WheelInstances;
   private skids!: SkidMarks;
@@ -95,6 +101,7 @@ export class Game {
     this.player.surfaceGrip = surfaceGrip;
     this.wheelPool = new WheelInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
+    this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), RIVAL_TUNING.count);
     this.trafficWorld = new TrafficWorld(physics, this.scene, this.wheelPool, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.scene);
@@ -180,15 +187,22 @@ export class Game {
     this.trafficWorld.rng = r;
   }
 
-  /** Traffic is kept around the player. */
+  /** Traffic is kept around the player and every rival (from the hindmost to the one in front). */
   private focus(): TrafficFocus {
-    return { sLead: this.player.s, sTail: this.player.s, vLead: this.player.speed, raceTime: this.flow.raceTime };
+    let lead = this.player.s;
+    let tail = this.player.s;
+    for (const r of this.rivals.list) {
+      lead = Math.max(lead, r.car.s);
+      tail = Math.min(tail, r.car.s);
+    }
+    return { sLead: lead, sTail: tail, vLead: this.player.speed, raceTime: this.flow.raceTime };
   }
 
-  /** Lanes the player's car takes up, so no traffic is spawned on top of it. */
+  /** Lanes the player's and the rivals' cars take up, so no traffic is spawned on top of them. */
   private playerOccupants(frame: RoadFrame): Occupant[] {
     const p = this.playerBox(frame);
-    return lanesOccupied(p.dMin, p.dMax).map((lane) => ({ s: p.s, lane, length: p.length, v: Math.max(0, p.v) }));
+    const own = lanesOccupied(p.dMin, p.dMax).map((lane) => ({ s: p.s, lane, length: p.length, v: Math.max(0, p.v) }));
+    return [...own, ...this.rivals.occupants(frame)];
   }
 
   /** Clear traffic and wrecks, put the player on the start line, refill traffic ahead. */
@@ -197,6 +211,7 @@ export class Game {
     this.touched.clear();
     this.player.resetTo(-3, 1, 0);
     this.aiDriver?.reset(this.player.d);
+    this.rivals.place();
     this.skids.clear();
     this.smoke.clear();
     this.rig.snap();
@@ -220,6 +235,7 @@ export class Game {
         blockers.push(...npc.obstacles(OUR_FRAME));
       }
     }
+    blockers.push(...this.rivals.boxes(this.rivalBoxes));
     const spot = computeResetSpot(this.player.s, this.player.d, blockers, RESET_SPEED);
     this.player.resetTo(spot.s, spot.lane, RESET_SPEED);
     this.aiDriver?.reset(this.player.d);
@@ -287,7 +303,9 @@ export class Game {
           // Same inputs as in training: our carriageway's traffic, and its own top speed.
           const cap = this.aiSettings.speedCapKmh / 3.6;
           this.player.params.maxSpeed = cap;
-          return this.aiDriver.drive(selfStateOf(this.player, cap), this.trafficWorld.ourBoxes(this.aiTraffic), this.player.params);
+          const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
+          for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
+          return this.aiDriver.drive(selfStateOf(this.player, cap), seen, this.player.params);
         }
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
@@ -302,14 +320,26 @@ export class Game {
     const input = this.currentInput();
     this.lastInput = input;
 
-    // Traffic AI on both carriageways (the player and every wreck are obstacles
-    // to both), then drive the NPC bodies along the planned paths.
-    this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }]);
+    // The rivals race once the race is on (held on the grid before).
+    const racing = this.flow.phase === 'racing' || this.flow.phase === 'finished';
+    const view: RaceView = {
+      player: this.player,
+      traffic: this.trafficWorld.ourBoxes(this.rivalTraffic),
+      speedCap: this.aiSettings.speedCapKmh / 3.6,
+      raceTime: this.flow.raceTime,
+    };
+    if (racing) this.rivals.drive(dt, view);
+    else this.rivals.hold(dt);
+
+    // Traffic AI on both carriageways (the player, the rivals and every wreck are
+    // obstacles to both), then drive the NPC bodies along the planned paths.
+    this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
 
     this.player.prePhysics(input, dt);
     this.physics.step((a, b) => this.onContact(a, b));
     this.player.postPhysics();
     this.trafficWorld.afterPhysics();
+    this.rivals.after(dt, view, this.trafficWorld.ourBoxes(this.rivalTraffic), racing);
     const pv = this.player.body.linvel();
     this.player.wheels.forEach((w, i) => {
       const sliding = w.inContact && w.sliding;
@@ -351,9 +381,24 @@ export class Game {
   }
 
   private onContact(a: EntityRef, b: EntityRef): void {
-    // NPC pile-ups are handled by the traffic; we get the NPC the player hit.
+    const playerHit = a.type === 'player' || b.type === 'player';
+    const rival = a.type === 'rival' ? a : b.type === 'rival' ? b : null;
+    if (playerHit && rival) {
+      // Player and rival trading paint: feel it, the physics does the rest.
+      const pv = this.player.body.linvel();
+      const rv = this.rivals.list[rival.id].car.body.linvel();
+      const rel = Math.hypot(pv.x - rv.x, pv.z - rv.z);
+      this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
+      this.sound.crash(rel);
+      return;
+    }
+    // NPC pile-ups are handled by the traffic; we get the NPC the player or a rival hit.
     const id = this.trafficWorld.onNpcContact(a, b);
     if (id === null) return;
+    if (!playerHit) {
+      this.trafficWorld.wreck(id); // a rival hit it: it loses control like any car hit
+      return;
+    }
     const npc = this.npcs.get(id);
     if (!npc) return;
     const pv = this.player.body.linvel();
@@ -404,6 +449,8 @@ export class Game {
       npc.render(alpha, this.flares);
       for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
     }
+    this.rivals.render(alpha, this.flares);
+    for (const r of this.rivals.list) this.npcBeams.add(r.car.mesh, pp.x, pp.z);
     this.flares.end();
     this.npcBeams.end();
     this.wheelPool.commit();
@@ -431,6 +478,8 @@ export class Game {
       gear: this.player.gearbox.gear,
       rpm: this.player.rpm,
       aiDriving: this.aiActive && this.flow.phase === 'racing',
+      place: this.rivals.rank(this.player.s, this.flow.finishTime),
+      racers: this.rivals.list.length + 1,
     });
     const h = this.renderer.domElement.height;
     updateFlareScale(this.flares.material, this.camera, h);

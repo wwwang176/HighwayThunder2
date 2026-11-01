@@ -17,6 +17,9 @@ export interface HudFrame {
   reverse: boolean;
   /** The trained AI is driving the player's car. */
   aiDriving: boolean;
+  /** The player's place among `racers` cars (no rivals: not shown). */
+  place: number;
+  racers: number;
 }
 
 export const TACHO_MAX = 8000;
@@ -85,7 +88,10 @@ export class Hud {
       <div id="countdown" class="countdown"></div>
       <div id="hud">
         <div class="hud-tl"><div class="label">時間</div><div class="value" data-id="time">0:00.000</div></div>
-        <div class="hud-tr"><div class="label">剩餘距離</div><div class="value" data-id="remain">10.00 km</div></div>
+        <div class="hud-tr">
+          <div class="label">剩餘距離</div><div class="value" data-id="remain">10.00 km</div>
+          <div data-id="placeBox"><div class="label">名次</div><div class="value" data-id="place">1 / 6</div></div>
+        </div>
         <div class="progress"><div class="bar" data-id="bar"></div><div class="flag">🏁</div></div>
         <div class="hud-bl">
           <div class="label">險過</div><div class="value" data-id="nm">0</div>
@@ -167,7 +173,8 @@ export class Hud {
       if (phase === 'finished') {
         this.el.finishTime.textContent = formatTime(flow.finishTime ?? 0);
         this.el.record.style.display = flow.isBest ? '' : 'none';
-        this.el.finishStats.textContent = `最佳成績 ${flow.best !== null ? formatTime(flow.best) : '-'} · 險過 ${flow.nearMisses} 次`;
+        const place = f.racers > 1 ? `第 ${f.place} 名（共 ${f.racers} 台） · ` : '';
+        this.el.finishStats.textContent = `${place}最佳成績 ${flow.best !== null ? formatTime(flow.best) : '-'} · 險過 ${flow.nearMisses} 次`;
       }
     }
 
@@ -183,6 +190,8 @@ export class Hud {
     this.el.time.textContent = formatTime(phase === 'finished' ? flow.finishTime ?? 0 : flow.raceTime);
     const remain = Math.max(0, ROAD_LENGTH - f.playerS) / 1000;
     this.el.remain.textContent = `${remain.toFixed(2)} km`;
+    this.el.placeBox.style.display = f.racers > 1 ? '' : 'none';
+    this.el.place.textContent = `${f.place} / ${f.racers}`;
     this.el.bar.style.width = `${Math.min(100, Math.max(0, (f.playerS / ROAD_LENGTH) * 100))}%`;
     this.el.speed.textContent = String(Math.max(0, Math.round(f.speedKmh)));
     this.el.nm.textContent = String(flow.nearMisses);

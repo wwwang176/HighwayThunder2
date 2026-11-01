@@ -54,6 +54,20 @@ export function rubberBand(gap: number, playerSpeed: number, cap: number): { boo
   return { boost: T.maxBoost * behind, speedCap: ahead > 0 ? Math.min(cap, cap + (wait - cap) * ahead) : cap };
 }
 
+/**
+ * The player's place (1 = leading): rivals that finished before the player,
+ * plus - while the player has not finished - those further down the road.
+ */
+export function placeOf(playerS: number, playerFinish: number | null, rivals: { s: number; finishTime: number | null }[]): number {
+  let ahead = 0;
+  for (const r of rivals) {
+    if (r.finishTime !== null) {
+      if (playerFinish === null || r.finishTime < playerFinish) ahead++;
+    } else if (playerFinish === null && r.s > playerS) ahead++;
+  }
+  return ahead + 1;
+}
+
 export type ResetReason = 'stuck' | 'spun' | 'off-road' | 'far-behind';
 
 /** Whether a rival has to be put back into the race, and why (null: it is racing). */
@@ -87,6 +101,7 @@ const RESET_SPEED_RIVAL = 60 * KMH;
 const FINISHED_SPEED = 40 * KMH;
 /** m behind the player a rival that fell far behind is put back. */
 const TELEPORT_BEHIND_PLAYER = 60;
+const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 
 export interface Rival {
   index: number;
@@ -165,10 +180,19 @@ export class Rivals {
     }
   }
 
-  /** After the physics step: finishes, and putting stuck / spun / lost cars back into the race. */
-  after(dt: number, view: RaceView, blockers: Blocker[]): void {
+  /** Before the physics step while the race has not started (countdown, title): held on the grid. */
+  hold(dt: number): void {
+    for (const r of this.list) r.car.prePhysics(HOLD, dt);
+  }
+
+  /**
+   * After the physics step: finishes, and (while racing) putting stuck / spun
+   * / lost cars back into the race.
+   */
+  after(dt: number, view: RaceView, blockers: Blocker[], racing = true): void {
     for (const r of this.list) {
       r.car.postPhysics();
+      if (!racing) continue;
       const c = r.car;
       if (r.finishTime === null && c.s >= ROAD_LENGTH) r.finishTime = view.raceTime;
       r.stuckFor = c.speed < RIVAL_TUNING.stuckSpeed ? r.stuckFor + dt : 0;
@@ -207,13 +231,7 @@ export class Rivals {
 
   /** The player's place in the race (1 = leading). */
   rank(playerS: number, playerFinish: number | null): number {
-    let ahead = 0;
-    for (const r of this.list) {
-      if (r.finishTime !== null) {
-        if (playerFinish === null || r.finishTime < playerFinish) ahead++;
-      } else if (playerFinish === null && r.car.s > playerS) ahead++;
-    }
-    return ahead + 1;
+    return placeOf(playerS, playerFinish, this.list.map((r) => ({ s: r.car.s, finishTime: r.finishTime })));
   }
 
   render(alpha: number, flares?: LightFlares): void {

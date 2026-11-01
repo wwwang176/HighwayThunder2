@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { needsReset, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
+import { needsReset, placeOf, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
 import { KMH } from '../src/config';
 import { laneCenter } from '../src/road/coords';
 
@@ -26,6 +26,20 @@ describe('rubberBand', () => {
     expect(full.boost).toBe(0);
     expect(rubberBand(T.waitFull * 2, 40, cap).speedCap).toBeCloseTo(40 * T.waitSpeed, 5);
     expect(rubberBand(T.waitFull, 2, cap).speedCap).toBeGreaterThanOrEqual(T.waitMinSpeed); // never parks on the road
+  });
+});
+
+describe('placeOf', () => {
+  it('counts the rivals further down the road while racing', () => {
+    const rivals = [{ s: 900, finishTime: null }, { s: 1100, finishTime: null }, { s: 1200, finishTime: null }];
+    expect(placeOf(1000, null, rivals)).toBe(3);
+    expect(placeOf(1500, null, rivals)).toBe(1);
+  });
+
+  it('once finished, only those that finished earlier are ahead', () => {
+    const rivals = [{ s: 10_100, finishTime: 240 }, { s: 10_050, finishTime: 250 }, { s: 9_000, finishTime: null }];
+    expect(placeOf(10_000, 245, rivals)).toBe(2);
+    expect(placeOf(9_500, null, rivals)).toBe(3); // still racing: both finishers are ahead
   });
 });
 
