@@ -2,7 +2,7 @@ import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import { trackSteer } from './laneController';
-import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PreviousPlan, TRACKER_LEAD } from './planner';
+import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan, TRACKER_LEAD } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
 
@@ -67,8 +67,10 @@ export function emergencyBrake(self: SelfState, traffic: TrafficBox[], plannedVD
     const closing = self.vLong - t.v;
     if (closing <= 0) continue;
     const room = t.s - t.length / 2 - (self.s + HALF_LENGTH) - STOP_GAP;
-    // Swerving away from it: no brake if the car is clear of it sideways before it gets there.
-    const away = vD > SWERVING ? t.dMax < self.d : vD < -SWERVING ? t.dMin > self.d : false;
+    // Swerving away from it: no brake if the car is clear of it sideways before it gets there. With
+    // `steerClear` (as the planner): pulling out from dead behind it too.
+    const side = t.dMax < self.d ? 1 : t.dMin > self.d ? -1 : PLANNER.steerClear ? 0 : NaN;
+    const away = vD > SWERVING ? side === 1 || side === 0 : vD < -SWERVING ? side === -1 || side === 0 : false;
     if (away) {
       const overlap = vD > 0 ? t.dMax - (self.d - HALF_WIDTH) : self.d + HALF_WIDTH - t.dMin;
       if (closing * (overlap / Math.abs(vD)) < room) continue;
@@ -154,7 +156,9 @@ export class PlannerDriver implements Driver {
     const aim = planAt(this.plan, age + PLAN_PREVIEW);
     const steer = trackSteer(aim.d, aim.dRate, self.d, self.yaw, self.vLong, self.vLat, p);
     const pedals = planPedals(this.plan, age, self.vLong, this.accelTable());
-    const brake = emergencyBrake(self, traffic, planAt(this.plan, age).dRate);
+    // Sideways rate the plan has now, or (`steerClear`) where the steering already aims, if more: it is on its way out.
+    const now = planAt(this.plan, age).dRate;
+    const brake = emergencyBrake(self, traffic, PLANNER.steerClear && Math.abs(aim.dRate) > Math.abs(now) ? aim.dRate : now);
     if (brake > pedals.brake) {
       this.overrides++;
       this.tracking?.speedAtOverride.push(self.vLong - planAt(this.plan, age).v);

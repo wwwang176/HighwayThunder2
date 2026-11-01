@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { plan, PLANNER, Plan, TRACKER_LEAD } from '../src/ai/planner';
+import { crossing, plan, PLANNER, Plan, TRACKER_LEAD } from '../src/ai/planner';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH } from '../src/config';
 import { laneAt, laneCenter } from '../src/road/coords';
@@ -14,19 +14,20 @@ const car = (s: number, lane: number, kmh: number, length = 4.5, width = 1.85): 
 const ego = (kmh: number, lane = 1) => ({ s: 0, d: laneCenter(lane), v: kmh * KMH, speedCap: 300 * KMH });
 const last = (p: Plan) => p.points[p.points.length - 1];
 
-/** Every step of the plan (and between steps) stays clear of every box, moving at constant speed. */
+/** Every step of the plan (and between steps, straight from point to point) stays clear of every box. */
 function clearOfAll(p: Plan, boxes: TrafficBox[]): boolean {
   for (let k = 0; k + 1 < p.points.length; k++) {
     const a = p.points[k];
     const b = p.points[k + 1];
-    for (const t of boxes) {
-      const ra = t.s + t.v * a.t - a.s;
-      const rb = t.s + t.v * b.t - b.s;
-      const reach = (4.4 + t.length) / 2;
-      const latA = a.d + 0.93 > t.dMin && a.d - 0.93 < t.dMax;
-      const latB = b.d + 0.93 > t.dMin && b.d - 0.93 < t.dMax;
-      if (!(latA || latB)) continue;
-      if (Math.sign(ra) !== Math.sign(rb) || Math.min(Math.abs(ra), Math.abs(rb)) < reach) return false;
+    for (let i = 0; i <= 20; i++) {
+      const u = i / 20;
+      const t = a.t + (b.t - a.t) * u;
+      const s = a.s + (b.s - a.s) * u;
+      const d = a.d + (b.d - a.d) * u;
+      for (const x of boxes) {
+        const level = d + 0.93 > x.dMin && d - 0.93 < x.dMax;
+        if (level && Math.abs(x.s + x.v * t - s) < (4.4 + x.length) / 2) return false;
+      }
     }
   }
   return true;
@@ -172,14 +173,15 @@ describe('plan', () => {
     const truck = { ...car(-3.1, 3, 80, 16.9, 2.5), id: 28 };
     const blocker = { ...car(60, 2, 60), id: 30 };
     const p = plan({ ...ego(150, 2), d: 2.77 }, [truck, blocker]);
-    // The car starts moving up to TRACKER_LEAD s before a plan point; where the plan moves toward the truck's lane,
+    // The car follows the diagonal up to TRACKER_LEAD s early; where the diagonal gets level with the truck's side,
     // the truck must already have been behind it that long before.
     for (let k = 0; k + 1 < p.points.length; k++) {
       const a = p.points[k];
       const b = p.points[k + 1];
       if (b.d <= a.d || b.d + 0.93 < truck.dMin) continue; // only moves that would reach the truck's side
-      const tEarly = Math.max(0, a.t - TRACKER_LEAD);
-      const egoEarly = a.s - a.v * (a.t - tEarly);
+      const u = Math.max(0, (truck.dMin - 0.93 - a.d) / (b.d - a.d));
+      const tEarly = Math.max(0, a.t + u * (b.t - a.t) - TRACKER_LEAD);
+      const egoEarly = a.s + (b.s - a.s) * ((tEarly - a.t) / (b.t - a.t));
       const truckFront = truck.s + truck.v * tEarly + truck.length / 2;
       expect(egoEarly - 2.2 - truckFront).toBeGreaterThan(0);
     }
@@ -197,10 +199,16 @@ describe('plan', () => {
     }
   });
 
-  it('every approach it plans is one it can brake out of itself (no rescue by an emergency brake)', () => {
+  it('without steerClear, every approach it plans is one it can brake out of itself (no rescue by an emergency brake)', () => {
     // Coming up fast on slower traffic in every lane.
     const boxes = [car(120, 0, 90), car(110, 1, 80), car(130, 2, 85), car(125, 3, 70)];
-    const p = plan(ego(220), boxes);
+    PLANNER.steerClear = false;
+    let p: Plan;
+    try {
+      p = plan(ego(220), boxes);
+    } finally {
+      PLANNER.steerClear = true;
+    }
     p.points.forEach((x, k) => {
       const next = p.points[k + 1];
       for (const t of boxes) {
@@ -275,5 +283,41 @@ describe('plan', () => {
     const boxes = [car(-1, 2, 120), car(-3, 1, 120)];
     const p = plan({ ...ego(120), d: (laneCenter(1) + laneCenter(2)) / 2 }, boxes);
     expect(p.points.length).toBe(Math.round(PLANNER.horizon / PLANNER.step) + 1);
+  });
+});
+
+describe('crossing (a diagonal step level with a car)', () => {
+  it('only the part of the step the car is level with it', () => {
+    expect(crossing(0, 4, 1, 3)).toEqual([0.25, 0.75]); // passes over the band
+    expect(crossing(4, 0, 1, 3)).toEqual([0.25, 0.75]); // the other way
+    expect(crossing(0, 2, 1, 3)).toEqual([0.5, 1]); // ends inside it
+    expect(crossing(2, 6, 1, 3)).toEqual([0, 0.25]); // starts inside it
+  });
+
+  it('never or all the time', () => {
+    expect(crossing(0, 1, 2, 3)).toBeNull();
+    expect(crossing(2, 2, 1, 3)).toEqual([0, 1]);
+    expect(crossing(5, 5, 1, 3)).toBeNull();
+  });
+});
+
+describe('steerClear', () => {
+  // 200 km/h, a 100 km/h car 50 m ahead in its lane, the next lane's car further on (pass, then back in).
+  const boxes = () => [car(50, 1, 100), car(120, 0, 100), car(20, 2, 100), car(50, 2, 100), car(80, 2, 100), car(110, 2, 100)];
+  const firstSpeed = (on: boolean) => {
+    PLANNER.steerClear = on;
+    try {
+      return plan(ego(200), boxes()).points[1].v;
+    } finally {
+      PLANNER.steerClear = true;
+    }
+  };
+
+  it('pulls out from dead behind a car on the room to steer round it: no lift', () => {
+    expect(firstSpeed(true)).toBeGreaterThanOrEqual(200 * KMH);
+  });
+
+  it('off: lifts first, to keep the room to brake down to its speed', () => {
+    expect(firstSpeed(false)).toBeLessThan(200 * KMH);
   });
 });
