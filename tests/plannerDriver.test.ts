@@ -2,8 +2,8 @@ import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { selfStateOf } from '../src/ai/driver';
 import { touching } from '../src/ai/fitness';
-import { planAt, plan } from '../src/ai/planner';
-import { PlannerDriver } from '../src/ai/plannerDriver';
+import { planAt, plan, Plan, PlanEgo, PreviousPlan } from '../src/ai/planner';
+import { PlannerDriver, PlanSource } from '../src/ai/plannerDriver';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH, PHYSICS_DT } from '../src/config';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
@@ -52,6 +52,62 @@ describe('planAt', () => {
     expect(a.s).toBeGreaterThan(p.points[0].s);
     expect(a.s).toBeLessThan(p.points[1].s);
     expect(planAt(p, 99).s).toBe(p.points[p.points.length - 1].s);
+  });
+});
+
+/** A PlanSource that answers a few steps late, like a Web Worker. */
+class LateSource implements PlanSource {
+  private queue: { due: number; stamp: number; plan: Plan }[] = [];
+  private steps = 0;
+  requests = 0;
+  constructor(private readonly delaySteps: number) {}
+  get busy() {
+    return this.queue.length > 0;
+  }
+  request(stamp: number, ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null): void {
+    this.requests++;
+    this.queue.push({ due: this.steps + this.delaySteps, stamp, plan: plan(ego, traffic, previous) });
+  }
+  take() {
+    this.steps++;
+    if (!this.queue.length || this.queue[0].due > this.steps) return null;
+    return this.queue.shift()!;
+  }
+}
+
+describe('PlannerDriver with plans worked out elsewhere', () => {
+  it('follows plans that arrive a few steps late as if they had not', () => {
+    const physics = PhysicsWorld.createSync();
+    physics.timestep = PHYSICS_DT;
+    const car = new PlayerCar(physics, null);
+    car.params.maxSpeed = 300 * KMH;
+    car.resetTo(0, 1, 150 * KMH);
+    const source = new LateSource(4);
+    const ai = new PlannerDriver(source);
+    const boxes = [box(40, 1, 80)];
+    let touched = 0;
+    for (let i = 0; i < Math.round(8 / PHYSICS_DT); i++) {
+      car.prePhysics(ai.drive(selfStateOf(car, 300 * KMH), boxes, car.params), PHYSICS_DT);
+      physics.step(() => {});
+      car.postPhysics();
+      for (const b of boxes) b.s += b.v * PHYSICS_DT;
+      if (touching(car.s, car.d, car.yaw, boxes).length) touched++;
+    }
+    expect(touched).toBe(0);
+    expect(car.s).toBeGreaterThan(boxes[0].s + 10);
+    expect(source.requests).toBeGreaterThan(20); // replanning all along, one request at a time
+    physics.free();
+  });
+
+  it('drops an answer for the car as it was before a reset', () => {
+    const source = new LateSource(3);
+    const ai = new PlannerDriver(source);
+    const self = { s: 0, d: laneCenter(1), yaw: 0, vLong: 30, vLat: 0, yawRate: 0, speedCap: 80 };
+    ai.drive(self, []);
+    ai.reset();
+    ai.drive({ ...self, s: 500, d: laneCenter(3) }, []);
+    ai.drive({ ...self, s: 500, d: laneCenter(3) }, []);
+    expect(ai.plan === null || ai.plan.points[0].s === 500).toBe(true);
   });
 });
 

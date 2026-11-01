@@ -4,6 +4,7 @@ import type { CameraParams } from '../render/cameraRig';
 import { WRECK_TRIP } from '../vehicles/npcVehicle';
 import { NIGHT } from '../world/roadScene';
 import { NPC_BEAM } from '../render/npcBeams';
+import { PLANNER } from '../ai/planner';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
 export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }, ai: { speedCapKmh: number }): GUI {
@@ -55,6 +56,12 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   t.add(WRECK_TRIP, 'truck', 0.8, 4, 0.1).name('事故貨車橫滑翻車摩擦');
   const a = gui.addFolder('AI 駕駛');
   a.add(ai, 'speedCapKmh', 150, 300, 5).name('AI 最高時速 km/h（強度）');
+  a.add(PLANNER, 'gapAhead', 0, 10, 0.5).name('跟車：保險桿距離 m');
+  a.add(PLANNER, 'headway', 0, 1.5, 0.05).name('跟車：再加車速 × 秒');
+  a.add(PLANNER, 'gapBehind', 0, 15, 0.5).name('切入：留給後車距離 m');
+  a.add(PLANNER, 'cutInTime', 0, 1.5, 0.05).name('切入：再加後車追近速度 × 秒');
+  a.add(PLANNER, 'sideMargin', 0, 1, 0.05).name('並行：側向留距 m');
+  a.add(PLANNER, 'hardBrake', 4, 12, 0.5).name('規劃最大煞車 m/s²');
   gui.hide();
   return gui;
 }

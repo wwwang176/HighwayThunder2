@@ -1,5 +1,6 @@
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
+import { PLAN_STATS } from '../src/ai/planner';
 import { PlannerDriver } from '../src/ai/plannerDriver';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { laneAt, laneCenter } from '../src/road/coords';
@@ -51,6 +52,8 @@ it('planner', async () => {
       `, holding ${f(pct(all.lateralHolding, 0.5))} / ${f(pct(all.lateralHolding, 0.95))} / ${f(pct(all.lateralHolding, 1))}` +
       `, along ${f(pct(all.along, 0.5))} / ${f(pct(all.along, 0.95))} / ${f(pct(all.along, 1))} (ahead of plan ${Math.round((100 * all.along.filter((x) => x > 0).length) / Math.max(1, all.along.length))}%)`,
   );
+  const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
+  out.push(`plans: ${plans}, relaxed ${Math.round((100 * PLAN_STATS.relaxed) / plans)}%, boxed-in fallback ${Math.round((100 * PLAN_STATS.fallback) / plans)}%`);
   const sa = all.speedAtOverride;
   out.push(`at emergency brake: speed over plan p50 ${f(pct(sa, 0.5))} m/s, faster than plan ${Math.round((100 * sa.filter((x) => x > 0).length) / Math.max(1, sa.length))}% of the time`);
   process.stdout.write(out.join('\n') + '\n');

@@ -2,7 +2,7 @@ import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import { Driver, speedPedals } from './driver';
 import { trackSteer } from './laneController';
-import { plan, Plan, planAt, TRACKER_LEAD } from './planner';
+import { plan, Plan, planAt, PlanEgo, PreviousPlan, TRACKER_LEAD } from './planner';
 import type { SelfState, TrafficBox } from './sensors';
 
 /** s between new plans. */
@@ -44,26 +44,47 @@ export function emergencyBrake(self: SelfState, traffic: TrafficBox[]): number {
 }
 
 /**
+ * Where plans come from when they are worked out elsewhere (a Web Worker, so
+ * the game never waits on one): asked with the car's state at clock time
+ * `stamp`, answered some time later with that stamp.
+ */
+export interface PlanSource {
+  /** A request is out and not answered yet. */
+  readonly busy: boolean;
+  request(stamp: number, ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null): void;
+  /** The answer that came in since last asked, if any. */
+  take(): { stamp: number; plan: Plan } | null;
+}
+
+/**
  * Drives by the planner with plain controllers: a new plan every
  * `REPLAN_EVERY` s, steering along it (the lane controller's tracker) and at
  * its speed, with an emergency brake for what is right ahead. The reference
  * for the network that is to learn the driving part.
+ *
+ * Plans are made right here (training, benchmarks: repeatable), or by a
+ * `PlanSource` (the game): then a plan is followed from the moment it was
+ * asked for, so it does not matter that it arrives a frame or two later.
  */
 export class PlannerDriver implements Driver {
   plan: Plan | null = null;
-  /** s since the current plan was made. */
-  private age = 0;
-
-  /** s since the current plan was made (to draw it from where the car is now). */
-  get planAge(): number {
-    return this.age;
-  }
+  /** Clock time of the car state the current plan was made from. */
+  private madeAt = 0;
   /** Steps the emergency brake had to step in (the plan cut it too fine). */
   overrides = 0;
   /** How far the car ends up from where plans said it would be (benchmarks only: `measure()`). */
   tracking: TrackingStats | null = null;
   private recent: { plan: Plan; t: number }[] = [];
   private clock = 0;
+  /** Answers to requests made up to this clock time are thrown away (the car was moved since). */
+  private staleUpTo = -1;
+
+  constructor(private readonly source: PlanSource | null = null) {}
+
+  /** s since the current plan was made (to draw it from where the car is now). */
+  get planAge(): number {
+    return this.clock - this.madeAt;
+  }
 
   /** Record plan-vs-actual errors from now on. */
   measure(): TrackingStats {
@@ -74,29 +95,39 @@ export class PlannerDriver implements Driver {
   reset(): void {
     this.plan = null;
     this.recent = [];
+    this.staleUpTo = this.clock; // answers for the car before it was moved are no use
   }
 
   drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
-    if (!this.plan || this.age >= REPLAN_EVERY) {
-      const previous = this.plan && { plan: this.plan, age: this.age };
-      const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
-      this.plan = plan({ s: self.s, d: self.d, v: self.vLong, speedCap: self.speedCap, vD }, traffic, previous);
-      this.age = 0;
-      if (this.tracking) this.recent.push({ plan: this.plan, t: this.clock });
-    }
-    this.age += PHYSICS_DT;
     this.clock += PHYSICS_DT;
+    if (!this.plan || this.planAge >= REPLAN_EVERY) {
+      const previous = this.plan && { plan: this.plan, age: this.planAge };
+      const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
+      const ego = { s: self.s, d: self.d, v: self.vLong, speedCap: self.speedCap, vD };
+      if (!this.source) this.adopt(plan(ego, traffic, previous), this.clock);
+      else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);
+    }
+    const answer = this.source?.take();
+    if (answer && answer.stamp > this.staleUpTo) this.adopt(answer.plan, answer.stamp);
+    if (!this.plan) return { steer: 0, throttle: 0, brake: 0 }; // the first plan is on its way
     if (this.tracking) this.record(self);
-    const aim = planAt(this.plan, this.age + PLAN_PREVIEW);
+    const age = this.planAge;
+    const aim = planAt(this.plan, age + PLAN_PREVIEW);
     const steer = trackSteer(aim.d, aim.dRate, self.d, self.yaw, self.vLong, self.vLat, p);
-    const pedals = speedPedals(planAt(this.plan, this.age + SPEED_PREVIEW).v, self.vLong);
+    const pedals = speedPedals(planAt(this.plan, age + SPEED_PREVIEW).v, self.vLong);
     const brake = emergencyBrake(self, traffic);
     if (brake > pedals.brake) {
       this.overrides++;
-      this.tracking?.speedAtOverride.push(self.vLong - planAt(this.plan, this.age).v);
+      this.tracking?.speedAtOverride.push(self.vLong - planAt(this.plan, age).v);
       return { steer, throttle: 0, brake };
     }
     return { steer, ...pedals };
+  }
+
+  private adopt(p: Plan, stamp: number): void {
+    this.plan = p;
+    this.madeAt = stamp;
+    if (this.tracking) this.recent.push({ plan: p, t: stamp });
   }
 
   /** Compare where the car is with where the plan made MEASURE_AFTER s ago put it now. */

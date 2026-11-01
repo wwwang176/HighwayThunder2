@@ -35,9 +35,14 @@ export const PLANNER = {
   /** Room kept to what is ahead: this much plus `headway` seconds of the own speed (right on the bumper). */
   gapAhead: 1,
   headway: 0.1,
-  /** Room kept to what is behind when moving in front of it: this much plus its closing speed × `cutInTime`. */
-  gapBehind: 2,
-  cutInTime: 0.6,
+  /**
+   * Room (m, bumper to bumper) left to what is behind when moving in front of
+   * it, plus its closing speed × `cutInTime`. Small: in the game traffic coming
+   * up behind brakes for the player - a street racer cuts in and lets them
+   * brake. Raise both for a more considerate driver.
+   */
+  gapBehind: 1,
+  cutInTime: 0.2,
   /**
    * Sideways room kept to other vehicles (each side): the tracker's measured
    * error (p95, 0.75 s after a plan) is 0.18 m holding a line and 0.45 m moving
@@ -164,6 +169,9 @@ interface Node {
   lat: number;
 }
 
+/** How plans came out (normal search / relaxed replan / boxed-in fallback): for benchmarks. */
+export const PLAN_STATS = { normal: 0, relaxed: 0, fallback: 0 };
+
 /**
  * The fastest way through the traffic for the next `horizon` seconds, assuming
  * every vehicle keeps its speed and lane (an NPC about to change lanes holds its
@@ -186,7 +194,11 @@ export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan
   const boxes = traffic.filter((t) => t.s < reachAhead && t.s > ego.s - 150);
   const merging = new Set<number>();
   for (const t of boxes) if (t.phantom && t.id !== undefined) merging.add(t.id);
-  const found = search(ego, boxes, merging, previous, false) ?? search(ego, boxes, merging, previous, true);
+  const normal = search(ego, boxes, merging, previous, false);
+  if (normal) PLAN_STATS.normal++;
+  const found = normal ?? search(ego, boxes, merging, previous, true);
+  if (!normal && found) PLAN_STATS.relaxed++;
+  if (!found) PLAN_STATS.fallback++;
   if (found) return found;
   const dt = PLANNER.step;
   const v = Math.max(0, ego.v - PLANNER.hardBrake * dt);
@@ -241,6 +253,14 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
       const hi = Math.max(t.s + t.v * t0, t.s + t.v * (t0 + dt)) + t.length / 2;
       return hi > sLo - NEAR_MARGIN && lo < sHi + NEAR_MARGIN;
     });
+    // ...and by lateral position: each cell lists the boxes that can touch a car there (with every margin).
+    const byCell: TrafficBox[][] = Array.from({ length: grid.cells }, () => []);
+    const reachSide = HALF_WIDTH + P.sideMargin + OVERSHOOT_MARGIN + ON_CELL;
+    for (const t of near) {
+      const c0 = Math.max(0, grid.nearest(t.dMin - reachSide) - 1);
+      const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + reachSide) + 1);
+      for (let c = c0; c <= c1; c++) if (t.dMax > grid.d(c) - reachSide && t.dMin < grid.d(c) + reachSide) byCell[c].push(t);
+    }
     for (const n of layer.values()) {
       const top = maxAccel(n.v);
       const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -P.hardBrake];
@@ -251,7 +271,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
         for (const a of accels) {
           const v = Math.max(0, Math.min(ego.speedCap, n.v + a * dt));
           const s = n.s + ((n.v + v) / 2) * dt;
-          if (collides(n, s, d, v, t0, dt, near, move, merging, margin, grid, tight)) continue;
+          if (collides(n, s, d, v, t0, dt, byCell[n.cell], move, merging, margin, grid, tight) || (move !== 0 && collides(n, s, d, v, t0, dt, byCell[cell], move, merging, margin, grid, tight))) continue;
           let score = n.score + (s - n.s) - (move !== 0 ? P.lateralCost : 0) - (grid.isLaneCentre(cell) ? 0 : P.lineCost);
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus;
           const kk = key(cell, v);
