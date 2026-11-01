@@ -10,7 +10,7 @@ import { laneCenter } from '../src/road/coords';
 describe('planAt', () => {
   it('interpolates between plan points', () => {
     const p = plan({ s: 0, d: laneCenter(1), v: 20, speedCap: 300 * KMH }, []);
-    const a = planAt(p, 0.25);
+    const a = planAt(p, p.points[1].t / 2);
     expect(a.s).toBeGreaterThan(p.points[0].s);
     expect(a.s).toBeLessThan(p.points[1].s);
     expect(planAt(p, 99).s).toBe(p.points[p.points.length - 1].s);

@@ -13,7 +13,9 @@ import { STREET_RACER } from '../vehicles/cars/streetRacer';
  * diagonal) and change speed within what the car can do.
  */
 export const PLANNER = {
-  step: 0.5, // s between plan points
+  // s between plan points. 0.25 (with maxLateral 2): faster S-lines and gaps, but the car swings past the
+  // plans - 30 of 30 benchmark runs crashed (0.5 with maxLateral 3: 27 of 30 finished, 101 s). The user wants it.
+  step: 0.25,
   horizon: 8, // s looked ahead (~650 m at 300 km/h)
   speedCell: 2, // m/s: speeds closer than this count as the same state
   /** Value of speed at the end of the plan: metres per m/s (s it would keep going). */
@@ -80,7 +82,7 @@ export const PLANNER = {
    * 250): 15 benchmark runs 104.7 -> 102.1 s, none crashed (swingMargin grows
    * with the speed sideways; with 0.1 m whatever the speed two crashed).
    */
-  maxLateral: 3,
+  maxLateral: 2, // cells a step: at 0.25 s steps 7.5 m/s, more than the car does - it swings past (0.5 s steps: 3)
   /** Most change in the sideways move from one step to the next (cells per step), with maxLateral > 1: a swing one way, then hard the other. */
   maxLateralChange: 2,
   /**
@@ -363,7 +365,8 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
 /** Where the plan is `t` seconds after it was made (between points: linear), and how fast it moves sideways there. */
 export function planAt(p: Plan, t: number): PlanPoint & { dRate: number } {
   const pts = p.points;
-  const k = Math.min(pts.length - 2, Math.max(0, Math.floor(t / PLANNER.step)));
+  const step = pts.length > 1 ? pts[1].t - pts[0].t : PLANNER.step; // its own (the setting may have changed since)
+  const k = Math.min(pts.length - 2, Math.max(0, Math.floor(t / step)));
   const a = pts[k];
   const b = pts[k + 1] ?? a;
   const span = b.t - a.t;

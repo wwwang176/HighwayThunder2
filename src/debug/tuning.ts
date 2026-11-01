@@ -66,6 +66,16 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'gapAhead', 0, 10, 0.5).name('跟車：保險桿距離 m');
   a.add(PLANNER, 'headway', 0, 1.5, 0.05).name('跟車：再加車速 × 秒');
   a.add(PLANNER, 'gapBehind', 0, 15, 0.5).name('切入：留給後車距離 m');
+  // How finely the plan is cut: S-lines and gaps against swinging past (all the AI cars, from their next plan).
+  const grids: Record<string, Partial<typeof PLANNER>> = {
+    '細 0.25 秒＋猛（會衝過頭）': { step: 0.25, maxLateral: 2, maxLateralChange: 2 },
+    '細 0.25 秒': { step: 0.25, maxLateral: 2, maxLateralChange: 1 },
+    '標準 0.5 秒（較穩）': { step: 0.5, maxLateral: 3, maxLateralChange: 2 },
+  };
+  const grid = { choice: Object.keys(grids)[0] };
+  a.add(grid, 'choice', Object.keys(grids))
+    .name('規劃格子')
+    .onChange((k: string) => Object.assign(PLANNER, grids[k]));
   a.add(PLANNER, 'lookBehind').name('換道看後方（關：完全不管後車）');
   a.add(PLANNER, 'diagonal').name('斜線換道（關：換道整步佔滿橫向寬度）');
   a.add(PLANNER, 'steerClear').name('閃開前車（開：靠轉向不靠煞車）');

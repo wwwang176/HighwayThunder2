@@ -1,8 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, it, expect } from 'vitest';
 import { crossing, plan, PLANNER, Plan } from '../src/ai/planner';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH } from '../src/config';
 import { laneAt, laneCenter } from '../src/road/coords';
+
+// The rules, on the 0.5 s grid they were written for (the default is finer: 0.25 s, swinging past).
+beforeAll(() => Object.assign(PLANNER, { step: 0.5, maxLateral: 3, maxLateralChange: 2 }));
 
 const car = (s: number, lane: number, kmh: number, length = 4.5, width = 1.85): TrafficBox => ({
   s,
