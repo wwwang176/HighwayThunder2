@@ -7,8 +7,12 @@ import { LaneController } from './laneController';
 import { readSensors, SelfState, SENSOR_COUNT, TrafficBox } from './sensors';
 
 const BRAKE_DEADZONE = 0.25;
-/** The lane output has to pass this to ask for a lane change (so "keep the lane" is easy to say). */
-const LANE_DEADZONE = 0.5;
+/**
+ * The lane output has to pass this to ask for a lane change. Low on purpose:
+ * fresh networks' outputs rarely reach ±0.3, and at 0.5 only 7 of 80 ever
+ * tried a lane change - evolution had nothing to select from.
+ */
+const LANE_DEADZONE = 0.15;
 
 /** The AI car's state as the sensors expect it. */
 export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
@@ -35,6 +39,11 @@ export class AiDriver {
 
   get changingLanes(): boolean {
     return this.lanes?.changing ?? false;
+  }
+
+  /** The lane it is leaving while changing; the lane it holds otherwise. */
+  get fromLane(): number {
+    return this.lanes?.fromLane ?? -1;
   }
 
   /** Forget any lane change and hold the lane at `d` (the car was moved, or the AI just took over). */

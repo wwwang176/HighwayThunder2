@@ -24,6 +24,8 @@ export interface HistoryEntry {
   /** Cars that reached the finish in that run. */
   finishes: number;
   speedCapKmh: number;
+  /** Mean lane changes of the generation's ten best (is it passing, or following?). */
+  topLaneChanges?: number;
   /** Mean fitness of its best brain on the validation traffic, once checked. */
   validated?: { mean: number; finishes: number; runs: number };
 }
@@ -167,7 +169,12 @@ export class Trainer {
   private endGeneration(): void {
     const scores = this.sim.ghosts.map((g) => fitness(g.result));
     const finishes = this.sim.ghosts.filter((g) => g.result.finishTime !== null).length;
-    this.history.push({ gen: this.generation, best: Math.max(...scores), finishes, speedCapKmh: this.speedCapKmh });
+    const top10 = scores
+      .map((s, i) => ({ s, i }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 10);
+    const topLaneChanges = top10.reduce((n, x) => n + this.sim.ghosts[x.i].laneChanges, 0) / top10.length;
+    this.history.push({ gen: this.generation, best: Math.max(...scores), finishes, speedCapKmh: this.speedCapKmh, topLaneChanges });
     if (!this.validation) {
       const top = scores
         .map((s, i) => ({ s, i }))

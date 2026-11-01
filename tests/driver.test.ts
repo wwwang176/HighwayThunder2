@@ -40,7 +40,7 @@ describe('AiDriver', () => {
   });
 
   it('the lane output picks a neighbouring lane; small outputs keep the lane', () => {
-    const keep = new AiDriver(constant(0.3));
+    const keep = new AiDriver(constant(0.1));
     keep.drive(self, []);
     expect(keep.targetLane).toBe(1);
     const right = new AiDriver(constant(2));

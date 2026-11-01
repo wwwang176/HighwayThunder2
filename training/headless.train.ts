@@ -38,7 +38,7 @@ it('train', async () => {
     const h = t.history[t.history.length - 1];
     const v = h.validated;
     log(
-      `gen ${h.gen} best ${Math.round(h.best)} finishes ${h.finishes} cap ${h.speedCapKmh}` +
+      `gen ${h.gen} best ${Math.round(h.best)} finishes ${h.finishes} cap ${h.speedCapKmh} top10 lanes ${h.topLaneChanges?.toFixed(1)}` +
         (v ? ` | validated ${Math.round(v.mean)} finishes ${v.finishes}/${v.runs}` : '') +
         ` | ${((Date.now() - t0) / 60000).toFixed(1)} min`,
     );

@@ -77,9 +77,13 @@ describe('LaneController', () => {
     const lc = new LaneController(0);
     expect(lc.start(-1, laneCenter(0))).toBe(false);
     expect(new LaneController(3).start(4, laneCenter(3))).toBe(false);
+    expect(lc.fromLane).toBe(0);
     expect(lc.start(1, laneCenter(0))).toBe(true);
     expect(lc.start(2, laneCenter(0))).toBe(false);
     expect(lc.targetLane).toBe(1);
+    expect(lc.fromLane).toBe(0); // the lane it is leaving
+    lc.update(5);
+    expect(lc.fromLane).toBe(1); // done: the lane it holds
   });
 
   it('re-syncs to the lane the car is in after it was moved (reset, respawn)', () => {

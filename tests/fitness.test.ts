@@ -44,11 +44,16 @@ describe('crash rules', () => {
     expect(hitsTraffic(0, laneCenter(1), 0, t)).toBe(false);
   });
 
-  it('a car running into it from behind is its fault only when it was not holding its lane', () => {
-    const behind = [{ s: -3, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 30, length: 4.6 }];
+  it('traffic from behind passes through it in the lane it holds (or is leaving), not in the one it cuts into', () => {
+    const behindIn = (lane: number) => [{ s: -3, dMin: laneCenter(lane) - 0.9, dMax: laneCenter(lane) + 0.9, v: 30, length: 4.6 }];
     const ahead = [{ s: 3, dMin: laneCenter(1) - 0.9, dMax: laneCenter(1) + 0.9, v: 10, length: 4.6 }];
-    expect(hitsTraffic(0, laneCenter(1), 0, behind)).toBe(true); // cutting in, or no lane info
-    expect(hitsTraffic(0, laneCenter(1), 0, behind, true)).toBe(false); // holding its lane: the other car's doing
-    expect(hitsTraffic(0, laneCenter(1), 0, ahead, true)).toBe(true); // what is in front is always its own business
+    const line = (laneCenter(1) + laneCenter(2)) / 2; // the line between lanes 1 and 2
+    expect(hitsTraffic(0, laneCenter(1), 0, behindIn(1))).toBe(true); // no lane given
+    expect(hitsTraffic(0, laneCenter(1), 0, behindIn(1), 1)).toBe(false); // holding lane 1: the other car's doing
+    expect(hitsTraffic(0, laneCenter(1), 0, ahead, 1)).toBe(true); // what is in front is always its own business
+    // Moving from lane 1 to lane 2: a car coming up lane 1 passes through, one coming up lane 2 was cut off.
+    expect(hitsTraffic(0, line - 0.3, 0, behindIn(1))).toBe(true);
+    expect(hitsTraffic(0, line - 0.3, 0, behindIn(1), 1)).toBe(false);
+    expect(hitsTraffic(0, line + 0.3, 0, behindIn(2), 1)).toBe(true);
   });
 });

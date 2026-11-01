@@ -33,6 +33,11 @@ export class LaneController {
     return this.t < LANE_CHANGE_TIME;
   }
 
+  /** The lane being left during a change; the held lane otherwise. */
+  get fromLane(): number {
+    return this.changing ? laneAt(this.from) : this.targetLane;
+  }
+
   /** Planned lateral position now. */
   get dPlan(): number {
     return this.planAt(this.t).d;

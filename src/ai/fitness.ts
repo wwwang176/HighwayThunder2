@@ -1,4 +1,5 @@
 import { MEDIAN_NEAR_X, RAIL_D, ROAD_LENGTH } from '../config';
+import { lanesOccupied } from '../road/coords';
 // (LEFT_LIMIT / RIGHT_LIMIT below are also what the sensors measure the edges against.)
 import type { TrafficBox } from './sensors';
 
@@ -59,13 +60,14 @@ export function isOffRoad(s: number, d: number, yaw: number): boolean {
 }
 
 /**
- * The car's bounding box overlaps a vehicle or wreck. With `holdingLane`,
- * something whose centre is behind ours does not count: the traffic does not
- * see the AI cars in training, but in the game it brakes for the player, so a
- * car running into the AI's back while it keeps its lane is not the AI's crash
+ * The car's bounding box overlaps a vehicle or wreck. Traffic from behind in
+ * `ownLane` (the lane the car holds, or is leaving) does not count: the traffic
+ * does not see the AI cars in training, but in the game it brakes for the
+ * player, so a car running into the AI's back there is not the AI's crash
  * (otherwise slowing down behind a blocked lane is never safe to learn).
+ * Cutting into another lane in front of traffic still is.
  */
-export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficBox[], holdingLane = false): boolean {
+export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficBox[], ownLane: number | null = null): boolean {
   const cs = carCorners(s, d, yaw);
   let sMin = Infinity;
   let sMax = -Infinity;
@@ -78,7 +80,8 @@ export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficB
     dMax = Math.max(dMax, c.d);
   }
   for (const t of traffic) {
-    if (t.phantom || (holdingLane && t.s < s)) continue;
+    if (t.phantom) continue;
+    if (ownLane !== null && t.s < s && lanesOccupied(t.dMin, t.dMax).includes(ownLane)) continue;
     if (t.s + t.length / 2 < sMin || t.s - t.length / 2 > sMax) continue;
     if (t.dMax < dMin || t.dMin > dMax) continue;
     return true;

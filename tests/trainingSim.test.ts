@@ -50,6 +50,7 @@ describe('TrainingSim', () => {
     }
     expect(isOffRoad(g.car.s, g.car.d, g.car.yaw)).toBe(false);
     expect(laneAt(g.car.d)).toBe(3);
+    expect(g.laneChanges).toBe(2); // 1 → 2 → 3
     expect(worst).toBeLessThan(laneCenter(3) + 0.3);
     sim.dispose();
   });

@@ -26,6 +26,8 @@ export interface Ghost {
   /** Last time it had made stallMinProgress metres of progress. */
   progressS: number;
   progressT: number;
+  /** Lane changes started so far. */
+  laneChanges: number;
 }
 
 export interface TrainingSimOptions {
@@ -68,7 +70,9 @@ export class TrainingSim {
       car.params.maxSpeed = this.speedCap;
       car.surfaceGrip = surfaceGrip; // same ground as the player's car in the game
       car.resetTo(0, START_LANE, 0);
-      this.ghosts.push({ car, driver: new AiDriver(brain), alive: true, result: { distance: 0, crashed: false, finishTime: null }, progressS: 0, progressT: 0 });
+      const driver = new AiDriver(brain);
+      driver.reset(car.d);
+      this.ghosts.push({ car, driver, alive: true, result: { distance: 0, crashed: false, finishTime: null }, progressS: 0, progressT: 0, laneChanges: 0 });
     }
     this.traffic.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, (f) => this.occupants(f));
     this.boxes = this.traffic.ourBoxes(this.boxes);
@@ -99,7 +103,9 @@ export class TrainingSim {
     const dt = PHYSICS_DT;
     for (const g of this.ghosts) {
       if (!g.alive) continue;
+      const lane = g.driver.targetLane;
       g.car.prePhysics(g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes, g.car.params), dt);
+      if (g.driver.targetLane !== lane) g.laneChanges++;
     }
     this.traffic.stepAI(dt, this.time, () => []);
     this.physics.step((a, b) => {
@@ -135,7 +141,7 @@ export class TrainingSim {
     if (c.s >= ROAD_LENGTH) {
       g.result.finishTime = this.time;
       this.retire(g);
-    } else if (isOffRoad(c.s, c.d, c.yaw) || hitsTraffic(c.s, c.d, c.yaw, this.boxes, this.holdingLane(g))) {
+    } else if (isOffRoad(c.s, c.d, c.yaw) || hitsTraffic(c.s, c.d, c.yaw, this.boxes, this.ownLane(g))) {
       g.result.crashed = true;
       this.retire(g);
     } else if (c.s - g.progressS >= FITNESS.stallMinProgress) {
@@ -146,9 +152,13 @@ export class TrainingSim {
     }
   }
 
-  /** Settled in a lane, not moving across (the traffic would brake for it in the game). */
-  private holdingLane(g: Ghost): boolean {
-    return !g.driver.changingLanes && Math.abs(g.car.d - laneCenter(g.driver.targetLane)) < HOLDING_LANE_TOLERANCE;
+  /**
+   * The lane whose traffic from behind would brake for this car in the game:
+   * the one it is leaving while changing, the one it holds when settled in it.
+   */
+  private ownLane(g: Ghost): number | null {
+    if (g.driver.changingLanes) return g.driver.fromLane;
+    return Math.abs(g.car.d - laneCenter(g.driver.targetLane)) < HOLDING_LANE_TOLERANCE ? g.driver.targetLane : null;
   }
 
   /** Out of the race: the body stops simulating (no more cost) but keeps its last pose for drawing. */
