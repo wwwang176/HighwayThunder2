@@ -13,7 +13,7 @@ import { CameraRig } from '../render/cameraRig';
 import { TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
-import { AiDriver, selfStateOf } from '../ai/driver';
+import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
 import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { Hud } from '../ui/hud';
@@ -48,7 +48,7 @@ export class Game {
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
   readonly trafficWorld: TrafficWorld;
   /** Trained driver from public/ai/driver.json (null when none could be loaded). */
-  aiDriver: AiDriver | null = null;
+  aiDriver: Driver | null = null;
   /** The AI drives the player's car (toggled with I). */
   aiActive = false;
   /** AI strength: its top speed. */
