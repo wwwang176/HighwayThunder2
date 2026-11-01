@@ -67,10 +67,12 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'headway', 0, 1.5, 0.05).name('跟車：再加車速 × 秒');
   a.add(PLANNER, 'gapBehind', 0, 15, 0.5).name('切入：留給後車距離 m');
   // How finely the plan is cut: S-lines and gaps against swinging past (all the AI cars, from their next plan).
+  // Each with the side room it was measured with (30 x 5 km, a crash putting it back at 60 km/h).
   const grids: Record<string, Partial<typeof PLANNER>> = {
-    '細 0.25 秒・衝一半': { step: 0.25, maxLateral: 1, maxLateralChange: 1 },
-    '細 0.25 秒＋猛（很衝）': { step: 0.25, maxLateral: 2, maxLateralChange: 2 },
-    '標準 0.5 秒（穩）': { step: 0.5, maxLateral: 3, maxLateralChange: 2 },
+    '細 0.25 秒・衝一半＋多留側距': { step: 0.25, maxLateral: 1, maxLateralChange: 1, sideMargin: 0.15, swingMargin: 0.1 }, // 101.6 s, 33 resets
+    '細 0.25 秒・衝一半': { step: 0.25, maxLateral: 1, maxLateralChange: 1, sideMargin: 0.05, swingMargin: 0.05 }, // 102.6 s, 48
+    '細 0.25 秒＋猛（很衝）': { step: 0.25, maxLateral: 2, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, // 108.4 s, 153
+    '標準 0.5 秒（穩）': { step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, // 101.1 s, 3
   };
   const grid = { choice: Object.keys(grids)[0] };
   a.add(grid, 'choice', Object.keys(grids))

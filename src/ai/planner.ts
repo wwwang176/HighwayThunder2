@@ -14,9 +14,9 @@ import { STREET_RACER } from '../vehicles/cars/streetRacer';
  */
 export const PLANNER = {
   // s between plan points. 0.25 s: faster S-lines and gaps, and the tracker swings past plans that turn that
-  // often. Default (the user's pick): 0.25 s with maxLateral 1 (3.75 m/s) - swings past about half as far
-  // (tracker p95 0.6 m) as with 2 (0.95 m); 27 of 30 benchmark runs crashed. 0.5 s with maxLateral 3 (panel:
-  // Plan grid): 27 of 30 finished, 101 s.
+  // often. Default (the user's pick): 0.25 s with maxLateral 1 (3.75 m/s) and more side room - 30 x 5 km with
+  // a crash putting it back at 60 km/h: 101.6 s, 33 resets. The panel's Plan grid has the 0.5 s grid (101.1 s,
+  // 3 resets) and the wild one (0.25 s, maxLateral 2: 108.4 s, 153).
   step: 0.25,
   horizon: 8, // s looked ahead (~650 m at 300 km/h)
   speedCell: 2, // m/s: speeds closer than this count as the same state
@@ -62,13 +62,13 @@ export const PLANNER = {
    * two cars side by side only where they leave 2.3 m (the car is 1.86) - two
    * cars centred in their lanes leave 1.9 m.
    */
-  sideMargin: 0.05, // street racing: next to nothing (0 crashed all five benchmark runs within 800 m)
+  sideMargin: 0.15, // with the 0.25 s grid: 30 runs (crash = reset) 48 -> 33 resets, 102.6 -> 101.6 s (0.5 s grid: 0.05)
   /**
    * m extra room on the side the car is moving toward, and still for the step
    * after the move ends (it swings a little past): with `sideMargin`, the
    * measured p95 tracking error while moving sideways (0.45 m).
    */
-  swingMargin: 0.05, // per cell a step sideways
+  swingMargin: 0.1, // per cell a step sideways (0.5 s grid: 0.05)
   /** Hardest braking it plans with, and assumes for the room to slow down to a car ahead (measured: 10.8-14). */
   hardBrake: 11, // m/s² (10: the benchmark was ~3 km/h slower)
   softBrake: 3,

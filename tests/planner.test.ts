@@ -5,7 +5,7 @@ import { KMH } from '../src/config';
 import { laneAt, laneCenter } from '../src/road/coords';
 
 // The rules, on the 0.5 s grid they were written for (the panel can switch the game to 0.25 s).
-beforeAll(() => Object.assign(PLANNER, { step: 0.5, maxLateral: 3, maxLateralChange: 2 }));
+beforeAll(() => Object.assign(PLANNER, { step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }));
 
 const car = (s: number, lane: number, kmh: number, length = 4.5, width = 1.85): TrafficBox => ({
   s,
