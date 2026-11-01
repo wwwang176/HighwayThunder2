@@ -20,7 +20,7 @@ it('cornering', async () => {
   for (const [name, change] of Object.entries(variants)) {
     const row: string[] = [];
     for (const kmh of [100, 200, 280]) {
-      const physics = PhysicsWorld.createSync();
+      const physics = openGround();
       physics.timestep = PHYSICS_DT;
       // Settings go in before the car is built: the centre of mass is fixed then.
       const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
@@ -67,7 +67,7 @@ it('turnIn', async () => {
   const kmh = Number(process.env.KMH ?? 200);
   const out: string[] = [];
   for (const [name, change] of Object.entries(variants)) {
-    const physics = PhysicsWorld.createSync();
+    const physics = openGround();
     physics.timestep = PHYSICS_DT;
     const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
     car.params.maxSpeed = kmh * KMH;
@@ -100,3 +100,60 @@ it('turnIn', async () => {
   }
   process.stdout.write(out.join('\n') + '\n');
 });
+
+/**
+ * Keyboard moves a player makes at speed (key held for so long, then the other way): the body's
+ * biggest tilt and whether it rolls. Moves: quick lane change, hard swerve, slalom.
+ *   TURN_JSON='{"soft":{"springK":25000}}' npx vitest run --config training/vitest.config.ts training/cornering.train.ts -t maneuvers
+ */
+it('maneuvers', async () => {
+  await RAPIER.init();
+  const variants: Record<string, Record<string, number>> = process.env.TURN_JSON ? JSON.parse(process.env.TURN_JSON) : { now: {} };
+  const moves: Record<string, [number, number][]> = {
+    'lane 0.3+0.3': [[1, 0.3], [-1, 0.3]],
+    'swerve 0.6+0.6': [[1, 0.6], [-1, 0.6]],
+    'slalom 3x0.4': [[1, 0.4], [-1, 0.4], [1, 0.4], [-1, 0.4], [1, 0.4], [-1, 0.4]],
+  };
+  const out: string[] = [];
+  for (const [name, change] of Object.entries(variants)) {
+    const row: string[] = [];
+    for (const kmh of [200, 280]) {
+      for (const [move, keys] of Object.entries(moves)) {
+        const physics = openGround();
+        physics.timestep = PHYSICS_DT;
+        const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
+        car.params.maxSpeed = kmh * KMH;
+        car.resetTo(0, 1, kmh * KMH);
+        const plan: [number, number][] = [[0, 0.5], ...keys, [0, 1.5]]; // settle on the springs first
+        let tilt = 0;
+        for (const [steer, secs] of plan)
+          for (let i = 0; i < Math.round(secs / PHYSICS_DT); i++) {
+            car.prePhysics({ throttle: 1, brake: 0, steer }, PHYSICS_DT);
+            physics.step(() => {});
+            car.postPhysics();
+            const q = car.body.rotation();
+            tilt = Math.max(tilt, Math.acos(Math.min(1, 1 - 2 * (q.x * q.x + q.z * q.z))));
+          }
+        row.push(`${kmh} ${move}: ${(tilt * 57.3).toFixed(1)}°${tilt > 1 ? ' ROLLED' : ''} (ends at d ${car.d.toFixed(1)}, guardrail at 10)`);
+        physics.free();
+      }
+    }
+    out.push(`${name}\n  ${row.join('\n  ')}`);
+  }
+  process.stdout.write(out.join('\n') + '\n');
+});
+
+/**
+ * A physics world with the road's ground but no guardrails: turning hard for a second or more
+ * at speed carries the car 10+ m sideways, into the rail - and over it (that is a crash, not
+ * the car rolling over in a turn).
+ */
+function openGround(): PhysicsWorld {
+  const physics = PhysicsWorld.createSync();
+  const rails: RAPIER.Collider[] = [];
+  physics.world.forEachCollider((c) => {
+    if (!c.parent() && c.halfExtents().x < 50) rails.push(c); // the ground is 160 m wide
+  });
+  for (const c of rails) physics.world.removeCollider(c, false);
+  return physics;
+}

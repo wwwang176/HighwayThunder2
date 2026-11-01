@@ -277,3 +277,14 @@ export function steerAngle(input: number, vLong: number, vLat: number, p: CarPar
   const a = driver + trail * handsOff;
   return Math.max(-p.maxSteer, Math.min(p.maxSteer, a));
 }
+
+/**
+ * The rollInfluence to use at this speed: as set up to 200 km/h, then less as
+ * downforce and speedGrip add grip, so the most rolling torque the tyres can
+ * put on the body stays what it is at 200 km/h (2.7 g at 280 tipped a car set
+ * up to lean at 200 over).
+ */
+export function rollInfluenceAt(speed: number, p: CarParams): number {
+  const v = Math.abs(speed);
+  return v <= SPEED_GRIP_REF ? p.rollInfluence : (p.rollInfluence * effectiveMu(SPEED_GRIP_REF, p)) / effectiveMu(v, p);
+}

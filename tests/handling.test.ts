@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, speedGripScale } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, speedGripScale } from '../src/vehicles/handling';
 
 const P = DEFAULT_CAR;
 
@@ -225,5 +225,16 @@ describe('speedGripScale', () => {
     expect(speedGripScale(100 / 3.6, p)).toBeCloseTo(1.1, 5); // grows with v²: a quarter at half the speed
     expect(speedGripScale(200 / 3.6, p)).toBeCloseTo(1.4, 5);
     expect(speedGripScale(300 / 3.6, p)).toBeCloseTo(1.4, 5);
+  });
+});
+
+describe('rollInfluenceAt', () => {
+  const p = { ...DEFAULT_CAR, rollInfluence: 1 };
+  it('as set up to 200 km/h, then less as the grip grows: the most rolling torque stays that at 200', () => {
+    expect(rollInfluenceAt(100 / 3.6, p)).toBe(1);
+    expect(rollInfluenceAt(200 / 3.6, p)).toBe(1);
+    const at280 = rollInfluenceAt(280 / 3.6, p);
+    expect(at280).toBeLessThan(1);
+    expect(at280 * effectiveMu(280 / 3.6, p)).toBeCloseTo(effectiveMu(200 / 3.6, p), 5);
   });
 });

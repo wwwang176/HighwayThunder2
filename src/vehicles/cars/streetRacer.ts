@@ -33,14 +33,14 @@ export const STREET_RACER: CarSpec = {
     springK: 35_000,
     damperBump: 3_000,
     damperRebound: 4_500,
-    antiRollFront: 18_000,
-    antiRollRear: 8_000,
+    antiRollFront: 9_000, // half of what it was (18k / 8k): the body leans 2-4 deg changing lanes, not 1-1.5
+    antiRollRear: 4_000,
     wheelInertia: 1.2,
     muPeak: 1.3,
     muSlide: 0.85,
     slipAnglePeak: 0.105, // ~6 deg, performance street tyre
     rearGrip: 1.12,
-    rollInfluence: 0.5, // half the tyres' rolling torque: leans 7-9 deg turning hard, never tips over (with speedGrip it did at 200 km/h)
+    rollInfluence: 1, // real at up to 200 km/h; less past it as downforce adds grip (rollInfluenceAt)
     speedGrip: 0.4, // high-speed feel: 1.67 -> 1.9 g at 200 km/h, a lane in 0.70 s instead of 0.82 (training/cornering.train.ts)
     slipFalloff: 18,
     lsd: 150,
