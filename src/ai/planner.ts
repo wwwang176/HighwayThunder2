@@ -19,7 +19,7 @@ export const PLANNER = {
   /** Value of speed at the end of the plan: metres per m/s (s it would keep going). */
   endSpeedValue: 2,
   /** Cost of a sideways move (m of progress), so it does not weave for nothing. */
-  lateralCost: 0.5,
+  lateralCost: 0, // 0 (with lineCost 0.3): 15 benchmark runs 106.5 -> 105.6 s, crashes 3 -> 0 - it starts its diagonals sooner
   /**
    * Cost (m) per m/s of speed shed: braking is a last resort - it would rather
    * slip past at speed than brake, wait and then change lanes (street racing).
@@ -31,7 +31,7 @@ export const PLANNER = {
    * cost the car spent 80 % of the time on the lines, where traffic coming up
    * behind does not give way to it.
    */
-  lineCost: 0.6,
+  lineCost: 0.3, // 0: back on the lines 80 % of the time (106.9 s, a crash); 0.15: 106.4 s, a crash
   /**
    * Bonus per plan point (m) for being where the last plan was at that moment:
    * a new plan has to be clearly better to change course (no flip-flopping
@@ -100,7 +100,8 @@ export const PLANNER = {
    * speed over ~85 km/h steering out takes less room than braking. Off: only
    * while already moving away from one off to the side.
    * Benchmark (15 runs): ~6 s faster over 5 km, but a car that changes lanes
-   * into the way it steers out to is then too close to brake for: 2-3 crashed.
+   * into the way it steers out to is then too close to brake for: 2-3 crashed
+   * (with the lane costs cut since: none in 15).
    * Street racing - the others look out for themselves.
    */
   steerClear: true,
