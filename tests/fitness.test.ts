@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { fitness, FITNESS, hitsTraffic, isOffRoad, touching } from '../src/ai/fitness';
 import { laneCenter } from '../src/road/coords';
+import { ROAD_LENGTH } from '../src/config';
 
 describe('fitness', () => {
   it('earlier finishes beat later ones, and any finish beats not finishing', () => {
-    const f150 = fitness({ distance: 10000, crashed: false, finishTime: 150 });
-    const f200 = fitness({ distance: 10000, crashed: false, finishTime: 200 });
-    const none = fitness({ distance: 9999, crashed: false, finishTime: null });
+    const f150 = fitness({ distance: ROAD_LENGTH, crashed: false, finishTime: FITNESS.timeLimit * 0.5 });
+    const f200 = fitness({ distance: ROAD_LENGTH, crashed: false, finishTime: FITNESS.timeLimit * 0.8 });
+    const none = fitness({ distance: ROAD_LENGTH - 1, crashed: false, finishTime: null });
     expect(f150).toBeGreaterThan(f200);
     expect(f200).toBeGreaterThan(none);
   });

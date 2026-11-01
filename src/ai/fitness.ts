@@ -5,11 +5,11 @@ import type { TrafficBox } from './sensors';
 
 /** Scoring and elimination settings (mutable: tuned while training). */
 export const FITNESS = {
-  // s per generation. Too short to finish by following traffic (80-125 km/h, ~360 s for
-  // 10 km): only a car averaging 120+ km/h - one that passes - gets the finish. Until
-  // then the score is the distance covered in this time, i.e. the average speed.
-  // (At 420 s, following finished too and the networks never learned to pass.)
-  timeLimit: 300,
+  // s per generation. Too short to finish the road by following traffic (80-125 km/h,
+  // ~180 s for 5 km): only a car averaging 120+ km/h - one that passes - gets the finish.
+  // Until then the score is the distance covered in this time, i.e. the average speed.
+  // (With time to spare, following finished too and the networks never learned to pass.)
+  timeLimit: 150,
   finishBonus: 4000, // shared out by how early a car finishes
   crashPenalty: 1000, // a crash costs this many metres
   stallWindow: 10, // s: a car that moves less than stallMinProgress in this long is out

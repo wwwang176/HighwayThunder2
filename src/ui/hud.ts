@@ -70,7 +70,7 @@ export class Hud {
     root.innerHTML = html`
       <div id="title" class="panel center">
         <div class="logo">HIGHWAY<span>THUNDER 2</span></div>
-        <div class="subtitle">高速公路穿梭賽 · 10 公里直線衝刺</div>
+        <div class="subtitle">高速公路穿梭賽 · 5 公里直線衝刺</div>
         <table class="keys">
           <tr><td><kbd>W</kbd> / <kbd>↑</kbd></td><td>油門</td></tr>
           <tr><td><kbd>S</kbd> / <kbd>↓</kbd></td><td>煞車 / 倒車</td></tr>
