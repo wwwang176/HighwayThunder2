@@ -40,6 +40,7 @@ export const STREET_RACER: CarSpec = {
     muSlide: 0.85,
     slipAnglePeak: 0.105, // ~6 deg, performance street tyre
     rearGrip: 1.12,
+    visualRoll: 6, // drawn lean, degrees per g: 3-6 changing lanes (the real one is ~1 there), up to 8
     rollInfluence: 0.5, // half the tyres' rolling torque: leans 7-9 deg turning hard, never tips over (with speedGrip it did at 200 km/h)
     speedGrip: 0.4, // high-speed feel: 1.67 -> 1.9 g at 200 km/h, a lane in 0.70 s instead of 0.82 (training/cornering.train.ts)
     slipFalloff: 18,
