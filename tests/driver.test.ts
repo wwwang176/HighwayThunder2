@@ -50,9 +50,14 @@ describe('AiDriver', () => {
     expect(ai.drive({ ...self, vLong: 60 }, []).brake).toBe(1);
   });
 
-  it('the speed output is a target speed: up to the cap, down to standing', () => {
+  it('the speed output is a target speed from standing to 300 km/h, never over the cap', () => {
     expect(new AiDriver(constant(0, 1)).drive({ ...self, vLong: 80 }, []).throttle).toBeGreaterThan(0);
     expect(new AiDriver(constant(0, 0)).drive({ ...self, vLong: 3 }, []).brake).toBeGreaterThan(0);
+    // The same network drives the same whatever the cap (150 km/h wanted), the cap only limits it.
+    const blank = () => new AiDriver(constant(0, 0.5));
+    expect(blank().drive({ ...self, vLong: 40, speedCap: 83.3 }, []).throttle).toBeGreaterThan(0);
+    expect(blank().drive({ ...self, vLong: 40, speedCap: 60 }, []).throttle).toBeGreaterThan(0);
+    expect(blank().drive({ ...self, vLong: 30, speedCap: 30 }, []).throttle).toBe(0);
   });
 
   it('the lane output picks a neighbouring lane; small outputs keep the lane', () => {

@@ -1,4 +1,4 @@
-import { LANE_WIDTH, PHYSICS_DT } from '../config';
+import { KMH, LANE_WIDTH, PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { PlayerCar } from '../vehicles/playerCar';
@@ -6,6 +6,12 @@ import { Brain, forward } from './brain';
 import { LaneController } from './laneController';
 import { readSensors, SelfState, SENSOR_COUNT, TrafficBox } from './sensors';
 
+/**
+ * Top of the target-speed output's range. Absolute, not a fraction of the
+ * car's cap: as a fraction the same network drove twice as fast at a 300 km/h
+ * cap as at 150 and crashed there. The cap only limits it.
+ */
+const MAX_TARGET_SPEED = 300 * KMH;
 /** m/s under the target where the throttle eases off (full throttle below that). */
 const THROTTLE_RAMP = 3;
 /** m/s over the target the car just coasts: any brake at all cuts the engine (driveCommand). */
@@ -33,7 +39,7 @@ export function speedPedals(target: number, v: number): { throttle: number; brak
 /**
  * Turns a trained network into driving input. The network decides; simple
  * controllers drive: outputs are lane (left / keep / right) and target speed
- * (0 .. the car's top speed). A lane controller steers and `speedPedals` works
+ * (0 .. 300 km/h, never over the car's cap). A lane controller steers and `speedPedals` works
  * the pedals - with throttle and brake as outputs, fresh networks almost never
  * braked only when something was ahead, and could not learn to. Used by the
  * trainer's ghost cars and by the game alike, once per physics step.
@@ -79,7 +85,7 @@ export class AiDriver {
     }
     lanes.update(PHYSICS_DT);
     const steer = lanes.steer(self.d, self.yaw, self.vLong, self.vLat, p);
-    const { throttle, brake } = speedPedals((self.speedCap * (o[1] + 1)) / 2, self.vLong);
+    const { throttle, brake } = speedPedals(Math.min(self.speedCap, (MAX_TARGET_SPEED * (o[1] + 1)) / 2), self.vLong);
     return { steer, throttle, brake };
   }
 }

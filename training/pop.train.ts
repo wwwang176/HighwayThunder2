@@ -12,7 +12,7 @@ it('pop', async () => {
   await RAPIER.init();
   const rng = mulberry32(Number(process.env.POP_SEED ?? 77));
   const brains = Array.from({ length: 80 }, () => createBrain(BRAIN_LAYERS, rng));
-  const sim = new TrainingSim(brains, 4242, { speedCap: 220 / 3.6 });
+  const sim = new TrainingSim(brains, Number(process.env.SIM_SEED ?? 4242), { speedCap: Number(process.env.CAP_KMH ?? 220) / 3.6 });
   const n = sim.ghosts.length;
   const starts = new Array(n).fill(0);
   const lastTarget = sim.ghosts.map((g) => g.driver.targetLane);
@@ -34,7 +34,7 @@ it('pop', async () => {
         const sMin = Math.min(...cs.map((p) => p.s)), sMax = Math.max(...cs.map((p) => p.s));
         const hit = sim.traffic.ourBoxes().filter((t) => !t.phantom && t.s + t.length / 2 >= sMin && t.s - t.length / 2 <= sMax && t.dMax >= c.d - 1 && t.dMin <= c.d + 1);
         const h = hit[0];
-        info[i] = h ? `crash ${changingBefore[i] ? 'CHANGING' : 'holding'} ${h.s < c.s ? 'behind' : 'ahead'} lanes[${lanesOccupied(h.dMin, h.dMax)}] origin ${origin[i]} target ${g.driver.targetLane} dv=${((h.v - c.speed) * 3.6).toFixed(0)}` : `crash other d=${c.d.toFixed(1)}`;
+        info[i] = h ? `at ${Math.round(c.s)}m t=${sim.time.toFixed(1)} crash ${changingBefore[i] ? 'CHANGING' : 'holding'} ${h.s < c.s ? 'behind' : 'ahead'} lanes[${lanesOccupied(h.dMin, h.dMax)}] origin ${origin[i]} target ${g.driver.targetLane} dv=${((h.v - c.speed) * 3.6).toFixed(0)}` : `crash other d=${c.d.toFixed(1)}`;
       }
     });
   }
