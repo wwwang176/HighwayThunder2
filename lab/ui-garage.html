@@ -11,58 +11,51 @@
   .vignette { position: fixed; inset: 0; background: radial-gradient(ellipse at 50% 60%, transparent 35%, rgba(0,0,0,0.75) 100%),
     linear-gradient(90deg, rgba(0,0,0,0.6), transparent 30%, transparent 70%, rgba(0,0,0,0.6)); }
   canvas#car { position: fixed; inset: 0; width: 100%; height: 100%; }
-  /* grok's glyphs: white on black with wide margins - a luminance mask, zoomed past the margins, takes any colour. */
-  .icon { display: inline-block; background: currentColor; -webkit-mask: var(--src) center / var(--zoom, 150%) no-repeat; mask: var(--src) center / var(--zoom, 150%) no-repeat; mask-mode: luminance; }
-  .icon.car { --zoom: 125%; }
+  /* grok's glyphs, made white PNGs with alpha (icons_to_png): a mask that takes any colour. */
+  .icon { display: inline-block; background: currentColor; -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat; }
 
   /* top bar */
   .brand { position: fixed; left: 3vw; top: 3.2vh; display: flex; align-items: center; gap: 0.9vw; }
   .brand .icon { width: 3.4vw; height: 3.4vw; color: var(--accent); filter: drop-shadow(0 0 0.6vw var(--accent)); }
   .brand .name { font: italic 900 1.7vw/1 system-ui, sans-serif; letter-spacing: 0.15vw; }
   .brand .name small { display: block; font: 600 0.8vw/1.8 "Microsoft JhengHei", sans-serif; letter-spacing: 0.15vw; color: #8fa0bd; font-style: normal; }
-  .crumb { position: fixed; right: 3vw; top: 4.2vh; font-size: 0.95vw; letter-spacing: 0.4vw; color: #8fa0bd; }
-  .crumb b { color: #fff; }
 
   /* car classes, left */
   .classes { position: fixed; left: 3vw; top: 17vh; width: 19vw; display: flex; flex-direction: column; gap: 1.2vh; }
-  .cls { position: relative; display: grid; grid-template-columns: 6.5vw 1fr; align-items: center; gap: 0.8vw; padding: 1.6vh 1.1vw 1.6vh 1.2vw;
+  .cls { position: relative; display: grid; grid-template-columns: 6.5vw 1fr; align-items: center; gap: 0.8vw; padding: 2vh 1.1vw 2vh 1.2vw;
     background: var(--glass); border: 1px solid var(--line); border-radius: 0.6vw; backdrop-filter: blur(6px); cursor: pointer; transition: transform 0.15s; }
   .cls:hover { transform: translateX(0.3vw); }
   .cls .icon { width: 6.5vw; height: 3.4vw; color: #8693ab; }
   .cls .t { font-size: 1.25vw; font-weight: 800; }
-  .cls .s { font-size: 0.74vw; color: #8fa0bd; margin-top: 0.3vh; }
   .cls.sel { border-color: var(--accent); box-shadow: 0 0 1.4vw -0.3vw var(--accent), inset 0.35vw 0 0 var(--accent); }
   .cls.sel .icon { color: #fff; }
 
   /* stats, right */
   .spec { position: fixed; right: 3vw; top: 17vh; width: 23vw; padding: 2.4vh 1.6vw; background: var(--glass); border: 1px solid var(--line);
     border-radius: 0.8vw; backdrop-filter: blur(8px); }
-  .spec .kicker { font-size: 0.75vw; letter-spacing: 0.4vw; color: var(--accent); font-weight: 700; }
-  .spec h1 { margin: 0.4vh 0 0.2vh; font: italic 900 2.6vw/1.1 system-ui, "Microsoft JhengHei", sans-serif; }
-  .spec .tag { font-size: 0.9vw; color: #a9b6cc; margin-bottom: 2vh; }
-  .stat { display: grid; grid-template-columns: 2vw 4.2vw 1fr; align-items: center; gap: 0.6vw; margin: 1.5vh 0; }
-  .stat .icon { width: 1.6vw; height: 1.6vw; color: var(--accent); }
-  .stat .k { font-size: 0.9vw; color: #b9c4d8; }
-  .stat .v { justify-self: end; font: italic 800 1.05vw/1 system-ui, sans-serif; }
-  .bar { grid-column: 2 / 4; height: 0.55vh; background: rgba(255,255,255,0.08); border-radius: 1vh; overflow: hidden; margin-top: -0.6vh; }
+  .spec h1 { margin: 0 0 1.2vh; font: italic 900 2.6vw/1.1 system-ui, "Microsoft JhengHei", sans-serif; }
+  .stat { display: grid; grid-template-columns: 2.2vw 1fr; align-items: center; gap: 0.8vw; margin: 2vh 0; }
+  .stat .icon { width: 2vw; height: 2vw; color: var(--accent); grid-row: span 2; }
+  .stat .v { justify-self: end; font: italic 800 1.15vw/1 system-ui, sans-serif; }
+  .bar { height: 0.55vh; background: rgba(255,255,255,0.08); border-radius: 1vh; overflow: hidden; margin-top: 0.6vh; }
   .bar i { display: block; height: 100%; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, #fff), var(--accent)); box-shadow: 0 0 0.8vw var(--accent); transition: width 0.3s; }
-  .spec .note { margin-top: 2vh; font-size: 0.78vw; color: #7f8ca5; line-height: 1.6; }
 
   /* rivals + start, bottom */
   .bottom { position: fixed; left: 3vw; right: 3vw; bottom: 3.5vh; display: flex; align-items: flex-end; gap: 1.2vw; }
   .rivals { flex: 1; }
-  .rivals .label { font-size: 0.8vw; letter-spacing: 0.4vw; color: #8fa0bd; margin-bottom: 1vh; display: flex; gap: 1.2vw; align-items: center; }
-  .rivals .label button { background: none; border: 1px solid var(--line); color: #b9c4d8; border-radius: 1vw; padding: 0.4vh 0.8vw; font: inherit; letter-spacing: 0.1vw; cursor: pointer; }
+  .tools { display: flex; gap: 0.6vw; margin-bottom: 1vh; }
+  .tool { width: 3.2vw; height: 3.2vw; padding: 0; display: grid; place-items: center; background: var(--glass); border: 1px solid var(--line);
+    border-radius: 0.5vw; color: #b9c4d8; cursor: pointer; backdrop-filter: blur(6px); }
+  .tool:hover { color: #fff; border-color: var(--accent); }
+  .tool .icon { width: 2.2vw; height: 2.2vw; }
   .slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8vw; }
   .slot { display: grid; grid-template-columns: 1.4vw 1fr 1.4vw; align-items: center; padding: 1vh 0.6vw; background: var(--glass);
     border: 1px solid var(--line); border-radius: 0.6vw; border-top: 0.35vh solid var(--c); backdrop-filter: blur(6px); }
   .slot .arrow { color: #6f7d96; font-size: 1vw; text-align: center; cursor: pointer; }
   .slot .mid { text-align: center; }
-  .slot .icon { width: 5vw; height: 2.4vw; color: var(--c); }
-  .slot .n { font-size: 0.85vw; font-weight: 700; }
+  .slot .icon { width: 6vw; height: 3vw; color: var(--c); }
   .go { flex: 0 0 15vw; height: 9vh; border: 0; border-radius: 0.7vw; background: var(--accent); color: #fff; cursor: pointer;
     font: italic 900 1.9vw/1 system-ui, "Microsoft JhengHei", sans-serif; letter-spacing: 0.3vw; box-shadow: 0 0 2.4vw -0.4vw var(--accent); }
-  .go small { display: block; font: 600 0.7vw/1.8 system-ui, sans-serif; letter-spacing: 0.2vw; opacity: 0.75; font-style: normal; }
 </style>
 </head>
 <body>
@@ -70,18 +63,20 @@
 <canvas id="car"></canvas>
 <div class="vignette"></div>
 
-<div class="brand"><span class="icon" style="--src:url(ui-assets/emblem.jpg)"></span><div class="name">HIGHWAY THUNDER 2<small>夜間公路 · 5 公里衝刺</small></div></div>
-<div class="crumb"><b>車庫</b> ／ 選車後開始比賽</div>
+<div class="brand"><span class="icon" style="--src:url(ui-assets/emblem.png)"></span><div class="name">HIGHWAY THUNDER 2</div></div>
 
 <div class="classes" id="classes"></div>
 <div class="spec" id="spec"></div>
 
 <div class="bottom">
   <div class="rivals">
-    <div class="label">電腦對手 <button>全部隨機</button><button>全部同我</button></div>
+    <div class="tools">
+      <button class="tool" title="隨機"><span class="icon" style="--src:url(ui-assets/icon-random.png)"></span></button>
+      <button class="tool" title="同我"><span class="icon" style="--src:url(ui-assets/icon-same.png)"></span></button>
+    </div>
     <div class="slots" id="slots"></div>
   </div>
-  <button class="go">開始比賽<small>ENTER</small></button>
+  <button class="go">開始比賽</button>
 </div>
 
 <script type="module">
@@ -99,21 +94,19 @@
   };
   const RIVAL_COLORS = ['#1e88e5', '#ffb300', '#8e24aa', '#00c853', '#00bcd4'];
   const rivals = ['street-racer', 'muscle-car', 'jdm', 'street-racer', 'muscle-car'];
-  const icon = (name, cls = '') => `<span class="icon ${cls}" style="--src:url(ui-assets/${name}.jpg)"></span>`;
+  const icon = (name, cls = '') => `<span class="icon ${cls}" style="--src:url(ui-assets/${name}.png)"></span>`;
   let picked = new URLSearchParams(location.search).get('car') ?? 'street-racer';
 
   function draw() {
     const c = CARS[picked];
     document.documentElement.style.setProperty('--accent', c.accent);
     document.getElementById('classes').innerHTML = Object.entries(CARS).map(([id, k]) =>
-      `<div class="cls ${id === picked ? 'sel' : ''}" data-id="${id}">${icon(k.icon, 'car')}<div><div class="t">${k.name}</div><div class="s">${k.tag}</div></div></div>`).join('');
+      `<div class="cls ${id === picked ? 'sel' : ''}" data-id="${id}">${icon(k.icon, 'car')}<div class="t">${k.name}</div></div>`).join('');
     document.getElementById('spec').innerHTML = `
-      <div class="kicker">${c.style === 'super' ? 'SUPERCAR' : c.style === 'muscle' ? 'MUSCLE' : 'JDM TUNER'}</div>
-      <h1>${c.name}</h1><div class="tag">${c.tag}</div>
-      ${c.stats.map(([ic, k, v, f]) => `<div class="stat">${icon(ic)}<span class="k">${k}</span><span class="v">${v}</span><div class="bar"><i style="width:${f * 100}%"></i></div></div>`).join('')}
-      <div class="note">← → 切換車種　·　拖曳可旋轉車輛</div>`;
+      <h1>${c.name}</h1>
+      ${c.stats.map(([ic, , v, f]) => `<div class="stat">${icon(ic)}<span class="v">${v}</span><div class="bar"><i style="width:${f * 100}%"></i></div></div>`).join('')}`;
     document.getElementById('slots').innerHTML = rivals.map((id, i) =>
-      `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="arrow">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}<div class="n">對手 ${i + 1} · ${CARS[id].name}</div></div><span class="arrow">▶</span></div>`).join('');
+      `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="arrow">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}</div><span class="arrow">▶</span></div>`).join('');
     document.querySelectorAll('.cls').forEach((e) => (e.onclick = () => { picked = e.dataset.id; draw(); showCar(); }));
   }
 
