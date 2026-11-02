@@ -1,0 +1,7 @@
+Use only the image_gen tool to make the three images below, then copy each into the current folder with exactly the file name given (keep the format the tool produces; if it is not .png, use that extension instead). Do nothing else: no other tools, no other files.
+
+Subject (the same car in all three): an ORIGINAL fictional muscle car for a night-time highway street-racing video game. It must not resemble any real brand or model: no logos, no badges, no brand-like grille, no text or numbers anywhere. Character: long hood with a raised power bulge and a dark air scoop, short rear deck, wide flat stance, squared-off muscular shoulders over the rear wheels, fastback roofline, flat wide front with a thin full-width grille band and twin round headlights per side, full-width red tail light bar, chunky wide tyres, deep-dish dark wheels, small ducktail spoiler. Paint: deep orange (#ff9f1a family) with two thin black racing stripes running over the hood, roof and deck. Style: clean stylised game concept art, readable simple shapes and flat panels (as if it will be built as a low-poly 3D model), soft studio lighting, plain dark neutral grey background, no scenery, whole car in frame with margin.
+
+1. muscle-front34 — three-quarter front view from slightly above, headlights on.
+2. muscle-side — exact side profile (orthographic-looking, car facing left), wheels fully visible.
+3. muscle-rear34 — three-quarter rear view from slightly above, tail light bar lit.
