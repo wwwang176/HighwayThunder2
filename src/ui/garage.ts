@@ -120,6 +120,7 @@ export class Garage {
 
   open(sel: CarSelection): void {
     this.sel = sel;
+    this.closePop();
     this.el.style.display = '';
     this.draw();
     this.preview.show(this.sel.player);

@@ -128,6 +128,15 @@ export class Hud {
     this.el.resumeBtn.onclick = () => handlers.onResume();
     this.el.pauseTitleBtn.onclick = () => handlers.onTitle();
     this.el.finishTitleBtn.onclick = () => handlers.onTitle();
+    this.hide();
+  }
+
+  /** Nothing of the race on screen (the garage is open: update() is not called until the next race). */
+  hide(): void {
+    this.lastPhase = '';
+    for (const id of ['countdown', 'hud', 'pause', 'finish']) this.show(id, false);
+    this.el.toast.classList.remove('show');
+    this.toastTimer = 0;
   }
 
   /** The player's car's accent colour (the garage's): the HUD's, the countdown's and the pause and finish panels' highlights. */

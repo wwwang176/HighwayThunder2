@@ -151,10 +151,11 @@ export class Game {
   private bindKeys(): void {
     const k = this.keyboard;
     const g = this.garage;
-    // Enter: in the garage, into the race (not while a pop-up is open); after the finish, the same race again.
+    // Enter: in the garage, into the race (not while a pop-up is open, nor on a focused button: Enter presses that one);
+    // after the finish, the same race again.
     const enter = () => {
       if (g.isOpen) {
-        if (!g.popOpen) g.start();
+        if (!g.popOpen && !(document.activeElement instanceof HTMLButtonElement)) g.start();
       } else if (this.flow.phase === 'finished') this.startRace(loadSelection(localStorage));
     };
     k.onPress('Enter', enter);
@@ -181,7 +182,12 @@ export class Game {
 
   /** The garage, with the race picked last time (only before a race: at the title or after the finish). */
   openGarage(): void {
-    if (picksCars(this.flow.phase)) this.garage.open(loadSelection(localStorage));
+    if (!picksCars(this.flow.phase)) return;
+    // The world (and its render, which drives the engine and tyre sounds) stops: no engine left running in the garage.
+    this.sound.setEngine(0, 0, false);
+    this.sound.setSkid(0);
+    this.hud.hide();
+    this.garage.open(loadSelection(localStorage));
   }
 
   /** Start a race as picked (`cars`: the cars, difficulty and weather), else on the grid as it is. Only from the title or the finish. */
