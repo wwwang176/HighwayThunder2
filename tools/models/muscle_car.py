@@ -670,9 +670,8 @@ def main():
     bpy.ops.object.select_all(action="DESELECT")
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
-    # Facets (low-poly, flat panels) or smooth panels with the creases kept sharp.
-    flat = os.environ.get("MODEL_SHADING") == "flat"
-    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(12 if flat else 40))
+    # Low-poly facets: every panel shades flat (only near-coplanar neighbours share normals).
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(12))
     # Normals weighted by face area: big panels shade flat and clean, the booleans' slivers don't bend them.
     wn = body.modifiers.new("wn", "WEIGHTED_NORMAL")
     wn.mode = "FACE_AREA"
