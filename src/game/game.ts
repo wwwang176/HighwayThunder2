@@ -26,6 +26,7 @@ import { PlayerCar } from '../vehicles/playerCar';
 import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PlannerDriver } from '../ai/plannerDriver';
 import { trackerFrom } from '../ai/netTracker';
+import { aiTopSpeed } from '../ai/aiTopSpeed';
 import { CarSelection, loadSelection, saveSelection } from './carSelection';
 import { SetupPanel } from '../ui/setupPanel';
 
@@ -34,7 +35,7 @@ const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
 import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
-import { GameFlow } from './gameState';
+import { GameFlow, picksCars } from './gameState';
 import { RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
 import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
@@ -147,7 +148,7 @@ export class Game {
     // Enter: from the title or the finish on to the setup page, and from there into the race.
     const enter = () => {
       if (this.setup.isOpen) this.setup.start();
-      else if (this.flow.phase === 'title' || this.flow.phase === 'finished') this.openSetup();
+      else this.openSetup();
     };
     k.onPress('Enter', enter);
     k.onPress('NumpadEnter', enter);
@@ -168,13 +169,14 @@ export class Game {
 
   // --- flow -----------------------------------------------------------------
 
-  /** The setup page, with the cars picked last time. */
+  /** The setup page, with the cars picked last time (only before a race: at the title or after the finish). */
   openSetup(): void {
-    this.setup.open(loadSelection(localStorage));
+    if (picksCars(this.flow.phase)) this.setup.open(loadSelection(localStorage));
   }
 
-  /** Start a race, on the cars `cars` if given (else the ones on the grid now). */
+  /** Start a race, on the cars `cars` if given (else the ones on the grid now). Only from the title or the finish. */
   startRace(cars?: CarSelection): void {
+    if (!picksCars(this.flow.phase)) return;
     this.sound.init();
     if (cars) this.applyCars(cars);
     this.resetWorld();
@@ -187,6 +189,7 @@ export class Game {
    */
   applyCars(cars: CarSelection): void {
     if (cars.player !== this.cars.player) {
+      this.aiActive = false; // the new car starts with its own limiter (the AI's hand-back would restore the old car's)
       this.player.dispose(this.physics);
       this.player = new PlayerCar(this.physics, this.scene, { spec: specOf(cars.player) });
       this.player.surfaceGrip = surfaceGrip;
@@ -355,8 +358,8 @@ export class Game {
     switch (this.flow.phase) {
       case 'racing':
         if (this.aiActive && this.aiDriver && !this.inputOverride) {
-          // Same inputs as in training: our carriageway's traffic, and its own top speed.
-          const cap = this.aiSettings.speedCapKmh / 3.6;
+          // Same inputs as in training: our carriageway's traffic, and its own top speed (the car's when lower).
+          const cap = aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player));
           this.player.params.maxSpeed = cap;
           const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
           for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);

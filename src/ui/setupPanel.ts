@@ -37,6 +37,9 @@ export class SetupPanel {
     this.sel = { player: sel.player, rivals: [...sel.rivals] };
     this.el.style.display = '';
     this.draw();
+    // Take the focus off the button that opened it (the title's start, the finish's play again): Enter
+    // would click it again behind this page.
+    (document.activeElement as HTMLElement | null)?.blur();
   }
 
   close(): void {

@@ -80,10 +80,15 @@ describe('Rivals on their own cars', () => {
     physics.free();
   });
 
-  it('the rubber band works from each car\'s own engine', () => {
+  it('the rubber band boosts each car from its own engine', () => {
     const { physics, rivals } = make();
-    expect(rivals.list[0].car.params.power).toBe(MUSCLE_CAR.params.power);
-    expect(rivals.list[1].car.params.power).toBe(STREET_RACER.params.power);
+    const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
+    for (const r of rivals.list) r.boost = 0.25;
+    rivals.drive(1 / 120, { player, traffic: [], speedCap: 300 * KMH, raceTime: 0 });
+    const k = 1 + rivals.list[0].boost;
+    expect(k).toBeGreaterThan(1.2); // still boosted (the band eases off slowly)
+    expect(rivals.list[0].car.params.power).toBeCloseTo(MUSCLE_CAR.params.power * k, 3);
+    expect(rivals.list[1].car.params.power).toBeCloseTo(STREET_RACER.params.power * (1 + rivals.list[1].boost), 3);
     physics.free();
   });
 

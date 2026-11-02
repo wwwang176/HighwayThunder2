@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GameFlow, formatTime } from '../src/game/gameState';
+import { GameFlow, formatTime, picksCars } from '../src/game/gameState';
 import { BEST_TIME_KEY, ROAD_LENGTH } from '../src/config';
 
 function memStorage(init: Record<string, string> = {}) {
@@ -92,5 +92,13 @@ describe('GameFlow', () => {
   it('formatTime', () => {
     expect(formatTime(0)).toBe('0:00.000');
     expect(formatTime(83.4567)).toBe('1:23.456');
+  });
+});
+
+describe('picksCars', () => {
+  it('cars are picked only before a race: from the title or after the finish, never mid-race', () => {
+    expect(picksCars('title')).toBe(true);
+    expect(picksCars('finished')).toBe(true);
+    for (const p of ['countdown', 'racing', 'paused'] as const) expect(picksCars(p)).toBe(false);
   });
 });
