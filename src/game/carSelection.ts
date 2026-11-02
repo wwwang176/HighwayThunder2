@@ -1,4 +1,4 @@
-import { CARS, MUSCLE_CAR, STREET_RACER } from '../vehicles/cars';
+import { CARS, JDM_CAR, MUSCLE_CAR, STREET_RACER } from '../vehicles/cars';
 
 /** The cars picked before a race: the player's, and each rival's (car type ids, src/vehicles/cars). */
 export interface CarSelection {
@@ -10,7 +10,7 @@ const RIVALS = 5;
 const KEY = 'ht2.cars';
 
 /** Car types that can be picked now. */
-export const PICKABLE: string[] = [STREET_RACER.id, MUSCLE_CAR.id];
+export const PICKABLE: string[] = [STREET_RACER.id, MUSCLE_CAR.id, JDM_CAR.id];
 
 /** What the setup page shows for each car: a line about it and four bars (0..1, relative to each other). */
 export interface CarCard {
@@ -25,7 +25,7 @@ export interface CarCard {
 export const CAR_CARDS: CarCard[] = [
   { id: STREET_RACER.id, name: STREET_RACER.name, tagline: '加速快、極速最高', color: STREET_RACER.color, stats: { accel: 0.8, top: 1, handling: 0.6, stability: 0.8 }, pickable: true },
   { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, tagline: '加速最快、懸吊軟、容易甩尾', color: MUSCLE_CAR.color, stats: { accel: 1, top: 0.7, handling: 0.4, stability: 0.4 }, pickable: true },
-  { id: 'jdm', name: '改裝車', tagline: 'JDM 風格、操控最好（即將推出）', color: 0x3a8dde, stats: { accel: 0.6, top: 0.7, handling: 1, stability: 0.8 }, pickable: false },
+  { id: JDM_CAR.id, name: JDM_CAR.name, tagline: 'JDM 風格、轉彎最強、精準', color: JDM_CAR.color, stats: { accel: 0.7, top: 0.6, handling: 1, stability: 0.9 }, pickable: true },
 ];
 
 /** Everyone on the supercar (the game as it was). */

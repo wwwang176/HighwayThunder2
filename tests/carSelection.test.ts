@@ -12,7 +12,7 @@ describe('carSelection', () => {
   });
 
   it('anything it does not know becomes the supercar, and there are always five rivals', () => {
-    expect(sanitize({ player: 'jdm', rivals: ['muscle-car'] })).toEqual({ player: 'street-racer', rivals: ['muscle-car', ...Array(4).fill('street-racer')] });
+    expect(sanitize({ player: 'no-such-car', rivals: ['muscle-car'] })).toEqual({ player: 'street-racer', rivals: ['muscle-car', ...Array(4).fill('street-racer')] });
     expect(sanitize({ player: 'muscle-car', rivals: Array(9).fill('muscle-car') }).rivals).toHaveLength(5);
     expect(sanitize('garbage')).toEqual(defaultSelection());
     expect(sanitize(null)).toEqual(defaultSelection());
@@ -37,11 +37,12 @@ describe('carSelection', () => {
     for (const id of r.rivals) expect(PICKABLE).toContain(id);
   });
 
-  it('three cards; the tuned car is not pickable yet', () => {
+  it('three cards, all pickable', () => {
     expect(CAR_CARDS.map((c) => [c.name, c.pickable])).toEqual([
       ['超跑', true],
       ['肌肉車', true],
-      ['改裝車', false],
+      ['改裝車', true],
     ]);
+    expect(PICKABLE).toEqual(['street-racer', 'muscle-car', 'jdm']);
   });
 });

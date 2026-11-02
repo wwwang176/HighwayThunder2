@@ -150,6 +150,7 @@ export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
  */
 export function buildCar(w: number, h: number, l: number, color: number, style: CarStyle | boolean = false, withWheels = true, beam = true): VehicleModel {
   if (style === 'muscle') return buildMuscleCar(w, h, l, color, withWheels, beam);
+  if (style === 'jdm') return buildJdmCar(w, h, l, color, withWheels, beam);
   const sporty = style !== false;
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
@@ -196,6 +197,33 @@ function buildMuscleCar(w: number, h: number, l: number, color: number, withWhee
   for (const z of [-l / 2, l / 2]) box(root, w * 1.01, 0.12, 0.1, CHROME, 0, g + 0.36, z, false); // bumpers
   if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.35);
   addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
+  return { root, lights };
+}
+
+/** Tuned JDM coupe: low and wide (fender flares), a rounded-off cabin mid-car, a front lip and a tall rear wing. (The nose is -z.) */
+function buildJdmCar(w: number, h: number, l: number, color: number, withWheels: boolean, beam: boolean): VehicleModel {
+  const root = new THREE.Group();
+  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const g = -h / 2;
+  const paint = std(color, 0.22, 0.55);
+  const bodyH = 0.5;
+  const top = g + 0.26 + bodyH;
+  box(root, w * 0.94, bodyH, l, paint, 0, g + 0.26 + bodyH / 2, 0);
+  for (const z of [-l * 0.32, l * 0.32]) for (const x of [-1, 1]) box(root, 0.1, 0.34, 0.95, paint, x * (w / 2 - 0.05), g + 0.42, z); // flares over the wheels
+  const cabinH = 0.44;
+  const cabinL = l * 0.4;
+  box(root, w * 0.78, cabinH, cabinL, paint, 0, top + cabinH / 2, l * 0.03);
+  box(root, w * 0.8, cabinH * 0.8, cabinL * 0.92, GLASS, 0, top + cabinH / 2 - 0.02, l * 0.03, false);
+  box(root, w * 0.96, 0.06, 0.2, DARK, 0, g + 0.26, -l / 2 - 0.05, false); // front lip
+  const wingY = top + 0.38;
+  box(root, w * 0.98, 0.05, 0.36, DARK, 0, wingY, l / 2 - 0.22); // wing
+  for (const x of [-1, 1]) {
+    box(root, 0.06, 0.38, 0.12, DARK, x * w * 0.3, top + 0.19, l / 2 - 0.22); // its stands
+    box(root, 0.03, 0.18, 0.4, DARK, x * w * 0.49, wingY + 0.05, l / 2 - 0.22); // end plates
+  }
+  box(root, w * 0.6, 0.04, l * 0.25, std(0x111111, 0.5), 0, top + 0.02, -l * 0.3, false); // carbon hood panel
+  if (withWheels) wheels(root, g, w / 2 - 0.08, [-l * 0.32, l * 0.32], 0.33);
+  addLights(root, lights, w / 2, g + 0.26 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
   return { root, lights };
 }
 
