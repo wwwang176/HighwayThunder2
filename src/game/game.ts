@@ -27,8 +27,9 @@ import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PlannerDriver } from '../ai/plannerDriver';
 import { trackerFrom } from '../ai/netTracker';
 import { aiTopSpeed } from '../ai/aiTopSpeed';
-import { CarSelection, loadSelection, saveSelection } from './carSelection';
-import { SetupPanel } from '../ui/setupPanel';
+import { CAR_CARDS, CarSelection, defaultSelection, loadSelection, saveSelection } from './carSelection';
+import { applyDifficulty } from './difficulty';
+import { Garage } from '../ui/garage';
 
 /** A car type by id (the supercar for an id no longer known). */
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
@@ -41,6 +42,9 @@ import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
+
+/** The rivals' colours, for the HUD. */
+const RIVAL_CSS = RIVAL_COLORS.map((c) => `#${c.toString(16).padStart(6, '0')}`);
 
 const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
@@ -58,12 +62,12 @@ export class Game {
   /** The player's car (rebuilt when another car type is picked: applyCars). */
   player: PlayerCar;
   /** The cars on the grid now. */
-  private cars: CarSelection = { player: STREET_RACER.id, rivals: Array.from({ length: RIVAL_TUNING.count }, () => STREET_RACER.id) };
+  private cars: CarSelection = defaultSelection();
   readonly flow = new GameFlow(localStorage);
   readonly sound = new Sound();
   readonly hud: Hud;
-  /** The setup page before a race (cars). */
-  readonly setup: SetupPanel;
+  /** The garage: the title screen, where the car and the race are picked. */
+  readonly garage: Garage;
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
   readonly trafficWorld: TrafficWorld;
   /** Trained driver from public/ai/driver.json (null when none could be loaded). */
@@ -125,11 +129,11 @@ export class Game {
     this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
     document.body.appendChild(this.stats.dom);
     this.hud = new Hud(uiRoot, this.flow, {
-      onSetup: () => this.openSetup(),
+      onAgain: () => this.startRace(loadSelection(localStorage)),
       onResume: () => this.togglePause(),
       onTitle: () => this.toTitle(),
     });
-    this.setup = new SetupPanel(uiRoot, RIVAL_COLORS, (cars) => {
+    this.garage = new Garage(uiRoot, RIVAL_COLORS, (cars) => {
       saveSelection(localStorage, cars);
       this.startRace(cars);
     });
@@ -141,22 +145,28 @@ export class Game {
       if (document.hidden && (this.flow.phase === 'racing' || this.flow.phase === 'countdown')) this.togglePause();
     });
     this.resetWorld();
+    this.openGarage();
   }
 
   private bindKeys(): void {
     const k = this.keyboard;
-    // Enter: from the title or the finish on to the setup page, and from there into the race.
+    const g = this.garage;
+    // Enter: in the garage, into the race (not while a pop-up is open); after the finish, the same race again.
     const enter = () => {
-      if (this.setup.isOpen) this.setup.start();
-      else this.openSetup();
+      if (g.isOpen) {
+        if (!g.popOpen) g.start();
+      } else if (this.flow.phase === 'finished') this.startRace(loadSelection(localStorage));
     };
     k.onPress('Enter', enter);
     k.onPress('NumpadEnter', enter);
-    k.onPress('Escape', () => (this.setup.isOpen ? this.setup.close() : this.togglePause()));
-    k.onPress('KeyR', () => this.tryReset());
+    k.onPress('Escape', () => (g.popOpen ? g.closePop() : g.isOpen ? undefined : this.togglePause()));
+    k.onPress('ArrowLeft', () => g.isOpen && !g.popOpen && g.step(-1));
+    k.onPress('ArrowRight', () => g.isOpen && !g.popOpen && g.step(1));
+    // Race keys do nothing in the garage.
+    k.onPress('KeyR', () => !g.isOpen && this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
-    k.onPress('KeyI', () => this.toggleAi());
-    k.onPress('KeyP', () => (this.showPlan = !this.showPlan));
+    k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
+    k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
   }
 
@@ -169,16 +179,21 @@ export class Game {
 
   // --- flow -----------------------------------------------------------------
 
-  /** The setup page, with the cars picked last time (only before a race: at the title or after the finish). */
-  openSetup(): void {
-    if (picksCars(this.flow.phase)) this.setup.open(loadSelection(localStorage));
+  /** The garage, with the race picked last time (only before a race: at the title or after the finish). */
+  openGarage(): void {
+    if (picksCars(this.flow.phase)) this.garage.open(loadSelection(localStorage));
   }
 
-  /** Start a race, on the cars `cars` if given (else the ones on the grid now). Only from the title or the finish. */
+  /** Start a race as picked (`cars`: the cars, difficulty and weather), else on the grid as it is. Only from the title or the finish. */
   startRace(cars?: CarSelection): void {
     if (!picksCars(this.flow.phase)) return;
+    this.garage.close();
     this.sound.init();
-    if (cars) this.applyCars(cars);
+    if (cars) {
+      this.applyCars(cars);
+      applyDifficulty(cars.difficulty, this.aiSettings, RIVAL_TUNING);
+    }
+    this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
     this.resetWorld();
     this.flow.start();
   }
@@ -208,13 +223,15 @@ export class Game {
       this.rivals.dispose();
       this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), cars.rivals.map(specOf));
     }
-    this.cars = { player: cars.player, rivals: [...cars.rivals] };
+    this.cars = { ...cars, rivals: [...cars.rivals] };
   }
 
+  /** Back to the garage (from the pause or the finish). */
   toTitle(): void {
     this.flow.toTitle();
     this.sound.suspend(false);
     this.resetWorld();
+    this.openGarage();
   }
 
   togglePause(): void {
@@ -318,6 +335,9 @@ export class Game {
   }
 
   private frame(dt: number): void {
+    // The garage covers the whole screen and draws its own car: the world waits (and the GPU rests), the FPS meter too.
+    this.stats.dom.style.visibility = this.garage.isOpen ? 'hidden' : '';
+    if (this.garage.isOpen) return;
     if (this.flow.phase !== 'paused' && !this.freeze) {
       this.accumulator += dt;
       let steps = 0;
@@ -543,7 +563,10 @@ export class Game {
       rpm: this.player.rpm,
       aiDriving: this.aiActive && this.flow.phase === 'racing',
       place: this.rivals.rank(this.player.s, this.flow.finishTime),
-      racers: this.rivals.list.length + 1,
+      racers: [
+        { s: this.player.s, d: this.player.d, color: '#fff', me: true },
+        ...this.rivals.list.map((r) => ({ s: r.car.s, d: r.car.d, color: RIVAL_CSS[r.index % RIVAL_CSS.length], me: false })),
+      ],
     });
     const h = this.renderer.domElement.height;
     updateFlareScale(this.flares.material, this.camera, h);
