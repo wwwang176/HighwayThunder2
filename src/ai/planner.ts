@@ -372,15 +372,24 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
         const cell = n.cell + move;
         if (cell < 0 || cell >= grid.cells) continue;
         const d = grid.d(cell);
+        // The same for every speed: what the move and where it ends cost.
+        const moveCost = move !== 0 ? P.lateralCost : 0;
+        const lineCost = grid.isLaneCentre(cell) ? 0 : P.lineCost;
+        const onCourse = wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4;
+        const keyBase = cell * 1000;
         for (const a of accels) {
           const v = Math.max(0, Math.min(ego.speedCap, n.v + a * dt));
           const s = n.s + ((n.v + v) / 2) * dt;
-          let score = n.score + (s - n.s) - (move !== 0 ? P.lateralCost : 0) - (grid.isLaneCentre(cell) ? 0 : P.lineCost) - P.brakeCost * Math.max(0, n.v - v);
-          if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus;
-          const kk = key(cell, v, move);
+          let score = n.score + (s - n.s) - moveCost - lineCost - P.brakeCost * Math.max(0, n.v - v);
+          if (onCourse) score += P.keepCourseBonus;
+          const kk = (keyBase + Math.round(v / P.speedCell)) * 16 + latKey(move);
           const old = next.get(kk);
           if (old && score <= old.score) continue; // something as good gets there already: no need to check this way is clear
-          if (collides(n, d, v, t0, dt, byCell[n.cell], move, merging, margin, grid, tight) || (move !== 0 && collides(n, d, v, t0, dt, byCell[cell], move, merging, margin, grid, tight))) continue;
+          if (
+            collides(n, d, v, t0, dt, byCell[n.cell], move, merging, margin, grid, tight) ||
+            (move !== 0 && collides(n, d, v, t0, dt, byCell[cell], move, merging, margin, grid, tight, byCell[n.cell]))
+          )
+            continue;
           next.set(kk, { s, v, cell, d, score, parent: n, lat: move });
         }
       }
@@ -427,8 +436,8 @@ export function planAt(p: Plan, t: number): PlanPoint & { dRate: number } {
 }
 
 /** A node's state: cell, speed and (when the sideways change is limited) sideways move. */
-const key = (cell: number, v: number, lat: number) =>
-  (cell * 1000 + Math.round(v / PLANNER.speedCell)) * 16 + (PLANNER.maxLateral > 1 || PLANNER.latGrip > 0 ? Math.round(lat) + 7 : 0);
+const key = (cell: number, v: number, lat: number) => (cell * 1000 + Math.round(v / PLANNER.speedCell)) * 16 + latKey(lat);
+const latKey = (lat: number) => (PLANNER.maxLateral > 1 || PLANNER.latGrip > 0 ? Math.round(lat) + 7 : 0);
 
 /** m of `swingMargin` room for moving `cells` a step sideways (it is given per SWING_PER m/s). */
 function swingFor(cells: number, cell: number, dt: number): number {
@@ -441,13 +450,36 @@ function swingFor(cells: number, cell: number, dt: number): number {
  * or null if it never does.
  */
 export function crossing(d0: number, d1: number, lo: number, hi: number): [number, number] | null {
-  if (d0 === d1) return d0 > lo && d0 < hi ? [0, 1] : null;
+  return crossingInto(d0, d1, lo, hi) ? [CROSS.u0, CROSS.u1] : null;
+}
+
+/** `crossing` without making an array (it runs ~10^5 times a plan): the part is left in CROSS. */
+const CROSS = { u0: 0, u1: 0 };
+function crossingInto(d0: number, d1: number, lo: number, hi: number): boolean {
+  if (d0 === d1) {
+    if (!(d0 > lo && d0 < hi)) return false;
+    CROSS.u0 = 0;
+    CROSS.u1 = 1;
+    return true;
+  }
   let u0 = (lo - d0) / (d1 - d0);
   let u1 = (hi - d0) / (d1 - d0);
-  if (u0 > u1) [u0, u1] = [u1, u0];
+  if (u0 > u1) {
+    const x = u0;
+    u0 = u1;
+    u1 = x;
+  }
   u0 = Math.max(0, u0);
   u1 = Math.min(1, u1);
-  return u0 < u1 ? [u0, u1] : null;
+  if (!(u0 < u1)) return false;
+  CROSS.u0 = u0;
+  CROSS.u1 = u1;
+  return true;
+}
+
+/** Where a car at (s, v) accelerating at `accel` is a fraction u of a step dt on (before it: at its starting speed). */
+function sAt(s: number, v: number, accel: number, dt: number, u: number): number {
+  return s + v * u * dt + (u > 0 ? 0.5 * accel * (u * dt) ** 2 : 0);
 }
 
 /**
@@ -459,16 +491,26 @@ export function crossing(d0: number, d1: number, lo: number, hi: number): [numbe
  * it: it may cut in right in front of a car it has just passed, or slip out
  * from behind one just before it gets there - not wait a whole step for that.
  */
-function collides(n: Node, d1: number, v1: number, t0: number, dt: number, boxes: TrafficBox[], move: number, merging: Set<number>, margin: number, grid: Grid, tight: Map<TrafficBox, number>): boolean {
+function collides(
+  n: Node,
+  d1: number,
+  v1: number,
+  t0: number,
+  dt: number,
+  boxes: TrafficBox[],
+  move: number,
+  merging: Set<number>,
+  margin: number,
+  grid: Grid,
+  tight: Map<TrafficBox, number>,
+  skip: TrafficBox[] | null = null,
+): boolean {
   const P = PLANNER;
   const sideways = move !== 0 || Math.abs(n.d - d1) > ON_CELL;
   // Extra room toward where it is heading sideways (this step's move, or the one just ended): it swings past.
   const heading = move !== 0 ? move : n.lat;
   const swing = swingFor(heading, grid.cell, dt); // more the faster it moves (the tracker swings further past)
   const accel = (v1 - n.v) / dt;
-  /** Where the car is a fraction u of the way through the step (before it: at its starting speed). */
-  const sAt = (u: number) => n.s + n.v * u * dt + (u > 0 ? 0.5 * accel * (u * dt) ** 2 : 0);
-  const vAt = (u: number) => n.v + accel * Math.max(0, u) * dt;
   const inLane = !sideways && grid.isLaneCentre(n.cell);
   // Moving sideways the body points along its diagonal (`turnedBody`): the nose already over toward where it
   // goes, the tail still back where it came from. Checked as `pieces` lengthwise slices, each where that part
@@ -478,66 +520,77 @@ function collides(n: Node, d1: number, v1: number, t0: number, dt: number, boxes
   const pieces = Math.min(5, Math.max(1, Math.ceil((Math.abs(slope) * 2 * HALF_LENGTH) / 0.1)));
   const halfL = HALF_LENGTH / pieces;
   const halfW = HALF_WIDTH + halfL * Math.abs(slope);
-  for (const t of boxes) for (let j = 0; j < pieces; j++) {
-    const along = -HALF_LENGTH + (2 * j + 1) * halfL; // this piece's centre, from ours
-    const off = along * slope; // ...and how far it is over sideways
+  // Swerving away sideways, it closes the overlap at this speed (m/s).
+  const awaySpeed = (Math.max(1, Math.abs(move)) * grid.cell) / dt;
+  for (const t of boxes) {
+    if (skip !== null && skip.includes(t)) continue; // checked already (the move's other cell)
     // Already inside the side room: no side room, and no closer than it reaches into ours now (- on our left).
     const into = tight.get(t);
     const side = into === undefined ? 1 : 0;
-    // Centre positions where this piece is level with it (with the side room).
-    const lo = t.dMin - halfW - off - (P.sideMargin + (heading > 0 ? swing : 0)) * side + Math.max(0, into ?? 0);
-    const hi = t.dMax + halfW - off + (P.sideMargin + (heading < 0 ? swing : 0)) * side + Math.min(0, into ?? 0);
-    const level = P.diagonal ? crossing(n.d, d1, lo, hi) : Math.max(n.d, d1) > lo && Math.min(n.d, d1) < hi ? [0, 1] : null;
-    if (!level) continue;
-    const [u0, u1] = level;
-    const r0 = t.s + t.v * (t0 + u0 * dt) - (sAt(u0) + along); // box centre relative to this piece
-    const r1 = t.s + t.v * (t0 + u1 * dt) - (sAt(u1) + along);
-    const va = vAt(u0);
-    const vb = vAt(u1);
-    if (inLane && r0 < 0 && r1 < 0 && t.dMin < n.d && t.dMax > n.d) continue; // behind us in our lane: it brakes for us (traffic, and racers are drivers too)
     const reach = halfL + HALF_WIDTH * Math.abs(slope) + t.length / 2; // a turned body's corners poke ahead (and back) of its piece
-    // Merging in alongside or from behind: it waits for us (in the game). Merging in ahead: let it in.
-    if (inLane && t.id !== undefined && merging.has(t.id) && r0 < HALF_LENGTH && r0 > -(reach + MERGE_YIELD)) continue;
-    // Ahead: right on the bumper, but never closer than it takes to brake down to its speed - without this
-    // the plan closed in fast up to the last moment and the emergency brake did the braking (all five
-    // benchmark runs crashed with the emergency brake held back past the plan's own hardest braking).
-    // Each end of the step with its own speed: checking the end with the speed before braking made it
-    // start braking half a second (~15 m at 200 km/h) early.
-    // Which way the car can steer clear of it (+1 / -1): away from the side it is on, or (`steerClear`) the
-    // way the car is moving when it is dead ahead.
-    const away = t.dMax < n.d + off ? 1 : t.dMin > n.d + off ? -1 : P.steerClear ? Math.sign(move) : 0;
-    // ...and only where the road goes on that way far enough to get clear of it (not off the edge).
-    const clearAt = (away > 0 ? t.dMax + P.sideMargin + halfW : t.dMin - P.sideMargin - halfW) - off;
-    const roomThere = away !== 0 && (away > 0 ? clearAt <= grid.d(grid.cells - 1) : clearAt >= grid.d(0));
-    const swerving = roomThere && (move !== 0 ? Math.sign(move) === away : P.steerClear);
-    const ahead = (v: number) => {
-      const closing = Math.max(0, v - t.v);
-      let keep = (closing * closing) / (2 * P.hardBrake) + P.headway * v * margin;
-      if (swerving) {
+    for (let j = 0; j < pieces; j++) {
+      const along = -HALF_LENGTH + (2 * j + 1) * halfL; // this piece's centre, from ours
+      const off = along * slope; // ...and how far it is over sideways
+      // Centre positions where this piece is level with it (with the side room).
+      const lo = t.dMin - halfW - off - (P.sideMargin + (heading > 0 ? swing : 0)) * side + Math.max(0, into ?? 0);
+      const hi = t.dMax + halfW - off + (P.sideMargin + (heading < 0 ? swing : 0)) * side + Math.min(0, into ?? 0);
+      let u0 = 0;
+      let u1 = 1;
+      if (P.diagonal) {
+        if (!crossingInto(n.d, d1, lo, hi)) continue;
+        u0 = CROSS.u0;
+        u1 = CROSS.u1;
+      } else if (!(Math.max(n.d, d1) > lo && Math.min(n.d, d1) < hi)) continue;
+      const r0 = t.s + t.v * (t0 + u0 * dt) - (sAt(n.s, n.v, accel, dt, u0) + along); // box centre relative to this piece
+      const r1 = t.s + t.v * (t0 + u1 * dt) - (sAt(n.s, n.v, accel, dt, u1) + along);
+      if (inLane && r0 < 0 && r1 < 0 && t.dMin < n.d && t.dMax > n.d) continue; // behind us in our lane: it brakes for us (traffic, and racers are drivers too)
+      // Merging in alongside or from behind: it waits for us (in the game). Merging in ahead: let it in.
+      if (inLane && t.id !== undefined && merging.has(t.id) && r0 < HALF_LENGTH && r0 > -(reach + MERGE_YIELD)) continue;
+      if (Math.sign(r0) !== Math.sign(r1)) return true; // passed through it
+      let rEarly: number | null = null;
+      if (sideways && t.dMax > d1 + off - halfW && t.dMin < d1 + off + halfW) {
+        // Moving toward it: the car gets level with it up to trackerLead s early, so where it was then counts too
+        // (only stricter for one being passed - it was still alongside - braking does not help a sideswipe).
+        const uEarly = u0 - P.trackerLead / dt;
+        rEarly = t.s + t.v * (t0 + uEarly * dt) - (sAt(n.s, n.v, accel, dt, uEarly) + along);
+        if (Math.sign(rEarly) !== Math.sign(r0)) return true;
+      }
+      const va = n.v + accel * Math.max(0, u0) * dt;
+      const vb = n.v + accel * Math.max(0, u1) * dt;
+      if (r0 >= 0) {
+        // Ahead: right on the bumper, but never closer than it takes to brake down to its speed - without this
+        // the plan closed in fast up to the last moment and the emergency brake did the braking (all five
+        // benchmark runs crashed with the emergency brake held back past the plan's own hardest braking).
+        // Each end of the step with its own speed: checking the end with the speed before braking made it
+        // start braking half a second (~15 m at 200 km/h) early.
+        // Which way the car can steer clear of it (+1 / -1): away from the side it is on, or (`steerClear`) the
+        // way the car is moving when it is dead ahead.
+        const away = t.dMax < n.d + off ? 1 : t.dMin > n.d + off ? -1 : P.steerClear ? Math.sign(move) : 0;
+        // ...and only where the road goes on that way far enough to get clear of it (not off the edge).
+        const clearAt = (away > 0 ? t.dMax + P.sideMargin + halfW : t.dMin - P.sideMargin - halfW) - off;
+        const roomThere = away !== 0 && (away > 0 ? clearAt <= grid.d(grid.cells - 1) : clearAt >= grid.d(0));
+        const swerving = roomThere && (move !== 0 ? Math.sign(move) === away : P.steerClear);
         // Moving away from it sideways (or only clipping its side, `steerClear`): it only has to stay ahead
         // until the car is clear of it - swerve out at speed instead of braking to its speed first (keeps
         // going sideways or the next step fails).
-        const overlap = away > 0 ? t.dMax + P.sideMargin - (d1 + off - halfW) : d1 + off + halfW - (t.dMin - P.sideMargin);
-        keep = Math.min(keep, closing * (Math.max(0, overlap) / ((Math.max(1, Math.abs(move)) * grid.cell) / dt)));
+        const overlap = !swerving ? 0 : away > 0 ? t.dMax + P.sideMargin - (d1 + off - halfW) : d1 + off + halfW - (t.dMin - P.sideMargin);
+        const roomA = aheadRoom(va, t.v, reach, swerving, overlap, awaySpeed, margin);
+        if (r0 < roomA || r1 < aheadRoom(vb, t.v, reach, swerving, overlap, awaySpeed, margin) || (rEarly !== null && rEarly < roomA)) return true;
+      } else {
+        const behind = reach + (P.gapBehind + P.cutInTime * Math.max(0, t.v - Math.min(va, vb))) * margin;
+        const r = Math.min(-r0, -r1, rEarly !== null ? -rEarly : Infinity);
+        if (r < behind) return true;
       }
-      return reach + keep + P.gapAhead * margin;
-    };
-    const behind = reach + (P.gapBehind + P.cutInTime * Math.max(0, t.v - Math.min(va, vb))) * margin;
-    if (Math.sign(r0) !== Math.sign(r1)) return true; // passed through it
-    let rEarly: number | null = null;
-    if (sideways && t.dMax > d1 + off - halfW && t.dMin < d1 + off + halfW) {
-      // Moving toward it: the car gets level with it up to trackerLead s early, so where it was then counts too
-      // (only stricter for one being passed - it was still alongside - braking does not help a sideswipe).
-      const uEarly = u0 - P.trackerLead / dt;
-      rEarly = t.s + t.v * (t0 + uEarly * dt) - (sAt(uEarly) + along);
-      if (Math.sign(rEarly) !== Math.sign(r0)) return true;
-    }
-    if (r0 >= 0) {
-      if (r0 < ahead(va) || r1 < ahead(vb) || (rEarly !== null && rEarly < ahead(va))) return true;
-    } else {
-      const r = Math.min(-r0, -r1, rEarly !== null ? -rEarly : Infinity);
-      if (r < behind) return true;
     }
   }
   return false;
+}
+
+/** Room (m, centre to piece) kept to a box ahead at speed v - braking down to its speed, or (swerving) only until clear of it. */
+function aheadRoom(v: number, tv: number, reach: number, swerving: boolean, overlap: number, awaySpeed: number, margin: number): number {
+  const P = PLANNER;
+  const closing = Math.max(0, v - tv);
+  let keep = (closing * closing) / (2 * P.hardBrake) + P.headway * v * margin;
+  if (swerving) keep = Math.min(keep, closing * (Math.max(0, overlap) / awaySpeed));
+  return reach + keep + P.gapAhead * margin;
 }
