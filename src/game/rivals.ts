@@ -83,7 +83,7 @@ export function needsReset(r: { s: number; d: number; yaw: number; speed: number
 }
 
 /** Rival colours: none the player's red, none of the traffic's. */
-const RIVAL_COLORS = [0x1e88e5, 0xffb300, 0x8e24aa, 0x00c853, 0x00bcd4];
+export const RIVAL_COLORS = [0x1e88e5, 0xffb300, 0x8e24aa, 0x00c853, 0x00bcd4];
 /** Start grid: [lane, s] (the player starts in lane 1 at s = -3). */
 const GRID: [number, number][] = [
   [0, -3],

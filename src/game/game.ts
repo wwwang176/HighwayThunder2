@@ -26,7 +26,8 @@ import { PlayerCar } from '../vehicles/playerCar';
 import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PlannerDriver } from '../ai/plannerDriver';
 import { trackerFrom } from '../ai/netTracker';
-import type { CarSelection } from './carSelection';
+import { CarSelection, loadSelection, saveSelection } from './carSelection';
+import { SetupPanel } from '../ui/setupPanel';
 
 /** A car type by id (the supercar for an id no longer known). */
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
@@ -34,7 +35,7 @@ import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow } from './gameState';
-import { RaceView, RIVAL_TUNING, Rivals } from './rivals';
+import { RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
 import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
@@ -60,6 +61,8 @@ export class Game {
   readonly flow = new GameFlow(localStorage);
   readonly sound = new Sound();
   readonly hud: Hud;
+  /** The setup page before a race (cars). */
+  readonly setup: SetupPanel;
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
   readonly trafficWorld: TrafficWorld;
   /** Trained driver from public/ai/driver.json (null when none could be loaded). */
@@ -121,9 +124,13 @@ export class Game {
     this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
     document.body.appendChild(this.stats.dom);
     this.hud = new Hud(uiRoot, this.flow, {
-      onStart: () => this.startRace(),
+      onSetup: () => this.openSetup(),
       onResume: () => this.togglePause(),
       onTitle: () => this.toTitle(),
+    });
+    this.setup = new SetupPanel(uiRoot, RIVAL_COLORS, (cars) => {
+      saveSelection(localStorage, cars);
+      this.startRace(cars);
     });
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
@@ -137,13 +144,14 @@ export class Game {
 
   private bindKeys(): void {
     const k = this.keyboard;
-    k.onPress('Enter', () => {
-      if (this.flow.phase === 'title' || this.flow.phase === 'finished') this.startRace();
-    });
-    k.onPress('NumpadEnter', () => {
-      if (this.flow.phase === 'title' || this.flow.phase === 'finished') this.startRace();
-    });
-    k.onPress('Escape', () => this.togglePause());
+    // Enter: from the title or the finish on to the setup page, and from there into the race.
+    const enter = () => {
+      if (this.setup.isOpen) this.setup.start();
+      else if (this.flow.phase === 'title' || this.flow.phase === 'finished') this.openSetup();
+    };
+    k.onPress('Enter', enter);
+    k.onPress('NumpadEnter', enter);
+    k.onPress('Escape', () => (this.setup.isOpen ? this.setup.close() : this.togglePause()));
     k.onPress('KeyR', () => this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
     k.onPress('KeyI', () => this.toggleAi());
@@ -159,6 +167,11 @@ export class Game {
   }
 
   // --- flow -----------------------------------------------------------------
+
+  /** The setup page, with the cars picked last time. */
+  openSetup(): void {
+    this.setup.open(loadSelection(localStorage));
+  }
 
   /** Start a race, on the cars `cars` if given (else the ones on the grid now). */
   startRace(cars?: CarSelection): void {
