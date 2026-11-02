@@ -217,13 +217,14 @@ BODY_KEYS = [
     (NOSE, dict(w=0.86, f=0.0, zb=0.28, ztop=0.80, crown=0.01, pk=0.05, dome=0.025)),  # the hood's shape carried to one clean leading edge
 ]
 NOSE_TOP = 0.80
-LEAN = 0.30  # the shark nose: the nose face leans forward 0.30 m per metre up (the lower nose tucks back)
+LEAN = 0.40  # the shark nose: the nose face leans forward 0.40 m per metre up (the lower nose tucks back)
 
 
 def nose_shear(y, z):
-    """Lean the nose's last stretch forward at the top (applied to the shell and to what sits on the nose)."""
+    """Lean the nose's last stretch forward at the top (applied to the shell and to what sits on the nose).
+    Nothing above NOSE_TOP moves: the hood's leading edge stays one straight line."""
     k = max(0.0, min(1.0, (y - (NOSE - 0.24)) / 0.24))
-    return y - k * LEAN * (NOSE_TOP - z)
+    return y - k * LEAN * max(0.0, NOSE_TOP - z)
 
 
 # Stripe edges (x) across the top: paint | stripe | gap | stripe | paint.
@@ -247,8 +248,8 @@ def body_half(p):
         ((gutter + crest) / 2, top((gutter + crest) / 2) + pk * 0.3, "paint"),
         (crest, zt + 0.004 + pk, "paint"),  # the fender's crest
         (w - 0.06, zt - 0.006 + pk * 0.7, "paint"),
-        (w + 0.025 + f * 0.5, zt - 0.05, "paint"),  # the shoulder line: one crisp crease along the car
-        (w + 0.002 + f * 0.5, zt - 0.08, "paint"),  # stepping in under it
+        (w + 0.025 + f * 0.35, zt - 0.05, "paint"),  # the shoulder line: one crisp crease along the car
+        (w + 0.002 + f * 0.35, zt - 0.08, "paint"),  # stepping in under it
         (w + f * 0.8, zt - 0.15, "paint"),
         (w + f, zt - 0.26, "paint"),  # the widest, round the top of the wheel
         (w - 0.01 + f * 0.85, zt - 0.38, "paint"),
@@ -306,6 +307,14 @@ def build_shell():
     faces.append(tuple(range(len(ys) * n - n, len(ys) * n)))  # nose face
     fm += [0, 0]
     shell = mesh_object("shell", verts, faces, names, fm)
+    # The nose and tail faces are big concave polygons: triangulate them properly (polyfill) now,
+    # rather than leave it to the booleans, whose quick triangulation of a concave face can overlap.
+    bm = bmesh.new()
+    bm.from_mesh(shell.data)
+    caps = [f for f in bm.faces if len(f.verts) > 4]
+    bmesh.ops.triangulate(bm, faces=caps, quad_method="BEAUTY", ngon_method="EAR_CLIP")
+    bm.to_mesh(shell.data)
+    bm.free()
 
     # A lip round each arch, sloping out of the fender's bulge (the arch cut below trims its inside).
     lips = []
@@ -341,7 +350,7 @@ def build_cabin():
         # y, belt half-width, roof half-width, roof height at its edge (none: a base line on the hood / deck),
         # and what the band from here to the next station is
         (NOSE - 0.33 * L, 0.84, None, None, "windshield"),  # windshield base
-        (0.45, 0.84, 0.595, 1.262, "roof"),  # the header, rounding the roof down into the windshield
+        (0.45, 0.84, 0.58, 1.245, "roof"),  # the header, rounding the roof down into the windshield
         (NOSE - 0.41 * L, 0.84, 0.61, 1.285, "roof"),  # roof front
         (-0.25, 0.85, 0.64, 1.295, "roof"),
         (NOSE - 0.70 * L + 0.04, 0.90, 0.625, 1.272, "cpillar"),  # roof rear
@@ -461,7 +470,7 @@ def build_ducktail():
 def build_recesses():
     """Cut into the body: the grille (lamps in pods inside it), the lower intake, the tail-light panel."""
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731  (the nose face's lean)
-    grille = box("grille", -0.78, 0.78, NOSE - 0.045, NOSE + 0.3, 0.53, 0.75, "trim", lean)
+    grille = box("grille", -0.775, 0.775, NOSE - 0.045, NOSE + 0.3, 0.53, 0.75, "trim", lean)  # clear of the nose's sides
     intake = box("intake", -0.70, 0.70, NOSE - 0.04, NOSE + 0.3, 0.385, 0.435, "trim", lean)  # a thin slit
     tail = box("tailpanel", -0.68, 0.68, TAIL - 0.3, TAIL + 0.035, 0.68, 0.92, "trim")
     valance = box("valance", -0.55, 0.55, TAIL - 0.3, TAIL + 0.03, 0.38, 0.50, "trim")  # a dark diffuser low on the tail
@@ -472,7 +481,7 @@ def build_inserts():
     """Merged into the recesses once they are cut: a bar across the grille, fins in the tail's diffuser.
     Each stands up from its recess's floor and stops short of the surface."""
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731
-    parts = [box("grillebar", -0.29, 0.29, NOSE - 0.055, NOSE - 0.008, 0.628, 0.652, "paint", lean)]
+    parts = [box("grillebar", -0.29, 0.29, NOSE - 0.055, NOSE - 0.025, 0.632, 0.648, "paint", lean)]  # tucked in
     for x in (-0.34, -0.12, 0.12, 0.34):
         parts.append(box("fin", x - 0.01, x + 0.01, TAIL + 0.008, TAIL + 0.04, 0.385, 0.495, "trim"))
     return parts
@@ -601,9 +610,13 @@ def mesh_check(ob):
     for i, j in tree.overlap(tree):
         if i < j and not ({v.index for v in bm.faces[i].verts} & {v.index for v in bm.faces[j].verts}):
             crossing += 1
-    open_edges = sum(1 for e in bm.edges if not e.is_manifold)
+    bad = [e for e in bm.edges if not e.is_manifold]
+    where = sorted({tuple(round(c, 2) for c in (e.verts[0].co + e.verts[1].co) / 2) for e in bad})[:6]
     bm.free()
-    return {"crossing_faces": crossing, "non_manifold_edges": open_edges}
+    out = {"crossing_faces": crossing, "non_manifold_edges": len(bad)}
+    if where:
+        out["at"] = where
+    return out
 
 
 def touching(a, b):
