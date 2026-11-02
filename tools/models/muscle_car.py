@@ -357,34 +357,26 @@ def top_windows():
 # ---------------------------------------------------------------- details
 
 def build_scoop():
-    """A long bulge growing out of the hood and rising toward its dark mouth at the front; its sides slope
-    down into the hood and the stripes run on over it."""
-    y0, y1 = 0.95, 1.80
-    n = 5
-    seg = ["paint", "stripe", "stripe", "stripe", "paint"]
-    verts, faces, fm = [], [], []
-    names = ["paint", "stripe", "trim"]
+    """The hood scoop, mid-hood: a low flat body-colour box rising quickly out of the hood and running level
+    to its dark mouth facing forward; its sides slope down into the hood (the stripes show either side)."""
+    y0, y1 = 1.05, 1.55
+    n = 4
+    verts, faces = [], []
     for k in range(n + 1):
         t = k / n
         y = y0 + (y1 - y0) * t
-        h = 0.10 * t ** 1.3 - 0.008  # buried at the back, emerging forward
+        h = 0.07 * min(1.0, t / 0.4) - 0.008  # buried at the back, up to its height within the first 40 %
         zs = top_z(y, 0)
-        half = [(0.0, zs + h), (S_IN, zs + h), (0.17, zs + h - 0.006), (0.235, zs + h - 0.036),
-                (S_OUT, zs + h * 0.3 - 0.006), (0.37, top_z(y, 0.37) - 0.035)]
-        row = [(-x, z) for x, z in reversed(half[1:])] + half + [(0.37, zs - 0.12), (-0.37, zs - 0.12)]
+        half = [(0.0, zs + h), (0.17, zs + h), (0.205, zs + h - 0.012), (0.27, top_z(y, 0.27) - 0.03)]
+        row = [(-x, z) for x, z in reversed(half[1:])] + half + [(0.27, zs - 0.10), (-0.27, zs - 0.10)]
         verts += [(x, y, z) for x, z in row]
-    m = 13
-    across = list(reversed(seg)) + seg
+    m = 9
     for k in range(n):
         a, b = k * m, (k + 1) * m
-        for i in range(10):
-            faces.append((a + i, a + i + 1, b + i + 1, b + i))
-            fm.append(names.index(across[i]))
-        faces += [(a + 10, a + 11, b + 11, b + 10), (a + 11, a + 12, b + 12, b + 11), (a + 12, a, b, b + 12)]
-        fm += [0, 0, 0]
+        faces += [(a + i, a + (i + 1) % m, b + (i + 1) % m, b + i) for i in range(m)]
     faces += [tuple(reversed(range(m))), tuple(n * m + i for i in range(m))]
-    fm += [0, 2]  # the buried back, the dark mouth
-    return mesh_object("scoop", verts, faces, names, fm)
+    fm = [0] * (len(faces) - 1) + [1]  # paint all over, the mouth dark
+    return mesh_object("scoop", verts, faces, ["paint", "trim"], fm)
 
 
 def build_ducktail():
@@ -411,12 +403,14 @@ def build_ducktail():
 
 
 def build_details():
-    """Merged into the body: the hood bulge, the ducktail, a splitter under the nose, bright bumper blades."""
+    """Merged into the body: the hood scoop, the ducktail, a chin spoiler under the nose, a bright blade
+    across the tail."""
     parts = [build_scoop(), build_ducktail()]
-    # (It starts ahead of the front wheel arch: reaching into the arch's cut it would graze it.)
-    sv = [(x, y, z) for x in (-0.84, 0.84) for y, z in ((NOSE - 0.25, 0.25), (NOSE - 0.25, 0.33), (NOSE + 0.10, 0.255), (NOSE + 0.10, 0.28))]
-    parts.append(mesh_object("splitter", sv, BOX_FACES, ["paint"]))
-    parts.append(box("fbumper", -0.87, 0.87, NOSE - 0.06, NOSE + 0.08, 0.40, 0.445, "chrome"))  # its ends clear of the nose's sides
+    # The chin: from under the nose, sloping forward and down, its front corners drawn in. (It starts
+    # ahead of the front wheel arch: reaching into the arch's cut it would graze it.)
+    cv = [(s * xa, y, z) for s in (-1, 1) for y, xa, z0, z1 in ((NOSE - 0.20, 0.84, 0.27, 0.33), (NOSE + 0.06, 0.78, 0.245, 0.29))
+          for z in (z0, z1)]
+    parts.append(mesh_object("chin", cv, BOX_FACES, ["paint"]))
     parts.append(box("rbumper", -0.80, 0.80, TAIL - 0.08, TAIL + 0.06, 0.42, 0.48, "chrome"))
     return parts
 
