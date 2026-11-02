@@ -403,20 +403,24 @@ def build_ducktail():
 
 
 def build_details():
-    """Merged into the body: the hood scoop, the ducktail, a chin spoiler under the nose, a bright blade
-    across the tail."""
+    """Merged into the body: the hood scoop, the ducktail, a chin spoiler and a bumper bar under the nose,
+    a bright blade across the tail."""
     parts = [build_scoop(), build_ducktail()]
     # The chin: from under the nose, sloping forward and down, its front corners drawn in. (It starts
     # ahead of the front wheel arch: reaching into the arch's cut it would graze it.)
     cv = [(s * xa, y, z) for s in (-1, 1) for y, xa, z0, z1 in ((NOSE - 0.20, 0.84, 0.27, 0.33), (NOSE + 0.06, 0.78, 0.245, 0.29))
           for z in (z0, z1)]
     parts.append(mesh_object("chin", cv, BOX_FACES, ["paint"]))
+    # A bumper bar across the nose under the grille, its front corners drawn in. (Its back is buried in the
+    # nose, inside the body's sides: it meets only the flat nose face.)
+    bv = [(s * xa, y, z) for s in (-1, 1) for y, xa in ((NOSE - 0.04, 0.80), (NOSE + 0.07, 0.74)) for z in (0.41, 0.49)]
+    parts.append(mesh_object("fbumper", bv, BOX_FACES, ["paint"]))
     parts.append(box("rbumper", -0.80, 0.80, TAIL - 0.08, TAIL + 0.06, 0.42, 0.48, "chrome"))
     return parts
 
 
 # The nose face is the shell's end at y = NOSE (flat); the tail's at TAIL.
-GRILLE = dict(x=0.80, z0=0.52, z1=0.72, depth=0.05)
+GRILLE = dict(x=0.80, z0=0.52, z1=0.72, depth=0.07)  # deep under the hood's edge (its floor 3 cm off the station at 1.95)
 TAILPANEL = dict(x=0.72, z0=0.57, z1=0.69, depth=0.035)
 
 
@@ -449,7 +453,7 @@ def build_lights():
         parts = []
         for k, x in enumerate((s * 0.47, s * 0.68)):
             parts.append(disc(f"{name}{k}", x, floor + 0.015, zc, 0.082, 0.04, "head", 14))
-            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.07, zc, 0.082 + 0.012, 0.10, "trim", 14))
+            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.04, zc, 0.082 + 0.012, 0.095, "trim", 14))
         lamps.append(join(parts, name))
     floor = NOSE - 0.04
     for name, s in (("ind_FL", -1), ("ind_FR", 1)):  # fog lamps at the intake's ends
