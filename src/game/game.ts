@@ -23,6 +23,13 @@ import { HandlingInput } from '../vehicles/handling';
 import { NpcVehicle } from '../vehicles/npcVehicle';
 import { WheelInstances } from '../vehicles/wheelInstances';
 import { PlayerCar } from '../vehicles/playerCar';
+import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
+import { PlannerDriver } from '../ai/plannerDriver';
+import { trackerFrom } from '../ai/netTracker';
+import type { CarSelection } from './carSelection';
+
+/** A car type by id (the supercar for an id no longer known). */
+const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
 import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
@@ -46,7 +53,10 @@ export class Game {
   readonly keyboard = new Keyboard();
   readonly rig = new CameraRig(this.camera);
   readonly road: RoadScene;
-  readonly player: PlayerCar;
+  /** The player's car (rebuilt when another car type is picked: applyCars). */
+  player: PlayerCar;
+  /** The cars on the grid now. */
+  private cars: CarSelection = { player: STREET_RACER.id, rivals: Array.from({ length: RIVAL_TUNING.count }, () => STREET_RACER.id) };
   readonly flow = new GameFlow(localStorage);
   readonly sound = new Sound();
   readonly hud: Hud;
@@ -104,7 +114,7 @@ export class Game {
     this.player.surfaceGrip = surfaceGrip;
     this.wheelPool = new WheelInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
-    this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), RIVAL_TUNING.count);
+    this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.cars.rivals.map(specOf));
     this.trafficWorld = new TrafficWorld(physics, this.scene, this.wheelPool, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.scene);
@@ -150,10 +160,39 @@ export class Game {
 
   // --- flow -----------------------------------------------------------------
 
-  startRace(): void {
+  /** Start a race, on the cars `cars` if given (else the ones on the grid now). */
+  startRace(cars?: CarSelection): void {
     this.sound.init();
+    if (cars) this.applyCars(cars);
     this.resetWorld();
     this.flow.start();
+  }
+
+  /**
+   * Put these cars on the grid: the player's car and the rivals are rebuilt
+   * where their type changed (the tuning panel then tunes the new player car).
+   */
+  applyCars(cars: CarSelection): void {
+    if (cars.player !== this.cars.player) {
+      this.player.dispose(this.physics);
+      this.player = new PlayerCar(this.physics, this.scene, { spec: specOf(cars.player) });
+      this.player.surfaceGrip = surfaceGrip;
+      const shown = !this.gui._hidden;
+      this.gui.destroy();
+      this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
+      if (shown) this.gui.show();
+    }
+    const spec = specOf(cars.player);
+    if (this.aiDriver instanceof PlannerDriver) {
+      this.aiDriver.accel = spec.ai.accel;
+      this.aiDriver.latAccel = spec.ai.latAccel;
+      this.aiDriver.tracker = trackerFrom(spec.ai.tracker);
+    }
+    if (cars.rivals.length !== this.cars.rivals.length || cars.rivals.some((id, i) => id !== this.cars.rivals[i])) {
+      this.rivals.dispose();
+      this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), cars.rivals.map(specOf));
+    }
+    this.cars = { player: cars.player, rivals: [...cars.rivals] };
   }
 
   toTitle(): void {

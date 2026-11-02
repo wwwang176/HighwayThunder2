@@ -89,6 +89,8 @@ export interface PlanSource {
   request(stamp: number, ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null): void;
   /** The answer that came in since last asked, if any. */
   take(): { stamp: number; plan: Plan } | null;
+  /** Done with it for good (a Web Worker is stopped). */
+  dispose?(): void;
 }
 
 /**
@@ -133,6 +135,11 @@ export class PlannerDriver implements Driver {
   measure(): TrackingStats {
     this.tracking = { lateralMoving: [], lateralHolding: [], along: [], speedAtOverride: [], nowMoving: [], nowHolding: [] };
     return this.tracking;
+  }
+
+  /** Done with this driver: its plan source (a Web Worker in the game) is stopped. */
+  dispose(): void {
+    this.source?.dispose?.();
   }
 
   reset(): void {

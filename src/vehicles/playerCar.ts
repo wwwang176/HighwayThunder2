@@ -325,6 +325,13 @@ export class PlayerCar {
   }
 
   /** Place the car in a lane, upright, pointing down the road, at the given speed. */
+  /** Take the car out of the world for good (another car type takes its place): body, collider, model and lights. */
+  dispose(physics: PhysicsWorld): void {
+    if (this.collider) physics.unregister(this.collider);
+    physics.world.removeRigidBody(this.body); // its collider goes with it
+    this.mesh.removeFromParent();
+  }
+
   resetTo(s: number, lane: number, speed: number): void {
     const p = this.params;
     this.body.setTranslation({ x: laneCenter(lane), y: RIDE_Y + 0.02, z: -s }, true);
