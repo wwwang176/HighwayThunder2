@@ -148,6 +148,22 @@ def prism(name, outline, inner, outer, mats=("glass", "trim", "trim")):
     return mesh_object(name, verts, faces, names, fm)
 
 
+def arc_solid(name, x0, x1, yc, zc, ri, ro, a0, a1, n, mat, ro1=None):
+    """A slab bent round an axle along X: between radii ri and ro, from angle a0 to a1 (degrees, 0 = +Y,
+    90 = up). With ro1 its outer radius shrinks to ro1 at x1: a chamfer."""
+    verts, faces = [], []
+    for k in range(n + 1):
+        a = math.radians(a0 + (a1 - a0) * k / n)
+        c, s = math.cos(a), math.sin(a)
+        for x, r in ((x0, ri), (x0, ro), (x1, ro if ro1 is None else ro1), (x1, ri)):
+            verts.append((x, yc + r * c, zc + r * s))
+    for k in range(n):
+        a, b = 4 * k, 4 * (k + 1)
+        faces += [(a + i, a + (i + 1) % 4, b + (i + 1) % 4, b + i) for i in range(4)]
+    faces += [(0, 1, 2, 3), (4 * n + 3, 4 * n + 2, 4 * n + 1, 4 * n)]
+    return mesh_object(name, verts, faces, [mat])
+
+
 def join(objs, name):
     bpy.ops.object.select_all(action="DESELECT")
     for o in objs:
@@ -188,42 +204,25 @@ def cut(target, cutters):
 # ---------------------------------------------------------------- the shape
 
 def shape_rings():
-    """The stations' half cross-sections: the top at fixed x, then the side at fixed heights, then the
-    bottom centre - the same point on the same feature (roof edge, belt, shoulder, sill) at every
-    station, so they run as straight lines down the car. Inside the wheel arches the side comes from the
-    stations either side; a height a station doesn't reach (above its top, below its bottom) gets a point
-    spread between its neighbours, so every ring has the same points in the same order."""
-    tx, sz, dz = SHAPE["top_x"], SHAPE["side_z"], SHAPE["low_dz"]
+    """The stations' half cross-sections: the top at fixed x, then the side at heights spread evenly from
+    under the top's edge to the sill, then the sill above the bottom, then the bottom centre - the same
+    point on the same feature (roof edge, belt, shoulder, sill) at every station, so they run as lines
+    down the car. Inside the wheel arches the side comes from the stations either side."""
+    tx = SHAPE["top_x"]
     st = SHAPE["stations"]
     ys = [s["y"] for s in st]
-    side = [list(s["side"]) + list(s["low"]) for s in st]  # the fixed heights, then the sill's (above the bottom)
-    level = lambda s, j: sz[j] if j < len(sz) else s["bottom"] + dz[j - len(sz)]  # noqa: E731
+    # The side: evenly from just under the top's edge down to the sill, then the sill above the bottom.
+    side = [[tuple(p) for p in s["side"] + s["low"]] for s in st]
     for wy in (WHEEL_YF, WHEEL_YR):
         inside = [i for i, y in enumerate(ys) if abs(y - wy) < ARCH_R + 0.02]
         a, b = inside[0] - 1, inside[-1] + 1
         for i in inside:
             t = (ys[i] - ys[a]) / (ys[b] - ys[a])
             for j in range(len(side[i])):
-                if level(st[i], j) < WHEEL_Z + ARCH_R + 0.12 and side[a][j] is not None and side[b][j] is not None:
-                    side[i][j] = side[a][j] + (side[b][j] - side[a][j]) * t
-    rings = []
-    for s, sd in zip(st, side):
-        top = list(zip(tx, s["top"]))
-        zt, zb = top[-1][1], s["bottom"]
-        zs = [level(s, j) for j in range(len(sd))]
-        sill = zb + dz[0]  # the sill's top level: a fixed height not above it is out of order here
-        ok = [j for j in range(len(sd)) if sd[j] is not None and zs[j] < zt - 0.015 and (j >= len(sz) or zs[j] > sill + 0.02)]
-        pts = [None] * len(sd)
-        for j in ok:
-            pts[j] = (sd[j], zs[j])
-        # A height this station doesn't have (above its top at the nose and tail, below its sill):
-        # spread between the good points either side, so the ring keeps its points and their order.
-        anchors = [(-1, top[-1])] + [(j, pts[j]) for j in ok]
-        for (ja, pa), (jb, pb) in zip(anchors, anchors[1:]):
-            for j in range(ja + 1, jb):
-                t = (j - ja) / (jb - ja)
-                pts[j] = (pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t)
-        rings.append(top + pts + [(0.0, zb)])
+                if side[i][j][1] < WHEEL_Z + ARCH_R + 0.12:
+                    pa, pb = side[a][j], side[b][j]
+                    side[i][j] = (pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t)
+    rings = [list(zip(tx, s["top"])) + sd + [(0.0, s["bottom"])] for s, sd in zip(st, side)]
     return ys, rings, len(tx)
 
 
@@ -306,11 +305,19 @@ def build_shell():
     bm.to_mesh(shell.data)
     bm.free()
 
+    # A flared lip round each arch, sloping out of the body (the arch cut below trims its inside).
+    lips = []
+    for wy in (WHEEL_YR, WHEEL_YF):
+        out = side_x(wy, WHEEL_Z + ARCH_R) + 0.035
+        for s in (-1, 1):
+            lips.append(arc_solid("lip", s * 0.70, s * out, wy, WHEEL_Z, 0.28, 0.44, -8, 188, 10, "paint", ARCH_R + 0.04))
+    union(shell, lips)
+
     # Wheel arches, cut in from each side; dark inside.
     arches = []
     for wy in (WHEEL_YR, WHEEL_YF):
         for s in (-1, 1):
-            bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=ARCH_R, depth=1.1, location=(s * 1.05, wy, WHEEL_Z), rotation=(0, math.pi / 2, 0))
+            bpy.ops.mesh.primitive_cylinder_add(vertices=20, radius=ARCH_R, depth=1.1, location=(s * 1.05, wy, WHEEL_Z), rotation=(0, math.pi / 2, 0))
             c = bpy.context.active_object
             c.data.materials.append(MAT["trim"])
             arches.append(c)
@@ -353,7 +360,7 @@ def build_scoop():
     """A long bulge growing out of the hood and rising toward its dark mouth at the front; its sides slope
     down into the hood and the stripes run on over it."""
     y0, y1 = 0.95, 1.80
-    n = 8
+    n = 5
     seg = ["paint", "stripe", "stripe", "stripe", "paint"]
     verts, faces, fm = [], [], []
     names = ["paint", "stripe", "trim"]
@@ -447,8 +454,8 @@ def build_lights():
     for name, s in (("head_L", -1), ("head_R", 1)):
         parts = []
         for k, x in enumerate((s * 0.47, s * 0.68)):
-            parts.append(disc(f"{name}{k}", x, floor + 0.015, zc, 0.082, 0.04, "head", 20))
-            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.07, zc, 0.082 + 0.012, 0.10, "trim", 20))
+            parts.append(disc(f"{name}{k}", x, floor + 0.015, zc, 0.082, 0.04, "head", 14))
+            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.07, zc, 0.082 + 0.012, 0.10, "trim", 14))
         lamps.append(join(parts, name))
     floor = NOSE - 0.04
     for name, s in (("ind_FL", -1), ("ind_FR", 1)):  # fog lamps at the intake's ends
