@@ -12,6 +12,8 @@ export interface SelfState {
   yawRate: number;
   /** Top speed the car is limited to (m/s); the network knows its own limit. */
   speedCap: number;
+  /** Where the steering is now (-1..1, PlayerCar.wheel). */
+  wheel?: number;
 }
 
 /** A vehicle (or wreck) on our carriageway as an axis-aligned box in road coordinates. */

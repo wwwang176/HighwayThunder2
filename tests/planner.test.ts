@@ -5,7 +5,7 @@ import { KMH } from '../src/config';
 import { laneAt, laneCenter } from '../src/road/coords';
 
 // The rules, on the 0.5 s grid they were written for (the panel can switch the game to 0.25 s).
-beforeAll(() => Object.assign(PLANNER, { step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }));
+beforeAll(() => Object.assign(PLANNER, { step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.1 }));
 
 const car = (s: number, lane: number, kmh: number, length = 4.5, width = 1.85): TrafficBox => ({
   s,
@@ -133,6 +133,15 @@ describe('plan', () => {
     expect(p.points[1].v).toBeLessThan(p.points[0].v);
   });
 
+  it('a car hugging its side - inside the side room, or already rubbing it - still leaves a full plan', () => {
+    for (const gap of [-0.05, 0.05, 0.12]) {
+      const e = { ...ego(180), vD: 0.5 }; // drifting toward it a little
+      const hug = { ...car(-3, 2, 182), dMin: e.d + 0.93 + gap, dMax: e.d + 0.93 + gap + 1.86 };
+      const p = plan(e, [hug]);
+      expect(p.points.length).toBe(Math.round(PLANNER.horizon / PLANNER.step) + 1);
+    }
+  });
+
   it('boxed in halfway between lanes: heads for a lane centre, not frozen on the line', () => {
     const boxes = [car(3, 1, 0), car(3, 2, 0), car(3, 0, 0), car(3, 3, 0)];
     const p = plan({ ...ego(150), d: laneCenter(1) + 1.1 }, boxes);
@@ -216,7 +225,7 @@ describe('plan', () => {
     for (let k = 1; k < pts.length; k++) {
       const level = Math.abs(truck.s + truck.v * pts[k].t - pts[k].s) < 2.2 + truck.length / 2;
       const cameRight = pts[k].d > pts[k - 1].d + 0.01 || (k > 1 && pts[k - 1].d > pts[k - 2].d + 0.01);
-      if (level && cameRight) expect(truck.dMin - (pts[k].d + 0.93)).toBeGreaterThan(PLANNER.swingMargin / 2);
+      if (level && cameRight) expect(truck.dMin - (pts[k].d + 0.93)).toBeGreaterThan(PLANNER.swingMargin / 4 /* half the swing room per cell (0.05 m) */);
     }
   });
 

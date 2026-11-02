@@ -1,7 +1,8 @@
 import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { Driver } from './driver';
-import { trackSteer } from './laneController';
+import type { Brain } from './brain';
+import { baseSteer, netSteer, trackerFrom } from './netTracker';
 import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
@@ -38,7 +39,11 @@ const STOP_GAP = 1.5;
  * Mutable: the tuning panel and benchmarks change it. `emergencyFrom`: m/s² of
  * braking it takes before the brake steps in (tailgate, brake late and hard).
  */
-export const DRIVER_TUNING = { emergencyFrom: 9.5 };
+export const DRIVER_TUNING = {
+  emergencyFrom: 9.5,
+  /** Steer with the car type's trained network (PlannerDriver.tracker) where it has one; off: the plain tracker. */
+  netTracker: false,
+};
 /** m/s sideways that counts as getting out of the way. */
 const SWERVING = 0.5;
 
@@ -108,6 +113,10 @@ export class PlannerDriver implements Driver {
   private clock = 0;
   /** The car's full-throttle acceleration (CarSpec.ai.accel). */
   accel: AccelTable = STREET_RACER.ai.accel;
+  /** The car's cornering grip (CarSpec.ai.latAccel): how hard its plans may turn (PLANNER.latGrip). */
+  latAccel: AccelTable = STREET_RACER.ai.latAccel;
+  /** The car type's trained steering network (CarSpec.ai.tracker), used with DRIVER_TUNING.netTracker. */
+  tracker: Brain | null = trackerFrom(STREET_RACER.ai.tracker);
   /** Engine boost on top (the rivals' rubber band): the plan and the pedals count on it. */
   accelScale = 1;
   /** Answers to requests made up to this clock time are thrown away (the car was moved since). */
@@ -137,7 +146,7 @@ export class PlannerDriver implements Driver {
     if (!this.plan || this.planAge >= REPLAN_EVERY) {
       const previous = this.plan && { plan: this.plan, age: this.planAge };
       const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
-      const ego = { s: self.s, d: self.d, v: self.vLong, speedCap: self.speedCap, vD, accel: this.accelTable() };
+      const ego = { s: self.s, d: self.d, v: self.vLong, speedCap: self.speedCap, vD, accel: this.accelTable(), latAccel: this.latAccel };
       if (!this.source) this.adopt(plan(ego, traffic, previous), this.clock);
       else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);
     }
@@ -149,7 +158,7 @@ export class PlannerDriver implements Driver {
     // Aims trackerLead s ahead on the plan (shorter than the lane controller's preview: that one leads on purpose;
     // here it ran the car 0.7 m ahead of the plan's sideways moves, into what the plan was still waiting to clear).
     const aim = planAt(this.plan, age + PLANNER.trackerLead);
-    const steer = trackSteer(aim.d, aim.dRate, self.d, self.yaw, self.vLong, self.vLat, p);
+    const steer = DRIVER_TUNING.netTracker && this.tracker ? netSteer(this.tracker, this.plan, age, self, p) : baseSteer(this.plan, age, self, p);
     const pedals = planPedals(this.plan, age, self.vLong, this.accelTable());
     // Sideways rate the plan has now, or (`steerClear`) where the steering already aims, if more: it is on its way out.
     const now = planAt(this.plan, age).dRate;

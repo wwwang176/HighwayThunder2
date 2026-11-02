@@ -24,4 +24,8 @@ export interface CarPerformance {
   accel: [kmh: number, accel: number][];
   /** Full-brake deceleration (m/s²), the lowest measured. */
   brake: number;
+  /** Sideways acceleration (m/s²) it holds at full steering, at speeds (km/h), ascending. */
+  latAccel: [kmh: number, accel: number][];
+  /** Weights of its trained steering network (src/ai/netTracker.ts, training/tracker.train.ts); none: the plain tracker. */
+  tracker?: number[];
 }

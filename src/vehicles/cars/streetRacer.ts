@@ -1,4 +1,5 @@
 import type { CarSpec } from './types';
+import { STREET_RACER_TRACKER } from './streetRacerTracker';
 
 /** The street racer: the player's car since the start (engine 1.5x, see git log). */
 export const STREET_RACER: CarSpec = {
@@ -66,5 +67,16 @@ export const STREET_RACER: CarSpec = {
       [300, 1.2],
     ],
     brake: 11.2,
+    // Steady full-lock cornering (open ground, aero grip as of ead083d).
+    latAccel: [
+      [0, 10.9],
+      [50, 10.9],
+      [100, 13.5],
+      [150, 17.7],
+      [200, 20.5],
+      [250, 22.2],
+      [300, 23.8],
+    ],
+    tracker: STREET_RACER_TRACKER,
   },
 };

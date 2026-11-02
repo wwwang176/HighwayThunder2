@@ -194,6 +194,11 @@ export class PlayerCar {
     return -this.body.angvel().y;
   }
 
+  /** Where the steering is now (-1..1): the input after its rise / return ramp. */
+  get wheel(): number {
+    return this.steer;
+  }
+
   /** Strongest tyre slide this step (m/s of slip), for sound. */
   get maxSlip(): number {
     return this.chassis.maxSlip;

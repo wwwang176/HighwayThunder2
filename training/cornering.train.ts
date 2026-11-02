@@ -1,6 +1,6 @@
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PhysicsWorld } from '../src/physics/physicsWorld';
+import { openGround } from './openGround';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { STREET_RACER } from '../src/vehicles/cars';
 import { KMH, PHYSICS_DT } from '../src/config';
@@ -143,21 +143,6 @@ it('maneuvers', async () => {
   }
   process.stdout.write(out.join('\n') + '\n');
 });
-
-/**
- * A physics world with the road's ground but no guardrails: turning hard for a second or more
- * at speed carries the car 10+ m sideways, into the rail - and over it (that is a crash, not
- * the car rolling over in a turn).
- */
-function openGround(): PhysicsWorld {
-  const physics = PhysicsWorld.createSync();
-  const rails: RAPIER.Collider[] = [];
-  physics.world.forEachCollider((c) => {
-    if (!c.parent() && c.halfExtents().x < 50) rails.push(c); // the ground is 160 m wide
-  });
-  for (const c of rails) physics.world.removeCollider(c, false);
-  return physics;
-}
 
 /**
  * What a tap of the key leaves behind: steer for TAP s at speed, then hands off. The body's roll

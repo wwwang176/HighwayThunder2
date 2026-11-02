@@ -68,7 +68,7 @@ export const PLANNER = {
    * after the move ends (it swings a little past): with `sideMargin`, the
    * measured p95 tracking error while moving sideways (0.45 m).
    */
-  swingMargin: 0.1, // per cell a step sideways (0.5 s grid: 0.05)
+  swingMargin: 0.1, // per SWING_PER (3.75 m/s) sideways: a quarter lane a step on the 0.25 s grid (0.5 s grid: 0.1, as 0.05 per its cell)
   /** Hardest braking it plans with, and assumes for the room to slow down to a car ahead (measured: 10.8-14). */
   hardBrake: 11, // m/s² (10: the benchmark was ~3 km/h slower)
   softBrake: 3,
@@ -87,6 +87,17 @@ export const PLANNER = {
   maxLateral: 1,
   /** Most change in the sideways move from one step to the next (cells per step), with maxLateral > 1: a swing one way, then hard the other. */
   maxLateralChange: 2,
+  /** Lateral positions per lane width (4: quarter lanes). Finer cells tell slower sideways speeds and gentler changes apart. */
+  cellsPerLane: 4,
+  /**
+   * Sideways acceleration the plan may ask for, as a fraction of what the car
+   * holds at full steering at that speed (PlanEgo.latAccel, measured on the
+   * car): the change in sideways move from one step to the next (and from the
+   * car's own sideways speed into the first) is limited by it instead of by
+   * `maxLateralChange` - plans the car can follow, whatever its sideways speed.
+   * 0: off.
+   */
+  latGrip: 0,
   /**
    * Nodes kept per step, the most promising (progress so far plus the value of
    * the speed): with sideways speeds in the state the lattice grows several
@@ -132,37 +143,60 @@ const HALF_LENGTH = 2.2;
 const HALF_WIDTH = 0.93;
 /** A car merging into the held lane this close (m, beyond touching) waits for it in the game. */
 const MERGE_YIELD = 5;
-const CELL = LANE_WIDTH / 4;
 /** m around a step's positions beyond which nothing can touch: half our length, margins and a closing speed's worth. */
 const NEAR_MARGIN = 40;
 /** m off a lateral position that still counts as on it (the car is never exactly on a cell). */
 const ON_CELL = 0.3;
 
-/** Lateral positions: quarter lanes across the lanes (the car's body on them), or out to the shoulders too. */
+/** Lateral positions: `perLane` cells a lane across the lanes (the car's body on them), or out to the shoulders too. */
 class Grid {
+  readonly cell: number; // m
   readonly edge: number; // cells beyond the outer lane centres
   readonly first: number;
   readonly cells: number;
-  constructor(shoulders: boolean) {
+  constructor(
+    shoulders: boolean,
+    readonly perLane: number,
+  ) {
+    this.cell = LANE_WIDTH / perLane;
     const room = shoulders ? RAIL_D - 0.3 : ROAD_HALF_WIDTH;
-    this.edge = Math.floor((room - HALF_WIDTH - laneCenter(LANE_COUNT - 1)) / CELL);
-    this.first = laneCenter(0) - this.edge * CELL;
-    this.cells = 4 * (LANE_COUNT - 1) + 1 + 2 * this.edge;
+    this.edge = Math.floor((room - HALF_WIDTH - laneCenter(LANE_COUNT - 1)) / this.cell);
+    this.first = laneCenter(0) - this.edge * this.cell;
+    this.cells = perLane * (LANE_COUNT - 1) + 1 + 2 * this.edge;
   }
   d(c: number): number {
-    return this.first + c * CELL;
+    return this.first + c * this.cell;
   }
   nearest(d: number): number {
-    return Math.max(0, Math.min(this.cells - 1, Math.round((d - this.first) / CELL)));
+    return Math.max(0, Math.min(this.cells - 1, Math.round((d - this.first) / this.cell)));
   }
   isLaneCentre(c: number): boolean {
     const k = c - this.edge;
-    return k >= 0 && k % 4 === 0 && k / 4 < LANE_COUNT;
+    return k >= 0 && k % this.perLane === 0 && k / this.perLane < LANE_COUNT;
   }
 }
-const GRIDS = { lanes: new Grid(false), shoulders: new Grid(true) };
-/** Sideways moves per step, in cells (quarter lanes), up to PLANNER.maxLateral. */
-const MOVES = [0, -1, 1, -2, 2, -3, 3];
+const grids = new Map<string, Grid>();
+function gridFor(shoulders: boolean, perLane: number): Grid {
+  const k = `${shoulders}/${perLane}`;
+  let g = grids.get(k);
+  if (!g) grids.set(k, (g = new Grid(shoulders, perLane)));
+  return g;
+}
+/** Sideways moves per step, in cells, up to PLANNER.maxLateral. */
+const MOVES = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6];
+/** m/s sideways `swingMargin` is given for (a lane a second). */
+const SWING_PER = 3.75;
+
+/**
+ * Most change in the sideways move from one step to the next (cells per
+ * step) at speed `v`: what `latGrip` of the car's cornering grip gives (at
+ * least 1), or `maxLateralChange` (with maxLateral > 1; otherwise none).
+ */
+export function lateralTurn(v: number, dt: number, cell: number, latAccel?: AccelTable): number {
+  const P = PLANNER;
+  if (P.latGrip > 0) return Math.max(1, Math.floor((P.latGrip * maxAccel(v, latAccel ?? STREET_RACER.ai.latAccel) * dt * dt) / cell + 1e-6));
+  return P.maxLateral > 1 ? P.maxLateralChange : Infinity;
+}
 
 /** A car's full-throttle acceleration (m/s²) at speeds (km/h): CarSpec.ai.accel. */
 export type AccelTable = [kmh: number, accel: number][];
@@ -206,6 +240,8 @@ export interface PlanEgo {
   vD?: number;
   /** Its full-throttle acceleration (default: the street racer's), boosted or not. */
   accel?: AccelTable;
+  /** Its cornering grip, sideways m/s² at full steering (default: the street racer's): PLANNER.latGrip. */
+  latAccel?: AccelTable;
 }
 
 interface Node {
@@ -269,24 +305,36 @@ export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan
  * following / cut-in gaps and nothing wholly behind counts - but the side room
  * (the tracker's real error) and the room to brake down to a car's speed stay:
  * relaxed without them, it slid in 2 cm beside a car and touched it at 17 km/h.
- * Except for what is already inside that side room right now (it cannot be
- * made instantly): that only must not be touched.
+ * Except for what is alongside inside that side room right now (it cannot be
+ * made instantly - the swing room counted too): that only must not come any
+ * closer than it is, so one already rubbing the car's side is no wall either.
+ * (Without that, a car hugging ours left it no plan at all: a brake toward the
+ * lane centre and nothing ahead.)
  */
 function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previous: PreviousPlan | null, relaxed: boolean): Plan | null {
   const P = PLANNER;
   const steps = Math.round(P.horizon / P.step);
   const dt = P.step;
+  const grid = gridFor(P.useShoulders, P.cellsPerLane);
   // Relaxed: what is wholly behind the car does not count (what is alongside still does).
   if (relaxed) boxes = boxes.filter((t) => t.s + t.length / 2 > ego.s - HALF_LENGTH);
   const margin = relaxed ? 0 : 1;
-  const tight = new Set<TrafficBox>();
-  if (relaxed)
+  // Alongside within the side room: how far into the car's own width it reaches now (signed: - on its left).
+  const tight = new Map<TrafficBox, number>();
+  if (relaxed) {
+    const room = P.sideMargin + swingFor(P.maxLateral, grid.cell, dt) + 0.01;
     for (const t of boxes)
-      if (Math.abs(t.s - ego.s) < HALF_LENGTH + t.length / 2 && t.dMax > ego.d - HALF_WIDTH - P.sideMargin && t.dMin < ego.d + HALF_WIDTH + P.sideMargin) tight.add(t);
+      if (Math.abs(t.s - ego.s) < HALF_LENGTH + t.length / 2 && t.dMax > ego.d - HALF_WIDTH - room && t.dMin < ego.d + HALF_WIDTH + room) {
+        const left = t.dMin + t.dMax < 2 * ego.d;
+        const overlap = left ? t.dMax - (ego.d - HALF_WIDTH) : ego.d + HALF_WIDTH - t.dMin;
+        const beside = t.dMax < ego.d || t.dMin > ego.d; // rubbing a side, not dead ahead or behind (that is a crash)
+        const into = beside && overlap > 0 ? overlap + 0.02 : 0;
+        tight.set(t, left ? -into : into);
+      }
+  }
 
   let layer = new Map<number, Node>();
-  const grid = P.useShoulders ? GRIDS.shoulders : GRIDS.lanes;
-  const lat = Math.max(-P.maxLateral, Math.min(P.maxLateral, ((ego.vD ?? 0) * dt) / CELL));
+  const lat = Math.max(-P.maxLateral, Math.min(P.maxLateral, ((ego.vD ?? 0) * dt) / grid.cell));
   const start: Node = { s: ego.s, v: ego.v, cell: grid.nearest(ego.d), d: ego.d, score: 0, parent: null, lat };
   layer.set(key(start.cell, start.v, start.lat), start);
   let deepest: Node[] = [start];
@@ -309,7 +357,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
     });
     // ...and by lateral position: each cell lists the boxes that can touch a car there (with every margin).
     const byCell: TrafficBox[][] = Array.from({ length: grid.cells }, () => []);
-    const reachSide = HALF_WIDTH + P.sideMargin + P.swingMargin * P.maxLateral + ON_CELL;
+    const reachSide = HALF_WIDTH + P.sideMargin + swingFor(P.maxLateral, grid.cell, dt) + ON_CELL;
     for (const t of near) {
       const c0 = Math.max(0, grid.nearest(t.dMin - reachSide) - 1);
       const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + reachSide) + 1);
@@ -318,8 +366,9 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
     for (const n of layer.values()) {
       const top = maxAccel(n.v, ego.accel);
       const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -P.hardBrake];
+      const turn = lateralTurn(n.v, dt, grid.cell, ego.latAccel);
       for (const move of MOVES) {
-        if (Math.abs(move) > P.maxLateral || (P.maxLateral > 1 && Math.abs(move - n.lat) > P.maxLateralChange + 0.01)) continue;
+        if (Math.abs(move) > P.maxLateral || Math.abs(move - n.lat) > turn + 0.01) continue;
         const cell = n.cell + move;
         if (cell < 0 || cell >= grid.cells) continue;
         const d = grid.d(cell);
@@ -377,7 +426,14 @@ export function planAt(p: Plan, t: number): PlanPoint & { dRate: number } {
   return { t, s: a.s + (b.s - a.s) * u, d: a.d + (b.d - a.d) * u, v: a.v + (b.v - a.v) * u, dRate };
 }
 
-const key = (cell: number, v: number, lat: number) => (cell * 1000 + Math.round(v / PLANNER.speedCell)) * 8 + (PLANNER.maxLateral > 1 ? Math.round(lat) + 3 : 0);
+/** A node's state: cell, speed and (when the sideways change is limited) sideways move. */
+const key = (cell: number, v: number, lat: number) =>
+  (cell * 1000 + Math.round(v / PLANNER.speedCell)) * 16 + (PLANNER.maxLateral > 1 || PLANNER.latGrip > 0 ? Math.round(lat) + 7 : 0);
+
+/** m of `swingMargin` room for moving `cells` a step sideways (it is given per SWING_PER m/s). */
+function swingFor(cells: number, cell: number, dt: number): number {
+  return (PLANNER.swingMargin * Math.abs(cells) * cell) / dt / SWING_PER;
+}
 
 /**
  * The part [u0, u1] of a step (0..1) during which a car moving sideways
@@ -403,12 +459,12 @@ export function crossing(d0: number, d1: number, lo: number, hi: number): [numbe
  * it: it may cut in right in front of a car it has just passed, or slip out
  * from behind one just before it gets there - not wait a whole step for that.
  */
-function collides(n: Node, d1: number, v1: number, t0: number, dt: number, boxes: TrafficBox[], move: number, merging: Set<number>, margin: number, grid: Grid, tight: Set<TrafficBox>): boolean {
+function collides(n: Node, d1: number, v1: number, t0: number, dt: number, boxes: TrafficBox[], move: number, merging: Set<number>, margin: number, grid: Grid, tight: Map<TrafficBox, number>): boolean {
   const P = PLANNER;
   const sideways = move !== 0 || Math.abs(n.d - d1) > ON_CELL;
   // Extra room toward where it is heading sideways (this step's move, or the one just ended): it swings past.
   const heading = move !== 0 ? move : n.lat;
-  const swing = P.swingMargin * Math.abs(heading); // more the faster it moves (the tracker swings further past)
+  const swing = swingFor(heading, grid.cell, dt); // more the faster it moves (the tracker swings further past)
   const accel = (v1 - n.v) / dt;
   /** Where the car is a fraction u of the way through the step (before it: at its starting speed). */
   const sAt = (u: number) => n.s + n.v * u * dt + (u > 0 ? 0.5 * accel * (u * dt) ** 2 : 0);
@@ -425,10 +481,12 @@ function collides(n: Node, d1: number, v1: number, t0: number, dt: number, boxes
   for (const t of boxes) for (let j = 0; j < pieces; j++) {
     const along = -HALF_LENGTH + (2 * j + 1) * halfL; // this piece's centre, from ours
     const off = along * slope; // ...and how far it is over sideways
-    const side = tight.has(t) ? 0 : 1; // already inside the side room: only no touching
+    // Already inside the side room: no side room, and no closer than it reaches into ours now (- on our left).
+    const into = tight.get(t);
+    const side = into === undefined ? 1 : 0;
     // Centre positions where this piece is level with it (with the side room).
-    const lo = t.dMin - halfW - off - (P.sideMargin + (heading > 0 ? swing : 0)) * side;
-    const hi = t.dMax + halfW - off + (P.sideMargin + (heading < 0 ? swing : 0)) * side;
+    const lo = t.dMin - halfW - off - (P.sideMargin + (heading > 0 ? swing : 0)) * side + Math.max(0, into ?? 0);
+    const hi = t.dMax + halfW - off + (P.sideMargin + (heading < 0 ? swing : 0)) * side + Math.min(0, into ?? 0);
     const level = P.diagonal ? crossing(n.d, d1, lo, hi) : Math.max(n.d, d1) > lo && Math.min(n.d, d1) < hi ? [0, 1] : null;
     if (!level) continue;
     const [u0, u1] = level;
@@ -460,7 +518,7 @@ function collides(n: Node, d1: number, v1: number, t0: number, dt: number, boxes
         // until the car is clear of it - swerve out at speed instead of braking to its speed first (keeps
         // going sideways or the next step fails).
         const overlap = away > 0 ? t.dMax + P.sideMargin - (d1 + off - halfW) : d1 + off + halfW - (t.dMin - P.sideMargin);
-        keep = Math.min(keep, closing * (Math.max(0, overlap) / ((Math.max(1, Math.abs(move)) * CELL) / dt)));
+        keep = Math.min(keep, closing * (Math.max(0, overlap) / ((Math.max(1, Math.abs(move)) * grid.cell) / dt)));
       }
       return reach + keep + P.gapAhead * margin;
     };

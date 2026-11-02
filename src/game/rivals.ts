@@ -12,6 +12,7 @@ import type { Obstacle } from '../traffic/trafficAI';
 import { CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
 import { Blocker, computeResetSpot } from './reset';
+import { trackerFrom } from '../ai/netTracker';
 
 /**
  * Rival racers' settings (mutable: the tuning panel). Gaps are "rival minus
@@ -146,6 +147,8 @@ export class Rivals {
       const car = new PlayerCar(physics, scene, { spec, entity: { type: 'rival', id: i }, color: RIVAL_COLORS[i % RIVAL_COLORS.length], realLights: false });
       const driver = new PlannerDriver(makeSource());
       driver.accel = spec.ai.accel;
+      driver.latAccel = spec.ai.latAccel;
+      driver.tracker = trackerFrom(spec.ai.tracker);
       const r: Rival = { index: i, car, driver, stuckFor: 0, boost: 0, finishTime: null, resets: 0 };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
       this.list.push(r);

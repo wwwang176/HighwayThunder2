@@ -36,7 +36,7 @@ export interface Driver {
 
 /** The AI car's state as the sensors expect it. */
 export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
-  return { s: car.s, d: car.d, yaw: car.yaw, vLong: car.vLong, vLat: car.vLat, yawRate: car.yawRate, speedCap };
+  return { s: car.s, d: car.d, yaw: car.yaw, vLong: car.vLong, vLat: car.vLat, yawRate: car.yawRate, speedCap, wheel: car.wheel };
 }
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));

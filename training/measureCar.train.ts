@@ -2,6 +2,7 @@ import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { CARS } from '../src/vehicles/cars';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
+import { openGround } from './openGround';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { laneCenter } from '../src/road/coords';
 import { KMH, PHYSICS_DT } from '../src/config';
@@ -53,7 +54,36 @@ it('measure car', async () => {
   }
   physics.free();
 
+  // Cornering grip: full steering at each speed for 1.5 s on open ground; the sideways acceleration
+  // held over the last 0.75 s (how fast the direction of travel turns, times speed).
+  const latAccel: [number, number][] = [];
+  for (const mark of marks.slice(1)) {
+    const ground = openGround();
+    ground.timestep = PHYSICS_DT;
+    const c = new PlayerCar(ground, null, { spec });
+    c.params.maxSpeed = mark * KMH;
+    c.resetTo(0, 1, mark * KMH);
+    const course = () => c.yaw + Math.atan2(c.vLat, Math.max(1, c.vLong));
+    const steps = Math.round(1.5 / PHYSICS_DT);
+    let c0 = 0;
+    let speedSum = 0;
+    let n = 0;
+    for (let i = 0; i < steps; i++) {
+      c.prePhysics({ throttle: 1, brake: 0, steer: 1 }, PHYSICS_DT);
+      ground.step(() => {});
+      c.postPhysics();
+      if (i === Math.round(steps / 2)) c0 = course();
+      if (i > steps / 2) {
+        speedSum += Math.hypot(c.vLong, c.vLat);
+        n++;
+      }
+    }
+    latAccel.push([mark, Math.round((Math.abs(course() - c0) / (n * PHYSICS_DT)) * (speedSum / n) * 10) / 10]);
+    ground.free();
+  }
+
+  const table = (rows: [number, number][]) => rows.map(([k, a]) => `      [${k}, ${a}],`).join('\n');
   process.stdout.write(
-    `${spec.id}: paste into its CarSpec\n  ai: {\n    accel: [\n${accel.map(([k, a]) => `      [${k}, ${a}],`).join('\n')}\n    ],\n    brake: ${brake.toFixed(1)},\n  },\n`,
+    `${spec.id}: paste into its CarSpec\n  ai: {\n    accel: [\n${table(accel)}\n    ],\n    brake: ${brake.toFixed(1)},\n    latAccel: [\n${table(latAccel)}\n    ],\n  },\n`,
   );
 });

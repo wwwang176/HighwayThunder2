@@ -73,7 +73,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
     '細 0.25 秒・衝一半＋多留側距': { step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.15, swingMargin: 0.1 }, // 101.8 s, 25 resets
     '細 0.25 秒・衝一半': { step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, // 102.6 s, 42
     '細 0.25 秒＋猛（很衝）': { step: 0.25, maxLateral: 2, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, // 108.4 s, 153 (old rule: any 15 km/h)
-    '標準 0.5 秒（穩）': { step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, // 101.1 s, 2
+    '標準 0.5 秒（穩）': { step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.1 }, // 101.1 s, 2
   };
   const grid = { choice: Object.keys(grids)[0] };
   a.add(grid, 'choice', Object.keys(grids))
