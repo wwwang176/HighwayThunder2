@@ -166,7 +166,8 @@
       stats: [['icon-accel', '加速', '0–100 4.0 秒', 0.75], ['icon-topspeed', '極速', '245 km/h', 0.6], ['icon-handling', '操控', '2.4 g', 1]] },
   };
   const RIVAL_COLORS = ['#1e88e5', '#ffb300', '#8e24aa', '#00c853', '#00bcd4'];
-  // Five slots; null: that rival removed (0-5 rivals).
+  // The rivals, 0 to MAX_RIVALS of them.
+  const MAX_RIVALS = 5;
   const rivals = ['street-racer', 'muscle-car', 'jdm', 'street-racer', 'muscle-car'];
   const icon = (name, cls = '') => `<span class="icon ${cls}" style="--src:url(ui-assets/${name}.png)"></span>`;
   // What each stat icon means (its label is gone: shown on hover).
@@ -203,18 +204,19 @@
       <span class="edit">✎</span>`;
   }
   function drawModal() {
-    // A slot with a rival (null: removed - an empty slot to add one back).
-    document.getElementById('slots').innerHTML = rivals.map((id, i) => id
-      ? `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="no">${i + 1}</span><button class="remove" data-i="${i}" data-tip="移除對手">✕</button><span class="arrow" data-i="${i}" data-d="-1">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}<div class="name">${CARS[id].name}</div></div><span class="arrow" data-i="${i}" data-d="1">▶</span></div>`
-      : `<button class="slot empty" data-i="${i}" data-tip="加入對手">＋</button>`).join('');
+    // The rivals there are, from the left (number and colour by place), then one + while there is room.
+    document.getElementById('slots').innerHTML =
+      rivals.map((id, i) =>
+        `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="no">${i + 1}</span><button class="remove" data-i="${i}" data-tip="移除對手">✕</button><span class="arrow" data-i="${i}" data-d="-1">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}<div class="name">${CARS[id].name}</div></div><span class="arrow" data-i="${i}" data-d="1">▶</span></div>`).join('') +
+      (rivals.length < MAX_RIVALS ? `<button class="slot empty" data-tip="加入對手">＋</button>` : '');
     const changed = () => { drawModal(); drawRace(); };
     document.querySelectorAll('.slot .arrow').forEach((a) => (a.onclick = () => {
       const i = Number(a.dataset.i);
       rivals[i] = ids[(ids.indexOf(rivals[i]) + Number(a.dataset.d) + ids.length) % ids.length];
       changed();
     }));
-    document.querySelectorAll('.slot .remove').forEach((b) => (b.onclick = () => { rivals[Number(b.dataset.i)] = null; changed(); }));
-    document.querySelectorAll('.slot.empty').forEach((b) => (b.onclick = () => { rivals[Number(b.dataset.i)] = picked; changed(); }));
+    document.querySelectorAll('.slot .remove').forEach((b) => (b.onclick = () => { rivals.splice(Number(b.dataset.i), 1); changed(); }));
+    document.querySelectorAll('.slot.empty').forEach((b) => (b.onclick = () => { rivals.push(picked); changed(); }));
     document.getElementById('difficulty').innerHTML = DIFFICULTY.map((d, i) => `<button class="${i === difficulty ? 'sel' : ''}" data-i="${i}">${d}</button>`).join('');
     // Only the clear night for now: rain and fog are not in the game yet.
     document.getElementById('weather').innerHTML = WEATHER.map(([ic, w], i) =>
@@ -231,9 +233,9 @@
   document.getElementById('done').onclick = close;
   back.onclick = (e) => e.target === back && close();
   addEventListener('keydown', (e) => e.key === 'Escape' && close());
-  // The shortcuts change the rivals there are; removed ones stay removed.
-  document.getElementById('all-random').onclick = () => { for (let i = 0; i < rivals.length; i++) if (rivals[i]) rivals[i] = ids[Math.floor(Math.random() * ids.length)]; drawModal(); drawRace(); };
-  document.getElementById('all-same').onclick = () => { for (let i = 0; i < rivals.length; i++) if (rivals[i]) rivals[i] = picked; drawModal(); drawRace(); };
+  // The shortcuts change the rivals there are (not how many).
+  document.getElementById('all-random').onclick = () => { for (let i = 0; i < rivals.length; i++) rivals[i] = ids[Math.floor(Math.random() * ids.length)]; drawModal(); drawRace(); };
+  document.getElementById('all-same').onclick = () => { rivals.fill(picked); drawModal(); drawRace(); };
   installTooltips();
   if (new URLSearchParams(location.search).has('open')) open();
 
