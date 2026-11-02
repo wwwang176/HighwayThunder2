@@ -28,7 +28,7 @@ import { SkidMarks } from '../world/skidMarks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow } from './gameState';
 import { RaceView, RIVAL_TUNING, Rivals } from './rivals';
-import { knocksOut } from './contact';
+import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
@@ -346,7 +346,7 @@ export class Game {
       const v = r.car.body.linvel();
       this.racerVelBefore[i + 1] = { x: v.x, z: v.z };
     });
-    this.physics.step((a, b) => this.onContact(a, b));
+    this.physics.step((a, b, n) => this.onContact(a, b, n));
     this.player.postPhysics();
     this.trafficWorld.afterPhysics();
     this.rivals.after(dt, view, this.trafficWorld.ourBoxes(this.rivalTraffic), racing);
@@ -390,7 +390,7 @@ export class Game {
     return boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: 1.86, l: 4.4, vx: v.x, vz: v.z });
   }
 
-  private onContact(a: EntityRef, b: EntityRef): void {
+  private onContact(a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null): void {
     const playerHit = a.type === 'player' || b.type === 'player';
     const rival = a.type === 'rival' ? a : b.type === 'rival' ? b : null;
     if (playerHit && rival) {
@@ -410,10 +410,10 @@ export class Game {
     // Only a real hit knocks it out of control; a scrape it drives on from (street racing).
     const racerV = this.racerVelBefore[playerHit ? 0 : (rival?.id ?? -1) + 1];
     const nv = npc.parts[0].body.linvel();
-    const hard = !racerV || knocksOut(racerV, nv);
+    const hard = !racerV || knocksOut(racerV, nv, normal);
     if (hard) this.trafficWorld.wreck(id);
     if (!playerHit) return;
-    const rel = racerV ? Math.hypot(racerV.x - nv.x, racerV.z - nv.z) : 0;
+    const rel = racerV ? closingSpeed(racerV, nv, normal) : 0;
     this.touched.add(id);
     this.prevRelS.delete(id);
     this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));

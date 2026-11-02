@@ -12,6 +12,13 @@ describe('knocksOut', () => {
     expect(knocksOut({ x: 5, z: -40 }, { x: 0, z: -40 })).toBe(true); // 18 km/h sideways
   });
 
+  it('with the contact normal only the speed into each other counts', () => {
+    const side = { x: 1, z: 0 }; // pushing sideways
+    expect(knocksOut({ x: 1, z: -50 }, { x: 0, z: -30 }, side)).toBe(false); // passing 72 km/h faster, brushing at 3.6
+    expect(knocksOut({ x: 5, z: -50 }, { x: 0, z: -30 }, side)).toBe(true); // swiped at 18 km/h
+    expect(knocksOut({ x: 0, z: -50 }, { x: 0, z: -30 }, { x: 0, z: -1 })).toBe(true); // rear-end
+  });
+
   it('the threshold is the tuning setting', () => {
     const before = CONTACT_TUNING.npcWreckSpeed;
     CONTACT_TUNING.npcWreckSpeed = 30 * KMH;

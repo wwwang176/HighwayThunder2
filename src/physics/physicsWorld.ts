@@ -87,13 +87,28 @@ export class PhysicsWorld {
     this.owners.delete(collider.handle);
   }
 
-  step(onContact: (a: EntityRef, b: EntityRef) => void): void {
+  /** `normal`: which way the two pushed on each other (unit, on the ground; sign unspecified), null when unknown. */
+  step(onContact: (a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null) => void): void {
     this.world.step(this.eventQueue);
     this.eventQueue.drainCollisionEvents((h1, h2, started) => {
       if (!started) return;
       const a = this.owners.get(h1);
       const b = this.owners.get(h2);
-      if (a && b) onContact(a, b);
+      if (a && b) onContact(a, b, this.contactNormal(h1, h2));
     });
+  }
+
+  private contactNormal(h1: number, h2: number): { x: number; z: number } | null {
+    const c1 = this.world.getCollider(h1);
+    const c2 = this.world.getCollider(h2);
+    if (!c1 || !c2) return null;
+    let out: { x: number; z: number } | null = null;
+    this.world.contactPair(c1, c2, (m) => {
+      if (out || m.numContacts() === 0) return;
+      const n = m.normal();
+      const len = Math.hypot(n.x, n.z);
+      if (len > 1e-3) out = { x: n.x / len, z: n.z / len };
+    });
+    return out;
   }
 }

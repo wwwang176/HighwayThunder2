@@ -14,8 +14,9 @@ export const FITNESS = {
   crashPenalty: 1000, // a crash costs this many metres
   stallWindow: 10, // s: a car that moves less than stallMinProgress in this long is out
   stallMinProgress: 5, // m
-  // Light contact is allowed (street racing): touching at under this relative speed (m/s)
-  // is not a crash, but each contact costs contactPenalty metres so rubbing does not pay.
+  // Light contact is allowed (street racing): touching at under this closing speed (m/s,
+  // along the way the two meet: end-on or side-on, see `endOn`) is not a crash, but each
+  // contact costs contactPenalty metres so rubbing does not pay. As CONTACT_TUNING.npcWreckSpeed in the game.
   lightContactSpeed: 15 / 3.6,
   contactPenalty: 50,
   // Overlapping the same vehicle longer than this (s) is driving through it: a crash.
@@ -63,6 +64,22 @@ export function carCorners(s: number, d: number, yaw: number, w = CAR_W, l = CAR
       out.push({ s: s + fs * along - fd * side, d: d + fd * along + fs * side });
     }
   return out;
+}
+
+/**
+ * Whether the car (bounding box) meets `t` end-on - its nose or tail into the
+ * other's, overlapping less along the road than across - rather than side-on.
+ * Taken as the contact starts, that is the way the two push on each other.
+ */
+export function endOn(s: number, d: number, yaw: number, t: TrafficBox): boolean {
+  const cs = carCorners(s, d, yaw);
+  const sMin = Math.min(...cs.map((c) => c.s));
+  const sMax = Math.max(...cs.map((c) => c.s));
+  const dMin = Math.min(...cs.map((c) => c.d));
+  const dMax = Math.max(...cs.map((c) => c.d));
+  const along = Math.min(sMax, t.s + t.length / 2) - Math.max(sMin, t.s - t.length / 2);
+  const across = Math.min(dMax, t.dMax) - Math.max(dMin, t.dMin);
+  return along < across;
 }
 
 /** Any corner past the right shoulder, or more than 2 m onto the median grass. */

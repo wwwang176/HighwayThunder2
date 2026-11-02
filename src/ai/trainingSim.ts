@@ -10,7 +10,7 @@ import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
 import { WheelInstances } from '../vehicles/wheelInstances';
 import type { Brain } from './brain';
 import { AiDriver, Driver, selfStateOf } from './driver';
-import { FITNESS, isOffRoad, RunResult, touching } from './fitness';
+import { endOn, FITNESS, isOffRoad, RunResult, touching } from './fitness';
 import { mulberry32 } from './rng';
 import type { TrafficBox } from './sensors';
 import { computeResetSpot } from '../game/reset';
@@ -49,21 +49,29 @@ export function ownLane(d: number, vD: number): number | null {
 }
 
 /**
- * What touching `touched` means for a car moving at (vS, vD) in road
- * coordinates: a crash when any contact is too hard (relative speed over
- * FITNESS.lightContactSpeed) or has lasted longer than FITNESS.maxContactTime
- * (driving through it), otherwise the number of new light contacts. `open`
- * (id → start time) is updated: contacts that ended are dropped.
+ * What touching `touched` means for a car at `car` (road coordinates, moving
+ * at vS, vD): a crash when a contact starts too hard - closing in faster than
+ * FITNESS.lightContactSpeed the way the two meet (end-on: the speed difference
+ * along the road; side-on: only the sideways speed, so sliding past while
+ * brushing a side is a scrape) - or has lasted longer than
+ * FITNESS.maxContactTime (driving through it), otherwise the number of new
+ * light contacts. `open` (id → start time) is updated: contacts that ended are dropped.
  */
-export function judgeContacts(touched: TrafficBox[], vS: number, vD: number, time: number, open: Map<number, number>): 'crash' | number {
+export function judgeContacts(
+  touched: TrafficBox[],
+  car: { s: number; d: number; yaw: number; vS: number; vD: number },
+  time: number,
+  open: Map<number, number>,
+): 'crash' | number {
   let started = 0;
   const now = new Set<number>();
   for (const t of touched) {
-    if (Math.hypot(vS - t.v, vD) > FITNESS.lightContactSpeed) return 'crash';
     const id = t.id ?? -1;
     now.add(id);
     const since = open.get(id);
     if (since === undefined) {
+      const closing = endOn(car.s, car.d, car.yaw, t) ? car.vS - t.v : car.vD;
+      if (Math.abs(closing) > FITNESS.lightContactSpeed) return 'crash';
       open.set(id, time);
       started++;
     } else if (time - since > FITNESS.maxContactTime) return 'crash';
@@ -228,7 +236,7 @@ export class TrainingSim {
       this.retire(g);
       return;
     }
-    const contact = isOffRoad(c.s, c.d, c.yaw) ? 'crash' : judgeContacts(touching(c.s, c.d, c.yaw, this.boxes, own, this.touched), vS, vD, this.time, g.touching);
+    const contact = isOffRoad(c.s, c.d, c.yaw) ? 'crash' : judgeContacts(touching(c.s, c.d, c.yaw, this.boxes, own, this.touched), { s: c.s, d: c.d, yaw: c.yaw, vS, vD }, this.time, g.touching);
     if (contact === 'crash' && this.resetOnCrash !== null) {
       // As a rival in the game: put back on the road nearby at a reset speed, and race on.
       const spot = computeResetSpot(c.s, c.d, this.boxes.filter((b) => !b.phantom), this.resetOnCrash);
