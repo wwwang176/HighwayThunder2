@@ -33,8 +33,12 @@ export const RIVAL_TUNING = {
   waitSpeed: 0.9,
   /** m/s: it never waits slower than this (a car parked on the road is a wreck waiting to happen). */
   waitMinSpeed: 60 * KMH,
-  /** Further behind than this it is put back into the race near the player. */
-  teleportBehind: 400,
+  /** Further behind than this it is put back into the race `placeBehind` m behind the player, at the player's speed. */
+  teleportBehind: 250,
+  placeBehind: 30,
+  /** Further ahead than this (past the rubber band's waiting) it is brought back `placeAhead` m ahead of the player, at the player's speed. */
+  teleportAhead: 400,
+  placeAhead: 120,
   /** Slower than this (m/s) for `stuckTime` s: stuck, put back on the road. */
   stuckSpeed: 5 * KMH,
   stuckTime: 2,
@@ -70,16 +74,31 @@ export function placeOf(playerS: number, playerFinish: number | null, rivals: { 
   return ahead + 1;
 }
 
-export type ResetReason = 'stuck' | 'spun' | 'off-road' | 'far-behind';
+export type ResetReason = 'stuck' | 'spun' | 'off-road' | 'far-behind' | 'far-ahead';
 
 /** Whether a rival has to be put back into the race, and why (null: it is racing). */
 export function needsReset(r: { s: number; d: number; yaw: number; speed: number; stuckFor: number; playerS: number }): ResetReason | null {
   const T = RIVAL_TUNING;
   if (r.playerS - r.s > T.teleportBehind) return 'far-behind';
+  if (r.s - r.playerS > T.teleportAhead) return 'far-ahead';
   if (Math.abs(r.d) > RAIL_D) return 'off-road';
   if (Math.abs(r.yaw) > T.spunYaw) return 'spun';
   if (r.speed < T.stuckSpeed && r.stuckFor > T.stuckTime) return 'stuck';
   return null;
+}
+
+/**
+ * Where along the road (s) and how fast a rival is put back: far behind or
+ * far ahead, close to the player (behind it / ahead of it) at the player's
+ * speed; stuck, spun or off the road, where it was at a set speed. The lane
+ * (and, with traffic in the way, a little further back) is the reset spot's.
+ */
+export function putBackAt(why: ResetReason, rivalS: number, player: { s: number; speed: number }): { s: number; speed: number } {
+  const T = RIVAL_TUNING;
+  const speed = Math.max(0, player.speed);
+  if (why === 'far-behind') return { s: player.s - T.placeBehind, speed };
+  if (why === 'far-ahead') return { s: player.s + T.placeAhead, speed };
+  return { s: rivalS, speed: RESET_SPEED_RIVAL };
 }
 
 /** Rival colours: none the player's red, none of the traffic's. */
@@ -97,12 +116,10 @@ const RIVAL_BOX_ID = -1_000_000;
 export const PLAYER_BOX_ID = -1;
 /** s: how fast the rubber band follows the gap (no flicker when cars trade places). */
 const BAND_SMOOTH = 1;
-/** Speed (m/s) it is put back on the road at (at least the player's when it was far behind). */
+/** Speed (m/s) it is put back on the road at when stuck, spun or off the road. */
 const RESET_SPEED_RIVAL = 60 * KMH;
 /** Top speed (m/s) once past the finish: it rolls out. */
 const FINISHED_SPEED = 40 * KMH;
-/** m behind the player a rival that fell far behind is put back. */
-const TELEPORT_BEHIND_PLAYER = 60;
 const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 
 export interface Rival {
@@ -277,13 +294,11 @@ export class Rivals {
 
   private putBack(r: Rival, why: ResetReason, view: RaceView, blockers: Blocker[]): void {
     const p = view.player;
-    const farBehind = why === 'far-behind';
-    const speed = farBehind ? Math.max(RESET_SPEED_RIVAL, p.speed) : RESET_SPEED_RIVAL;
+    const at = putBackAt(why, r.car.s, p);
     const all: Blocker[] = [...blockers, { ...p.footprint(), v: Math.max(0, p.speed) }];
     for (const o of this.list) if (o !== r) all.push({ ...o.car.footprint(), v: Math.max(0, o.car.speed) });
-    // Far behind: back in on the player's tail. Otherwise where it was.
-    const spot = computeResetSpot(farBehind ? p.s - TELEPORT_BEHIND_PLAYER : r.car.s, r.car.d, all, speed);
-    r.car.resetTo(spot.s, spot.lane, speed);
+    const spot = computeResetSpot(at.s, r.car.d, all, at.speed);
+    r.car.resetTo(spot.s, spot.lane, at.speed);
     r.driver.reset();
     r.stuckFor = 0;
     r.resets++;

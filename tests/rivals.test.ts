@@ -1,6 +1,6 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { needsReset, placeOf, Rivals, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
+import { needsReset, placeOf, putBackAt, Rivals, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
 import { KMH } from '../src/config';
 import { laneCenter } from '../src/road/coords';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
@@ -64,6 +64,32 @@ describe('needsReset', () => {
     expect(needsReset({ ...ok, yaw: 1.2 })).toBe('spun');
     expect(needsReset({ ...ok, d: 12 })).toBe('off-road');
     expect(needsReset({ ...ok, playerS: ok.s + T.teleportBehind + 1 })).toBe('far-behind');
+  });
+
+  it('hopelessly far ahead: brought back to wait for the player', () => {
+    expect(needsReset({ ...ok, playerS: ok.s - T.teleportAhead - 1 })).toBe('far-ahead');
+    expect(needsReset({ ...ok, playerS: ok.s - T.teleportAhead + 1 })).toBe(null);
+  });
+});
+
+describe('putBackAt', () => {
+  const player = { s: 2000, speed: 55 };
+
+  it('far behind or far ahead: near the player (behind / ahead of it), at the player\'s speed', () => {
+    expect(putBackAt('far-behind', 1500, player)).toEqual({ s: 2000 - T.placeBehind, speed: 55 });
+    expect(putBackAt('far-ahead', 2600, player)).toEqual({ s: 2000 + T.placeAhead, speed: 55 });
+    expect(putBackAt('far-ahead', 2600, { s: 2000, speed: -1 }).speed).toBe(0); // backing up: not backwards
+  });
+
+  it('stuck, spun or off the road: where it was, at a set speed', () => {
+    const at = putBackAt('spun', 1990, player);
+    expect(at.s).toBe(1990);
+    expect(at.speed).toBeCloseTo(60 / 3.6);
+  });
+
+  it('brought back closer than it starts being brought back from', () => {
+    expect(T.placeBehind).toBeLessThan(T.teleportBehind);
+    expect(T.placeAhead).toBeLessThan(T.waitFrom); // ahead, it races again before it waits
   });
 });
 

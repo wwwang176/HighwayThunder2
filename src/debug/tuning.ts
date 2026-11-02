@@ -104,6 +104,9 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   r.add(RIVAL_TUNING, 'waitFull', 100, 1000, 10).name('領先幾 m 等到最慢');
   r.add(RIVAL_TUNING, 'waitSpeed', 0.5, 1, 0.05).name('等待時速度 × 玩家車速');
   r.add(RIVAL_TUNING, 'teleportBehind', 100, 2000, 50).name('落後幾 m 拉回玩家附近');
+  r.add(RIVAL_TUNING, 'placeBehind', 10, 200, 5).name('拉回到玩家後方幾 m（玩家車速）');
+  r.add(RIVAL_TUNING, 'teleportAhead', 200, 2000, 50).name('領先幾 m 拉回玩家前方');
+  r.add(RIVAL_TUNING, 'placeAhead', 30, 300, 10).name('拉回到玩家前方幾 m（玩家車速）');
   const k = gui.addFolder('碰撞');
   k.add(CONTACT_TUNING, 'npcWreckSpeed', 0, 30, 0.5).name('撞進 NPC 多快才失控（m/s，只算撞擊方向，側擦不算超車速度）');
   gui.hide();
