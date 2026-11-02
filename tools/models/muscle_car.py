@@ -39,8 +39,8 @@ L = 4.4
 NOSE = L / 2
 TAIL = -L / 2
 WHEEL_R = 0.30
-WHEEL_W = 0.36
-WHEEL_X = 0.83  # the tyres' outer faces flush with the fender bulges
+WHEEL_W = 0.40
+WHEEL_X = 0.86  # the tyres' outer faces flush with the fender bulges
 WHEEL_YF = NOSE - 0.275 * L  # 0.99
 WHEEL_YR = NOSE - 0.795 * L  # -1.30
 WHEEL_Z = WHEEL_R  # centre height above the ground
@@ -75,15 +75,16 @@ MAT = {}
 
 def make_materials():
     MAT["paint"] = material("paint", srgb(0xF2780C), 0.3, 0.3)
-    MAT["stripe"] = material("stripe", srgb(0x141414), 0.4, 0.2)
-    MAT["glass"] = material("glass", srgb(0x1A2028), 0.1, 0.6)
+    MAT["stripe"] = material("stripe", srgb(0x141414), 0.6)
+    MAT["glass"] = material("glass", srgb(0x161A20), 0.3, 0.2)
     MAT["trim"] = material("trim", srgb(0x1C1C1C), 0.7)
     MAT["head"] = material("lamp_head", srgb(0xFFF6E0), 0.2, 0, 4)
-    MAT["tail"] = material("lamp_tail", srgb(0xD01010), 0.2, 0, 2)
+    MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 3)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
-    MAT["lens"] = material("lens", srgb(0x7A4A12), 0.25, 0.1)  # an indicator's glass while it is off
+    MAT["lens"] = material("lens", srgb(0x2E2A24), 0.25, 0.1)  # an indicator's smoked glass while it is off
     MAT["tyre"] = material("tyre", srgb(0x0B0B0B), 0.95)
-    MAT["rim"] = material("rim", srgb(0x26262A), 0.35, 0.7)
+    MAT["rim"] = material("rim", srgb(0x1E1E22), 0.4, 0.6)
+    MAT["spoke"] = material("spoke", srgb(0x4A4A52), 0.35, 0.8)  # gunmetal, standing out of the dark dish
 
 
 # ---------------------------------------------------------------- helpers
@@ -201,27 +202,27 @@ def cut(target, cutters):
 # pk the fender crests standing up either side of the hood.
 # dome: the hood's power bulge down the middle (the stripes run over it).
 BODY_KEYS = [
-    (TAIL, dict(w=0.80, f=0.0, zb=0.33, ztop=1.005, crown=0.01)),  # the ducktail's lip; the tail tapers in
-    (-2.10, dict(w=0.875, f=0.02, zb=0.27, ztop=0.99, crown=0.015)),
-    (-1.95, dict(w=0.915, f=0.045, zb=0.23, ztop=0.955, crown=0.02)),  # the deck, kicking up into the ducktail
-    (-1.65, dict(w=0.94, f=0.08, zb=0.22, ztop=0.95, crown=0.02)),
-    (WHEEL_YR, dict(w=0.95, f=0.10, zb=0.22, ztop=0.95, crown=0.02)),  # the haunches, wider than the cabin
-    (-0.95, dict(w=0.935, f=0.05, zb=0.22, ztop=0.935, crown=0.02)),
-    (-0.50, dict(w=0.915, f=0.0, zb=0.22, ztop=0.865, crown=0.02)),  # the beltline climbs to the haunches
-    (0.20, dict(w=0.905, f=0.0, zb=0.22, ztop=0.845, crown=0.02)),  # the waist, at the door
-    (0.70, dict(w=0.915, f=0.02, zb=0.22, ztop=0.85, crown=0.03, pk=0.03, dome=0.01)),  # cowl
-    (WHEEL_YF, dict(w=0.925, f=0.085, zb=0.22, ztop=0.85, crown=0.04, pk=0.06, dome=0.035)),  # front fenders over the wheels
-    (1.55, dict(w=0.92, f=0.045, zb=0.23, ztop=0.84, crown=0.035, pk=0.06, dome=0.035)),
-    (1.95, dict(w=0.90, f=0.0, zb=0.26, ztop=0.82, crown=0.025, pk=0.03, dome=0.02)),
-    (NOSE, dict(w=0.86, f=0.0, zb=0.30, ztop=0.80, crown=0.01, pk=0.0, dome=0.005)),
+    (TAIL, dict(w=0.74, f=0.0, zb=0.31, ztop=1.005, crown=0.01)),  # the ducktail's lip; the tail tapers in
+    (-2.10, dict(w=0.84, f=0.03, zb=0.25, ztop=0.99, crown=0.015)),
+    (-1.95, dict(w=0.90, f=0.07, zb=0.205, ztop=0.955, crown=0.02)),  # the deck, kicking up into the ducktail
+    (-1.65, dict(w=0.93, f=0.11, zb=0.19, ztop=0.95, crown=0.02)),
+    (WHEEL_YR, dict(w=0.94, f=0.135, zb=0.19, ztop=0.95, crown=0.02)),  # the haunches, much wider than the cabin
+    (-0.95, dict(w=0.925, f=0.07, zb=0.19, ztop=0.935, crown=0.02)),
+    (-0.50, dict(w=0.90, f=0.0, zb=0.19, ztop=0.865, crown=0.02)),  # the beltline climbs to the haunches
+    (0.20, dict(w=0.885, f=0.0, zb=0.19, ztop=0.845, crown=0.02)),  # the waist, pinched in at the door; sills low
+    (0.70, dict(w=0.905, f=0.03, zb=0.19, ztop=0.85, crown=0.01, pk=0.04, dome=0.015)),  # cowl
+    (WHEEL_YF, dict(w=0.92, f=0.11, zb=0.19, ztop=0.845, crown=0.01, pk=0.08, dome=0.04)),  # front fenders over the wheels
+    (1.55, dict(w=0.915, f=0.06, zb=0.20, ztop=0.835, crown=0.01, pk=0.08, dome=0.04)),
+    (1.95, dict(w=0.90, f=0.0, zb=0.25, ztop=0.815, crown=0.01, pk=0.05, dome=0.025)),
+    (NOSE, dict(w=0.86, f=0.0, zb=0.28, ztop=0.80, crown=0.005, pk=0.03, dome=0.015)),  # one clean leading edge
 ]
 NOSE_TOP = 0.80
-LEAN = 0.18  # the shark nose: the nose face leans forward 0.18 m per metre up
+LEAN = 0.30  # the shark nose: the nose face leans forward 0.30 m per metre up (the lower nose tucks back)
 
 
 def nose_shear(y, z):
     """Lean the nose's last stretch forward at the top (applied to the shell and to what sits on the nose)."""
-    k = max(0.0, min(1.0, (y - (NOSE - 0.16)) / 0.16))
+    k = max(0.0, min(1.0, (y - (NOSE - 0.24)) / 0.24))
     return y - k * LEAN * (NOSE_TOP - z)
 
 
@@ -233,17 +234,23 @@ S_OUT = 0.31
 def body_half(p):
     """One side of a cross-section, from the top centre out and down: [(x, z, material of the segment to the next)]."""
     w, f, zb, zt, cr, pk, dome = p["w"], p["f"], p["zb"], p["ztop"], p["crown"], p.get("pk", 0), p.get("dome", 0)
-    top = lambda x: zt + cr * (1 - (x / w) ** 2) + dome * max(0.0, 1 - (x / 0.36) ** 2)  # noqa: E731
-    gutter = (S_OUT + w - 0.13) / 2
+    # The hood: a gentle crown, a smooth dome down the middle (no edge to it), rising again to the crests.
+    top = lambda x: zt + cr * (1 - (x / w) ** 2) + dome * (math.cos(math.pi * min(x, 0.4) / 0.8) ** 2)  # noqa: E731
+    crest = w - 0.13
+    gutter = (S_OUT + crest) / 2
     return [
         (S_IN, top(S_IN), "stripe"),
+        ((S_IN + S_OUT) / 2, top((S_IN + S_OUT) / 2), "stripe"),
         (S_OUT, top(S_OUT), "paint"),
+        ((S_OUT + gutter) / 2, top((S_OUT + gutter) / 2), "paint"),
         (gutter, top(gutter), "paint"),  # where the hood meets the fender
-        (w - 0.13, zt + 0.004 + pk, "paint"),  # the fender's crest
+        ((gutter + crest) / 2, top((gutter + crest) / 2) + pk * 0.3, "paint"),
+        (crest, zt + 0.004 + pk, "paint"),  # the fender's crest
         (w - 0.06, zt - 0.006 + pk * 0.7, "paint"),
-        (w + 0.01 + f * 0.5, zt - 0.05 + pk * 0.3, "paint"),  # the shoulder line, standing out over the flank
-        (w + f * 0.8, zt - 0.10, "paint"),
-        (w + f, zt - 0.25, "paint"),  # the widest, round the top of the wheel
+        (w + 0.025 + f * 0.5, zt - 0.05 + pk * 0.3, "paint"),  # the shoulder line: a crisp crease along the car
+        (w + 0.002 + f * 0.5, zt - 0.08 + pk * 0.2, "paint"),  # stepping in under it
+        (w + f * 0.8, zt - 0.15, "paint"),
+        (w + f, zt - 0.26, "paint"),  # the widest, round the top of the wheel
         (w - 0.01 + f * 0.85, zt - 0.38, "paint"),
         (w - 0.035 + f * 0.6, zb + 0.10, "trim"),  # the rocker, dark and tucked in
         (w - 0.07 + f * 0.4, zb + 0.025, "trim"),
@@ -268,7 +275,7 @@ def body_loop(p):
 def body_top_z(y, x):
     """The height of the body's top at (y, x), along the top of the cross-section (for seating the greenhouse)."""
     p = lerp_keys(BODY_KEYS, y)
-    chain = [(0.0, top_centre(p))] + [(px, pz) for px, pz, _ in body_half(p)[:6]]
+    chain = [(0.0, top_centre(p))] + [(px, pz) for px, pz, _ in body_half(p)[:9]]  # out to the shoulder crease
     x = abs(x)
     for (xa, za), (xb, zb_) in zip(chain, chain[1:]):
         if x <= xb:
@@ -304,9 +311,9 @@ def build_shell():
     lips = []
     for wy in (WHEEL_YR, WHEEL_YF):
         p = lerp_keys(BODY_KEYS, wy)
-        out = p["w"] + p["f"] + 0.015
+        out = p["w"] + p["f"] + 0.035
         for side in (-1, 1):
-            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.30, 0.45, 4, 176, 20, "paint", ARCH_R + 0.025))
+            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.30, 0.55, -10, 190, 22, "paint", ARCH_R + 0.05))
     union(shell, lips)
 
     # Wheel arches, cut in from each side (the middle of the car stays whole); dark inside.
@@ -333,12 +340,12 @@ def build_cabin():
     stations = [
         # y, belt half-width, roof half-width, roof height at its edge (none: a base line on the hood / deck)
         (NOSE - 0.33 * L, 0.84, None, None),  # windshield base
-        (NOSE - 0.41 * L, 0.84, 0.61, 1.27),  # roof front
-        (-0.25, 0.86, 0.64, 1.28),
-        (NOSE - 0.70 * L, 0.88, 0.62, 1.25),  # roof rear
-        (NOSE - 0.81 * L, 0.88, None, None),  # the rear glass, long and shallow, meets the deck
+        (NOSE - 0.41 * L, 0.84, 0.61, 1.285),  # roof front
+        (-0.25, 0.85, 0.64, 1.295),
+        (NOSE - 0.70 * L, 0.90, 0.62, 1.265),  # roof rear
+        (NOSE - 0.84 * L, 0.93, None, None),  # the rear glass, long and shallow, meets the deck; the C-pillars run out onto the haunches
     ]
-    DOME = 0.055
+    DOME = 0.06
     verts = []
     for y, wb, wt, zt in stations:
         if wt is None:  # on the body: spread across like the roof, out to the belt
@@ -391,7 +398,7 @@ def build_cabin():
         if g:
             regions.setdefault(g, []).append(f)
     for faces_ in regions.values():
-        res = bmesh.ops.inset_region(bm, faces=faces_, thickness=0.035, depth=0.0, use_even_offset=True)
+        res = bmesh.ops.inset_region(bm, faces=faces_, thickness=0.022, depth=0.0, use_even_offset=True)
         for f in res["faces"]:
             f.material_index = 0
     bm.to_mesh(cabin.data)
@@ -403,12 +410,12 @@ def build_cabin():
 
 def build_scoop():
     """A scoop rising out of the hood, narrower on top, its dark mouth facing forward."""
-    y0, y1 = 0.95, 1.62
-    zb = 0.84  # under the hood's surface
-    zr = body_top_z(y0, 0) + 0.003  # its back starts at the hood surface
-    zf = body_top_z(y1, 0) + 0.10
-    v = [(-0.27, y0, zb), (0.27, y0, zb), (0.27, y1, zb), (-0.27, y1, zb),
-         (-0.20, y0, zr), (0.20, y0, zr), (0.21, y1, zf), (-0.21, y1, zf)]
+    y0, y1 = 0.80, 1.62
+    zb = 0.82  # under the hood's surface
+    zr = body_top_z(y0, 0) + 0.002  # its back starts at the hood surface: it grows out of it
+    zf = body_top_z(y1, 0) + 0.11
+    v = [(-0.32, y0, zb), (0.32, y0, zb), (0.32, y1, zb), (-0.32, y1, zb),
+         (-0.18, y0, zr), (0.18, y0, zr), (0.22, y1, zf), (-0.22, y1, zf)]
     f = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (3, 0, 4, 7), (2, 3, 7, 6)]
     return mesh_object("scoop", v, f, ["paint", "trim"], [0, 0, 0, 0, 0, 1])
 
@@ -416,22 +423,33 @@ def build_scoop():
 def build_details():
     """Solids merged into the body: the scoop and the splitter sweeping forward under the nose."""
     # The splitter: a lip sweeping forward under the nose, thinning to its edge.
-    sv = [(x, y, z) for x in (-0.82, 0.82) for y, z in ((NOSE - 0.40, 0.24), (NOSE - 0.40, 0.32), (NOSE + 0.03, 0.245), (NOSE + 0.03, 0.27))]
+    sv = [(x, y, z) for x in (-0.82, 0.82) for y, z in ((NOSE - 0.45, 0.21), (NOSE - 0.45, 0.33), (NOSE - 0.03, 0.225), (NOSE - 0.03, 0.285))]
     splitter = mesh_object("splitter", sv, [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)], ["paint"])
     # The ducktail: the deck's lip kicking up and jutting out past the tail panel.
     return [build_scoop(), splitter, build_ducktail()]
 
 
 def build_ducktail():
-    """The ducktail lip: from the deck at y -1.85 up to its edge 9 cm behind the tail, narrowing with the tail."""
+    """The ducktail lip: growing out of the deck at y -1.85 and sweeping up in a curve to its edge 9 cm
+    behind the tail, narrowing with the tail, its top corners rounded."""
     y0, y1 = -1.85, TAIL - 0.09
-    z0 = 0.90  # under the deck
-    za = body_top_z(y0, 0) + 0.002
-    ze = 1.05
-    v = [(-0.90, y0, z0), (0.90, y0, z0), (0.80, y1, ze - 0.05), (-0.80, y1, ze - 0.05),
-         (-0.90, y0, za), (0.90, y0, za), (0.80, y1, ze), (-0.80, y1, ze)]
-    f = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (3, 0, 4, 7), (2, 3, 7, 6)]
-    return mesh_object("ducktail", v, f, ["paint"])
+    za = body_top_z(y0, 0.8) - 0.004  # its front edge just under the deck
+    ze = 1.045
+    n = 8
+    verts, faces = [], []
+    for k in range(n + 1):
+        t = k / n
+        y = y0 + (y1 - y0) * t
+        hw = 0.80 - 0.10 * t
+        zt = za + (ze - za) * t ** 1.8  # concave: flat out of the deck, then kicking up
+        zb = 0.90 + (ze - 0.04 - 0.90) * t  # inside the body until it leaves the tail
+        verts += [(-hw, y, zb), (hw, y, zb), (hw, y, zt - 0.015), (hw - 0.035, y, zt), (-hw + 0.035, y, zt), (-hw, y, zt - 0.015)]
+    m = 6
+    for k in range(n):
+        a, b = k * m, (k + 1) * m
+        faces += [(a + i, a + (i + 1) % m, b + (i + 1) % m, b + i) for i in range(m)]
+    faces += [tuple(range(m)), tuple(n * m + i for i in reversed(range(m)))]
+    return mesh_object("ducktail", verts, faces, ["paint"])
 
 
 def build_recesses():
@@ -439,8 +457,9 @@ def build_recesses():
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731  (the nose face's lean)
     grille = box("grille", -0.78, 0.78, NOSE - 0.045, NOSE + 0.3, 0.53, 0.75, "trim", lean)
     intake = box("intake", -0.70, 0.70, NOSE - 0.04, NOSE + 0.3, 0.37, 0.45, "trim", lean)  # one slim slot
-    tail = box("tailpanel", -0.78, 0.78, TAIL - 0.3, TAIL + 0.035, 0.70, 0.90, "trim")
-    return [grille, intake, tail]
+    tail = box("tailpanel", -0.68, 0.68, TAIL - 0.3, TAIL + 0.035, 0.68, 0.92, "trim")
+    valance = box("valance", -0.55, 0.55, TAIL - 0.3, TAIL + 0.03, 0.38, 0.50, "trim")  # a dark diffuser low on the tail
+    return [grille, intake, tail, valance]
 
 
 def build_lights():
@@ -452,13 +471,13 @@ def build_lights():
     G = 0.002
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731
 
-    # Headlamps: big round lamps in pods sunk into the grille's floor (NOSE - 0.045, leaning).
+    # Headlamps: big round lamps deep in pods in the grille's floor (NOSE - 0.045, leaning), a dark ring round each.
     floor = NOSE - 0.045
     for name, s in (("head_L", -1), ("head_R", 1)):
         parts = []
-        for k, x in enumerate((s * 0.44, s * 0.645)):
+        for k, x in enumerate((s * 0.43, s * 0.655)):
             parts.append(disc(f"{name}{k}", x, floor - 0.012, 0.645, 0.095, 0.03, "head", 20, lean))
-            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.02, 0.645, 0.095 + G, 0.09, "trim", 20, lean))
+            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.02, 0.645, 0.095 + 0.014, 0.10, "trim", 20, lean))
         lamps.append(join(parts, name))
 
     # Front indicators / fog lamps at the intake's ends (its floor at NOSE - 0.04, leaning).
@@ -469,14 +488,19 @@ def build_lights():
         lamps.append(box(name, x0, x1, floor + 0.014, floor + 0.017, 0.385, 0.435, "ind", lean))
 
     # Tail light bar across the tail panel (its floor at TAIL + 0.035), indicators blinking over its ends.
+    # Four segments a side, dark ribs between them.
     floor = TAIL + 0.035
+    seg = (0.64 - 0.004 - 3 * 0.014) / 4
     for name, s in (("tail_L", -1), ("tail_R", 1)):
-        x0, x1 = sorted((s * 0.004, s * 0.75))
-        lamps.append(box(name, x0, x1, floor - 0.015, floor + 0.025, 0.74, 0.86, "tail"))
-        sockets.append(box(name + "_socket", x0 - G, x1 + G, floor - 0.03, floor + 0.04, 0.74 - G, 0.86 + G, "trim"))
-    for name, s in (("ind_RL", -1), ("ind_RR", 1)):
-        x0, x1 = sorted((s * 0.61, s * 0.75))
-        lamps.append(box(name, x0, x1, floor - 0.020, floor - 0.017, 0.74, 0.86, "ind"))
+        parts = []
+        for k in range(4):
+            x0, x1 = sorted((s * (0.004 + k * (seg + 0.014)), s * (0.004 + k * (seg + 0.014) + seg)))
+            parts.append(box(f"{name}{k}", x0, x1, floor - 0.015, floor + 0.025, 0.72, 0.86, "tail"))
+            sockets.append(box(f"{name}{k}_socket", x0 - G, x1 + G, floor - 0.03, floor + 0.04, 0.72 - G, 0.86 + G, "trim"))
+        lamps.append(join(parts, name))
+    for name, s in (("ind_RL", -1), ("ind_RR", 1)):  # over the outermost segment
+        x0, x1 = sorted((s * (0.64 - seg), s * 0.64))
+        lamps.append(box(name, x0, x1, floor - 0.020, floor - 0.017, 0.72, 0.86, "ind"))
     return lamps, sockets, lenses
 
 
@@ -503,7 +527,7 @@ def build_wheel():
         ring(-hw + 0.03, WHEEL_R),  # 3
         ring(-hw, WHEEL_R * 0.84),  # 4
         ring(-hw + 0.02, r_in),  # 5 rim lip, inner side
-        ring(hw - 0.11, r_in * 0.98),  # 6 the dish's floor
+        ring(hw - 0.15, r_in * 0.98),  # 6 the dish's floor, deep
         ring(-hw + 0.02, r_in * 0.5),  # 7 back
     ]
     for k in range(5):
@@ -529,12 +553,12 @@ def build_wheel():
     wheel = mesh_object("wheel", verts, faces, ["tyre", "rim"], fm)
 
     parts = []
-    hub = disc("hub", 0, 0, 0, 0.045, 0.08, "rim", 10)  # its back sunk into the dish floor
+    hub = disc("hub", 0, 0, 0, 0.05, 0.08, "spoke", 10)  # its back sunk into the dish floor
     hub.rotation_euler = (0, 0, -math.pi / 2)
-    hub.location = (hw - 0.05, 0, 0)
+    hub.location = (hw - 0.085, 0, 0)
     parts.append(hub)
-    for k in range(5):
-        sp = box("spoke", hw - 0.13, hw - 0.075, -0.026, 0.026, 0.03, r_in * 0.96, "rim")
+    for k in range(5):  # bold spokes standing up out of the dish
+        sp = box("spoke", hw - 0.17, hw - 0.095, -0.038, 0.038, 0.03, r_in * 0.96, "spoke")
         sp.rotation_euler = (2 * math.pi * k / 5, 0, 0)
         parts.append(sp)
     for p in parts:
@@ -584,17 +608,32 @@ def touching(a, b):
 
 def preview(out_dir, export_objs, wheel):
     scene = bpy.context.scene
-    scene.render.engine = "BLENDER_WORKBENCH"
-    scene.view_settings.exposure = 0.8
-    scene.display.shading.light = "STUDIO"
-    scene.display.shading.color_type = "MATERIAL"
-    scene.display.shading.show_cavity = True
-    scene.display.shading.show_shadows = True
-    scene.display.shading.show_specular_highlight = False  # shape, not shine (a black tyre read as grey)
+    # EEVEE, so the lamps glow and the paint shades like the concept's renders.
+    engines = [e.identifier for e in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
+    scene.render.engine = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in engines else "BLENDER_EEVEE"
+    scene.eevee.taa_render_samples = 32
     scene.render.resolution_x = 1280
     scene.render.resolution_y = 720
     scene.world = bpy.data.worlds.new("w") if scene.world is None else scene.world
-    scene.world.color = (0.05, 0.05, 0.055)
+    scene.world.use_nodes = True
+    bg = scene.world.node_tree.nodes["Background"]
+    bg.inputs[0].default_value = (0.07, 0.07, 0.075, 1)
+    bg.inputs[1].default_value = 1.0
+    scene.view_settings.view_transform = "Standard"  # keep the lamps' red red
+    lights = []
+    for name, kind, energy, loc, rot, size in (
+        ("key", "AREA", 500, (3.5, 3.0, 5.0), (math.radians(35), math.radians(25), math.radians(140)), 4.0),
+        ("fill", "AREA", 180, (-4.0, -2.0, 3.5), (math.radians(55), math.radians(-35), math.radians(-60)), 5.0),
+        ("top", "AREA", 300, (0, 0, 5.5), (0, 0, 0), 6.0),
+    ):
+        ld = bpy.data.lights.new(name, kind)
+        ld.energy = energy
+        ld.size = size
+        lo = bpy.data.objects.new(name, ld)
+        lo.location = loc
+        lo.rotation_euler = rot
+        bpy.context.collection.objects.link(lo)
+        lights.append(lo)
 
     # Indicators off, as the game shows them most of the time.
     for o in export_objs:
@@ -629,9 +668,12 @@ def preview(out_dir, export_objs, wheel):
         cam.location = pos
         cam.rotation_euler = (target - pos).to_track_quat("-Z", "Y").to_euler()
         cam_data.lens = 35 if name == "top" else 50
+        # The true side view is orthographic: no perspective, so it can be measured.
+        cam_data.type = "ORTHO" if name == "trueside" else "PERSP"
+        cam_data.ortho_scale = 5.2
         scene.render.filepath = os.path.join(out_dir, f"muscle-{name}.png")
         bpy.ops.render.render(write_still=True)
-    for o in shown + [floor, cam]:
+    for o in shown + lights + [floor, cam]:
         bpy.data.objects.remove(o)
     for o in export_objs:
         o.hide_render = False
