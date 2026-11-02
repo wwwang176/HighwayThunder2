@@ -76,8 +76,13 @@ export function loadSelection(storage: Pick<Storage, 'getItem'>): CarSelection {
   }
 }
 
+/** Remember it for the next visit (storage full or turned off: not remembered, the race goes on). */
 export function saveSelection(storage: Pick<Storage, 'setItem'>, s: CarSelection): void {
-  storage.setItem(KEY, JSON.stringify(s));
+  try {
+    storage.setItem(KEY, JSON.stringify(s));
+  } catch {
+    // Nothing to do: the next visit starts from the default.
+  }
 }
 
 /** One more rival at the end, on the player's car (none past MAX_RIVALS). */

@@ -15,11 +15,11 @@ describe('difficulty', () => {
     }
   });
 
-  it('applied to the AI settings and the rubber band', () => {
-    const ai = { speedCapKmh: 0 };
+  it('applied to the rivals only: their rubber band, and their top speed returned', () => {
     const band = { maxBoost: 0, waitSpeed: 0 };
-    applyDifficulty(0, ai, band);
-    expect(ai.speedCapKmh).toBe(DIFFICULTIES[0].speedCapKmh);
+    expect(applyDifficulty(0, band)).toBe(DIFFICULTIES[0].speedCapKmh);
     expect(band).toEqual({ maxBoost: DIFFICULTIES[0].maxBoost, waitSpeed: DIFFICULTIES[0].waitSpeed });
+    expect(applyDifficulty(99, band)).toBe(DIFFICULTIES[1].speedCapKmh); // an unknown level: normal
+    expect(band.maxBoost).toBe(DIFFICULTIES[1].maxBoost);
   });
 });

@@ -33,6 +33,8 @@ export function installTooltips(root: HTMLElement = document.body): () => void {
     tip.textContent = el.dataset.tip!;
     tip.classList.add('on');
     stopFollowing = autoUpdate(el, tip, () => {
+      // Its element gone or hidden (a screen closed under the pointer): no pointer or focus event says so.
+      if (!el.isConnected || el.getClientRects().length === 0) return hide();
       void computePosition(el, tip, {
         placement: (el.dataset.tipPlace as Placement | undefined) ?? 'top',
         middleware: [offset(8), flip(), shift({ padding: 8 })],

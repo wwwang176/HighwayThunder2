@@ -50,6 +50,11 @@ describe('carSelection', () => {
     expect(loadSelection(s)).toEqual(defaultSelection());
   });
 
+  it('storage that refuses to save (full, or turned off) does not stop the race', () => {
+    const full = { setItem: () => { throw new DOMException('full', 'QuotaExceededError'); } };
+    expect(() => saveSelection(full, defaultSelection())).not.toThrow();
+  });
+
   it('rivals: added at the end as the player\'s car (up to five), removed from anywhere (the rest move up)', () => {
     const s = { ...defaultSelection(), player: 'jdm', rivals: ['street-racer', 'muscle-car'] };
     expect(addRival(s).rivals).toEqual(['street-racer', 'muscle-car', 'jdm']);

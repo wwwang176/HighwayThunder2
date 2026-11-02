@@ -76,6 +76,8 @@ export class Game {
   aiActive = false;
   /** AI strength: its top speed. */
   readonly aiSettings = { speedCapKmh: 300 };
+  /** The rivals' top speed (km/h) at the race's difficulty (the tuning panel's AI top speed when that is lower). */
+  private rivalCapKmh = 300;
   private humanMaxSpeed = 0;
   /** Draw the AI's planned path on the road (P). */
   showPlan = true;
@@ -129,7 +131,7 @@ export class Game {
     this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
     document.body.appendChild(this.stats.dom);
     this.hud = new Hud(uiRoot, this.flow, {
-      onAgain: () => this.startRace(loadSelection(localStorage)),
+      onAgain: () => this.startRace(this.cars),
       onResume: () => this.togglePause(),
       onTitle: () => this.toTitle(),
     });
@@ -156,7 +158,7 @@ export class Game {
     const enter = () => {
       if (g.isOpen) {
         if (!g.popOpen && !(document.activeElement instanceof HTMLButtonElement)) g.start();
-      } else if (this.flow.phase === 'finished') this.startRace(loadSelection(localStorage));
+      } else if (this.flow.phase === 'finished') this.startRace(this.cars); // the race just run, saved or not
     };
     k.onPress('Enter', enter);
     k.onPress('NumpadEnter', enter);
@@ -195,9 +197,14 @@ export class Game {
     if (!picksCars(this.flow.phase)) return;
     this.garage.close();
     this.sound.init();
+    // Every race starts with the player driving (I hands the car to the AI again), on the car's own limiter.
+    if (this.aiActive) {
+      this.aiActive = false;
+      this.player.params.maxSpeed = this.humanMaxSpeed;
+    }
     if (cars) {
       this.applyCars(cars);
-      applyDifficulty(cars.difficulty, this.aiSettings, RIVAL_TUNING);
+      this.rivalCapKmh = applyDifficulty(cars.difficulty, RIVAL_TUNING);
     }
     this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
     this.resetWorld();
@@ -409,7 +416,7 @@ export class Game {
     const view: RaceView = {
       player: this.player,
       traffic: this.trafficWorld.ourBoxes(this.rivalTraffic),
-      speedCap: this.aiSettings.speedCapKmh / 3.6,
+      speedCap: Math.min(this.aiSettings.speedCapKmh, this.rivalCapKmh) / 3.6,
       raceTime: this.flow.raceTime,
     };
     if (racing) this.rivals.drive(dt, view);

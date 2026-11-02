@@ -5,7 +5,7 @@
  */
 export interface Difficulty {
   name: string;
-  /** The AI's top speed (km/h; a car's own when lower). */
+  /** The rivals' top speed (km/h; a car's own when lower, the tuning panel's AI top speed when that is lower). */
   speedCapKmh: number;
   /** Grip and engine boost at the most, far behind (RIVAL_TUNING.maxBoost). */
   maxBoost: number;
@@ -20,10 +20,14 @@ export const DIFFICULTIES: Difficulty[] = [
   { name: '極限', speedCapKmh: 300, maxBoost: 0.6, waitSpeed: 1.1 },
 ];
 
-/** Put a level on the AI settings and the rivals' rubber band (both mutable: the tuning panel shares them). */
-export function applyDifficulty(level: number, ai: { speedCapKmh: number }, band: { maxBoost: number; waitSpeed: number }): void {
+/**
+ * Put a level on the rivals: their rubber band (mutable, shared with the
+ * rivals), and their top speed returned (km/h). The player's own AI driver
+ * (the I key) and the tuning panel's AI top speed are left as they are.
+ */
+export function applyDifficulty(level: number, band: { maxBoost: number; waitSpeed: number }): number {
   const d = DIFFICULTIES[level] ?? DIFFICULTIES[1];
-  ai.speedCapKmh = d.speedCapKmh;
   band.maxBoost = d.maxBoost;
   band.waitSpeed = d.waitSpeed;
+  return d.speedCapKmh;
 }

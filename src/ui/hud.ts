@@ -59,7 +59,9 @@ const arc = (from: number, to: number, r = R) => {
 function dialSvg(): string {
   let svg = `<circle cx="100" cy="100" r="96" fill="rgba(6,10,20,0.55)" stroke="rgba(255,255,255,0.12)"/>`;
   svg += `<path d="${arc(0, MAX_K)}" stroke="rgba(255,255,255,0.12)" stroke-width="7" fill="none" stroke-linecap="round"/>`;
-  svg += `<path data-id="rpmArc" d="${arc(0, 0.01)}" stroke="var(--accent)" stroke-width="7" fill="none" stroke-linecap="round" class="glow"/>`;
+  // The glows: a wide faint copy under the rpm arc and the needle (a drop-shadow filter would be redrawn every frame).
+  svg += `<path data-id="rpmHalo" d="${arc(0, 0.01)}" stroke="var(--accent)" stroke-width="15" stroke-opacity="0.22" fill="none" stroke-linecap="round"/>`;
+  svg += `<path data-id="rpmArc" d="${arc(0, 0.01)}" stroke="var(--accent)" stroke-width="7" fill="none" stroke-linecap="round"/>`;
   svg += `<path d="${arc(RED_K, MAX_K)}" stroke="#ff3b30" stroke-width="7" fill="none"/>`;
   for (let k = 0; k <= MAX_K; k++) {
     const [x0, y0] = at(k, 76);
@@ -69,7 +71,8 @@ function dialSvg(): string {
     svg += `<text x="${tx}" y="${ty + 4}" fill="#9fb0cc" font-size="11" text-anchor="middle" font-style="italic">${k}</text>`;
   }
   // The needle: a short pointer across the ring, clear of the speed in the middle.
-  svg += `<line data-id="needle" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="4" stroke-linecap="round" class="glow"/>`;
+  svg += `<line data-id="needleHalo" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="10" stroke-opacity="0.25" stroke-linecap="round"/>`;
+  svg += `<line data-id="needle" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="4" stroke-linecap="round"/>`;
   return svg;
 }
 
@@ -205,10 +208,13 @@ export class Hud {
     this.el.speed.textContent = String(Math.max(0, Math.round(f.speedKmh)));
     this.el.gear.textContent = f.reverse ? 'R' : String(f.gear);
     const k = f.rpm / 1000;
-    this.el.rpmArc.setAttribute('d', arc(0, Math.max(0.01, Math.min(MAX_K, k))));
+    const d = arc(0, Math.max(0.01, Math.min(MAX_K, k)));
+    this.el.rpmArc.setAttribute('d', d);
+    this.el.rpmHalo.setAttribute('d', d);
     const [x0, y0] = at(k, 66);
     const [x1, y1] = at(k, 96);
-    Object.entries({ x1: x0, y1: y0, x2: x1, y2: y1 }).forEach(([a, v]) => this.el.needle.setAttribute(a, v.toFixed(1)));
+    for (const line of [this.el.needle, this.el.needleHalo])
+      Object.entries({ x1: x0, y1: y0, x2: x1, y2: y1 }).forEach(([a, v]) => line.setAttribute(a, v.toFixed(1)));
     const lit = shiftLights(f.rpm);
     [...this.el.shift.children].forEach((led, i) => led.classList.toggle('on', i < lit));
     // A rival coming up behind.
