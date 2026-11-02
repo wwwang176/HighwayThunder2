@@ -160,7 +160,7 @@ export class PlayerCar {
     }
     const realLights = opts.realLights ?? true;
     // Without real lights it shows NPC-style glowing beams instead (rivals: real lights are expensive).
-    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, true, false, !realLights);
+    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, spec.style, false, !realLights);
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
     // shaped by the low-beam cookie, so the road gets a sharp cut-off instead

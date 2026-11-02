@@ -1,11 +1,12 @@
 import type { CarSpec } from './types';
 import { STREET_RACER_TRACKER } from './streetRacerTracker';
 
-/** The street racer: the player's car since the start (engine 1.5x, see git log). */
+/** The supercar (id `street-racer`: the player's car since the start; engine 1.5x, see git log). Quick, the highest top speed. */
 export const STREET_RACER: CarSpec = {
   id: 'street-racer',
-  name: '街頭跑車',
+  name: '超跑',
   color: 0xd62828,
+  style: 'super',
   params: {
     mass: 1300,
     comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h

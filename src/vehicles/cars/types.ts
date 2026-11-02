@@ -14,9 +14,14 @@ export interface CarSpec {
   name: string;
   /** Body colour. */
   color: number;
+  /** Body shape (src/vehicles/models.ts buildCar). */
+  style: CarStyle;
   params: CarParams;
   ai: CarPerformance;
 }
+
+/** Body shapes: a low supercar wedge, a long-hooded muscle car. */
+export type CarStyle = 'super' | 'muscle';
 
 /** Measured on the car itself (training/measureCar.train.ts). */
 export interface CarPerformance {
