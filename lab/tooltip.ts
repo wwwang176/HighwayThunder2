@@ -4,7 +4,8 @@ import { autoUpdate, computePosition, flip, offset, shift, type Placement } from
  * Hover / keyboard-focus tips for every element with `data-tip="text"` under
  * `root` (icons standing in for text). One tip element, placed by Floating UI:
  * on the side `data-tip-place` asks for (default top), flipped and shifted to
- * stay on screen. The text is also the element's aria-label when it has none.
+ * stay on screen. The text is also the element's accessible name (icon-only
+ * elements) or description (elements with their own text).
  * Returns a function that takes it all away again.
  */
 export function installTooltips(root: HTMLElement = document.body): () => void {
@@ -15,7 +16,12 @@ export function installTooltips(root: HTMLElement = document.body): () => void {
   let target: HTMLElement | null = null;
   let stopFollowing: (() => void) | null = null;
 
-  const label = () => root.querySelectorAll<HTMLElement>('[data-tip]:not([aria-label])').forEach((e) => e.setAttribute('aria-label', e.dataset.tip!));
+  // The tip names an icon-only element; one with its own text keeps that name and gets the tip as its description.
+  const label = () =>
+    root.querySelectorAll<HTMLElement>('[data-tip]').forEach((e) => {
+      const attr = /[\p{L}\p{N}]/u.test(e.textContent!) ? 'aria-description' : 'aria-label'; // only symbols (✕, ＋): icon-only too
+      if (e.getAttribute(attr) !== e.dataset.tip) e.setAttribute(attr, e.dataset.tip!);
+    });
   const observer = new MutationObserver(label);
   observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-tip'] });
   label();

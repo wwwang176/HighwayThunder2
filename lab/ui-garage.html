@@ -98,6 +98,15 @@
   .slot .mid { text-align: center; }
   .slot .icon { width: 6vw; height: 3vw; color: #eef3fb; }
   .slot .name { font-size: 0.85vw; font-weight: 700; color: #cfd8e8; margin-top: 0.2vh; }
+  .slot .remove { position: absolute; right: 0.4vw; top: 0.5vh; width: 1.3vw; height: 1.3vw; padding: 0; border: 0; border-radius: 50%;
+    background: rgba(255,255,255,0.08); color: #9fb0cc; font-size: 0.7vw; cursor: pointer; }
+  .slot .remove:hover { background: #ff3b30; color: #fff; }
+  .slot.empty { display: grid; grid-template-columns: 1fr; place-items: center; min-height: 9.6vh; border: 1px dashed rgba(255,255,255,0.22); background: transparent;
+    color: #6f7d96; font-size: 1.8vw; cursor: pointer; }
+  .slot.empty:hover { color: #fff; border-color: var(--accent); }
+  .seg button[aria-disabled="true"] { opacity: 0.35; cursor: not-allowed; }
+  .seg button[aria-disabled="true"]:hover { color: #b9c4d8; }
+  .race .item.none .icon, .race .item.none .count { color: #6f7d96; }
   .go { flex: 0 0 15vw; height: 9vh; border: 0; border-radius: 0.7vw; background: var(--accent); color: #fff; cursor: pointer;
     font: italic 900 1.9vw/1 system-ui, "Microsoft JhengHei", sans-serif; letter-spacing: 0.3vw; box-shadow: 0 0 2.4vw -0.4vw var(--accent); }
 </style>
@@ -157,6 +166,7 @@
       stats: [['icon-accel', '加速', '0–100 4.0 秒', 0.75], ['icon-topspeed', '極速', '245 km/h', 0.6], ['icon-handling', '操控', '2.4 g', 1]] },
   };
   const RIVAL_COLORS = ['#1e88e5', '#ffb300', '#8e24aa', '#00c853', '#00bcd4'];
+  // Five slots; null: that rival removed (0-5 rivals).
   const rivals = ['street-racer', 'muscle-car', 'jdm', 'street-racer', 'muscle-car'];
   const icon = (name, cls = '') => `<span class="icon ${cls}" style="--src:url(ui-assets/${name}.png)"></span>`;
   // What each stat icon means (its label is gone: shown on hover).
@@ -182,9 +192,10 @@
   let weather = 0;
   const ids = Object.keys(CARS);
   function drawRace() {
+    const lineUp = ids.filter((id) => rivals.includes(id)).map((id) =>
+      `<span class="count" data-tip="${CARS[id].name}"><span class="icon mini" style="--src:url(ui-assets/${CARS[id].icon}.png)"></span>×${rivals.filter((r) => r === id).length}</span>`).join('');
     document.getElementById('race').innerHTML = `
-      <span class="item">${icon('icon-rivals')}${ids.filter((id) => rivals.includes(id)).map((id) =>
-        `<span class="count" data-tip="${CARS[id].name}"><span class="icon mini" style="--src:url(ui-assets/${CARS[id].icon}.png)"></span>×${rivals.filter((r) => r === id).length}</span>`).join('')}</span>
+      <span class="item ${lineUp ? '' : 'none'}">${icon('icon-rivals')}${lineUp || '<span class="count">×0</span>'}</span>
       <span class="sep"></span>
       <span class="item">${icon('icon-difficulty')}${DIFFICULTY[difficulty]}</span>
       <span class="sep"></span>
@@ -192,18 +203,25 @@
       <span class="edit">✎</span>`;
   }
   function drawModal() {
-    document.getElementById('slots').innerHTML = rivals.map((id, i) =>
-      `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="no">${i + 1}</span><span class="arrow" data-i="${i}" data-d="-1">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}<div class="name">${CARS[id].name}</div></div><span class="arrow" data-i="${i}" data-d="1">▶</span></div>`).join('');
+    // A slot with a rival (null: removed - an empty slot to add one back).
+    document.getElementById('slots').innerHTML = rivals.map((id, i) => id
+      ? `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="no">${i + 1}</span><button class="remove" data-i="${i}" data-tip="移除對手">✕</button><span class="arrow" data-i="${i}" data-d="-1">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}<div class="name">${CARS[id].name}</div></div><span class="arrow" data-i="${i}" data-d="1">▶</span></div>`
+      : `<button class="slot empty" data-i="${i}" data-tip="加入對手">＋</button>`).join('');
+    const changed = () => { drawModal(); drawRace(); };
     document.querySelectorAll('.slot .arrow').forEach((a) => (a.onclick = () => {
       const i = Number(a.dataset.i);
       rivals[i] = ids[(ids.indexOf(rivals[i]) + Number(a.dataset.d) + ids.length) % ids.length];
-      drawModal();
-      drawRace();
+      changed();
     }));
+    document.querySelectorAll('.slot .remove').forEach((b) => (b.onclick = () => { rivals[Number(b.dataset.i)] = null; changed(); }));
+    document.querySelectorAll('.slot.empty').forEach((b) => (b.onclick = () => { rivals[Number(b.dataset.i)] = picked; changed(); }));
     document.getElementById('difficulty').innerHTML = DIFFICULTY.map((d, i) => `<button class="${i === difficulty ? 'sel' : ''}" data-i="${i}">${d}</button>`).join('');
-    document.getElementById('weather').innerHTML = WEATHER.map(([ic, w], i) => `<button class="${i === weather ? 'sel' : ''}" data-i="${i}">${icon(ic)}${w}</button>`).join('');
+    // Only the clear night for now: rain and fog are not in the game yet.
+    document.getElementById('weather').innerHTML = WEATHER.map(([ic, w], i) =>
+      // aria-disabled, not disabled: a disabled button gets no mouse events, so its tip would never show.
+      `<button class="${i === weather ? 'sel' : ''}" data-i="${i}" ${i > 0 ? 'aria-disabled="true" data-tip="即將推出"' : ''}>${icon(ic)}${w}</button>`).join('');
     document.querySelectorAll('#difficulty button').forEach((b) => (b.onclick = () => { difficulty = Number(b.dataset.i); drawModal(); drawRace(); }));
-    document.querySelectorAll('#weather button').forEach((b) => (b.onclick = () => { weather = Number(b.dataset.i); drawModal(); drawRace(); }));
+    document.querySelectorAll('#weather button:not([aria-disabled])').forEach((b) => (b.onclick = () => { weather = Number(b.dataset.i); drawModal(); drawRace(); }));
   }
   const back = document.getElementById('back');
   const open = () => { drawModal(); back.classList.add('open'); };
@@ -213,8 +231,9 @@
   document.getElementById('done').onclick = close;
   back.onclick = (e) => e.target === back && close();
   addEventListener('keydown', (e) => e.key === 'Escape' && close());
-  document.getElementById('all-random').onclick = () => { for (let i = 0; i < rivals.length; i++) rivals[i] = ids[Math.floor(Math.random() * ids.length)]; drawModal(); drawRace(); };
-  document.getElementById('all-same').onclick = () => { rivals.fill(picked); drawModal(); drawRace(); };
+  // The shortcuts change the rivals there are; removed ones stay removed.
+  document.getElementById('all-random').onclick = () => { for (let i = 0; i < rivals.length; i++) if (rivals[i]) rivals[i] = ids[Math.floor(Math.random() * ids.length)]; drawModal(); drawRace(); };
+  document.getElementById('all-same').onclick = () => { for (let i = 0; i < rivals.length; i++) if (rivals[i]) rivals[i] = picked; drawModal(); drawRace(); };
   installTooltips();
   if (new URLSearchParams(location.search).has('open')) open();
 
