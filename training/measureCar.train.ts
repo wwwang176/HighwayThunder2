@@ -19,7 +19,7 @@ it('measure car', async () => {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   const car = new PlayerCar(physics, null, { spec });
-  car.params.maxSpeed = 300 * KMH;
+  car.params.maxSpeed = Math.min(300 * KMH, spec.params.maxSpeed); // its own limiter: no acceleration past what it can reach
   const step = (throttle: number, brake: number) => {
     // Hold the lane centre (a straight run, not a drift into the rail).
     const steer = Math.max(-1, Math.min(1, -(car.d - laneCenter(1)) * 0.05 - car.yaw));
