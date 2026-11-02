@@ -225,8 +225,8 @@ BODY_KEYS = [
     (-1.95, dict(w=0.90, f=0.07, zb=0.205, ztop=0.955, crown=0.02)),  # the deck, kicking up into the ducktail
     (-1.65, dict(w=0.93, f=0.10, zb=0.19, ztop=0.95, crown=0.02)),
     (WHEEL_YR, dict(w=0.94, f=0.12, zb=0.19, ztop=0.95, crown=0.02)),  # the haunches, much wider than the cabin
-    (-0.95, dict(w=0.925, f=0.07, zb=0.19, ztop=0.935, crown=0.02)),
-    (-0.50, dict(w=0.90, f=0.0, zb=0.19, ztop=0.865, crown=0.02)),  # the beltline climbs to the haunches
+    (-0.88, dict(w=0.925, f=0.06, zb=0.19, ztop=0.94, crown=0.02)),
+    (-0.58, dict(w=0.90, f=0.0, zb=0.19, ztop=0.852, crown=0.02)),  # straight through the door, then one short kick up to the haunches
     (0.20, dict(w=0.885, f=0.0, zb=0.19, ztop=0.845, crown=0.02)),  # the waist, pinched in at the door; sills low
     (0.70, dict(w=0.905, f=0.03, zb=0.19, ztop=0.85, crown=0.01, pk=0.04, dome=0.015)),  # cowl
     (WHEEL_YF, dict(w=0.92, f=0.11, zb=0.19, ztop=0.845, crown=0.01, pk=0.08, dome=0.04)),  # front fenders over the wheels
@@ -263,8 +263,8 @@ def body_half(p):
         (S_OUT, top(S_OUT), "paint"),
         ((S_OUT + gutter) / 2, top((S_OUT + gutter) / 2), "paint"),
         (gutter, top(gutter), "paint"),  # where the hood meets the fender
-        ((gutter + crest) / 2, top((gutter + crest) / 2) + pk * 0.3, "paint"),
-        (crest, zt + 0.004 + pk, "paint"),  # the fender's crest
+        (crest - 0.035, top(crest - 0.035) + pk * 0.12, "paint"),  # the hood runs flat right up to...
+        (crest, zt + 0.004 + pk, "paint"),  # ...the fender's crest: a crisp step up between them
         (w - 0.06, zt - 0.006 + pk * 0.7, "paint"),
         (w + 0.025 + f * 0.35, zt - 0.05, "paint"),  # the shoulder line: one crisp crease along the car
         (w + 0.002 + f * 0.35, zt - 0.08, "paint"),  # stepping in under it
@@ -372,8 +372,8 @@ def build_cabin():
         # y, belt half-width, roof half-width, roof height at its edge (none: a base line on the hood / deck),
         # and what the band from here to the next station is
         (NOSE - 0.33 * L, 0.84, None, None, "windshield"),  # windshield base
-        (0.45, 0.84, 0.575, 1.235, "roof"),  # the header, rounding the roof down into the windshield
-        (NOSE - 0.41 * L, 0.84, 0.61, 1.285, "roof"),  # roof front
+        (0.47, 0.84, 0.585, 1.25, "roof"),  # the header, rounding the roof down into the windshield
+        (0.37, 0.84, 0.61, 1.282, "roof"),  # roof front
         (-0.25, 0.85, 0.64, 1.295, "roof"),
         (NOSE - 0.70 * L + 0.04, 0.90, 0.625, 1.272, "cpillar"),  # roof rear
         (NOSE - 0.70 * L - 0.05, 0.91, 0.61, 1.248, "rear"),  # rounding over into the rear glass
@@ -487,7 +487,7 @@ def build_scoop():
         y = y0 + (y1 - y0) * t
         h = 0.11 * t ** 1.3 - 0.008  # buried at the back, emerging forward
         zs = body_top_z(y, 0)
-        half = [(0.0, zs + h), (S_IN, zs + h), (0.20, zs + h - 0.004), (0.24, zs + h - 0.022),
+        half = [(0.0, zs + h), (S_IN, zs + h), (0.17, zs + h - 0.006), (0.235, zs + h - 0.036),  # a well-rounded shoulder
                 (S_OUT, zs + h * 0.3 - 0.006), (0.37, body_top_z(y, 0.37) - 0.035)]  # the foot well under: a clean meeting line
         row = [(-x, z) for x, z in reversed(half[1:])] + half + [(0.37, 0.78), (-0.37, 0.78)]
         verts += [(x, y, z) for x, z in row]
@@ -574,7 +574,7 @@ def build_inserts():
     for x in (-0.34, -0.12, 0.12, 0.34):
         parts.append(box("fin", x - 0.01, x + 0.01, TAIL + 0.008, TAIL + 0.04, 0.385, 0.495, "trim"))
     # A brow over the lamps: the grille's top edge jutting 1.2 cm out over the opening.
-    parts.append(box("brow", -0.765, 0.765, NOSE - 0.03, NOSE + 0.012, 0.738, 0.762, "paint", lean))
+    parts.append(box("brow", -0.765, 0.765, NOSE - 0.03, NOSE + 0.022, 0.732, 0.762, "paint", lean))
     # Thin bright bumper blades: across the tail under the light panel, and at the nose's corners.
     parts.append(box("rblade", -0.70, 0.70, TAIL - 0.03, TAIL + 0.06, 0.615, 0.645, "chrome"))
     for s in (-1, 1):
@@ -640,7 +640,7 @@ def build_wheel():
     """Wide tyre with a tall dark wall, a deep dark dish and five spokes; centred on the origin, the dish faces +X."""
     n = 28
     hw = WHEEL_W / 2
-    r_in = WHEEL_R * 0.60  # rim lip radius
+    r_in = WHEEL_R * 0.56  # rim lip radius: a chunky tyre wall
     verts, faces, fm = [], [], []
 
     def ring(x, r):
