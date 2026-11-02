@@ -79,7 +79,7 @@ def make_materials():
     MAT["glass"] = material("glass", srgb(0x161A20), 0.3, 0.2)
     MAT["trim"] = material("trim", srgb(0x1C1C1C), 0.7)
     MAT["chrome"] = material("chrome", srgb(0xB4B4B8), 0.25, 0.9)
-    MAT["head"] = material("lamp_head", srgb(0xFFD890), 0.2, 0, 1.6)  # warm (the game swaps in its own glow)
+    MAT["head"] = material("lamp_head", srgb(0xFFD890), 0.2, 0, 1.0)  # warm (the game swaps in its own glow)
     MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 3)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
     MAT["lens"] = material("lens", srgb(0xFFE8C0), 0.25, 0.1, 1.2)  # fog lamps, always on (indicators blink over them)
@@ -225,8 +225,9 @@ BODY_KEYS = [
     (-1.95, dict(w=0.90, f=0.07, zb=0.205, ztop=0.955, crown=0.02)),  # the deck, kicking up into the ducktail
     (-1.65, dict(w=0.93, f=0.10, zb=0.19, ztop=0.95, crown=0.02)),
     (WHEEL_YR, dict(w=0.94, f=0.12, zb=0.19, ztop=0.95, crown=0.02)),  # the haunches, much wider than the cabin
-    (-0.88, dict(w=0.925, f=0.06, zb=0.19, ztop=0.94, crown=0.02)),
-    (-0.58, dict(w=0.90, f=0.0, zb=0.19, ztop=0.852, crown=0.02)),  # straight through the door, then one short kick up to the haunches
+    (-1.06, dict(w=0.93, f=0.09, zb=0.19, ztop=0.948, crown=0.02)),  # easing into the haunch
+    (-0.92, dict(w=0.925, f=0.055, zb=0.19, ztop=0.935, crown=0.02)),
+    (-0.52, dict(w=0.90, f=0.0, zb=0.19, ztop=0.852, crown=0.02)),  # straight through the door, then one kick up to the haunches
     (0.20, dict(w=0.885, f=0.0, zb=0.19, ztop=0.845, crown=0.02)),  # the waist, pinched in at the door; sills low
     (0.70, dict(w=0.905, f=0.03, zb=0.19, ztop=0.85, crown=0.01, pk=0.04, dome=0.015)),  # cowl
     (WHEEL_YF, dict(w=0.92, f=0.11, zb=0.19, ztop=0.845, crown=0.01, pk=0.08, dome=0.04)),  # front fenders over the wheels
@@ -372,8 +373,8 @@ def build_cabin():
         # y, belt half-width, roof half-width, roof height at its edge (none: a base line on the hood / deck),
         # and what the band from here to the next station is
         (NOSE - 0.33 * L, 0.84, None, None, "windshield"),  # windshield base
-        (0.47, 0.84, 0.585, 1.25, "roof"),  # the header, rounding the roof down into the windshield
-        (0.37, 0.84, 0.61, 1.282, "roof"),  # roof front
+        (0.47, 0.84, 0.585, 1.24, "roof"),  # the header, rounding the roof down into the windshield
+        (0.37, 0.84, 0.61, 1.275, "roof"),  # roof front
         (-0.25, 0.85, 0.64, 1.295, "roof"),
         (NOSE - 0.70 * L + 0.04, 0.90, 0.625, 1.272, "cpillar"),  # roof rear
         (NOSE - 0.70 * L - 0.05, 0.91, 0.61, 1.248, "rear"),  # rounding over into the rear glass
@@ -550,12 +551,12 @@ def build_recesses():
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731  (the nose face's lean)
     grille = box("grille", -0.775, 0.775, NOSE - 0.045, NOSE + 0.3, 0.53, 0.75, "trim", lean)  # clear of the nose's sides
     intake = box("intake", -0.70, 0.70, NOSE - 0.04, NOSE + 0.3, 0.385, 0.435, "trim", lean)  # a thin slit
-    tail = box("tailpanel", -0.72, 0.72, TAIL - 0.3, TAIL + 0.035, 0.68, 0.92, "trim")  # out to the corners
+    tail = box("tailpanel", -0.72, 0.72, TAIL - 0.3, TAIL + 0.035, 0.70, 0.88, "trim")  # out to the corners, a slim frame round the bar
     valance = box("valance", -0.55, 0.55, TAIL - 0.3, TAIL + 0.03, 0.38, 0.50, "trim")  # a dark diffuser low on the tail
     cuts = [grille, intake, tail, valance]
     for s in (-1, 1):  # the light panel wraps round the tail's corners
         p0, along, out = tail_corner(s)
-        cuts.append(panel("tailwrap", p0 + out * 0.07, along, 0.035, 0.06, 0.15, 0.68, 0.92, "trim"))
+        cuts.append(panel("tailwrap", p0 + out * 0.068, along, 0.02, 0.06, 0.138, 0.70, 0.88, "trim"))  # shallow: nearly flush
     # The door: a fine shut line at its front and back edges (below the shoulder crease), and a handle recess.
     for s in (-1, 1):
         for y in (0.50, -0.55):
@@ -578,7 +579,7 @@ def build_inserts():
     # Thin bright bumper blades: across the tail under the light panel, and at the nose's corners.
     parts.append(box("rblade", -0.70, 0.70, TAIL - 0.03, TAIL + 0.06, 0.615, 0.645, "chrome"))
     for s in (-1, 1):
-        x0, x1 = sorted((s * 0.56, s * 0.79))
+        x0, x1 = sorted((s * 0.44, s * 0.79))
         parts.append(box("fblade", x0, x1, NOSE - 0.06, NOSE + 0.025, 0.47, 0.50, "chrome", lean))
     return parts
 
@@ -624,9 +625,9 @@ def build_lights():
         p0, along, out = tail_corner(s)
         for k, at in enumerate((0.035, 0.104)):
             c = p0 + out * at
-            # In the wrap-round's floor (3.5 cm in), standing 1 cm proud of it like the bar's segments.
-            parts.append(panel(f"{name}_wrap{k}", c, along, 0.055, -0.025, 0.055, 0.72, 0.86, "tail"))
-            sockets.append(panel(f"{name}_wrap{k}_socket", c, along, 0.07, 0.04, 0.055 + 2 * G, 0.72 - G, 0.86 + G, "trim"))
+            # In the wrap-round's floor (2 cm in), standing 1 cm proud of it: nearly flush with the corner.
+            parts.append(panel(f"{name}_wrap{k}", c, along, 0.04, -0.01, 0.055, 0.72, 0.86, "tail"))
+            sockets.append(panel(f"{name}_wrap{k}_socket", c, along, 0.055, 0.04, 0.055 + 2 * G, 0.72 - G, 0.86 + G, "trim"))
         lamps.append(join(parts, name))
     for name, s in (("ind_RL", -1), ("ind_RR", 1)):  # over the outermost segment
         x0, x1 = sorted((s * (BAR - seg), s * BAR))
