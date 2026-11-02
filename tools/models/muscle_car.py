@@ -23,7 +23,7 @@ import sys
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 GROUND = 0.55  # the physics box is 1.1 tall, centred on the origin
 WHEEL_R = 0.34
@@ -68,6 +68,7 @@ def make_materials():
     MAT["head"] = material("lamp_head", srgb(0xFFF6E0), 0.2, 0, 4)
     MAT["tail"] = material("lamp_tail", srgb(0xD01010), 0.2, 0, 2)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
+    MAT["lens"] = material("lens", srgb(0x7A4A12), 0.25, 0.1)  # an indicator's glass while it is off
     MAT["tyre"] = material("tyre", srgb(0x151515), 0.9)
     MAT["rim"] = material("rim", srgb(0x2A2A2C), 0.35, 0.7)
 
@@ -124,6 +125,22 @@ def disc(name, x, y, z, r, depth, mat, n=14):
     return mesh_object(name, v, f, [mat])
 
 
+def arc_solid(name, x0, x1, yc, zc, ri, ro, a0, a1, n, mat, ro1=None):
+    """A slab bent round an axle along X: between radii ri and ro, from angle a0 to a1 (degrees, 0 = +Y,
+    90 = up). With ro1 its outer radius shrinks to ro1 at x1: a chamfer."""
+    verts, faces = [], []
+    for k in range(n + 1):
+        a = math.radians(a0 + (a1 - a0) * k / n)
+        c, s = math.cos(a), math.sin(a)
+        for x, r in ((x0, ri), (x0, ro), (x1, ro if ro1 is None else ro1), (x1, ri)):
+            verts.append((x, yc + r * c, zc + r * s))
+    for k in range(n):
+        a, b = 4 * k, 4 * (k + 1)
+        faces += [(a + i, a + (i + 1) % 4, b + (i + 1) % 4, b + i) for i in range(4)]
+    faces += [(0, 1, 2, 3), (4 * n + 3, 4 * n + 2, 4 * n + 1, 4 * n)]
+    return mesh_object(name, verts, faces, [mat])
+
+
 def lerp_keys(keys, y):
     """Piecewise smooth interpolation over keyframes [(y, {param: value})]."""
     if y <= keys[0][0]:
@@ -132,7 +149,7 @@ def lerp_keys(keys, y):
         if y <= yb:
             t = (y - ya) / (yb - ya)
             t = t * t * (3 - 2 * t)
-            return {k: a[k] + (b[k] - a[k]) * t for k in a}
+            return {k: a.get(k, 0) + (b.get(k, 0) - a.get(k, 0)) * t for k in a.keys() | b.keys()}  # a missing value is 0
     return dict(keys[-1][1])
 
 
@@ -154,21 +171,24 @@ def join(objs, name):
 NOSE = 2.14
 TAIL = -2.16
 
-# Side profile and plan: half-width w, bottom zb, hood / deck edge height ztop, crown over the middle.
+# Side profile and plan: half-width w (at the shoulder), fender flare f (how far the side bulges out
+# below the shoulder, over the wheels), bottom zb, hood / deck edge height ztop, crown over the middle.
 BODY_KEYS = [
-    (TAIL, dict(w=0.86, zb=0.30, ztop=0.93, crown=0.02)),
-    (-2.05, dict(w=0.90, zb=0.24, ztop=0.95, crown=0.02)),
-    (-1.75, dict(w=0.935, zb=0.21, ztop=0.955, crown=0.02)),
-    (-1.30, dict(w=0.955, zb=0.21, ztop=0.95, crown=0.02)),  # hips over the rear wheels
-    (-0.85, dict(w=0.93, zb=0.21, ztop=0.94, crown=0.02)),
-    (0.00, dict(w=0.915, zb=0.21, ztop=0.925, crown=0.02)),
-    (0.75, dict(w=0.915, zb=0.21, ztop=0.91, crown=0.03)),  # cowl
-    (1.00, dict(w=0.93, zb=0.21, ztop=0.90, crown=0.065)),  # hood power bulge
-    (1.30, dict(w=0.945, zb=0.21, ztop=0.885, crown=0.065)),  # front wheel flare
-    (1.75, dict(w=0.93, zb=0.22, ztop=0.86, crown=0.05)),
-    (2.00, dict(w=0.91, zb=0.24, ztop=0.835, crown=0.02)),
-    (NOSE, dict(w=0.88, zb=0.27, ztop=0.80, crown=0.01)),
+    (TAIL, dict(w=0.86, f=0.0, zb=0.30, ztop=0.935, crown=0.02)),
+    (-2.05, dict(w=0.90, f=0.0, zb=0.24, ztop=0.955, crown=0.02)),
+    (-1.80, dict(w=0.91, f=0.025, zb=0.21, ztop=0.965, crown=0.02)),
+    (-1.30, dict(w=0.92, f=0.065, zb=0.21, ztop=0.97, crown=0.02)),  # hips over the rear wheels
+    (-0.95, dict(w=0.91, f=0.01, zb=0.21, ztop=0.965, crown=0.02)),  # the beltline kicks up behind the door
+    (-0.55, dict(w=0.905, f=0.0, zb=0.21, ztop=0.93, crown=0.02)),
+    (0.00, dict(w=0.905, f=0.0, zb=0.21, ztop=0.915, crown=0.02)),  # the waist
+    (0.75, dict(w=0.905, f=0.0, zb=0.21, ztop=0.91, crown=0.03)),  # cowl
+    (1.00, dict(w=0.91, f=0.025, zb=0.21, ztop=0.90, crown=0.065, pk=0.03)),  # hood power bulge
+    (1.30, dict(w=0.915, f=0.055, zb=0.21, ztop=0.885, crown=0.065, pk=0.035)),  # front wheel flare
+    (1.75, dict(w=0.91, f=0.01, zb=0.22, ztop=0.86, crown=0.05, pk=0.035)),
+    (2.00, dict(w=0.89, f=0.0, zb=0.24, ztop=0.835, crown=0.02, pk=0.025)),
+    (NOSE, dict(w=0.85, f=0.0, zb=0.27, ztop=0.80, crown=0.01, pk=0.01)),
 ]
+# pk: the front fenders' crests standing up either side of the hood (the hood sits between them).
 
 # Stripe edges (x) across the top: paint | stripe | gap | stripe | paint.
 S_IN = 0.07
@@ -177,23 +197,27 @@ S_OUT = 0.31
 
 def body_loop(p):
     """Closed cross-section, starting at the top centre and going round the right side first."""
-    w, zb, zt, cr = p["w"], p["zb"], p["ztop"], p["crown"]
+    w, f, zb, zt, cr, pk = p["w"], p["f"], p["zb"], p["ztop"], p["crown"], p.get("pk", 0)
     top = lambda x: zt + cr * (1 - (x / w) ** 2)  # noqa: E731
+    gutter = (S_OUT + w - 0.09) / 2
     right = [
         (S_IN, top(S_IN)),
         (S_OUT, top(S_OUT)),
-        (w - 0.09, zt + 0.004),
+        (gutter, top(gutter)),  # where the hood meets the fender
+        (w - 0.12, zt + 0.004 + pk),  # the fender's crest
+        (w - 0.07, zt - 0.01 + pk * 0.6),
         (w, zt - 0.07),  # shoulder
-        (w - 0.012, zt - 0.30),  # beltline crease
-        (w - 0.045, zb + 0.07),  # tuck under
-        (w - 0.11, zb),
+        (w + f * 0.6, zt - 0.17),  # the fender rounding out over the wheel
+        (w - 0.012 + f, zt - 0.30),  # beltline crease
+        (w - 0.045 + f * 0.8, zb + 0.07),  # tuck under
+        (w - 0.11 + f * 0.4, zb),
     ]
     loop = [(0.0, top(0.0))] + right + [(0.0, zb)] + [(-x, z) for x, z in reversed(right)]
-    return loop  # 16 points
+    return loop  # 22 points
 
 
 # Segment i joins loop[i] and loop[i + 1]; these are the stripe segments (both sides).
-STRIPE_SEGS = {1, 14}
+STRIPE_SEGS = {1, 20}
 
 
 def build_body():
@@ -204,7 +228,7 @@ def build_body():
         y += 0.1
     ys.append(NOSE)
     verts, faces, fm = [], [], []
-    n = 16
+    n = len(body_loop(BODY_KEYS[0][1]))
     for y in ys:
         for x, z in body_loop(lerp_keys(BODY_KEYS, y)):
             verts.append((x, y, z))
@@ -219,11 +243,19 @@ def build_body():
     fm += [0, 0]
     body = mesh_object("shell", verts, faces, ["paint", "stripe", "trim"], fm)
 
+    # Flared lips round the wheel arches (the arch cut below trims their inside).
+    lips = []
+    for wy, out in ((-WHEEL_Y, 0.99), (WHEEL_Y, 0.98)):
+        for side in (-1, 1):
+            # Sloping from the body out to a lip just round the arch.
+            lips.append(arc_solid("lip", side * 0.86, side * out, wy, WHEEL_Z, 0.33, 0.50, 0, 180, 16, "paint", 0.415))
+    union(body, lips)
+
     # Wheel arches: cut from each side, leaving the middle of the car whole.
     for wy in (-WHEEL_Y, WHEEL_Y):
         for side in (-1, 1):
             bpy.ops.mesh.primitive_cylinder_add(
-                vertices=20, radius=0.415, depth=0.6, location=(side * 1.05, wy, WHEEL_Z), rotation=(0, math.pi / 2, 0)
+                vertices=20, radius=0.395, depth=0.6, location=(side * 1.05, wy, WHEEL_Z), rotation=(0, math.pi / 2, 0)
             )
             cut = bpy.context.active_object
             cut.data.materials.append(MAT["trim"])
@@ -238,26 +270,33 @@ def build_body():
     return body
 
 
+CABIN_FLOOR = 0.80  # the greenhouse is a closed solid reaching down into the body (merged into it)
+
+
 def build_cabin():
-    """Greenhouse: windshield, roof (with the stripes), fastback rear glass; open at the bottom."""
+    """Greenhouse: windshield, roof (with the stripes), rear glass down to the deck; a closed solid."""
     stations = [
-        # y, base half-width, base z, roof half-width, roof z, collapsed (a base line)
-        (0.66, 0.80, 0.94, None, None),  # on the hood's crown, so the hood does not poke through the glass
-        (0.08, 0.80, 0.925, 0.635, 1.305),
-        (-0.62, 0.82, 0.94, 0.65, 1.30),
-        (-1.55, 0.84, 0.957, None, None),
+        # y, base half-width, roof half-width, roof z (none: a base line on the hood / deck)
+        (0.80, 0.80, None, None),
+        (0.30, 0.80, 0.635, 1.30),
+        (-0.55, 0.82, 0.65, 1.29),  # the roof's end, then the rear glass down to a long deck
+        (-1.15, 0.84, None, None),
     ]
     verts = []
-    for y, wb, zb, wt, zt in stations:
+    for y, wb, wt, zt in stations:
+        # The base follows the body's top just under its surface (merged, the glass meets it cleanly).
+        p = lerp_keys(BODY_KEYS, y)
+        zb = lambda x: p["ztop"] + p["crown"] * (1 - (x / p["w"]) ** 2) - 0.004  # noqa: E731
         if wt is None:
-            half = [(0, zb), (S_IN * 0.95, zb), (S_OUT * 0.95, zb), (wb * 0.97, zb), (wb, zb)]
+            half = [(x, zb(x)) for x in (0, S_IN * 0.95, S_OUT * 0.95, wb * 0.97, wb)]
         else:
             top = lambda x: zt + 0.025 * (1 - (x / wt) ** 2)  # noqa: E731
-            half = [(0, top(0)), (S_IN, top(S_IN)), (S_OUT, top(S_OUT)), (wt, zt), (wb, zb)]
-        # Left base, over the roof, down to the right base (open underneath).
+            half = [(0, top(0)), (S_IN, top(S_IN)), (S_OUT, top(S_OUT)), (wt, zt), (wb, zb(wb))]
+        # Left base, over the roof, down to the right base; then the floor, right and left.
         row = [(-x, z) for x, z in reversed(half[1:])] + half
+        row += [(-wb * 0.95, CABIN_FLOOR), (wb * 0.95, CABIN_FLOOR)]
         verts += [(x, y, z) for x, z in row]
-    n = 9
+    n = 11
     # Segments across: 0 left side, 1 left outer, 2 left stripe, 3-4 the gap, 5 right stripe, 6 right outer, 7 right side.
     SIDES, STRIPES = (0, 7), (2, 5)
     faces, fm, group = [], [], []
@@ -265,7 +304,7 @@ def build_cabin():
     # windshield, rear glass, a side window either side (A-pillar to the roof's end), a quarter window either side.
     for s in range(3):
         a, b = s * n, (s + 1) * n
-        for i in range(n - 1):
+        for i in range(8):
             faces.append((a + i, a + i + 1, b + i + 1, b + i))
             if i in SIDES:
                 fm.append(2)
@@ -276,6 +315,14 @@ def build_cabin():
             else:
                 fm.append(2)
                 group.append("windshield" if s == 0 else "rear")
+        # Walls down into the body and the floor (all hidden once merged).
+        faces += [(a + 8, a + 10, b + 10, b + 8), (a + 10, a + 9, b + 9, b + 10), (a + 9, a, b, b + 9)]
+        fm += [0, 0, 0]
+        group += [None, None, None]
+    last = 3 * n
+    faces += [tuple(range(9)) + (10, 9), tuple(last + i for i in (9, 10, 8, 7, 6, 5, 4, 3, 2, 1, 0))]
+    fm += [0, 0]
+    group += [None, None]
     cabin = mesh_object("cabin", verts, faces, ["paint", "stripe", "glass"], fm)
 
     # Frame every window: inset each glass region, the rim goes back to paint.
@@ -302,42 +349,119 @@ def build_details():
     # Hood scoop: a ramp over the bulge, its open mouth facing forward.
     parts.append(wedge("scoop", -0.21, 0.21, 0.98, 1.52, 0.90, 0.96, 1.025, "paint", "trim"))
     # Ducktail on the rear deck.
-    parts.append(wedge("duck", -0.86, 0.86, -1.90, -2.17, 0.90, 0.958, 1.005, "paint"))
+    parts.append(wedge("duck", -0.86, 0.86, -1.90, -2.17, 0.90, 0.958, 1.03, "paint"))
     # Front: grille band across the nose, bumper, chin splitter.
-    parts.append(box("grille", -0.80, 0.80, NOSE - 0.02, NOSE + 0.012, 0.52, 0.71, "trim"))
-    parts.append(box("fbumper", -0.89, 0.89, NOSE - 0.12, NOSE + 0.035, 0.33, 0.49, "paint"))
-    parts.append(box("chin", -0.84, 0.84, NOSE - 0.30, NOSE + 0.05, 0.19, 0.23, "trim"))
+    parts.append(box("grille", -0.78, 0.78, NOSE - 0.02, NOSE + 0.012, 0.52, 0.71, "trim"))
+    # The hood's leading edge juts out over the grille: the shark nose.
+    parts.append(box("brow", -0.74, 0.74, NOSE - 0.10, NOSE + 0.04, 0.73, 0.785, "paint"))
+    # Below it: a slim body-colour bumper, a dark intake (fog lamps at its ends), the splitter.
+    # (Each narrower than the nose at its height, which rounds in towards the bottom.)
+    parts.append(box("fbumper", -0.84, 0.84, NOSE - 0.12, NOSE + 0.035, 0.42, 0.515, "paint"))
+    parts.append(box("intake", -0.77, 0.77, NOSE - 0.05, NOSE + 0.015, 0.25, 0.43, "trim"))
+    parts.append(box("chin", -0.80, 0.80, NOSE - 0.30, NOSE + 0.06, 0.19, 0.245, "paint"))
     # Rear: dark panel round the lights, chrome bumper.
     parts.append(box("rpanel", -0.86, 0.86, TAIL - 0.012, TAIL + 0.02, 0.64, 0.86, "trim"))
     parts.append(box("rbumper", -0.92, 0.92, TAIL - 0.04, TAIL + 0.12, 0.36, 0.49, "chrome"))
-    # Mirrors.
-    for s in (-1, 1):
-        parts.append(box("mirror", s * 0.80, s * 0.97, 0.50, 0.60, 0.91, 0.99, "paint"))
     return parts
 
 
+def union(target, parts):
+    """Merge `parts` into `target` (exact boolean union): no faces inside one another, none overlapping."""
+    for p in parts:
+        mod = target.modifiers.new("union", "BOOLEAN")
+        mod.operation = "UNION"
+        mod.solver = "EXACT"
+        mod.material_mode = "TRANSFER"
+        mod.object = p
+        bpy.context.view_layer.objects.active = target
+        bpy.ops.object.modifier_apply(modifier="union")
+        bpy.data.objects.remove(p)
+    return target
+
+
+def mesh_check(ob):
+    """Faces cutting through other faces (not just touching at an edge), and edges not shared by exactly two faces."""
+    from mathutils.bvhtree import BVHTree
+
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bm.faces.ensure_lookup_table()
+    tree = BVHTree.FromBMesh(bm, epsilon=0.0)
+    crossing = 0
+    for i, j in tree.overlap(tree):
+        if i < j and not ({v.index for v in bm.faces[i].verts} & {v.index for v in bm.faces[j].verts}):
+            crossing += 1
+    open_edges = sum(1 for e in bm.edges if not e.is_manifold)
+    bm.free()
+    return {"crossing_faces": crossing, "non_manifold_edges": open_edges}
+
+
 def build_lights():
-    lamps = []
-    y = NOSE + 0.016
+    """Separate objects (the game switches them). Head and tail lamps sit each in its own socket
+    (`sockets`, to be cut out of the body: 2 mm wider all round and deeper, so lamp and body never
+    touch). An indicator is hidden while off, so its glass is part of the body (`lenses`, merged in)
+    and the indicator a glowing plate floating 2 mm in front of it."""
+    lamps, sockets, lenses = [], [], []
+    G = 0.002
+
+    def lamp_box(name, x0, x1, y0, y1, z0, z1, mat, inward):
+        lamps.append(box(name, x0, x1, y0, y1, z0, z1, mat))
+        ya, yb = (y0 - 0.03, y1 + 0.01) if inward < 0 else (y0 - 0.01, y1 + 0.03)
+        sockets.append(box(name + "_socket", x0 - G, x1 + G, ya, yb, z0 - G, z1 + G, "trim"))
+
+    y = NOSE + 0.026  # the grille's face is at NOSE + 0.012
     for name, s in (("head_L", -1), ("head_R", 1)):
-        l1 = disc(name, s * 0.50, y, 0.615, 0.075, 0.03, "head")
-        l2 = disc(name + "b", s * 0.70, y, 0.615, 0.075, 0.03, "head")
-        lamps.append(join([l1, l2], name))
-    for name, s in (("ind_FL", -1), ("ind_FR", 1)):
-        lamps.append(box(name, *sorted((s * 0.62, s * 0.78)), NOSE + 0.04, NOSE + 0.056, 0.38, 0.44, "ind"))
-    ty = TAIL - 0.016
-    for name, s in (("tail_L", -1), ("tail_R", 1)):
-        lamps.append(box(name, *sorted((s * 0.03, s * 0.70)), ty - 0.012, ty, 0.71, 0.79, "tail"))
-    for name, s in (("ind_RL", -1), ("ind_RR", 1)):
-        lamps.append(box(name, *sorted((s * 0.72, s * 0.83)), ty - 0.012, ty, 0.71, 0.79, "ind"))
-    return lamps
+        parts = []
+        for k, x in enumerate((s * 0.50, s * 0.70)):
+            parts.append(disc(f"{name}{k}", x, y, 0.615, 0.075, 0.03, "head"))
+            sockets.append(disc(f"{name}{k}_socket", x, y + 0.02, 0.615, 0.075 + G, 0.08, "trim"))
+        lamps.append(join(parts, name))
+    for name, s in (("ind_FL", -1), ("ind_FR", 1)):  # at the intake's ends (its face at NOSE + 0.015)
+        x0, x1 = sorted((s * 0.62, s * 0.76))
+        lenses.append(box(name + "_lens", x0, x1, NOSE - 0.005, NOSE + 0.028, 0.30, 0.36, "lens"))
+        lamps.append(box(name, x0, x1, NOSE + 0.030, NOSE + 0.033, 0.30, 0.36, "ind"))
+    ty = TAIL - 0.025  # the light panel's face is at TAIL - 0.012
+    for name, s in (("tail_L", -1), ("tail_R", 1)):  # one bar across the tail
+        lamp_box(name, *sorted((s * 0.02, s * 0.82)), ty, TAIL, 0.71, 0.79, "tail", 1)
+    for name, s in (("ind_RL", -1), ("ind_RR", 1)):  # blinking over the bar's ends
+        lamps.append(box(name, *sorted((s * 0.68, s * 0.82)), ty - 0.005, ty - 0.002, 0.71, 0.79, "ind"))
+    return lamps, sockets, lenses
+
+
+def cut(target, cutters):
+    for c in cutters:
+        mod = target.modifiers.new("cut", "BOOLEAN")
+        mod.operation = "DIFFERENCE"
+        mod.solver = "EXACT"
+        mod.material_mode = "TRANSFER"
+        mod.object = c
+        bpy.context.view_layer.objects.active = target
+        bpy.ops.object.modifier_apply(modifier="cut")
+        bpy.data.objects.remove(c)
+    return target
+
+
+def touching(a, b):
+    """Faces of `a` crossing or touching faces of `b` (two objects)."""
+    from mathutils.bvhtree import BVHTree
+
+    def tree(o):
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        bm.transform(o.matrix_world)
+        t = BVHTree.FromBMesh(bm, epsilon=0.0)
+        bm.free()
+        return t
+
+    return len(tree(a).overlap(tree(b)))
 
 
 def build_wheel():
     """Tyre with a deep dark dish and five spokes; centred on the origin, the dish faces +X."""
     n = 24
     hw = WHEEL_W / 2
-    r_in = WHEEL_R * 0.66  # rim lip radius
+    r_in = WHEEL_R * 0.62  # rim lip radius: a tall tyre wall
     verts, faces, fm = [], [], []
 
     def ring(x, r):
@@ -382,20 +506,21 @@ def build_wheel():
     fm.append(0)
     wheel = mesh_object("wheel", verts, faces, ["tyre", "rim"], fm)
 
-    parts = [wheel]
-    hub = disc("hub", 0, 0, 0, 0.05, 0.05, "rim", 10)
+    parts = []
+    hub = disc("hub", 0, 0, 0, 0.05, 0.07, "rim", 10)  # its back sunk into the dish floor
     hub.rotation_euler = (0, 0, -math.pi / 2)
-    hub.location = (hw - 0.04, 0, 0)
+    hub.location = (hw - 0.03, 0, 0)
     parts.append(hub)
     for k in range(5):
-        sp = box("spoke", hw - 0.10, hw - 0.06, -0.025, 0.025, 0.03, r_in * 0.97, "rim")
+        sp = box("spoke", hw - 0.11, hw - 0.06, -0.025, 0.025, 0.03, r_in * 0.96, "rim")
         sp.rotation_euler = (2 * math.pi * k / 5, 0, 0)
         parts.append(sp)
     for p in parts:
+        bpy.ops.object.select_all(action="DESELECT")
         bpy.context.view_layer.objects.active = p
         p.select_set(True)
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    return join(parts, "wheel")
+    return union(wheel, parts)
 
 
 # ---------------------------------------------------------------- preview
@@ -403,6 +528,7 @@ def build_wheel():
 def preview(out_dir, export_objs, wheel):
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_WORKBENCH"
+    scene.view_settings.exposure = 0.8
     scene.display.shading.light = "STUDIO"
     scene.display.shading.color_type = "MATERIAL"
     scene.display.shading.show_cavity = True
@@ -413,6 +539,9 @@ def preview(out_dir, export_objs, wheel):
     scene.world.color = (0.05, 0.05, 0.055)
     scene.render.film_transparent = False
 
+    # Indicators off, as the game shows them most of the time.
+    for o in export_objs:
+        o.hide_render = o.name.startswith("ind_")
     # Four wheels in place (preview only; the game places its own).
     shown = []
     for x in (-WHEEL_X, WHEEL_X):
@@ -433,9 +562,10 @@ def preview(out_dir, export_objs, wheel):
     scene.camera = cam
     target = Vector((0, 0, 0.05 - GROUND + 0.55))
     views = {
-        "front34": Vector((5.2, 6.4, 2.6)),
-        "side": Vector((10.5, 0, 0.6)),
-        "rear34": Vector((-5.2, -6.4, 2.6)),
+        # The concept images' viewpoints (docs/art/muscle-car), to compare against.
+        "front34": Vector((-5.0, 6.6, 2.3)),
+        "side": Vector((-10.5, 2.0, 0.9)),
+        "rear34": Vector((-5.4, -6.2, 2.9)),
         "top": Vector((0, 0.01, 11)),
         "front": Vector((0, 9, 0.5)),
     }
@@ -459,18 +589,26 @@ def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     make_materials()
 
-    body = join([build_body(), build_cabin(), *build_details()], "body")
+    lamps, sockets, lenses = build_lights()
+    body = cut(union(build_body(), [build_cabin(), *build_details(), *lenses]), sockets)
+    body.name = body.data.name = "body"
+    bpy.ops.object.select_all(action="DESELECT")
+    body.select_set(True)
+    bpy.context.view_layer.objects.active = body
     bpy.ops.object.shade_smooth_by_angle(angle=math.radians(32))
-    lamps = build_lights()
     wheel = build_wheel()
 
     # Down to the physics box centre (ground at -0.55); the wheel stays centred on its axle.
     for o in [body, *lamps]:
-        o.data.transform(__import__("mathutils").Matrix.Translation((0, 0, -GROUND)))
+        o.data.transform(Matrix.Translation((0, 0, -GROUND)))
         o.data.update()
 
     tris = sum(len(p.vertices) - 2 for o in [body, *lamps, wheel] for p in o.data.polygons)
     print(f"[muscle_car] triangles: body+lamps {tris - sum(len(p.vertices) - 2 for p in wheel.data.polygons)}, wheel {sum(len(p.vertices) - 2 for p in wheel.data.polygons)}")
+    for o in [body, wheel, *lamps]:
+        print(f"[muscle_car] check {o.name}: {mesh_check(o)}")
+    objs = [body, *lamps]
+    print(f"[muscle_car] faces touching between objects: {sum(touching(a, b) for i, a in enumerate(objs) for b in objs[i + 1:])}")
 
     if prev:
         os.makedirs(prev, exist_ok=True)
