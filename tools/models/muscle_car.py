@@ -44,7 +44,7 @@ WHEEL_X = 0.86  # the tyres' outer faces flush with the fender bulges
 WHEEL_YF = NOSE - 0.275 * L  # 0.99
 WHEEL_YR = NOSE - 0.795 * L  # -1.30
 WHEEL_Z = WHEEL_R  # centre height above the ground
-ARCH_R = 0.35
+ARCH_R = 0.325  # hugging the tyre
 
 
 # ---------------------------------------------------------------- materials
@@ -81,7 +81,7 @@ def make_materials():
     MAT["head"] = material("lamp_head", srgb(0xFFF6E0), 0.2, 0, 4)
     MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 3)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
-    MAT["lens"] = material("lens", srgb(0x2E2A24), 0.25, 0.1)  # an indicator's smoked glass while it is off
+    MAT["lens"] = material("lens", srgb(0xFFE8C0), 0.25, 0.1, 1.2)  # fog lamps, always on (indicators blink over them)
     MAT["tyre"] = material("tyre", srgb(0x0B0B0B), 0.95)
     MAT["rim"] = material("rim", srgb(0x1E1E22), 0.4, 0.6)
     MAT["spoke"] = material("spoke", srgb(0x4A4A52), 0.35, 0.8)  # gunmetal, standing out of the dark dish
@@ -247,12 +247,12 @@ def body_half(p):
         ((gutter + crest) / 2, top((gutter + crest) / 2) + pk * 0.3, "paint"),
         (crest, zt + 0.004 + pk, "paint"),  # the fender's crest
         (w - 0.06, zt - 0.006 + pk * 0.7, "paint"),
-        (w + 0.025 + f * 0.5, zt - 0.05 + pk * 0.3, "paint"),  # the shoulder line: a crisp crease along the car
-        (w + 0.002 + f * 0.5, zt - 0.08 + pk * 0.2, "paint"),  # stepping in under it
+        (w + 0.025 + f * 0.5, zt - 0.05, "paint"),  # the shoulder line: one crisp crease along the car
+        (w + 0.002 + f * 0.5, zt - 0.08, "paint"),  # stepping in under it
         (w + f * 0.8, zt - 0.15, "paint"),
         (w + f, zt - 0.26, "paint"),  # the widest, round the top of the wheel
         (w - 0.01 + f * 0.85, zt - 0.38, "paint"),
-        (w - 0.035 + f * 0.6, zb + 0.10, "trim"),  # the rocker, dark and tucked in
+        (w - 0.035 + f * 0.6, zb + 0.10, "paint"),  # tucking in to a slim dark sill
         (w - 0.07 + f * 0.4, zb + 0.025, "trim"),
         (w - 0.12 + f * 0.3, zb, "trim"),
     ]
@@ -313,7 +313,7 @@ def build_shell():
         p = lerp_keys(BODY_KEYS, wy)
         out = p["w"] + p["f"] + 0.035
         for side in (-1, 1):
-            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.30, 0.55, -10, 190, 22, "paint", ARCH_R + 0.05))
+            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.28, 0.50, -10, 190, 22, "paint", ARCH_R + 0.04))
     union(shell, lips)
 
     # Wheel arches, cut in from each side (the middle of the car stays whole); dark inside.
@@ -456,10 +456,20 @@ def build_recesses():
     """Cut into the body: the grille (lamps in pods inside it), the lower intake, the tail-light panel."""
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731  (the nose face's lean)
     grille = box("grille", -0.78, 0.78, NOSE - 0.045, NOSE + 0.3, 0.53, 0.75, "trim", lean)
-    intake = box("intake", -0.70, 0.70, NOSE - 0.04, NOSE + 0.3, 0.37, 0.45, "trim", lean)  # one slim slot
+    intake = box("intake", -0.70, 0.70, NOSE - 0.04, NOSE + 0.3, 0.385, 0.435, "trim", lean)  # a thin slit
     tail = box("tailpanel", -0.68, 0.68, TAIL - 0.3, TAIL + 0.035, 0.68, 0.92, "trim")
     valance = box("valance", -0.55, 0.55, TAIL - 0.3, TAIL + 0.03, 0.38, 0.50, "trim")  # a dark diffuser low on the tail
     return [grille, intake, tail, valance]
+
+
+def build_inserts():
+    """Merged into the recesses once they are cut: a bar across the grille, fins in the tail's diffuser.
+    Each stands up from its recess's floor and stops short of the surface."""
+    lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731
+    parts = [box("grillebar", -0.30, 0.30, NOSE - 0.055, NOSE - 0.012, 0.635, 0.655, "spoke", lean)]
+    for x in (-0.34, -0.12, 0.12, 0.34):
+        parts.append(box("fin", x - 0.01, x + 0.01, TAIL + 0.008, TAIL + 0.04, 0.385, 0.495, "trim"))
+    return parts
 
 
 def build_lights():
@@ -476,16 +486,17 @@ def build_lights():
     for name, s in (("head_L", -1), ("head_R", 1)):
         parts = []
         for k, x in enumerate((s * 0.43, s * 0.655)):
-            parts.append(disc(f"{name}{k}", x, floor - 0.012, 0.645, 0.095, 0.03, "head", 20, lean))
-            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.02, 0.645, 0.095 + 0.014, 0.10, "trim", 20, lean))
+            # Standing 3 cm up from the grille's floor: in plain sight, 1.5 cm inside the opening.
+            parts.append(disc(f"{name}{k}", x, floor + 0.03, 0.638, 0.092, 0.04, "head", 20, lean))
+            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.06, 0.638, 0.092 + 0.014, 0.10, "trim", 20, lean))
         lamps.append(join(parts, name))
 
     # Front indicators / fog lamps at the intake's ends (its floor at NOSE - 0.04, leaning).
     floor = NOSE - 0.04
     for name, s in (("ind_FL", -1), ("ind_FR", 1)):
         x0, x1 = sorted((s * 0.52, s * 0.66))
-        lenses.append(box(name + "_lens", x0, x1, floor - 0.01, floor + 0.012, 0.385, 0.435, "lens", lean))
-        lamps.append(box(name, x0, x1, floor + 0.014, floor + 0.017, 0.385, 0.435, "ind", lean))
+        lenses.append(box(name + "_lens", x0, x1, floor - 0.01, floor + 0.012, 0.392, 0.428, "lens", lean))
+        lamps.append(box(name, x0, x1, floor + 0.014, floor + 0.017, 0.392, 0.428, "ind", lean))
 
     # Tail light bar across the tail panel (its floor at TAIL + 0.035), indicators blinking over its ends.
     # Four segments a side, dark ribs between them.
@@ -522,10 +533,10 @@ def build_wheel():
 
     rings = [
         ring(hw - 0.02, r_in),  # 0 rim lip, outer side
-        ring(hw, WHEEL_R * 0.84),  # 1 sidewall bulge
-        ring(hw - 0.03, WHEEL_R),  # 2 shoulder
-        ring(-hw + 0.03, WHEEL_R),  # 3
-        ring(-hw, WHEEL_R * 0.84),  # 4
+        ring(hw, WHEEL_R * 0.88),  # 1 sidewall
+        ring(hw - 0.015, WHEEL_R),  # 2 a square shoulder
+        ring(-hw + 0.015, WHEEL_R),  # 3
+        ring(-hw, WHEEL_R * 0.88),  # 4
         ring(-hw + 0.02, r_in),  # 5 rim lip, inner side
         ring(hw - 0.15, r_in * 0.98),  # 6 the dish's floor, deep
         ring(-hw + 0.02, r_in * 0.5),  # 7 back
@@ -692,12 +703,12 @@ def main():
     lamps, sockets, lenses = build_lights()
     body = union(build_shell(), [build_cabin(), *build_details()])
     body = cut(body, build_recesses())
-    body = cut(union(body, lenses), sockets)
+    body = cut(union(body, [*lenses, *build_inserts()]), sockets)
     body.name = body.data.name = "body"
     bpy.ops.object.select_all(action="DESELECT")
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
-    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(35))
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(55))  # soft roof edges; creases and openings stay sharp
     wheel = build_wheel()
 
     # Down to the origin (GROUND above the ground); the wheel stays centred on its axle.
