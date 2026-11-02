@@ -4,28 +4,26 @@ Muscle car model (concept: docs/art/muscle-car/), built in Blender from code.
 Run (Blender 5.x, headless):
   blender -b --factory-startup -P tools/models/muscle_car.py -- --out public/models/muscle-car.glb [--preview DIR]
 
-Proportions follow the concept (measured off its side view as fractions of the
-length L = 4.4 m): front axle 0.275 L from the nose, rear axle 0.795 L, wheels
-0.13 L across, roof from 0.41 L to 0.70 L, rear glass meeting the deck at 0.80 L,
-beltline 0.19 L high. Not the game's present physics (wheelbase 2.6 m, wheel
-radius 0.34): that is to be changed to suit the car when it goes into the game.
+The body is lofted from the cross-sections in muscle_car_shape.json (plain numbers, metres, ground at
+z = 0, nose toward +y): each station is a band of points across the top at fixed x (the stripes' edges
+fall on them), then points round the side to the bottom centre (right half; the car is symmetric).
+Onto that: wheel arches, windows and the light panels cut in as recesses, the concept's details
+(stripes, hood bulge, ducktail, splitter, bright blades) merged in.
 
-Builds in Blender space (X right, Y forward = nose, Z up, ground at z = 0), then
-moves the body down so the origin is GROUND above the ground. Exported Y-up, so
-the nose points to -Z in three.js like every other car in the game.
+Builds in Blender space (X right, Y forward = nose, Z up), then moves the body down so the origin
+is GROUND above the ground. Exported Y-up: the nose points to -Z in three.js like every other car.
 
-One watertight body: the shell, the greenhouse and the details are merged by
-exact boolean union, the grille, intake and tail-light panel are cut in as
-recesses; nothing lies inside or on anything else. The script prints the checks.
+One watertight body, nothing inside or on anything else; the script prints the checks.
 
 Objects in the GLB (the game finds them by name):
-  body                        paint, stripe, glass, trim, lens
+  body                        paint, stripe, glass, trim, chrome, lens
   head_L / head_R             headlamps (two round lamps per side, in pods)
   tail_L / tail_R             the tail light bar's halves (also the brake lights)
   ind_FL ind_FR ind_RL ind_RR indicators (glowing plates, hidden while off)
   wheel                       one wheel at the origin, axle along X, rim face +X (outer side on the right)
 """
 
+import json
 import math
 import os
 import sys
@@ -34,24 +32,29 @@ import bmesh
 import bpy
 from mathutils import Matrix, Vector
 
-GROUND = 0.55  # the origin's height above the ground (the game's physics box centre)
-L = 4.4
-NOSE = L / 2
-TAIL = -L / 2
-WHEEL_R = 0.30
-WHEEL_W = 0.46
-WHEEL_X = 0.87  # the tyres' outer faces flush with the fender bulges
-WHEEL_YF = NOSE - 0.275 * L  # 0.99
-WHEEL_YR = NOSE - 0.795 * L  # -1.30
-WHEEL_Z = WHEEL_R  # centre height above the ground
-ARCH_R = 0.325  # hugging the tyre
+GROUND = 0.55  # the origin's height above the ground
+SHAPE = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "muscle_car_shape.json")))
+NOSE = SHAPE["stations"][-1]["y"]  # the end stations: the nose and tail faces
+TAIL = SHAPE["stations"][0]["y"]
+
+WHEEL_R = 0.305
+WHEEL_W = 0.30
+WHEEL_X = 0.72
+WHEEL_YF = 1.37
+WHEEL_YR = -1.20
+WHEEL_Z = WHEEL_R
+ARCH_R = 0.365
+
+# Stripe edges (x) across the top: paint | stripe | gap | stripe | paint (they are among SHAPE's top_x).
+S_IN = 0.06
+S_OUT = 0.345
 
 
 # ---------------------------------------------------------------- materials
 
 def material(name, rgb, rough=0.5, metal=0.0, emit=0.0):
     m = bpy.data.materials.new(name)
-    m.diffuse_color = (*rgb, 1)  # what Workbench shows
+    m.diffuse_color = (*rgb, 1)
     m.roughness = rough
     m.metallic = metal
     m.use_nodes = True
@@ -85,7 +88,7 @@ def make_materials():
     MAT["lens"] = material("lens", srgb(0xFFE8C0), 0.25, 0.1, 1.2)  # fog lamps, always on (indicators blink over them)
     MAT["tyre"] = material("tyre", srgb(0x0B0B0B), 0.95)
     MAT["rim"] = material("rim", srgb(0x1E1E22), 0.4, 0.6)
-    MAT["spoke"] = material("spoke", srgb(0x707078), 0.3, 0.8)  # light gunmetal, standing out of the dark dish
+    MAT["spoke"] = material("spoke", srgb(0x707078), 0.3, 0.8)
 
 
 # ---------------------------------------------------------------- helpers
@@ -104,6 +107,9 @@ def mesh_object(name, verts, faces, mats, face_mats=None):
     bm = bmesh.new()
     bm.from_mesh(me)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.002)
+    big = [f for f in bm.faces if len(f.verts) > 4]  # concave caps: polyfill them now (a boolean's own triangulation can overlap)
+    if big:
+        bmesh.ops.triangulate(bm, faces=big, quad_method="BEAUTY", ngon_method="EAR_CLIP")
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.to_mesh(me)
     bm.free()
@@ -113,67 +119,33 @@ def mesh_object(name, verts, faces, mats, face_mats=None):
 BOX_FACES = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
 
 
-def box(name, x0, x1, y0, y1, z0, z1, mat, shear=None):
-    """An axis-aligned box; `shear(y, z) -> y` leans it (the nose's lean)."""
+def box(name, x0, x1, y0, y1, z0, z1, mat):
     v = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
-    if shear:
-        v = [(x, shear(y, z), z) for x, y, z in v]
     return mesh_object(name, v, BOX_FACES, [mat])
 
 
-def panel(name, c, along, d_in, d_out, length, z0, z1, mat):
-    """A box standing on a vertical face: centred at plan point c, `along` the face (a unit 2D vector),
-    reaching d_in behind and d_out in front of it (the face's normal is `along` turned right)."""
-    ax, ay = along
-    nx, ny = ay, -ax
-    v = []
-    for s in (-0.5, 0.5):
-        for d in (-d_in, d_out):
-            for z in (z0, z1):
-                v.append((c[0] + ax * s * length + nx * d, c[1] + ay * s * length + ny * d, z))
-    return mesh_object(name, v, BOX_FACES, [mat])
-
-
-def disc(name, x, y, z, r, depth, mat, n=16, shear=None):
+def disc(name, x, y, z, r, depth, mat, n=16):
     """A round lamp (a short cylinder along Y), its front face at y."""
     v = []
     for yy in (y - depth, y):
         for i in range(n):
             a = 2 * math.pi * i / n
             v.append((x + r * math.cos(a), yy, z + r * math.sin(a)))
-    if shear:
-        v = [(x_, shear(y_, z_), z_) for x_, y_, z_ in v]
     f = [tuple(range(n)), tuple(range(n, 2 * n))]
     f += [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
     return mesh_object(name, v, f, [mat])
 
 
-def arc_solid(name, x0, x1, yc, zc, ri, ro, a0, a1, n, mat, ro1=None):
-    """A slab bent round an axle along X: between radii ri and ro, from angle a0 to a1 (degrees, 0 = +Y,
-    90 = up). With ro1 its outer radius shrinks to ro1 at x1: a chamfer."""
-    verts, faces = [], []
-    for k in range(n + 1):
-        a = math.radians(a0 + (a1 - a0) * k / n)
-        c, s = math.cos(a), math.sin(a)
-        for x, r in ((x0, ri), (x0, ro), (x1, ro if ro1 is None else ro1), (x1, ri)):
-            verts.append((x, yc + r * c, zc + r * s))
-    for k in range(n):
-        a, b = 4 * k, 4 * (k + 1)
-        faces += [(a + i, a + (i + 1) % 4, b + (i + 1) % 4, b + i) for i in range(4)]
-    faces += [(0, 1, 2, 3), (4 * n + 3, 4 * n + 2, 4 * n + 1, 4 * n)]
-    return mesh_object(name, verts, faces, [mat])
-
-
-def lerp_keys(keys, y):
-    """Piecewise smooth interpolation over keyframes [(y, {param: value})]; a missing value is 0."""
-    if y <= keys[0][0]:
-        return dict(keys[0][1])
-    for (ya, a), (yb, b) in zip(keys, keys[1:]):
-        if y <= yb:
-            t = (y - ya) / (yb - ya)
-            t = t * t * (3 - 2 * t)
-            return {k: a.get(k, 0) + (b.get(k, 0) - a.get(k, 0)) * t for k in a.keys() | b.keys()}
-    return dict(keys[-1][1])
+def prism(name, outline, inner, outer, mats=("glass", "trim", "trim")):
+    """A solid standing on a 2D outline: inner(p) and outer(p) give its two ends' 3D points for each
+    outline point p. Materials: the inner end, the walls, the outer end."""
+    n = len(outline)
+    verts = [inner(p) for p in outline] + [outer(p) for p in outline]
+    faces = [tuple(range(n)), tuple(range(2 * n - 1, n - 1, -1))]
+    faces += [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+    names = list(dict.fromkeys(mats))
+    fm = [names.index(mats[0]), names.index(mats[2])] + [names.index(mats[1])] * n
+    return mesh_object(name, verts, faces, names, fm)
 
 
 def join(objs, name):
@@ -196,12 +168,12 @@ def boolean(target, others, op):
         mod.material_mode = "TRANSFER"
         mod.object = p
         bpy.context.view_layer.objects.active = target
-        before = len(target.data.polygons)
-        name = p.name
+        before, name = len(target.data.polygons), p.name
         bpy.ops.object.modifier_apply(modifier="b")
         bpy.data.objects.remove(p)
         if os.environ.get("MODEL_DEBUG"):
-            print(f"[boolean] {op} {name}: {before} -> {len(target.data.polygons)} faces")
+            check = f" {mesh_check(target)}" if os.environ.get("MODEL_DEBUG") == "2" else ""
+            print(f"[boolean] {op} {name}: {before} -> {len(target.data.polygons)} faces{check}")
     return target
 
 
@@ -213,263 +185,166 @@ def cut(target, cutters):
     return boolean(target, cutters, "DIFFERENCE")
 
 
+# ---------------------------------------------------------------- the shape
+
+def shape_rings():
+    """The stations' half cross-sections: the top at fixed x, then the side at fixed heights, then the
+    bottom centre - the same point on the same feature (roof edge, belt, shoulder, sill) at every
+    station, so they run as straight lines down the car. Inside the wheel arches the side comes from the
+    stations either side; a height a station doesn't reach (above its top, below its bottom) gets a point
+    spread between its neighbours, so every ring has the same points in the same order."""
+    tx, sz, dz = SHAPE["top_x"], SHAPE["side_z"], SHAPE["low_dz"]
+    st = SHAPE["stations"]
+    ys = [s["y"] for s in st]
+    side = [list(s["side"]) + list(s["low"]) for s in st]  # the fixed heights, then the sill's (above the bottom)
+    level = lambda s, j: sz[j] if j < len(sz) else s["bottom"] + dz[j - len(sz)]  # noqa: E731
+    for wy in (WHEEL_YF, WHEEL_YR):
+        inside = [i for i, y in enumerate(ys) if abs(y - wy) < ARCH_R + 0.02]
+        a, b = inside[0] - 1, inside[-1] + 1
+        for i in inside:
+            t = (ys[i] - ys[a]) / (ys[b] - ys[a])
+            for j in range(len(side[i])):
+                if level(st[i], j) < WHEEL_Z + ARCH_R + 0.12 and side[a][j] is not None and side[b][j] is not None:
+                    side[i][j] = side[a][j] + (side[b][j] - side[a][j]) * t
+    rings = []
+    for s, sd in zip(st, side):
+        top = list(zip(tx, s["top"]))
+        zt, zb = top[-1][1], s["bottom"]
+        zs = [level(s, j) for j in range(len(sd))]
+        sill = zb + dz[0]  # the sill's top level: a fixed height not above it is out of order here
+        ok = [j for j in range(len(sd)) if sd[j] is not None and zs[j] < zt - 0.015 and (j >= len(sz) or zs[j] > sill + 0.02)]
+        pts = [None] * len(sd)
+        for j in ok:
+            pts[j] = (sd[j], zs[j])
+        # A height this station doesn't have (above its top at the nose and tail, below its sill):
+        # spread between the good points either side, so the ring keeps its points and their order.
+        anchors = [(-1, top[-1])] + [(j, pts[j]) for j in ok]
+        for (ja, pa), (jb, pb) in zip(anchors, anchors[1:]):
+            for j in range(ja + 1, jb):
+                t = (j - ja) / (jb - ja)
+                pts[j] = (pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t)
+        rings.append(top + pts + [(0.0, zb)])
+    return ys, rings, len(tx)
+
+
+YS, RINGS, NT = shape_rings()
+
+
+def at_station(y):
+    """The two stations around y and the blend between them."""
+    i = next((k for k in range(len(YS) - 1) if YS[k + 1] >= y), len(YS) - 2)
+    t = max(0.0, min(1.0, (y - YS[i]) / (YS[i + 1] - YS[i])))
+    return i, t
+
+
+def top_z(y, x):
+    """The body's top height at (y, |x|) along the top band (and on out to the first side point)."""
+    i, t = at_station(y)
+    x = abs(x)
+
+    def one(r):
+        chain = r[:NT + 1]
+        for (xa, za), (xb, zb) in zip(chain, chain[1:]):
+            if x <= xb:
+                return za + (zb - za) * (x - xa) / ((xb - xa) or 1e-9)
+        return chain[-1][1]
+    return one(RINGS[i]) * (1 - t) + one(RINGS[i + 1]) * t
+
+
+def side_x(y, z):
+    """The body's half-width at (y, z): round the whole half ring (the greenhouse's sides are among the top
+    points), the outermost where it folds."""
+    i, t = at_station(y)
+
+    def one(r):
+        chain = r
+        best = None
+        for (xa, za), (xb, zb) in zip(chain, chain[1:]):
+            lo_, hi_ = min(za, zb), max(za, zb)
+            if lo_ <= z <= hi_ and hi_ > lo_:
+                x = xa + (xb - xa) * (z - za) / (zb - za)
+                best = x if best is None else max(best, x)
+        return best if best is not None else 0.0
+    return one(RINGS[i]) * (1 - t) + one(RINGS[i + 1]) * t
+
+
 # ---------------------------------------------------------------- the body shell
 
-# Side profile and plan, keyed along the car: half-width w (at the fender crest), flare f (how far the
-# side swells out below it, over the wheels), bottom zb, hood / deck height ztop, crown over the middle,
-# pk the fender crests standing up either side of the hood.
-# dome: the hood's power bulge down the middle (the stripes run over it).
-BODY_KEYS = [
-    (TAIL, dict(w=0.74, f=0.0, zb=0.31, ztop=1.005, crown=0.01)),  # the ducktail's lip; the tail tapers in
-    (-2.10, dict(w=0.84, f=0.03, zb=0.25, ztop=0.99, crown=0.015)),
-    (-1.95, dict(w=0.90, f=0.07, zb=0.205, ztop=0.955, crown=0.02)),  # the deck, kicking up into the ducktail
-    (-1.65, dict(w=0.93, f=0.10, zb=0.19, ztop=0.95, crown=0.02)),
-    (WHEEL_YR, dict(w=0.94, f=0.12, zb=0.19, ztop=0.95, crown=0.02)),  # the haunches, much wider than the cabin
-    (-1.06, dict(w=0.93, f=0.09, zb=0.19, ztop=0.948, crown=0.02)),  # easing into the haunch
-    (-0.92, dict(w=0.925, f=0.055, zb=0.19, ztop=0.935, crown=0.02)),
-    (-0.52, dict(w=0.90, f=0.0, zb=0.19, ztop=0.852, crown=0.02)),  # straight through the door, then one kick up to the haunches
-    (0.20, dict(w=0.885, f=0.0, zb=0.19, ztop=0.845, crown=0.02)),  # the waist, pinched in at the door; sills low
-    (0.70, dict(w=0.905, f=0.03, zb=0.19, ztop=0.85, crown=0.01, pk=0.04, dome=0.015)),  # cowl
-    (WHEEL_YF, dict(w=0.92, f=0.11, zb=0.19, ztop=0.845, crown=0.01, pk=0.08, dome=0.04)),  # front fenders over the wheels
-    (1.55, dict(w=0.915, f=0.06, zb=0.20, ztop=0.835, crown=0.01, pk=0.08, dome=0.04)),
-    (1.95, dict(w=0.90, f=0.0, zb=0.25, ztop=0.815, crown=0.01, pk=0.06, dome=0.03)),
-    (NOSE, dict(w=0.86, f=0.0, zb=0.28, ztop=0.80, crown=0.01, pk=0.05, dome=0.025)),  # the hood's shape carried to one clean leading edge
-]
-NOSE_TOP = 0.80
-LEAN = 0.40  # the shark nose: the nose face leans forward 0.40 m per metre up (the lower nose tucks back)
-
-
-def nose_shear(y, z):
-    """Lean the nose's last stretch forward at the top (applied to the shell and to what sits on the nose).
-    Nothing above NOSE_TOP moves: the hood's leading edge stays one straight line."""
-    k = max(0.0, min(1.0, (y - (NOSE - 0.24)) / 0.24))
-    return y - k * LEAN * max(0.0, NOSE_TOP - z)
-
-
-# Stripe edges (x) across the top: paint | stripe | gap | stripe | paint.
-S_IN = 0.06
-S_OUT = 0.345
-
-
-def body_half(p):
-    """One side of a cross-section, from the top centre out and down: [(x, z, material of the segment to the next)]."""
-    w, f, zb, zt, cr, pk, dome = p["w"], p["f"], p["zb"], p["ztop"], p["crown"], p.get("pk", 0), p.get("dome", 0)
-    # The hood: a gentle crown, a smooth dome down the middle (no edge to it), rising again to the crests.
-    top = lambda x: zt + cr * (1 - (x / w) ** 2) + dome * (math.cos(math.pi * min(x, 0.4) / 0.8) ** 2)  # noqa: E731
-    crest = w - 0.13
-    gutter = (S_OUT + crest) / 2
-    return [
-        (S_IN, top(S_IN), "stripe"),
-        ((S_IN + S_OUT) / 2, top((S_IN + S_OUT) / 2), "stripe"),
-        (S_OUT, top(S_OUT), "paint"),
-        ((S_OUT + gutter) / 2, top((S_OUT + gutter) / 2), "paint"),
-        (gutter, top(gutter), "paint"),  # where the hood meets the fender
-        (crest - 0.035, top(crest - 0.035) + pk * 0.12, "paint"),  # the hood runs flat right up to...
-        (crest, zt + 0.004 + pk, "paint"),  # ...the fender's crest: a crisp step up between them
-        (w - 0.06, zt - 0.006 + pk * 0.7, "paint"),
-        (w + 0.025 + f * 0.35, zt - 0.05, "paint"),  # the shoulder line: one crisp crease along the car
-        (w + 0.002 + f * 0.35, zt - 0.08, "paint"),  # stepping in under it
-        (w + f * 0.8, zt - 0.15, "paint"),
-        (w + f, zt - 0.26, "paint"),  # the widest, round the top of the wheel
-        (w - 0.01 + f * 0.85, zt - 0.38, "paint"),
-        (w - 0.035 + f * 0.6, zb + 0.10, "paint"),  # tucking in to a slim dark sill
-        (w - 0.07 + f * 0.4, zb + 0.025, "trim"),
-        (w - 0.12 + f * 0.3, zb, "trim"),
-    ]
-
-
-def top_centre(p):
-    return p["ztop"] + p["crown"] + p.get("dome", 0)
-
-
-def body_loop(p):
-    """The whole cross-section: points and the material of each segment (point i to i + 1, closing round)."""
-    half = body_half(p)
-    zb = p["zb"]
-    pts = [(0.0, top_centre(p))] + [(x, z) for x, z, _ in half] + [(0.0, zb)] + [(-x, z) for x, z, _ in reversed(half)]
-    # Right: centre -> S_IN paint, then each point's own; across the bottom trim; the left side mirrored.
-    mats = ["paint"] + [m for _, _, m in half[:-1]] + ["trim", "trim"] + [m for _, _, m in reversed(half[:-1])] + ["paint"]
-    return pts, mats
-
-
-def body_top_z(y, x):
-    """The height of the body's top at (y, x), along the top of the cross-section (for seating the greenhouse)."""
-    p = lerp_keys(BODY_KEYS, y)
-    chain = [(0.0, top_centre(p))] + [(px, pz) for px, pz, _ in body_half(p)[:9]]  # out to the shoulder crease
-    x = abs(x)
-    for (xa, za), (xb, zb_) in zip(chain, chain[1:]):
-        if x <= xb:
-            return za + (zb_ - za) * (x - xa) / (xb - xa)
-    return chain[-1][1]
-
-
 def build_shell():
-    ys, y = [], TAIL
-    while y < NOSE - 1e-6:
-        ys.append(y)
-        y += 0.08
-    ys.append(NOSE)
-    names = ["paint", "stripe", "trim"]
     verts, faces, fm = [], [], []
-    n = None
-    for y in ys:
-        pts, mats = body_loop(lerp_keys(BODY_KEYS, y))
-        n = len(pts)
-        # The nose also bows forward a little in plan (2.5 cm at the middle), over the lamps.
-        k = max(0.0, min(1.0, (y - (NOSE - 0.24)) / 0.24))
-        verts += [(x, nose_shear(y, z) + k * 0.025 * max(0.0, 1 - (x / 0.86) ** 2), z) for x, z in pts]
-    for s in range(len(ys) - 1):
+    names = ["paint", "stripe", "trim"]
+    for y, half in zip(YS, RINGS):
+        full = [(-x, z) for x, z in reversed(half[1:-1])] + half  # left (bottom centre excluded) .. top centre .. right .. bottom centre
+        verts += [(x, y, z) for x, z in full]
+    n = len(verts) // len(YS)
+    nl = len(RINGS[0]) - 2  # left points before the top centre
+
+    def seg_mat(i):
+        """Material of the segment from ring point i to i + 1 (on the first station; the same along the car)."""
+        a, b = verts[i], verts[(i + 1) % n]
+        if a[2] < 0.30 and b[2] < 0.30:
+            return "trim"  # sill and underside
+        top_band = nl - (NT - 1) <= i < nl + NT - 1
+        xa, xb = sorted((abs(a[0]), abs(b[0])))
+        if top_band and xa >= S_IN - 1e-6 and xb <= S_OUT + 1e-6:
+            return "stripe"
+        return "paint"
+    mats = [seg_mat(i) for i in range(n)]
+    for s in range(len(YS) - 1):
         a, b = s * n, (s + 1) * n
         for i in range(n):
             j = (i + 1) % n
             faces.append((a + i, a + j, b + j, b + i))
             fm.append(names.index(mats[i]))
-    faces.append(tuple(reversed(range(n))))  # tail face
-    faces.append(tuple(range(len(ys) * n - n, len(ys) * n)))  # nose face
+    faces += [tuple(reversed(range(n))), tuple(range(len(verts) - n, len(verts)))]
     fm += [0, 0]
     shell = mesh_object("shell", verts, faces, names, fm)
-    # The nose and tail faces are big concave polygons: triangulate them properly (polyfill) now,
-    # rather than leave it to the booleans, whose quick triangulation of a concave face can overlap.
+    # Fix how each (slightly twisted) quad splits, rather than leave it to each boolean.
     bm = bmesh.new()
     bm.from_mesh(shell.data)
-    caps = [f for f in bm.faces if len(f.verts) > 4]
-    bmesh.ops.triangulate(bm, faces=caps, quad_method="BEAUTY", ngon_method="EAR_CLIP")
+    bmesh.ops.triangulate(bm, faces=bm.faces, quad_method="BEAUTY", ngon_method="EAR_CLIP")
     bm.to_mesh(shell.data)
     bm.free()
 
-    # A lip round each arch, sloping out of the fender's bulge (the arch cut below trims its inside).
-    lips = []
-    for wy in (WHEEL_YR, WHEEL_YF):
-        p = lerp_keys(BODY_KEYS, wy)
-        front = wy > 0
-        out = p["w"] + p["f"] + 0.045
-        for side in (-1, 1):
-            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.28, 0.45, -10, 190, 22, "paint",
-                                  ARCH_R + (0.055 if front else 0.05)))
-    union(shell, lips)
-
-    # Wheel arches, cut in from each side (the middle of the car stays whole); dark inside.
+    # Wheel arches, cut in from each side; dark inside.
     arches = []
     for wy in (WHEEL_YR, WHEEL_YF):
-        for side in (-1, 1):
-            bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=ARCH_R, depth=0.7, location=(side * 1.1, wy, WHEEL_Z), rotation=(0, math.pi / 2, 0))
+        for s in (-1, 1):
+            bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=ARCH_R, depth=1.1, location=(s * 1.05, wy, WHEEL_Z), rotation=(0, math.pi / 2, 0))
             c = bpy.context.active_object
             c.data.materials.append(MAT["trim"])
             arches.append(c)
     return cut(shell, arches)
 
 
-# ---------------------------------------------------------------- the greenhouse
+# ---------------------------------------------------------------- windows
 
-CABIN_FLOOR = 0.72  # the greenhouse is a closed solid reaching down into the body (merged into it)
-RG = 0.55  # the rear glass's half-width: slim sail panels either side of it (inside the roof's edge roll: its corners are rounded)
-WT_REF = 0.60
+GLASS_DEPTH = 0.025  # how far the glass sits in from the body's surface
 
 
-def build_cabin():
-    """Windshield, a domed roof with the stripes, side windows leaning in, a fastback rear glass between
-    thick C-pillars down to the deck. A closed solid, merged into the body."""
-    stations = [
-        # y, belt half-width, roof half-width, roof height at its edge (none: a base line on the hood / deck),
-        # and what the band from here to the next station is
-        (NOSE - 0.33 * L, 0.84, None, None, "windshield"),  # windshield base
-        (0.47, 0.84, 0.585, 1.24, "roof"),  # the header, rounding the roof down into the windshield
-        (0.37, 0.84, 0.61, 1.275, "roof"),  # roof front
-        (-0.25, 0.85, 0.64, 1.295, "roof"),
-        (NOSE - 0.70 * L + 0.04, 0.90, 0.625, 1.272, "cpillar"),  # roof rear
-        (NOSE - 0.70 * L - 0.05, 0.91, 0.61, 1.248, "rear"),  # rounding over into the rear glass
-        (NOSE - 0.84 * L, 0.93, None, None, None),  # the rear glass, long and shallow, meets the deck; the C-pillars run out onto the haunches
-    ]
-    DOME = 0.06
-    verts = []
-    for y, wb, wt, zt, _ in stations:
-        # The base runs 2.5 cm under the body's top: the glass meets the body at its own angle (a base
-        # just under the surface would graze it, and the boolean leave slivers that crinkle the shading).
-        sink = 0.025
-        if wt is None:  # on the body: spread across like the roof, out to the belt
-            xs = [0, S_IN, S_OUT, RG, WT_REF - 0.03, WT_REF, wb]
-            half = [(x, body_top_z(y, x) - (0.07 if x == wb else sink)) for x in xs]
-        else:
-            top = lambda x: zt + DOME * (1 - (x / wt) ** 2)  # noqa: E731
-            # The belt deeper still: there the side glass / C-pillar meets the curved shoulder.
-            half = [(0, top(0)), (S_IN, top(S_IN)), (S_OUT, top(S_OUT)), (RG, top(RG)),
-                    (wt - 0.03, zt - 0.006), (wt, zt - 0.03), (wb, body_top_z(y, wb) - 0.07)]
-        row = [(-x, z) for x, z in reversed(half[1:])] + half  # left belt, over the roof, to the right belt
-        row += [(-wb * 0.9, CABIN_FLOOR), (wb * 0.9, CABIN_FLOOR)]
-        verts += [(x, y, z) for x, z in row]
-    n = 15
-    # Top segments across (12): 0 left side window band, 1 left roof roll, 2 left sail, 3 left outer,
-    # 4 left stripe, 5-6 centre, 7 right stripe, 8 right outer, 9 right sail, 10 right roll, 11 right side band.
-    faces, fm, group = [], [], []
-    bands = len(stations) - 1
-    for s in range(bands):
-        a, b = s * n, (s + 1) * n
-        kind = stations[s][4]
-        for i in range(12):
-            faces.append((a + i, a + i + 1, b + i + 1, b + i))
-            side = i in (0, 11)
-            if kind == "windshield":  # between the A-pillars, the side windows reaching forward to them
-                fm.append(2)
-                group.append(f"side{i}" if side else "windshield")
-            elif kind in ("roof", "cpillar"):  # the roof with its stripes; side windows, then the C-pillars
-                glass = side and kind == "roof"
-                fm.append(2 if glass else (1 if i in (4, 7) else 0))
-                group.append(f"side{i}" if glass else None)
-            else:  # rear: glass between the sails; the C-pillars are body
-                glass = 3 <= i <= 8
-                fm.append(2 if glass else 0)
-                group.append("rear" if glass else None)
-        # Walls down into the body and the floor (hidden once merged).
-        faces += [(a + 12, a + 14, b + 14, b + 12), (a + 14, a + 13, b + 13, b + 14), (a + 13, a, b, b + 13)]
-        fm += [0, 0, 0]
-        group += [None, None, None]
-    last = bands * n
-    faces += [tuple(range(13)) + (14, 13), tuple(last + i for i in (13, 14, *range(12, -1, -1)))]
-    fm += [0, 0]
-    group += [None, None]
-    cabin = mesh_object("cabin", verts, faces, ["paint", "stripe", "glass"], fm)
+def side_windows():
+    """Door glass and a quarter window either side (the B-pillar between them), recessed into the
+    greenhouse's side; outlines in (y, z)."""
+    # (Edges kept 2 cm or more off the stations' y and the side heights: a cut grazing a vertex goes wrong.)
+    # (The door glass starts behind the windshield's cut at the A-pillar, clear of it.)
+    door = [(0.62, 0.93), (0.25, 1.145), (-0.47, 1.145), (-0.47, 0.93)]
+    quarter = [(-0.53, 0.93), (-0.53, 1.13), (-0.60, 1.08), (-0.685, 0.975), (-0.685, 0.93)]
+    cutters = []
+    for name, outline, depth in (("door", door, GLASS_DEPTH), ("quarter", quarter, GLASS_DEPTH + 0.01)):
+        for s in (-1, 1):
+            cutters.append(prism(f"{name}glass", outline,
+                                 lambda p, s=s, d=depth: (s * (side_x(p[0], p[1]) - d), p[0], p[1]),
+                                 lambda p, s=s: (s * 1.6, p[0], p[1])))
+    return cutters
 
-    # Frame every window: inset each glass region, the rim goes back to paint.
-    bm = bmesh.new()
-    bm.from_mesh(cabin.data)
-    bm.faces.ensure_lookup_table()
-    centres = {tuple(round(c, 4) for c in f.calc_center_median()): g for f, g in zip(bm.faces, group)}
-    regions = {}
-    for f in bm.faces:
-        g = centres.get(tuple(round(c, 4) for c in f.calc_center_median()))
-        if g:
-            regions.setdefault(g, []).append(f)
-    for faces_ in regions.values():
-        res = bmesh.ops.inset_region(bm, faces=faces_, thickness=0.022, depth=0.0, use_even_offset=True)
-        for f in res["faces"]:
-            f.material_index = 0
 
-    # Round the glass's corners: bevel each corner of a window's outline; the corner piece goes to the frame.
-    def is_edge(e):
-        mats = {f.material_index == 2 for f in e.link_faces}
-        return len(mats) == 2
-    corners = []
-    for v in bm.verts:
-        edges = [e for e in v.link_edges if is_edge(e)]
-        if len(edges) != 2:
-            continue
-        d1 = (edges[0].other_vert(v).co - v.co).normalized()
-        d2 = (edges[1].other_vert(v).co - v.co).normalized()
-        if d1.dot(d2) > -0.9:  # turning more than ~25 degrees
-            corners.append(v)
-    # The windshield and side windows get a bigger round than the rear glass, which has less room by the roof's edge.
-    rear = [v for v in corners if v.co.y < NOSE - 0.70 * L]
-    front = [v for v in corners if v.co.y >= NOSE - 0.70 * L]
-    for vs, r in ((front, 0.06), (rear, 0.035)):
-        res = bmesh.ops.bevel(bm, geom=vs, offset=r, offset_type="OFFSET", segments=5, profile=0.5,
-                              affect="VERTICES", clamp_overlap=True)
-        for f in res["faces"]:
-            f.material_index = 0
-    bm.to_mesh(cabin.data)
-    bm.free()
-    if os.environ.get("MODEL_DEBUG"):
-        print(f"[cabin] {len(corners)} corners rounded; {mesh_check(cabin)}")
-    return cabin
+def top_windows():
+    """Windshield and rear glass, recessed into the top; outlines in (y, x)."""
+    # (Edges 2 cm or more off the top points' x: 0.45, 0.55.)
+    windshield = [(0.725, -0.58), (0.725, 0.58), (0.30, 0.52), (0.30, -0.52)]
+    rear = [(-1.03, -0.52), (-1.03, 0.52), (-1.31, 0.475), (-1.31, -0.475)]
+    return [prism(name, outline, lambda p: (p[1], p[0], top_z(p[0], p[1]) - GLASS_DEPTH), lambda p: (p[1], p[0], 3.0))
+            for name, outline in (("windshield", windshield), ("rearglass", rear))]
 
 
 # ---------------------------------------------------------------- details
@@ -477,23 +352,22 @@ def build_cabin():
 def build_scoop():
     """A long bulge growing out of the hood and rising toward its dark mouth at the front; its sides slope
     down into the hood and the stripes run on over it."""
-    y0, y1 = 0.55, 1.70
+    y0, y1 = 0.95, 1.80
     n = 8
-    # Across (right half): top centre, stripe in, top edge, rounded shoulder, stripe out, foot (under the hood).
-    seg =["paint", "stripe", "stripe", "stripe", "paint"]  # between consecutive points
+    seg = ["paint", "stripe", "stripe", "stripe", "paint"]
     verts, faces, fm = [], [], []
     names = ["paint", "stripe", "trim"]
     for k in range(n + 1):
         t = k / n
         y = y0 + (y1 - y0) * t
-        h = 0.11 * t ** 1.3 - 0.008  # buried at the back, emerging forward
-        zs = body_top_z(y, 0)
-        half = [(0.0, zs + h), (S_IN, zs + h), (0.17, zs + h - 0.006), (0.235, zs + h - 0.036),  # a well-rounded shoulder
-                (S_OUT, zs + h * 0.3 - 0.006), (0.37, body_top_z(y, 0.37) - 0.035)]  # the foot well under: a clean meeting line
-        row = [(-x, z) for x, z in reversed(half[1:])] + half + [(0.37, 0.78), (-0.37, 0.78)]
+        h = 0.10 * t ** 1.3 - 0.008  # buried at the back, emerging forward
+        zs = top_z(y, 0)
+        half = [(0.0, zs + h), (S_IN, zs + h), (0.17, zs + h - 0.006), (0.235, zs + h - 0.036),
+                (S_OUT, zs + h * 0.3 - 0.006), (0.37, top_z(y, 0.37) - 0.035)]
+        row = [(-x, z) for x, z in reversed(half[1:])] + half + [(0.37, zs - 0.12), (-0.37, zs - 0.12)]
         verts += [(x, y, z) for x, z in row]
     m = 13
-    across = [m_ for m_ in reversed(seg)] + seg  # 10 top segments, left foot to right foot
+    across = list(reversed(seg)) + seg
     for k in range(n):
         a, b = k * m, (k + 1) * m
         for i in range(10):
@@ -506,29 +380,20 @@ def build_scoop():
     return mesh_object("scoop", verts, faces, names, fm)
 
 
-def build_details():
-    """Solids merged into the body: the scoop and the splitter sweeping forward under the nose."""
-    # The splitter: a lip sweeping forward under the nose, thinning to its edge.
-    sv = [(x, y, z) for x in (-0.82, 0.82) for y, z in ((NOSE - 0.45, 0.21), (NOSE - 0.45, 0.34), (NOSE - 0.02, 0.225), (NOSE - 0.02, 0.25))]
-    splitter = mesh_object("splitter", sv, [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)], ["paint"])
-    # The ducktail: the deck's lip kicking up and jutting out past the tail panel.
-    return [build_scoop(), splitter, build_ducktail()]
-
-
 def build_ducktail():
-    """The ducktail lip: growing out of the deck at y -1.85 and sweeping up in a curve to its edge 9 cm
-    behind the tail, narrowing with the tail, its top corners rounded."""
-    y0, y1 = -1.85, TAIL - 0.09
-    za = body_top_z(y0, 0.8) - 0.03  # its front edge well under the deck: it meets the deck along one clean line
-    ze = 1.045
+    """A lip growing out of the deck and sweeping up past the tail, its top corners rounded."""
+    y0, y1 = -1.70, TAIL - 0.07
+    za = top_z(y0, 0.6) - 0.03  # its front edge well under the deck
+    zb0 = top_z(TAIL, 0) - 0.12
+    ze = top_z(TAIL, 0) + 0.11
     n = 8
     verts, faces = [], []
     for k in range(n + 1):
         t = k / n
         y = y0 + (y1 - y0) * t
-        hw = 0.80 - 0.10 * t
-        zt = za + (ze - za) * t ** 1.8  # concave: flat out of the deck, then kicking up
-        zb = 0.90 + (ze - 0.04 - 0.90) * t  # inside the body until it leaves the tail
+        hw = 0.76 - 0.08 * t
+        zt = za + (ze - za) * t ** 1.8
+        zb = zb0 + (ze - 0.04 - zb0) * t
         verts += [(-hw, y, zb), (hw, y, zb), (hw, y, zt - 0.015), (hw - 0.035, y, zt), (-hw + 0.035, y, zt), (-hw, y, zt - 0.015)]
     m = 6
     for k in range(n):
@@ -538,110 +403,83 @@ def build_ducktail():
     return mesh_object("ducktail", verts, faces, ["paint"])
 
 
-def tail_corner(s):
-    """The tail's slanting corner on side s, in plan: its start at the tail, the direction along it for
-    panel() (whose right is outward), and the unit vector running from the tail forward along it."""
-    p0, p1 = Vector((s * 0.745, TAIL + 0.005)), Vector((s * 0.862, -2.105))
-    out = (p1 - p0).normalized()
-    return p0, (out if s > 0 else -out), out
+def build_details():
+    """Merged into the body: the hood bulge, the ducktail, a splitter under the nose, bright bumper blades."""
+    parts = [build_scoop(), build_ducktail()]
+    # (It starts ahead of the front wheel arch: reaching into the arch's cut it would graze it.)
+    sv = [(x, y, z) for x in (-0.84, 0.84) for y, z in ((NOSE - 0.25, 0.25), (NOSE - 0.25, 0.33), (NOSE + 0.10, 0.255), (NOSE + 0.10, 0.28))]
+    parts.append(mesh_object("splitter", sv, BOX_FACES, ["paint"]))
+    parts.append(box("fbumper", -0.87, 0.87, NOSE - 0.06, NOSE + 0.08, 0.40, 0.445, "chrome"))  # its ends clear of the nose's sides
+    parts.append(box("rbumper", -0.80, 0.80, TAIL - 0.08, TAIL + 0.06, 0.42, 0.48, "chrome"))
+    return parts
+
+
+# The nose face is the shell's end at y = NOSE (flat); the tail's at TAIL.
+GRILLE = dict(x=0.80, z0=0.52, z1=0.72, depth=0.05)
+TAILPANEL = dict(x=0.72, z0=0.57, z1=0.69, depth=0.035)
 
 
 def build_recesses():
-    """Cut into the body: the grille (lamps in pods inside it), the lower intake, the tail-light panel."""
-    lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731  (the nose face's lean)
-    grille = box("grille", -0.775, 0.775, NOSE - 0.045, NOSE + 0.3, 0.53, 0.75, "trim", lean)  # clear of the nose's sides
-    intake = box("intake", -0.70, 0.70, NOSE - 0.04, NOSE + 0.3, 0.385, 0.435, "trim", lean)  # a thin slit
-    tail = box("tailpanel", -0.72, 0.72, TAIL - 0.3, TAIL + 0.035, 0.70, 0.88, "trim")  # out to the corners, a slim frame round the bar
-    valance = box("valance", -0.55, 0.55, TAIL - 0.3, TAIL + 0.03, 0.38, 0.50, "trim")  # a dark diffuser low on the tail
-    cuts = [grille, intake, tail, valance]
-    for s in (-1, 1):  # the light panel wraps round the tail's corners
-        p0, along, out = tail_corner(s)
-        cuts.append(panel("tailwrap", p0 + out * 0.068, along, 0.02, 0.06, 0.138, 0.70, 0.88, "trim"))  # shallow: nearly flush
-    # The door: a fine shut line at its front and back edges (below the shoulder crease), and a handle recess.
-    for s in (-1, 1):
-        for y in (0.50, -0.55):
-            x0, x1 = sorted((s * 0.868, s * 1.3))
-            cuts.append(box("doorline", x0, x1, y - 0.003, y + 0.003, 0.33, 0.775, "trim"))
-        x0, x1 = sorted((s * 0.874, s * 1.3))
-        cuts.append(box("handle", x0, x1, -0.43, -0.31, 0.70, 0.725, "trim"))
-    return cuts
+    """Cut into the body: the grille (the lamps in it), a slim intake low on the nose, the tail light panel."""
+    g, t = GRILLE, TAILPANEL
+    return [
+        box("grille", -g["x"], g["x"], NOSE - g["depth"], NOSE + 0.3, g["z0"], g["z1"], "trim"),
+        box("intake", -0.62, 0.62, NOSE - 0.04, NOSE + 0.3, 0.32, 0.36, "trim"),
+        box("tailpanel", -t["x"], t["x"], TAIL - 0.3, TAIL + t["depth"], t["z0"], t["z1"], "trim"),
+    ]
 
 
 def build_inserts():
-    """Merged into the recesses once they are cut: a bar across the grille, fins in the tail's diffuser.
-    Each stands up from its recess's floor and stops short of the surface."""
-    lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731
-    parts = [box("grillebar", -0.29, 0.29, NOSE - 0.055, NOSE - 0.02, 0.624, 0.656, "spoke", lean)]  # a heavy bar, tucked in
-    for x in (-0.34, -0.12, 0.12, 0.34):
-        parts.append(box("fin", x - 0.01, x + 0.01, TAIL + 0.008, TAIL + 0.04, 0.385, 0.495, "trim"))
-    # A brow over the lamps: the grille's top edge jutting 1.2 cm out over the opening.
-    parts.append(box("brow", -0.765, 0.765, NOSE - 0.03, NOSE + 0.022, 0.732, 0.762, "paint", lean))
-    # Thin bright bumper blades: across the tail under the light panel, and at the nose's corners.
-    parts.append(box("rblade", -0.70, 0.70, TAIL - 0.03, TAIL + 0.06, 0.615, 0.645, "chrome"))
-    for s in (-1, 1):
-        x0, x1 = sorted((s * 0.44, s * 0.79))
-        parts.append(box("fblade", x0, x1, NOSE - 0.06, NOSE + 0.025, 0.47, 0.50, "chrome", lean))
-    return parts
+    """Merged into the recesses once cut: a bar across the grille (between the lamps)."""
+    floor = NOSE - GRILLE["depth"]
+    return [box("grillebar", -0.33, 0.33, floor - 0.01, NOSE - 0.015, 0.607, 0.633, "spoke")]
 
 
 def build_lights():
     """Separate objects (the game switches them). Head and tail lamps sit each in its own socket
-    (`sockets`, to be cut out of the body: 2 mm wider all round and deeper, so lamp and body never
-    touch). An indicator is hidden while off, so its glass is part of the body (`lenses`, merged in)
-    and the indicator a glowing plate floating 2 mm in front of it."""
+    (`sockets`, cut out of the body 2 mm wider all round and deeper, so lamp and body never touch).
+    An indicator is hidden while off, so its glass is part of the body (`lenses`, merged in) and the
+    indicator a glowing plate floating 2 mm in front of it."""
     lamps, sockets, lenses = [], [], []
     G = 0.002
-    lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731
-
-    # Headlamps: big round lamps deep in pods in the grille's floor (NOSE - 0.045, leaning), a dark ring round each.
-    floor = NOSE - 0.045
+    floor = NOSE - GRILLE["depth"]
+    zc = (GRILLE["z0"] + GRILLE["z1"]) / 2
     for name, s in (("head_L", -1), ("head_R", 1)):
         parts = []
-        for k, x in enumerate((s * 0.42, s * 0.668)):
-            # Standing 3 cm up from the grille's floor: in plain sight, 1.5 cm inside the opening.
-            parts.append(disc(f"{name}{k}", x, floor + 0.012, 0.638, 0.092, 0.04, "head", 20, lean))
-            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.06, 0.638, 0.092 + 0.014, 0.10, "trim", 20, lean))
+        for k, x in enumerate((s * 0.47, s * 0.68)):
+            parts.append(disc(f"{name}{k}", x, floor + 0.015, zc, 0.082, 0.04, "head", 20))
+            sockets.append(disc(f"{name}{k}_socket", x, floor + 0.07, zc, 0.082 + 0.012, 0.10, "trim", 20))
         lamps.append(join(parts, name))
-
-    # Front indicators / fog lamps at the intake's ends (its floor at NOSE - 0.04, leaning).
     floor = NOSE - 0.04
-    for name, s in (("ind_FL", -1), ("ind_FR", 1)):
-        x0, x1 = sorted((s * 0.52, s * 0.66))
-        lenses.append(box(name + "_lens", x0, x1, floor - 0.01, floor + 0.012, 0.392, 0.428, "lens", lean))
-        lamps.append(box(name, x0, x1, floor + 0.014, floor + 0.017, 0.392, 0.428, "ind", lean))
-
-    # Tail light bar across the tail panel (its floor at TAIL + 0.035), indicators blinking over its ends.
-    # Four segments a side, dark ribs between them.
-    floor = TAIL + 0.035
-    BAR = 0.70  # the bar's half-width
-    seg = (BAR - 0.004 - 3 * 0.014) / 4
+    for name, s in (("ind_FL", -1), ("ind_FR", 1)):  # fog lamps at the intake's ends
+        x0, x1 = sorted((s * 0.46, s * 0.58))
+        lenses.append(box(name + "_lens", x0, x1, floor - 0.01, floor + 0.012, 0.326, 0.354, "lens"))
+        lamps.append(box(name, x0, x1, floor + 0.014, floor + 0.017, 0.326, 0.354, "ind"))
+    t = TAILPANEL
+    floor = TAIL + t["depth"]
+    bar = t["x"] - 0.02
+    seg = (bar - 0.004 - 3 * 0.014) / 4
+    z0, z1 = t["z0"] + 0.02, t["z1"] - 0.02
     for name, s in (("tail_L", -1), ("tail_R", 1)):
         parts = []
         for k in range(4):
             x0, x1 = sorted((s * (0.004 + k * (seg + 0.014)), s * (0.004 + k * (seg + 0.014) + seg)))
-            parts.append(box(f"{name}{k}", x0, x1, floor - 0.015, floor + 0.025, 0.72, 0.86, "tail"))
-            sockets.append(box(f"{name}{k}_socket", x0 - G, x1 + G, floor - 0.03, floor + 0.04, 0.72 - G, 0.86 + G, "trim"))
-        # The bar wraps round the corner: two more segments (a rib between) in the panel's wrap-round.
-        p0, along, out = tail_corner(s)
-        for k, at in enumerate((0.035, 0.104)):
-            c = p0 + out * at
-            # In the wrap-round's floor (2 cm in), standing 1 cm proud of it: nearly flush with the corner.
-            parts.append(panel(f"{name}_wrap{k}", c, along, 0.04, -0.01, 0.055, 0.72, 0.86, "tail"))
-            sockets.append(panel(f"{name}_wrap{k}_socket", c, along, 0.055, 0.04, 0.055 + 2 * G, 0.72 - G, 0.86 + G, "trim"))
+            parts.append(box(f"{name}{k}", x0, x1, floor - 0.015, floor + 0.025, z0, z1, "tail"))
+            sockets.append(box(f"{name}{k}_socket", x0 - G, x1 + G, floor - 0.03, floor + 0.04, z0 - G, z1 + G, "trim"))
         lamps.append(join(parts, name))
     for name, s in (("ind_RL", -1), ("ind_RR", 1)):  # over the outermost segment
-        x0, x1 = sorted((s * (BAR - seg), s * BAR))
-        lamps.append(box(name, x0, x1, floor - 0.020, floor - 0.017, 0.72, 0.86, "ind"))
+        x0, x1 = sorted((s * (bar - seg), s * bar))
+        lamps.append(box(name, x0, x1, floor - 0.020, floor - 0.017, z0, z1, "ind"))
     return lamps, sockets, lenses
 
 
 # ---------------------------------------------------------------- the wheel
 
 def build_wheel():
-    """Wide tyre with a tall dark wall, a deep dark dish and five spokes; centred on the origin, the dish faces +X."""
-    n = 28
+    """Tyre with a chunky dark wall, a deep dark dish and five spokes; centred on the origin, the dish faces +X."""
+    n = 20
     hw = WHEEL_W / 2
-    r_in = WHEEL_R * 0.56  # rim lip radius: a chunky tyre wall
+    r_in = WHEEL_R * 0.58
     verts, faces, fm = [], [], []
 
     def ring(x, r):
@@ -652,17 +490,16 @@ def build_wheel():
         return base
 
     rings = [
-        ring(hw - 0.02, r_in),  # 0 rim lip, outer side
+        ring(hw - 0.02, r_in),  # 0 rim lip, inner edge
         ring(hw, WHEEL_R * 0.88),  # 1 sidewall
         ring(hw - 0.015, WHEEL_R),  # 2 a square shoulder
         ring(-hw + 0.015, WHEEL_R),  # 3
         ring(-hw, WHEEL_R * 0.88),  # 4
-        ring(-hw + 0.02, r_in),  # 5 rim lip, inner side
-        ring(hw - 0.19, r_in * 0.98),  # 6 the dish's floor, deep
+        ring(-hw + 0.02, r_in),  # 5 inner side
+        ring(hw - 0.15, r_in * 0.98),  # 6 the dish's floor, deep
         ring(-hw + 0.02, r_in * 0.5),  # 7 back
-        ring(hw - 0.008, r_in + 0.022),  # 8 the rim's bright lip, round the dish
+        ring(hw - 0.008, r_in + 0.02),  # 8 the rim's bright lip
     ]
-    # Round the outside: the lip (bright), then the tyre over to the inner side.
     chain = [rings[0], rings[8], rings[1], rings[2], rings[3], rings[4], rings[5]]
     for k in range(len(chain) - 1):
         a, b = chain[k], chain[k + 1]
@@ -687,12 +524,12 @@ def build_wheel():
     wheel = mesh_object("wheel", verts, faces, ["tyre", "rim", "spoke"], fm)
 
     parts = []
-    hub = disc("hub", 0, 0, 0, 0.05, 0.11, "spoke", 10)  # its back sunk into the dish floor
+    hub = disc("hub", 0, 0, 0, 0.045, 0.10, "spoke", 10)  # its back sunk into the dish floor
     hub.rotation_euler = (0, 0, -math.pi / 2)
-    hub.location = (hw - 0.10, 0, 0)
+    hub.location = (hw - 0.07, 0, 0)
     parts.append(hub)
-    for k in range(5):  # bold spokes standing up out of the dish
-        sp = box("spoke", hw - 0.21, hw - 0.11, -0.038, 0.038, 0.03, r_in * 0.96, "spoke")  # from the deep floor up
+    for k in range(5):  # bold spokes standing up out of the deep floor
+        sp = box("spoke", hw - 0.17, hw - 0.09, -0.034, 0.034, 0.03, r_in * 0.96, "spoke")
         sp.rotation_euler = (2 * math.pi * k / 5, 0, 0)
         parts.append(sp)
     for p in parts:
@@ -714,12 +551,13 @@ def mesh_check(ob):
     bmesh.ops.triangulate(bm, faces=bm.faces)
     bm.faces.ensure_lookup_table()
     tree = BVHTree.FromBMesh(bm, epsilon=0.0)
-    crossing = 0
+    crossing, spots = 0, []
     for i, j in tree.overlap(tree):
         if i < j and not ({v.index for v in bm.faces[i].verts} & {v.index for v in bm.faces[j].verts}):
             crossing += 1
+            spots.append(tuple(round(c, 2) for c in bm.faces[i].calc_center_median()))
     bad = [e for e in bm.edges if not e.is_manifold]
-    where = sorted({tuple(round(c, 2) for c in (e.verts[0].co + e.verts[1].co) / 2) for e in bad})[:6]
+    where = sorted({tuple(round(c, 2) for c in (e.verts[0].co + e.verts[1].co) / 2) for e in bad} | set(spots))[:6]
     bm.free()
     out = {"crossing_faces": crossing, "non_manifold_edges": len(bad)}
     if where:
@@ -746,7 +584,6 @@ def touching(a, b):
 
 def preview(out_dir, export_objs, wheel):
     scene = bpy.context.scene
-    # EEVEE, so the lamps glow and the paint shades like the concept's renders.
     engines = [e.identifier for e in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
     scene.render.engine = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in engines else "BLENDER_EEVEE"
     scene.eevee.taa_render_samples = 32
@@ -759,12 +596,12 @@ def preview(out_dir, export_objs, wheel):
     bg.inputs[1].default_value = 1.0
     scene.view_settings.view_transform = "Standard"  # keep the lamps' red red
     lights = []
-    for name, kind, energy, loc, rot, size in (
-        ("key", "AREA", 500, (3.5, 3.0, 5.0), (math.radians(35), math.radians(25), math.radians(140)), 4.0),
-        ("fill", "AREA", 180, (-4.0, -2.0, 3.5), (math.radians(55), math.radians(-35), math.radians(-60)), 5.0),
-        ("top", "AREA", 300, (0, 0, 5.5), (0, 0, 0), 6.0),
+    for name, energy, loc, rot, size in (
+        ("key", 500, (3.5, 3.0, 5.0), (math.radians(35), math.radians(25), math.radians(140)), 4.0),
+        ("fill", 180, (-4.0, -2.0, 3.5), (math.radians(55), math.radians(-35), math.radians(-60)), 5.0),
+        ("top", 300, (0, 0, 5.5), (0, 0, 0), 6.0),
     ):
-        ld = bpy.data.lights.new(name, kind)
+        ld = bpy.data.lights.new(name, "AREA")
         ld.energy = energy
         ld.size = size
         lo = bpy.data.objects.new(name, ld)
@@ -773,8 +610,7 @@ def preview(out_dir, export_objs, wheel):
         bpy.context.collection.objects.link(lo)
         lights.append(lo)
 
-    # Indicators off, as the game shows them most of the time.
-    for o in export_objs:
+    for o in export_objs:  # indicators off, as the game shows them most of the time
         o.hide_render = o.name.startswith("ind_")
     shown = []
     for x in (-WHEEL_X, WHEEL_X):
@@ -806,8 +642,7 @@ def preview(out_dir, export_objs, wheel):
         cam.location = pos
         cam.rotation_euler = (target - pos).to_track_quat("-Z", "Y").to_euler()
         cam_data.lens = 35 if name == "top" else 50
-        # The true side view is orthographic: no perspective, so it can be measured.
-        cam_data.type = "ORTHO" if name == "trueside" else "PERSP"
+        cam_data.type = "ORTHO" if name == "trueside" else "PERSP"  # the true side view can be measured
         cam_data.ortho_scale = 5.2
         scene.render.filepath = os.path.join(out_dir, f"muscle-{name}.png")
         bpy.ops.render.render(write_still=True)
@@ -828,16 +663,17 @@ def main():
     make_materials()
 
     lamps, sockets, lenses = build_lights()
-    body = union(build_shell(), [build_cabin(), *build_details()])
-    body = cut(body, build_recesses())
+    body = union(build_shell(), build_details())
+    body = cut(body, [*side_windows(), *top_windows(), *build_recesses()])
     body = cut(union(body, [*lenses, *build_inserts()]), sockets)
     body.name = body.data.name = "body"
     bpy.ops.object.select_all(action="DESELECT")
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
-    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(45))  # creases and openings stay sharp
-    # Normals weighted by face area: big panels shade flat and clean, the thin slivers the booleans
-    # leave along their cuts no longer bend the shading of the panels around them.
+    # Facets (low-poly, flat panels) or smooth panels with the creases kept sharp.
+    flat = os.environ.get("MODEL_SHADING") == "flat"
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(12 if flat else 40))
+    # Normals weighted by face area: big panels shade flat and clean, the booleans' slivers don't bend them.
     wn = body.modifiers.new("wn", "WEIGHTED_NORMAL")
     wn.mode = "FACE_AREA"
     wn.weight = 100
@@ -854,11 +690,10 @@ def main():
     print(f"[muscle_car] triangles: body {tri(body)}, lamps {sum(tri(o) for o in lamps)}, wheel {tri(wheel)}")
     for o in [body, wheel]:
         print(f"[muscle_car] check {o.name}: {mesh_check(o)}")
-    # A boolean gone wrong can leave a small closed mesh that passes the checks above: the body must
-    # still be the whole car.
+    # A boolean gone wrong can leave a small closed mesh that passes the checks above.
     size = Vector([max(v.co[i] for v in body.data.vertices) - min(v.co[i] for v in body.data.vertices) for i in range(3)])
     print(f"[muscle_car] body size: {size.x:.2f} x {size.y:.2f} x {size.z:.2f} m")
-    assert size.y > L - 0.05 and size.x > 1.8 and size.z > 1.0, "the body is not the whole car: a boolean failed"
+    assert size.y > 4.2 and size.x > 1.7 and size.z > 1.0, "the body is not the whole car: a boolean failed"
     objs = [body, *lamps]
     print(f"[muscle_car] faces touching between objects: {sum(touching(a, b) for i, a in enumerate(objs) for b in objs[i + 1:])}")
 
