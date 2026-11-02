@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<title>比賽 HUD（UI 草案）</title>
+<style>
+  :root { --accent: #2f9bff; --glass: rgba(6, 10, 20, 0.5); --line: rgba(255, 255, 255, 0.14); }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #eef3fb;
+    font-family: "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif; }
+  .frame { position: fixed; inset: 0; background: url(ui-assets/race-bg.png) center / cover; }
+  .icon { display: inline-block; background: currentColor; -webkit-mask: var(--src) center / var(--zoom, 150%) no-repeat; mask: var(--src) center / var(--zoom, 150%) no-repeat; mask-mode: luminance; }
+  .num { font: italic 800 1em/1 "Segoe UI", system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+  .label { font-size: 0.72vw; letter-spacing: 0.3vw; color: #9fb0cc; }
+  .glass { background: var(--glass); border: 1px solid var(--line); border-radius: 0.6vw; backdrop-filter: blur(4px); }
+
+  /* top centre: the race on one line */
+  .track { position: fixed; left: 50%; top: 2.6vh; transform: translateX(-50%); width: 44vw; padding: 1.1vh 1.4vw 1.6vh; }
+  .track .line { position: relative; height: 0.5vh; margin-top: 2.6vh; background: rgba(255,255,255,0.18); border-radius: 1vh; }
+  .track .done { position: absolute; left: 0; top: 0; bottom: 0; width: 31.6%; background: linear-gradient(90deg, transparent, var(--accent)); border-radius: 1vh; }
+  .track .tick { position: absolute; top: 1.1vh; transform: translateX(-50%); font-size: 0.62vw; color: #7d8ba6; white-space: nowrap; }
+  .track .tick::before { content: ''; position: absolute; left: 50%; top: -1.3vh; width: 1px; height: 0.9vh; background: #7d8ba6; }
+  .car-dot { position: absolute; top: 50%; width: 0.9vw; height: 0.9vw; border-radius: 50%; transform: translate(-50%, -50%); background: var(--c);
+    box-shadow: 0 0 0.6vw var(--c); border: 2px solid rgba(0,0,0,0.6); }
+  .car-dot.me { width: 1.3vw; height: 1.3vw; background: #fff; border: 0.25vw solid var(--accent); box-shadow: 0 0 1vw var(--accent); z-index: 2; }
+  .car-dot .tag { position: absolute; bottom: 150%; left: 50%; transform: translateX(-50%); font-size: 0.62vw; white-space: nowrap; color: var(--c); font-weight: 700; }
+  .car-dot.me .tag { color: #fff; }
+  .track .flag { position: absolute; right: -1.6vw; top: 50%; transform: translateY(-50%); width: 1.6vw; height: 1.6vw; color: #fff; }
+
+  /* top left: time */
+  .time { position: fixed; left: 2.4vw; top: 2.6vh; padding: 1.2vh 1.2vw; }
+  .time .num.big { font-size: 2.6vw; }
+  .delta { display: inline-block; margin-top: 0.8vh; padding: 0.3vh 0.6vw; border-radius: 0.4vw; font-size: 0.95vw; background: rgba(28, 200, 120, 0.18); color: #3fe39a; }
+
+  /* top right: place */
+  .place { position: fixed; right: 2.4vw; top: 2.6vh; padding: 1vh 1.3vw 1.3vh; text-align: right; }
+  .place .pos { font-size: 4.6vw; color: #fff; text-shadow: 0 0 1.4vw var(--accent); }
+  .place .pos small { font-size: 1.8vw; color: #9fb0cc; }
+  .place .remain { font-size: 1vw; margin-top: 0.4vh; color: #cfd8e8; }
+
+  /* bottom left: near misses */
+  .combo { position: fixed; left: 2.4vw; bottom: 4vh; padding: 1.2vh 1.2vw; display: grid; grid-template-columns: 2.4vw auto; gap: 0.2vh 0.8vw; align-items: center; }
+  .combo .icon { width: 2.4vw; height: 2.4vw; color: #ffd400; grid-row: span 2; }
+  .combo .num { font-size: 2.1vw; color: #ffd400; }
+  .combo .num small { font-size: 1vw; }
+  .combo .meter { grid-column: 1 / 3; height: 0.45vh; background: rgba(255,255,255,0.12); border-radius: 1vh; overflow: hidden; margin-top: 0.6vh; }
+  .combo .meter i { display: block; width: 62%; height: 100%; background: #ffd400; }
+
+  /* bottom right: tacho */
+  .tacho { position: fixed; right: 1.8vw; bottom: 2.4vh; width: 15vw; height: 15vw; }
+  .tacho svg { width: 100%; height: 100%; overflow: visible; }
+  .tacho .center { position: absolute; left: 0; right: 0; top: 37%; text-align: center; }
+  .tacho .speed { font-size: 3.3vw; }
+  .tacho .unit { font-size: 0.75vw; color: #9fb0cc; letter-spacing: 0.15vw; }
+  .tacho .gear { display: inline-block; margin-top: 0.9vh; padding: 0.2vh 0.7vw; border-radius: 0.4vw; border: 1px solid var(--accent); color: var(--accent); font-size: 1.4vw; }
+  .shift { position: absolute; left: 50%; top: -3vh; transform: translateX(-50%); display: flex; gap: 0.35vw; }
+  .shift i { width: 0.9vw; height: 0.45vw; border-radius: 0.2vw; background: rgba(255,255,255,0.12); }
+  .shift i.on.g { background: #3fe39a; box-shadow: 0 0 0.6vw #3fe39a; }
+  .shift i.on.a { background: #ffb300; box-shadow: 0 0 0.6vw #ffb300; }
+  .shift i.on.r { background: #ff3b30; box-shadow: 0 0 0.6vw #ff3b30; }
+
+  /* centre: a moment (overtake) */
+  .toast { position: fixed; left: 50%; top: 23vh; transform: translateX(-50%) skewX(-8deg); text-align: center; }
+  .toast .a { font: italic 900 2.6vw/1 system-ui, "Microsoft JhengHei", sans-serif; letter-spacing: 0.3vw; color: #fff; text-shadow: 0 0 1.6vw var(--accent), 0 0 0.3vw var(--accent); }
+  .toast .b { margin-top: 0.6vh; font-size: 1vw; letter-spacing: 0.3vw; color: #cfe4ff; }
+
+  /* a rival coming up behind, on the screen edge */
+  .behind { position: fixed; bottom: 1.2vh; left: 38%; text-align: center; color: #ffb300; }
+  .behind .chev { width: 0; height: 0; margin: 0 auto; border-left: 1.2vw solid transparent; border-right: 1.2vw solid transparent; border-top: 1.4vw solid #ffb300;
+    filter: drop-shadow(0 0 0.5vw #ffb300); transform: rotate(180deg); }
+  .behind .d { font-size: 0.8vw; font-weight: 700; margin-bottom: 0.3vh; }
+</style>
+</head>
+<body>
+<div class="frame"></div>
+
+<div class="track glass">
+  <div class="label">賽道 5 KM</div>
+  <div class="line" id="line"><div class="done"></div></div>
+</div>
+
+<div class="time glass">
+  <div class="label">時間</div>
+  <div class="num big">1:12.384</div>
+  <div class="delta num">−0.8 秒　最佳</div>
+</div>
+
+<div class="place glass">
+  <div class="label">名次</div>
+  <div class="num pos">2<small>/6</small></div>
+  <div class="remain">剩餘 <span class="num">3.42</span> km</div>
+</div>
+
+<div class="combo glass">
+  <span class="icon" style="--src:url(ui-assets/icon-nearmiss.jpg)"></span>
+  <div class="label">險過連擊</div>
+  <div class="num">×3 <small>+750</small></div>
+  <div class="meter"><i></i></div>
+</div>
+
+<div class="tacho">
+  <div class="shift"><i class="on g"></i><i class="on g"></i><i class="on a"></i><i class="a"></i><i class="r"></i></div>
+  <svg viewBox="0 0 200 200" id="dial"></svg>
+  <div class="center"><div class="num speed">247</div><div class="unit">KM/H</div><div class="num gear">5</div></div>
+</div>
+
+<div class="toast"><div class="a">超車！</div><div class="b">升到第 2 名</div></div>
+
+<div class="behind"><div class="d">12 m</div><div class="chev"></div></div>
+
+<script type="module">
+  // Race progress: the player and five rivals along the 5 km.
+  const line = document.getElementById('line');
+  for (let km = 0; km <= 5; km++) line.insertAdjacentHTML('beforeend', `<div class="tick" style="left:${km * 20}%">${km === 0 ? '起點' : km + ' km'}</div>`);
+  line.insertAdjacentHTML('beforeend', `<span class="icon flag" style="--src:url(ui-assets/icon-flag.jpg)"></span>`);
+  const racers = [['你', 31.6, null], ['1', 34.2, '#1e88e5'], ['2', 30.1, '#ffb300'], ['3', 27.5, '#8e24aa'], ['4', 22.8, '#00c853'], ['5', 18.4, '#00bcd4']];
+  for (const [name, at, c] of racers)
+    line.insertAdjacentHTML('beforeend', `<div class="car-dot ${c ? '' : 'me'}" style="left:${at}%;--c:${c ?? '#fff'}">${c ? '' : '<span class="tag">你</span>'}</div>`);
+
+  // The tachometer: a 240-degree arc, 0-8 x1000 rpm, red from 7, the needle at 6400.
+  const dial = document.getElementById('dial');
+  const R = 88, START = 150, SWEEP = 240, MAX = 8;
+  const at = (rpm, r = R) => { const a = ((START + (SWEEP * rpm) / MAX) * Math.PI) / 180; return [100 + r * Math.cos(a), 100 + r * Math.sin(a)]; };
+  const arc = (from, to, r) => { const [x0, y0] = at(from, r), [x1, y1] = at(to, r); return `M${x0} ${y0} A${r} ${r} 0 ${(SWEEP * (to - from)) / MAX > 180 ? 1 : 0} 1 ${x1} ${y1}`; };
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+  let svg = `<circle cx="100" cy="100" r="96" fill="rgba(6,10,20,0.55)" stroke="rgba(255,255,255,0.12)" />`;
+  svg += `<path d="${arc(0, MAX, R)}" stroke="rgba(255,255,255,0.12)" stroke-width="7" fill="none" stroke-linecap="round"/>`;
+  svg += `<path d="${arc(0, 6.4, R)}" stroke="${accent}" stroke-width="7" fill="none" stroke-linecap="round" style="filter:drop-shadow(0 0 4px ${accent})"/>`;
+  svg += `<path d="${arc(7, MAX, R)}" stroke="#ff3b30" stroke-width="7" fill="none"/>`;
+  for (let k = 0; k <= MAX; k++) {
+    const [x0, y0] = at(k, 76), [x1, y1] = at(k, 70), [tx, ty] = at(k, 60);
+    svg += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#cfd8e8" stroke-width="2"/><text x="${tx}" y="${ty + 4}" fill="#9fb0cc" font-size="11" text-anchor="middle" font-style="italic">${k}</text>`;
+  }
+  // The needle: a short pointer across the ring, clear of the speed in the middle.
+  const [nx0, ny0] = at(6.4, 66), [nx1, ny1] = at(6.4, 96);
+  svg += `<line x1="${nx0}" y1="${ny0}" x2="${nx1}" y2="${ny1}" stroke="#fff" stroke-width="4" stroke-linecap="round" style="filter:drop-shadow(0 0 3px #fff)"/>`;
+  dial.innerHTML = svg;
+</script>
+</body>
+</html>
