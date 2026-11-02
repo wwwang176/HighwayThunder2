@@ -78,7 +78,7 @@ def make_materials():
     MAT["stripe"] = material("stripe", srgb(0x141414), 0.6)
     MAT["glass"] = material("glass", srgb(0x161A20), 0.3, 0.2)
     MAT["trim"] = material("trim", srgb(0x1C1C1C), 0.7)
-    MAT["head"] = material("lamp_head", srgb(0xFFF6E0), 0.2, 0, 4)
+    MAT["head"] = material("lamp_head", srgb(0xFFD890), 0.2, 0, 1.6)  # warm (the game swaps in its own glow)
     MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 3)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
     MAT["lens"] = material("lens", srgb(0xFFE8C0), 0.25, 0.1, 1.2)  # fog lamps, always on (indicators blink over them)
@@ -213,8 +213,8 @@ BODY_KEYS = [
     (0.70, dict(w=0.905, f=0.03, zb=0.19, ztop=0.85, crown=0.01, pk=0.04, dome=0.015)),  # cowl
     (WHEEL_YF, dict(w=0.92, f=0.11, zb=0.19, ztop=0.845, crown=0.01, pk=0.08, dome=0.04)),  # front fenders over the wheels
     (1.55, dict(w=0.915, f=0.06, zb=0.20, ztop=0.835, crown=0.01, pk=0.08, dome=0.04)),
-    (1.95, dict(w=0.90, f=0.0, zb=0.25, ztop=0.815, crown=0.01, pk=0.05, dome=0.025)),
-    (NOSE, dict(w=0.86, f=0.0, zb=0.28, ztop=0.80, crown=0.005, pk=0.03, dome=0.015)),  # one clean leading edge
+    (1.95, dict(w=0.90, f=0.0, zb=0.25, ztop=0.815, crown=0.01, pk=0.06, dome=0.03)),
+    (NOSE, dict(w=0.86, f=0.0, zb=0.28, ztop=0.80, crown=0.01, pk=0.05, dome=0.025)),  # the hood's shape carried to one clean leading edge
 ]
 NOSE_TOP = 0.80
 LEAN = 0.30  # the shark nose: the nose face leans forward 0.30 m per metre up (the lower nose tucks back)
@@ -313,7 +313,7 @@ def build_shell():
         p = lerp_keys(BODY_KEYS, wy)
         out = p["w"] + p["f"] + 0.035
         for side in (-1, 1):
-            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.28, 0.50, -10, 190, 22, "paint", ARCH_R + 0.04))
+            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.28, 0.45, -10, 190, 22, "paint", ARCH_R + 0.04))
     union(shell, lips)
 
     # Wheel arches, cut in from each side (the middle of the car stays whole); dark inside.
@@ -338,16 +338,19 @@ def build_cabin():
     """Windshield, a domed roof with the stripes, side windows leaning in, a fastback rear glass between
     thick C-pillars down to the deck. A closed solid, merged into the body."""
     stations = [
-        # y, belt half-width, roof half-width, roof height at its edge (none: a base line on the hood / deck)
-        (NOSE - 0.33 * L, 0.84, None, None),  # windshield base
-        (NOSE - 0.41 * L, 0.84, 0.61, 1.285),  # roof front
-        (-0.25, 0.85, 0.64, 1.295),
-        (NOSE - 0.70 * L, 0.90, 0.62, 1.265),  # roof rear
-        (NOSE - 0.84 * L, 0.93, None, None),  # the rear glass, long and shallow, meets the deck; the C-pillars run out onto the haunches
+        # y, belt half-width, roof half-width, roof height at its edge (none: a base line on the hood / deck),
+        # and what the band from here to the next station is
+        (NOSE - 0.33 * L, 0.84, None, None, "windshield"),  # windshield base
+        (0.45, 0.84, 0.595, 1.262, "roof"),  # the header, rounding the roof down into the windshield
+        (NOSE - 0.41 * L, 0.84, 0.61, 1.285, "roof"),  # roof front
+        (-0.25, 0.85, 0.64, 1.295, "roof"),
+        (NOSE - 0.70 * L + 0.04, 0.90, 0.625, 1.272, "cpillar"),  # roof rear
+        (NOSE - 0.70 * L - 0.05, 0.91, 0.61, 1.248, "rear"),  # rounding over into the rear glass
+        (NOSE - 0.84 * L, 0.93, None, None, None),  # the rear glass, long and shallow, meets the deck; the C-pillars run out onto the haunches
     ]
     DOME = 0.06
     verts = []
-    for y, wb, wt, zt in stations:
+    for y, wb, wt, zt, _ in stations:
         if wt is None:  # on the body: spread across like the roof, out to the belt
             xs = [0, S_IN, S_OUT, RG, WT_REF - 0.03, WT_REF, wb]
             half = [(x, body_top_z(y, x) - 0.004) for x in xs]
@@ -362,17 +365,20 @@ def build_cabin():
     # Top segments across (12): 0 left side window band, 1 left roof roll, 2 left sail, 3 left outer,
     # 4 left stripe, 5-6 centre, 7 right stripe, 8 right outer, 9 right sail, 10 right roll, 11 right side band.
     faces, fm, group = [], [], []
-    for s in range(4):
+    bands = len(stations) - 1
+    for s in range(bands):
         a, b = s * n, (s + 1) * n
+        kind = stations[s][4]
         for i in range(12):
             faces.append((a + i, a + i + 1, b + i + 1, b + i))
             side = i in (0, 11)
-            if s == 0:  # windshield between the A-pillars, side windows reaching forward to them
+            if kind == "windshield":  # between the A-pillars, the side windows reaching forward to them
                 fm.append(2)
                 group.append(f"side{i}" if side else "windshield")
-            elif s in (1, 2):  # roof
-                fm.append(2 if side else (1 if i in (4, 7) else 0))
-                group.append(f"side{i}" if side else None)
+            elif kind in ("roof", "cpillar"):  # the roof with its stripes; side windows, then the C-pillars
+                glass = side and kind == "roof"
+                fm.append(2 if glass else (1 if i in (4, 7) else 0))
+                group.append(f"side{i}" if glass else None)
             else:  # rear: glass between the sails; the C-pillars are body
                 glass = 3 <= i <= 8
                 fm.append(2 if glass else 0)
@@ -381,7 +387,7 @@ def build_cabin():
         faces += [(a + 12, a + 14, b + 14, b + 12), (a + 14, a + 13, b + 13, b + 14), (a + 13, a, b, b + 13)]
         fm += [0, 0, 0]
         group += [None, None, None]
-    last = 4 * n
+    last = bands * n
     faces += [tuple(range(13)) + (14, 13), tuple(last + i for i in (13, 14, *range(12, -1, -1)))]
     fm += [0, 0]
     group += [None, None]
@@ -423,7 +429,7 @@ def build_scoop():
 def build_details():
     """Solids merged into the body: the scoop and the splitter sweeping forward under the nose."""
     # The splitter: a lip sweeping forward under the nose, thinning to its edge.
-    sv = [(x, y, z) for x in (-0.82, 0.82) for y, z in ((NOSE - 0.45, 0.21), (NOSE - 0.45, 0.33), (NOSE - 0.03, 0.225), (NOSE - 0.03, 0.285))]
+    sv = [(x, y, z) for x in (-0.82, 0.82) for y, z in ((NOSE - 0.45, 0.21), (NOSE - 0.45, 0.34), (NOSE - 0.02, 0.225), (NOSE - 0.02, 0.25))]
     splitter = mesh_object("splitter", sv, [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)], ["paint"])
     # The ducktail: the deck's lip kicking up and jutting out past the tail panel.
     return [build_scoop(), splitter, build_ducktail()]
@@ -466,7 +472,7 @@ def build_inserts():
     """Merged into the recesses once they are cut: a bar across the grille, fins in the tail's diffuser.
     Each stands up from its recess's floor and stops short of the surface."""
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731
-    parts = [box("grillebar", -0.30, 0.30, NOSE - 0.055, NOSE - 0.012, 0.635, 0.655, "spoke", lean)]
+    parts = [box("grillebar", -0.29, 0.29, NOSE - 0.055, NOSE - 0.008, 0.628, 0.652, "paint", lean)]
     for x in (-0.34, -0.12, 0.12, 0.34):
         parts.append(box("fin", x - 0.01, x + 0.01, TAIL + 0.008, TAIL + 0.04, 0.385, 0.495, "trim"))
     return parts
@@ -485,7 +491,7 @@ def build_lights():
     floor = NOSE - 0.045
     for name, s in (("head_L", -1), ("head_R", 1)):
         parts = []
-        for k, x in enumerate((s * 0.43, s * 0.655)):
+        for k, x in enumerate((s * 0.42, s * 0.668)):
             # Standing 3 cm up from the grille's floor: in plain sight, 1.5 cm inside the opening.
             parts.append(disc(f"{name}{k}", x, floor + 0.03, 0.638, 0.092, 0.04, "head", 20, lean))
             sockets.append(disc(f"{name}{k}_socket", x, floor + 0.06, 0.638, 0.092 + 0.014, 0.10, "trim", 20, lean))
