@@ -4,7 +4,8 @@ import { writeFileSync } from 'node:fs';
 import { KMH, LANE_COUNT, LANE_WIDTH, PHYSICS_DT } from '../src/config';
 import { laneCenter } from '../src/road/coords';
 import { PlayerCar } from '../src/vehicles/playerCar';
-import { STREET_RACER } from '../src/vehicles/cars';
+import { CARS } from '../src/vehicles/cars';
+import { trackerFile } from '../src/ai/aiTopSpeed';
 import type { Brain } from '../src/ai/brain';
 import { selfStateOf } from '../src/ai/driver';
 import { DEFAULT_EVO, nextGeneration } from '../src/ai/evolution';
@@ -21,10 +22,15 @@ import { openGround } from './openGround';
  * car is, as in a race). Every car of a generation gets the same targets; the plain tracker drives
  * them too, for comparison. Score: squared distance off the plan, a little for jerking the wheel,
  * and spinning out is the end.
- *   GENS=60 POP=40 SAVE=1 npx vitest run --config training/vitest.config.ts training/tracker.train.ts
- * (PLANNER_JSON as the benchmark; SAVE=1 writes src/vehicles/cars/streetRacerTracker.ts.)
+ *   CAR=muscle-car GENS=40 POP=60 SCENARIOS=8 SAVE=1 npx vitest run --config training/vitest.config.ts training/tracker.train.ts
+ * (CAR: the car type, default the supercar; PLANNER_JSON as the benchmark; SAVE=1 writes the car's own
+ * weights file, trackerFile(): e.g. src/vehicles/cars/muscleCarTracker.ts.)
  */
 
+const SPEC = CARS[process.env.CAR ?? 'street-racer'];
+if (!SPEC) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
+/** Fastest a scenario runs (km/h): the car's own top speed, at most 300. */
+const TOP_KMH = Math.min(300, SPEC.params.maxSpeed / KMH);
 const SCENARIO_S = 8; // s each
 const PER_GEN = Number(process.env.SCENARIOS ?? 4);
 const VALIDATION = 8;
@@ -39,7 +45,7 @@ interface Scenario {
 }
 
 function scenario(rng: Rng): Scenario {
-  const v = (60 + rng() * 240) * KMH;
+  const v = (60 + rng() * (TOP_KMH - 60)) * KMH;
   const targets: [number, number][] = [];
   const lo = laneCenter(0);
   const hi = laneCenter(LANE_COUNT - 1);
@@ -65,7 +71,7 @@ const targetAt = (sc: Scenario, t: number) => {
 export function movePlan(s: number, d: number, vD: number, v: number, target: number): Plan {
   const dt = PLANNER.step;
   const cell = LANE_WIDTH / PLANNER.cellsPerLane;
-  const turn = Math.min(lateralTurn(v, dt, cell), 6);
+  const turn = Math.min(lateralTurn(v, dt, cell, SPEC.ai.latAccel), 6);
   const maxLat = PLANNER.maxLateral;
   let lat = Math.max(-maxLat, Math.min(maxLat, (vD * dt) / cell));
   const first = laneCenter(0) - 2 * cell * PLANNER.cellsPerLane; // any cell boundary works: positions are relative
@@ -112,8 +118,8 @@ interface Run {
 function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepErrors = false): { cost: number[]; errs: number[][] } {
   const physics = openGround();
   physics.timestep = PHYSICS_DT;
-  const runs: Run[] = brains.map((brain) => ({ car: new PlayerCar(physics, null), brain, plan: null, madeAt: 0, cost: 0, out: false, lastSteer: 0, errs: [] }));
-  const cap = 310 * KMH;
+  const runs: Run[] = brains.map((brain) => ({ car: new PlayerCar(physics, null, { spec: SPEC }), brain, plan: null, madeAt: 0, cost: 0, out: false, lastSteer: 0, errs: [] }));
+  const cap = SPEC.params.maxSpeed;
   for (const r of runs) r.car.params.maxSpeed = cap;
   for (const sc of scenarios) {
     const lane = Math.floor(LANE_COUNT / 2);
@@ -184,7 +190,7 @@ it('tracker', async () => {
   const valRng = mulberry32(99);
   const validation = Array.from({ length: VALIDATION }, () => scenario(valRng));
   // From the car's current network if it has one (CONTINUE=1), else quiet ones (the plain tracker).
-  const start = process.env.CONTINUE ? trackerFrom(STREET_RACER.ai.tracker) : null;
+  const start = process.env.CONTINUE ? trackerFrom(SPEC.ai.tracker) : null;
   let pop: Brain[] = Array.from({ length: evo.population }, (_, i) => (start && i === 0 ? start : quietTracker(rng)));
   const base = evaluate([null], validation, true);
   process.stdout.write(`plain tracker on validation: cost ${base.cost[0].toFixed(4)}, ${describe(base.errs[0])}\n`);
@@ -201,8 +207,10 @@ it('tracker', async () => {
       line += ` | validation ${v.cost[0].toFixed(4)} (${describe(v.errs[0])})`;
       if (!best || v.cost[0] < best.cost) {
         best = { brain: pop[order[0]], cost: v.cost[0] };
-        if (process.env.SAVE) save(best.brain, best.cost, base.cost[0]); // stopping it any time keeps the best so far
-        line += ' saved';
+        if (process.env.SAVE) {
+          save(best.brain, best.cost, base.cost[0]); // stopping it any time keeps the best so far
+          line += ' saved';
+        }
       }
     }
     process.stdout.write(`${line}  [${((performance.now() - t0) / 1000).toFixed(0)} s]\n`);
@@ -213,9 +221,10 @@ it('tracker', async () => {
 
 function save(b: Brain, cost: number, plain: number): void {
   const w = Array.from(b.weights, (x) => Math.round(x * 1e5) / 1e5);
+  const file = trackerFile(SPEC);
   writeFileSync(
-    new URL('../src/vehicles/cars/streetRacerTracker.ts', import.meta.url),
+    new URL(`../${file.path}`, import.meta.url),
     `// Trained by training/tracker.train.ts (validation cost ${cost.toFixed(4)}, plain tracker ${plain.toFixed(4)}).\n` +
-      `export const STREET_RACER_TRACKER: number[] = ${JSON.stringify(w)};\n`,
+      `export const ${file.exportName}: number[] = ${JSON.stringify(w)};\n`,
   );
 }

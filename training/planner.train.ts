@@ -5,6 +5,8 @@ import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { LANE_TUNING } from '../src/ai/laneController';
 import { laneAt, laneCenter } from '../src/road/coords';
+import { CARS } from '../src/vehicles/cars';
+import { trackerFrom } from '../src/ai/netTracker';
 
 const pct = (xs: number[], p: number) => {
   if (!xs.length) return NaN;
@@ -27,11 +29,17 @@ it('planner', async () => {
   await RAPIER.init();
   const out: string[] = [];
   const all = { lateralMoving: [] as number[], lateralHolding: [] as number[], along: [] as number[], speedAtOverride: [] as number[], nowMoving: [] as number[], nowHolding: [] as number[] };
+  // CAR=muscle-car: that car type, with its own tables and steering network.
+  const spec = CARS[process.env.CAR ?? 'street-racer'];
+  if (!spec) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
   for (const seed of (process.env.EVAL_SEEDS ?? '7001,7002,7003,7004,7005').split(',').map(Number)) {
     const driver = new PlannerDriver();
+    driver.accel = spec.ai.accel;
+    driver.latAccel = spec.ai.latAccel;
+    driver.tracker = trackerFrom(spec.ai.tracker);
     const st = driver.measure();
     // Traffic gives way to the AI car as it does the player in the game (TRAFFIC_BLIND=1: as in training).
-    const sim = new TrainingSim([driver], seed, { speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND,
+    const sim = new TrainingSim([driver], seed, { spec, speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND,
       // RESET_ON_CRASH=60: a crash puts the car back on the road at 60 km/h, as a rival in the game, and it races on.
       resetOnCrash: process.env.RESET_ON_CRASH ? Number(process.env.RESET_ON_CRASH) / 3.6 : undefined,
     });

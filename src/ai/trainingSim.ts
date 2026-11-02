@@ -14,6 +14,9 @@ import { endOn, FITNESS, isOffRoad, RunResult, touching } from './fitness';
 import { mulberry32 } from './rng';
 import type { TrafficBox } from './sensors';
 import { computeResetSpot } from '../game/reset';
+import { STREET_RACER } from '../vehicles/cars';
+import type { CarSpec } from '../vehicles/cars';
+import { aiTopSpeed } from './aiTopSpeed';
 
 const START_LANE = 1;
 const CAR_HALF_W = PLAYER_W / 2;
@@ -95,6 +98,8 @@ export interface TrainingSimOptions {
   trafficSeesCars?: boolean;
   /** m/s: a crash does not end the run - the car is put back nearby at this speed, as a rival in the game (resets counted). */
   resetOnCrash?: number;
+  /** The car type every car in this run is (default the supercar); its own top speed holds if lower than `speedCap`. */
+  spec?: CarSpec;
 }
 
 /**
@@ -119,7 +124,8 @@ export class TrainingSim {
   private readonly scene: THREE.Scene;
 
   constructor(drivers: (Brain | Driver)[], seed: number, opts: TrainingSimOptions) {
-    this.speedCap = opts.speedCap;
+    const spec = opts.spec ?? STREET_RACER;
+    this.speedCap = aiTopSpeed(opts.speedCap, spec);
     this.timeLimit = opts.timeLimit ?? FITNESS.timeLimit;
     this.trafficSeesCars = opts.trafficSeesCars ?? false;
     this.resetOnCrash = opts.resetOnCrash ?? null;
@@ -130,7 +136,7 @@ export class TrainingSim {
     const pool = opts.wheelPool ?? this.ownPool!;
     this.traffic = new TrafficWorld(this.physics, this.scene, pool, mulberry32(seed), { oncoming: false });
     for (const d of drivers) {
-      const car = new PlayerCar(this.physics, null);
+      const car = new PlayerCar(this.physics, null, { spec });
       car.params.maxSpeed = this.speedCap;
       car.surfaceGrip = surfaceGrip; // same ground as the player's car in the game
       car.resetTo(0, START_LANE, 0);
