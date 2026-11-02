@@ -42,7 +42,7 @@ const STOP_GAP = 1.5;
 export const DRIVER_TUNING = {
   emergencyFrom: 9.5,
   /** Steer with the car type's trained network (PlannerDriver.tracker) where it has one; off: the plain tracker. */
-  netTracker: false,
+  netTracker: true,
 };
 /** m/s sideways that counts as getting out of the way. */
 const SWERVING = 0.5;

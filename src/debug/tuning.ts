@@ -69,16 +69,24 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   // How finely the plan is cut: S-lines and gaps against swinging past (all the AI cars, from their next plan).
   // Each with the side room it was measured with (30 x 5 km, a crash putting it back at 60 km/h;
   // hits judged by closing speed along the contact). maxLateralChange only counts with maxLateral > 1.
-  const grids: Record<string, Partial<typeof PLANNER>> = {
-    '細 0.25 秒・衝一半＋多留側距': { step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.15, swingMargin: 0.1 }, // 101.8 s, 25 resets
-    '細 0.25 秒・衝一半': { step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, // 102.6 s, 42
-    '細 0.25 秒＋猛（很衝）': { step: 0.25, maxLateral: 2, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, // 108.4 s, 153 (old rule: any 15 km/h)
-    '標準 0.5 秒（穩）': { step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.1 }, // 101.1 s, 2
+  const old = { cellsPerLane: 4, latGrip: 0 };
+  const grids: Record<string, [Partial<typeof PLANNER>, boolean]> = {
+    '物理極限＋神經網路控制': [{ step: 0.25, cellsPerLane: 8, latGrip: 1, maxLateral: 6, sideMargin: 0.15, swingMargin: 0.1 }, true], // 98.3 s, 10 resets
+    '物理極限＋原本控制': [{ step: 0.25, cellsPerLane: 8, latGrip: 1, maxLateral: 6, sideMargin: 0.15, swingMargin: 0.1 }, false], // 100.2 s, 15
+    '細 0.25 秒・衝一半＋多留側距': [{ ...old, step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.15, swingMargin: 0.1 }, false], // 101.8 s, 25
+    '細 0.25 秒・衝一半': [{ ...old, step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, false], // 102.6 s, 42
+    '細 0.25 秒＋猛（很衝）': [{ ...old, step: 0.25, maxLateral: 2, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, false], // 108.4 s, 153 (old rule: any 15 km/h)
+    '標準 0.5 秒（穩）': [{ ...old, step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.1 }, false], // 101.1 s, 2
   };
   const grid = { choice: Object.keys(grids)[0] };
   a.add(grid, 'choice', Object.keys(grids))
     .name('規劃格子')
-    .onChange((k: string) => Object.assign(PLANNER, grids[k]));
+    .onChange((k: string) => {
+      Object.assign(PLANNER, grids[k][0]);
+      DRIVER_TUNING.netTracker = grids[k][1];
+      a.controllersRecursive().forEach((c) => c.updateDisplay());
+    });
+  a.add(DRIVER_TUNING, 'netTracker').name('方向盤用神經網路（關：原本的公式）');
   a.add(PLANNER, 'lookBehind').name('換道看後方（關：完全不管後車）');
   a.add(PLANNER, 'diagonal').name('斜線換道（關：換道整步佔滿橫向寬度）');
   a.add(PLANNER, 'steerClear').name('閃開前車（開：靠轉向不靠煞車）');

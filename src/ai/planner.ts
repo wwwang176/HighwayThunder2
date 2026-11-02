@@ -13,10 +13,10 @@ import { STREET_RACER } from '../vehicles/cars/streetRacer';
  * diagonal) and change speed within what the car can do.
  */
 export const PLANNER = {
-  // s between plan points. 0.25 s: faster S-lines and gaps, and the tracker swings past plans that turn that
-  // often. Default (the user's pick): 0.25 s with maxLateral 1 (3.75 m/s) and more side room - 30 x 5 km with
-  // a crash putting it back at 60 km/h: 101.6 s, 33 resets. The panel's Plan grid has the 0.5 s grid (101.1 s,
-  // 3 resets) and the wild one (0.25 s, maxLateral 2: 108.4 s, 153).
+  // s between plan points. Default: 0.25 s on eighth lanes, sideways moves limited only by the car's grip
+  // (latGrip 1), steered by the trained network (DRIVER_TUNING.netTracker) - 30 x 5 km with a crash putting it
+  // back at 60 km/h: 98.3 s, 10 resets (the plain tracker: 100.2 s, 15). The panel's Plan grid has the earlier
+  // ones: 0.25 s quarter lanes at maxLateral 1 (101.8 s, 25), the 0.5 s grid (101.1 s, 2).
   step: 0.25,
   horizon: 8, // s looked ahead (~650 m at 300 km/h)
   speedCell: 2, // m/s: speeds closer than this count as the same state
@@ -84,20 +84,20 @@ export const PLANNER = {
    * 250): 15 benchmark runs 104.7 -> 102.1 s, none crashed (swingMargin grows
    * with the speed sideways; with 0.1 m whatever the speed two crashed).
    */
-  maxLateral: 1,
+  maxLateral: 6, // eighth lanes: 11 m/s - in effect no limit, the grip (latGrip) is
   /** Most change in the sideways move from one step to the next (cells per step), with maxLateral > 1: a swing one way, then hard the other. */
   maxLateralChange: 2,
   /** Lateral positions per lane width (4: quarter lanes). Finer cells tell slower sideways speeds and gentler changes apart. */
-  cellsPerLane: 4,
+  cellsPerLane: 8,
   /**
    * Sideways acceleration the plan may ask for, as a fraction of what the car
    * holds at full steering at that speed (PlanEgo.latAccel, measured on the
    * car): the change in sideways move from one step to the next (and from the
    * car's own sideways speed into the first) is limited by it instead of by
    * `maxLateralChange` - plans the car can follow, whatever its sideways speed.
-   * 0: off.
+   * 0: off. (0.85: 100.3 s, 24 resets; 1: 100.7 s, 21 - both with the plain tracker, before the side-hug fix.)
    */
-  latGrip: 0,
+  latGrip: 1,
   /**
    * Nodes kept per step, the most promising (progress so far plus the value of
    * the speed): with sideways speeds in the state the lattice grows several
