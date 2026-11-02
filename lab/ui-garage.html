@@ -49,7 +49,9 @@
   .race .item { display: flex; align-items: center; gap: 0.6vw; font-size: 1vw; font-weight: 700; }
   .race .item > .icon { width: 1.8vw; height: 1.8vw; color: #8fa0bd; }
   .race .sep { width: 1px; height: 4vh; background: var(--line); }
-  .race .item > .icon.mini { width: 3.4vw; height: 1.7vw; color: var(--c); }
+  /* The rivals as a line-up: each car type's silhouette (as in the car list) and how many. */
+  .race .count { display: inline-flex; align-items: center; gap: 0.2vw; margin-left: 0.4vw; font: italic 800 1vw/1 system-ui, sans-serif; }
+  .race .count .icon.mini { width: 3.4vw; height: 1.7vw; color: #eef3fb; }
   .race .edit { color: var(--accent); font-size: 1.2vw; }
 
   /* the race settings pop-up */
@@ -86,11 +88,16 @@
     transition: opacity 0.12s; box-shadow: 0 0.4vh 1.2vw rgba(0,0,0,0.5); z-index: 100; }
   .tip.on { opacity: 1; }
   .slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8vw; }
-  .slot { display: grid; grid-template-columns: 1.4vw 1fr 1.4vw; align-items: center; padding: 1vh 0.6vw; background: var(--glass);
+  /* A rival: its colour is the slot's (top bar, numbered badge); the car is a white silhouette and its name - as in the car list. */
+  .slot { position: relative; display: grid; grid-template-columns: 1.4vw 1fr 1.4vw; align-items: center; padding: 1vh 0.6vw; background: var(--glass);
     border: 1px solid var(--line); border-radius: 0.6vw; border-top: 0.35vh solid var(--c); backdrop-filter: blur(6px); }
+  .slot .no { position: absolute; left: 0.5vw; top: 0.6vh; width: 1.2vw; height: 1.2vw; border-radius: 50%; background: var(--c); color: #0a0e18;
+    font: 800 0.7vw/1.2vw system-ui, sans-serif; text-align: center; }
   .slot .arrow { color: #6f7d96; font-size: 1vw; text-align: center; cursor: pointer; }
+  .slot .arrow:hover { color: #fff; }
   .slot .mid { text-align: center; }
-  .slot .icon { width: 6vw; height: 3vw; color: var(--c); }
+  .slot .icon { width: 6vw; height: 3vw; color: #eef3fb; }
+  .slot .name { font-size: 0.85vw; font-weight: 700; color: #cfd8e8; margin-top: 0.2vh; }
   .go { flex: 0 0 15vw; height: 9vh; border: 0; border-radius: 0.7vw; background: var(--accent); color: #fff; cursor: pointer;
     font: italic 900 1.9vw/1 system-ui, "Microsoft JhengHei", sans-serif; letter-spacing: 0.3vw; box-shadow: 0 0 2.4vw -0.4vw var(--accent); }
 </style>
@@ -176,7 +183,8 @@
   const ids = Object.keys(CARS);
   function drawRace() {
     document.getElementById('race').innerHTML = `
-      <span class="item">${icon('icon-rivals')}${rivals.map((id, i) => `<span class="icon mini" style="--src:url(ui-assets/${CARS[id].icon}.png);--c:${RIVAL_COLORS[i]}"></span>`).join('')}</span>
+      <span class="item">${icon('icon-rivals')}${ids.filter((id) => rivals.includes(id)).map((id) =>
+        `<span class="count" data-tip="${CARS[id].name}"><span class="icon mini" style="--src:url(ui-assets/${CARS[id].icon}.png)"></span>×${rivals.filter((r) => r === id).length}</span>`).join('')}</span>
       <span class="sep"></span>
       <span class="item">${icon('icon-difficulty')}${DIFFICULTY[difficulty]}</span>
       <span class="sep"></span>
@@ -185,7 +193,7 @@
   }
   function drawModal() {
     document.getElementById('slots').innerHTML = rivals.map((id, i) =>
-      `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="arrow" data-i="${i}" data-d="-1">◀</span><div class="mid" data-tip="${CARS[id].name}">${icon(CARS[id].icon, 'car')}</div><span class="arrow" data-i="${i}" data-d="1">▶</span></div>`).join('');
+      `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="no">${i + 1}</span><span class="arrow" data-i="${i}" data-d="-1">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}<div class="name">${CARS[id].name}</div></div><span class="arrow" data-i="${i}" data-d="1">▶</span></div>`).join('');
     document.querySelectorAll('.slot .arrow').forEach((a) => (a.onclick = () => {
       const i = Number(a.dataset.i);
       rivals[i] = ids[(ids.indexOf(rivals[i]) + Number(a.dataset.d) + ids.length) % ids.length];
