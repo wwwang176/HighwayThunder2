@@ -35,7 +35,8 @@
     border-radius: 0.8vw; backdrop-filter: blur(8px); }
   .spec h1 { margin: 0 0 1.2vh; font: italic 900 2.6vw/1.1 system-ui, "Microsoft JhengHei", sans-serif; }
   .stat { display: grid; grid-template-columns: 2.2vw 1fr; align-items: center; gap: 0.8vw; margin: 2vh 0; }
-  .stat .icon { width: 2vw; height: 2vw; color: var(--accent); grid-row: span 2; }
+  .stat > [data-tip] { grid-row: span 2; line-height: 0; cursor: help; outline: none; }
+  .stat .icon { width: 2vw; height: 2vw; color: var(--accent); }
   .stat .v { justify-self: end; font: italic 800 1.15vw/1 system-ui, sans-serif; }
   .bar { height: 0.55vh; background: rgba(255,255,255,0.08); border-radius: 1vh; overflow: hidden; margin-top: 0.6vh; }
   .bar i { display: block; height: 100%; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, #fff), var(--accent)); box-shadow: 0 0 0.8vw var(--accent); transition: width 0.3s; }
@@ -48,6 +49,17 @@
     border-radius: 0.5vw; color: #b9c4d8; cursor: pointer; backdrop-filter: blur(6px); }
   .tool:hover { color: #fff; border-color: var(--accent); }
   .tool .icon { width: 2.2vw; height: 2.2vw; }
+
+  /* What an icon means, on hover or keyboard focus (icons stand in for text). */
+  [data-tip] { position: relative; }
+  [data-tip]::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 0.8vh); transform: translate(-50%, 0.4vh);
+    padding: 0.6vh 0.7vw; border-radius: 0.4vw; background: rgba(10, 14, 24, 0.94); border: 1px solid var(--accent); color: #eef3fb;
+    font: 600 0.8vw/1.2 "Microsoft JhengHei", sans-serif; white-space: nowrap; pointer-events: none; opacity: 0;
+    transition: opacity 0.12s, transform 0.12s; box-shadow: 0 0.4vh 1.2vw rgba(0,0,0,0.5); z-index: 10; }
+  [data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
+  /* The stat icons' tips open to their left, out of the panel (above, they covered the row above). */
+  .stat [data-tip]::after { left: auto; right: calc(100% + 0.8vw); bottom: auto; top: 50%; transform: translate(0.4vw, -50%); }
+  .stat [data-tip]:hover::after, .stat [data-tip]:focus-visible::after { transform: translate(0, -50%); }
   .slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8vw; }
   .slot { display: grid; grid-template-columns: 1.4vw 1fr 1.4vw; align-items: center; padding: 1vh 0.6vw; background: var(--glass);
     border: 1px solid var(--line); border-radius: 0.6vw; border-top: 0.35vh solid var(--c); backdrop-filter: blur(6px); }
@@ -71,8 +83,8 @@
 <div class="bottom">
   <div class="rivals">
     <div class="tools">
-      <button class="tool" title="隨機"><span class="icon" style="--src:url(ui-assets/icon-random.png)"></span></button>
-      <button class="tool" title="同我"><span class="icon" style="--src:url(ui-assets/icon-same.png)"></span></button>
+      <button class="tool" data-tip="對手全部隨機" aria-label="對手全部隨機"><span class="icon" style="--src:url(ui-assets/icon-random.png)"></span></button>
+      <button class="tool" data-tip="對手全部和我同車種" aria-label="對手全部和我同車種"><span class="icon" style="--src:url(ui-assets/icon-same.png)"></span></button>
     </div>
     <div class="slots" id="slots"></div>
   </div>
@@ -95,6 +107,8 @@
   const RIVAL_COLORS = ['#1e88e5', '#ffb300', '#8e24aa', '#00c853', '#00bcd4'];
   const rivals = ['street-racer', 'muscle-car', 'jdm', 'street-racer', 'muscle-car'];
   const icon = (name, cls = '') => `<span class="icon ${cls}" style="--src:url(ui-assets/${name}.png)"></span>`;
+  // What each stat icon means (its label is gone: shown on hover).
+  const STAT_TIPS = { 'icon-accel': '加速（0–100 km/h）', 'icon-topspeed': '極速', 'icon-handling': '過彎抓地力' };
   let picked = new URLSearchParams(location.search).get('car') ?? 'street-racer';
 
   function draw() {
@@ -104,7 +118,7 @@
       `<div class="cls ${id === picked ? 'sel' : ''}" data-id="${id}">${icon(k.icon, 'car')}<div class="t">${k.name}</div></div>`).join('');
     document.getElementById('spec').innerHTML = `
       <h1>${c.name}</h1>
-      ${c.stats.map(([ic, , v, f]) => `<div class="stat">${icon(ic)}<span class="v">${v}</span><div class="bar"><i style="width:${f * 100}%"></i></div></div>`).join('')}`;
+      ${c.stats.map(([ic, , v, f]) => `<div class="stat"><span data-tip="${STAT_TIPS[ic]}" aria-label="${STAT_TIPS[ic]}" tabindex="0">${icon(ic)}</span><span class="v">${v}</span><div class="bar"><i style="width:${f * 100}%"></i></div></div>`).join('')}`;
     document.getElementById('slots').innerHTML = rivals.map((id, i) =>
       `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="arrow">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}</div><span class="arrow">▶</span></div>`).join('');
     document.querySelectorAll('.cls').forEach((e) => (e.onclick = () => { picked = e.dataset.id; draw(); showCar(); }));
