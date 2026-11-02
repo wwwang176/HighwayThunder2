@@ -2,17 +2,22 @@ import * as THREE from 'three';
 import Stats from 'stats.js';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
+import { PlanPath } from '../render/planPath';
+import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
-import { GRASS_GRIP, MAX_FRAME_DT, MAX_SUBSTEPS, MAX_WRECKS, MEDIAN_FAR_X, MEDIAN_NEAR_X, PHYSICS_DT, RESET_SPEED, WRECK_LIFETIME } from '../config';
-import { boxToFrame, ONCOMING_FRAME, OUR_FRAME, RoadFrame } from '../road/frame';
+import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED } from '../config';
+import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound } from '../audio/sound';
 import { createTuningPanel } from '../debug/tuning';
 import { Keyboard } from '../input/keyboard';
 import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
 import { CameraRig } from '../render/cameraRig';
-import { Obstacle, TrafficSim } from '../traffic/trafficAI';
-import { DEFAULT_SPACING, Occupant, planSpawns, shouldDespawn } from '../traffic/spawner';
-import { laneCenter, lanesOccupied } from '../road/coords';
+import { TrafficSim } from '../traffic/trafficAI';
+import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
+import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { Driver, selfStateOf } from '../ai/driver';
+import type { TrafficBox } from '../ai/sensors';
+import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { Hud } from '../ui/hud';
 import { HandlingInput } from '../vehicles/handling';
 import { NpcVehicle } from '../vehicles/npcVehicle';
@@ -22,22 +27,15 @@ import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow } from './gameState';
+import { RaceView, RIVAL_TUNING, Rivals } from './rivals';
+import { closingSpeed, knocksOut } from './contact';
+import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
 
 const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
 const PLAYER_OBSTACLE_ID = -1;
-const SPAWN_INTERVAL = 0.25;
-const ONCOMING_FIRST_ID = 1_000_000;
-
-/** One carriageway: its traffic planner, coordinate frame and direction relative to the player. */
-interface Side {
-  name: 'ours' | 'oncoming';
-  frame: RoadFrame;
-  facing: 1 | -1;
-  sim: TrafficSim;
-}
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -53,9 +51,24 @@ export class Game {
   readonly sound = new Sound();
   readonly hud: Hud;
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
-  private sides: Side[] = [];
-  private sideOf = new Map<number, Side>();
-  readonly npcs = new Map<number, NpcVehicle>();
+  readonly trafficWorld: TrafficWorld;
+  /** Trained driver from public/ai/driver.json (null when none could be loaded). */
+  aiDriver: Driver | null = null;
+  /** The AI drives the player's car (toggled with I). */
+  aiActive = false;
+  /** AI strength: its top speed. */
+  readonly aiSettings = { speedCapKmh: 300 };
+  private humanMaxSpeed = 0;
+  /** Draw the AI's planned path on the road (P). */
+  showPlan = true;
+  private planPath!: PlanPath;
+  /** The rival racers (RIVAL_TUNING.count of them). */
+  rivals!: Rivals;
+  private rivalTraffic: TrafficBox[] = [];
+  private rivalBoxes: TrafficBox[] = [];
+  /** Velocities (world x/z) of the player [0] and the rivals [1..] going into the physics step. */
+  private racerVelBefore: { x: number; z: number }[] = [];
+  private aiTraffic: TrafficBox[] = [];
   private wheelPool!: WheelInstances;
   private skids!: SkidMarks;
   private smoke!: TireSmoke;
@@ -64,13 +77,11 @@ export class Game {
   private accumulator = 0;
   private lastTime = 0;
   private simTime = 0;
-  private spawnTimer = 0;
   private prevRelS = new Map<number, number>();
   private touched = new Set<number>();
   private lastInput: HandlingInput = HOLD;
   /** Overrides keyboard input when set (used by automated checks). */
   inputOverride: HandlingInput | null = null;
-  rng: () => number = Math.random;
   /** Debug: stop the real-time loop from advancing the simulation. */
   freeze = false;
 
@@ -90,8 +101,11 @@ export class Game {
     this.road = new RoadScene(this.scene, this.renderer);
     for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);
-    this.player.surfaceGrip = (x) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
+    this.player.surfaceGrip = surfaceGrip;
     this.wheelPool = new WheelInstances(this.scene);
+    this.planPath = new PlanPath(this.scene);
+    this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), RIVAL_TUNING.count);
+    this.trafficWorld = new TrafficWorld(physics, this.scene, this.wheelPool, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.scene);
     this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
@@ -101,7 +115,7 @@ export class Game {
       onResume: () => this.togglePause(),
       onTitle: () => this.toTitle(),
     });
-    this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings);
+    this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
     this.resize();
     addEventListener('resize', () => this.resize());
@@ -122,6 +136,8 @@ export class Game {
     k.onPress('Escape', () => this.togglePause());
     k.onPress('KeyR', () => this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
+    k.onPress('KeyI', () => this.toggleAi());
+    k.onPress('KeyP', () => (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
   }
 
@@ -153,37 +169,64 @@ export class Game {
 
   /** Our carriageway's traffic planner. */
   get traffic(): TrafficSim {
-    return this.sides[0].sim;
+    return this.trafficWorld.sides[0].sim;
   }
 
   /** Oncoming carriageway's traffic planner. */
   get oncoming(): TrafficSim {
-    return this.sides[1].sim;
+    return this.trafficWorld.sides[1].sim;
+  }
+
+  get npcs(): Map<number, NpcVehicle> {
+    return this.trafficWorld.npcs;
+  }
+
+  /** Random source for traffic (tests may swap in a seeded one). */
+  get rng(): () => number {
+    return this.trafficWorld.rng;
+  }
+
+  set rng(r: () => number) {
+    this.trafficWorld.rng = r;
+  }
+
+  /** Traffic is kept around the player and every rival (from the hindmost to the one in front). */
+  private focus(): TrafficFocus {
+    let lead = this.player.s;
+    let tail = this.player.s;
+    for (const r of this.rivals.list) {
+      lead = Math.max(lead, r.car.s);
+      tail = Math.min(tail, r.car.s);
+    }
+    return { sLead: lead, sTail: tail, vLead: this.player.speed, raceTime: this.flow.raceTime };
+  }
+
+  /** Lanes the player's and the rivals' cars take up, so no traffic is spawned on top of them. */
+  private playerOccupants(frame: RoadFrame): Occupant[] {
+    const p = this.playerBox(frame);
+    const own = lanesOccupied(p.dMin, p.dMax).map((lane) => ({ s: p.s, lane, length: p.length, v: Math.max(0, p.v) }));
+    return [...own, ...this.rivals.occupants(frame)];
   }
 
   /** Clear traffic and wrecks, put the player on the start line, refill traffic ahead. */
   resetWorld(): void {
-    for (const npc of this.npcs.values()) npc.dispose();
-    this.npcs.clear();
-    this.sideOf.clear();
-    this.sides = [
-      { name: 'ours', frame: OUR_FRAME, facing: 1, sim: new TrafficSim() },
-      { name: 'oncoming', frame: ONCOMING_FRAME, facing: -1, sim: new TrafficSim(ONCOMING_FIRST_ID) },
-    ];
     this.prevRelS.clear();
     this.touched.clear();
     this.player.resetTo(-3, 1, 0);
+    this.aiDriver?.reset(this.player.d);
+    this.rivals.place();
     this.skids.clear();
     this.smoke.clear();
     this.rig.snap();
-    this.spawn(true);
+    this.trafficWorld.spacing = this.trafficSettings.spacing;
+    this.trafficWorld.reset(this.focus(), (f) => this.playerOccupants(f));
   }
 
   tryReset(): void {
     if (!this.flow.canReset()) return;
     const blockers: Blocker[] = [];
     for (const npc of this.npcs.values()) {
-      const agent = this.sideOf.get(npc.id)?.name === 'ours' ? this.traffic.agents.get(npc.id) : undefined;
+      const agent = this.trafficWorld.sideOf(npc.id)?.name === 'ours' ? this.traffic.agents.get(npc.id) : undefined;
       if (agent && !npc.wrecked) {
         blockers.push({ s: agent.s, dMin: agent.d - agent.width / 2, dMax: agent.d + agent.width / 2, length: agent.length, v: agent.v });
         if (agent.targetLane !== null && agent.targetLane !== agent.lane) {
@@ -195,8 +238,10 @@ export class Game {
         blockers.push(...npc.obstacles(OUR_FRAME));
       }
     }
+    blockers.push(...this.rivals.boxes(this.rivalBoxes));
     const spot = computeResetSpot(this.player.s, this.player.d, blockers, RESET_SPEED);
     this.player.resetTo(spot.s, spot.lane, RESET_SPEED);
+    this.aiDriver?.reset(this.player.d);
     this.skids.cut();
     this.flow.markReset();
     this.rig.snap();
@@ -241,9 +286,30 @@ export class Game {
     if (render) this.render(PHYSICS_DT, 1);
   }
 
+  /** Hand the car to the trained AI, or take it back. */
+  toggleAi(): void {
+    if (!this.aiDriver) {
+      this.hud.message('沒有可用的 AI 駕駛（請先在 lab/train.html 訓練並存檔）');
+      return;
+    }
+    this.aiActive = !this.aiActive;
+    if (this.aiActive) {
+      this.humanMaxSpeed = this.player.params.maxSpeed;
+      this.aiDriver.reset(this.player.d);
+    } else this.player.params.maxSpeed = this.humanMaxSpeed;
+  }
+
   private currentInput(): HandlingInput {
     switch (this.flow.phase) {
       case 'racing':
+        if (this.aiActive && this.aiDriver && !this.inputOverride) {
+          // Same inputs as in training: our carriageway's traffic, and its own top speed.
+          const cap = this.aiSettings.speedCapKmh / 3.6;
+          this.player.params.maxSpeed = cap;
+          const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
+          for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
+          return this.aiDriver.drive(selfStateOf(this.player, cap), seen, this.player.params);
+        }
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
         return this.player.speed > 1 ? ROLL_OUT : HOLD; // brake to a stop, never into reverse
@@ -257,26 +323,33 @@ export class Game {
     const input = this.currentInput();
     this.lastInput = input;
 
-    // Traffic AI on both carriageways (the player and every wreck are obstacles
-    // to both), then drive the NPC bodies along the planned paths.
-    for (const side of this.sides) {
-      const obstacles: Obstacle[] = [{ ...this.playerBox(side.frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }];
-      for (const npc of this.npcs.values()) {
-        if (npc.wrecked) obstacles.push(...npc.obstacles(side.frame));
-        else if (this.sideOf.get(npc.id) === side) npc.syncAgent(side.sim.agents.get(npc.id)!);
-      }
-      side.sim.step(dt, obstacles, this.rng, false);
-    }
-    for (const npc of this.npcs.values()) {
-      npc.savePrev();
-      if (npc.wrecked) npc.updateWreck(dt, this.simTime);
-      else npc.drive(this.agentOf(npc.id)!, dt, this.simTime);
-    }
+    // The rivals race once the race is on (held on the grid before).
+    const racing = this.flow.phase === 'racing' || this.flow.phase === 'finished';
+    const view: RaceView = {
+      player: this.player,
+      traffic: this.trafficWorld.ourBoxes(this.rivalTraffic),
+      speedCap: this.aiSettings.speedCapKmh / 3.6,
+      raceTime: this.flow.raceTime,
+    };
+    if (racing) this.rivals.drive(dt, view);
+    else this.rivals.hold(dt);
+
+    // Traffic AI on both carriageways (the player, the rivals and every wreck are
+    // obstacles to both), then drive the NPC bodies along the planned paths.
+    this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
 
     this.player.prePhysics(input, dt);
-    this.physics.step((a, b) => this.onContact(a, b));
+    // How the racers were moving going into the step: a contact is judged on that, not on the bounce.
+    const before = this.player.body.linvel();
+    this.racerVelBefore[0] = { x: before.x, z: before.z };
+    this.rivals.list.forEach((r, i) => {
+      const v = r.car.body.linvel();
+      this.racerVelBefore[i + 1] = { x: v.x, z: v.z };
+    });
+    this.physics.step((a, b, n) => this.onContact(a, b, n));
     this.player.postPhysics();
-    for (const npc of this.npcs.values()) npc.capture();
+    this.trafficWorld.afterPhysics();
+    this.rivals.after(dt, view, this.trafficWorld.ourBoxes(this.rivalTraffic), racing);
     const pv = this.player.body.linvel();
     this.player.wheels.forEach((w, i) => {
       const sliding = w.inContact && w.sliding;
@@ -299,21 +372,14 @@ export class Game {
       }
     }
 
-    this.cullVehicles();
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0) {
-      this.spawnTimer = SPAWN_INTERVAL;
-      this.spawn(false);
-    }
+    this.trafficWorld.spacing = this.trafficSettings.spacing;
+    this.trafficWorld.maintain(dt, this.focus(), (f) => this.playerOccupants(f));
+    this.forgetRemovedNpcs();
     this.checkNearMisses();
 
     const wasFinished = this.flow.phase === 'finished';
     this.flow.update(dt, this.player.s);
     if (!wasFinished && this.flow.phase === 'finished') this.sound.whoosh();
-  }
-
-  private agentOf(id: number) {
-    return this.sideOf.get(id)?.sim.agents.get(id);
   }
 
   /** The player's car as an obstacle in a carriageway's coordinates. */
@@ -324,108 +390,46 @@ export class Game {
     return boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: 1.86, l: 4.4, vx: v.x, vz: v.z });
   }
 
-  private onContact(a: EntityRef, b: EntityRef): void {
-    if (a.type === 'static' || b.type === 'static') return;
-    if (a.type === 'npc' && b.type === 'npc') {
-      this.wreckNpc(a.id, 0);
-      this.wreckNpc(b.id, 0);
+  private onContact(a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null): void {
+    const playerHit = a.type === 'player' || b.type === 'player';
+    const rival = a.type === 'rival' ? a : b.type === 'rival' ? b : null;
+    if (playerHit && rival) {
+      // Player and rival trading paint: feel it, the physics does the rest.
+      const pv = this.player.body.linvel();
+      const rv = this.rivals.list[rival.id].car.body.linvel();
+      const rel = Math.hypot(pv.x - rv.x, pv.z - rv.z);
+      this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
+      this.sound.crash(rel);
       return;
     }
-    const npcRef = a.type === 'npc' ? a : b.type === 'npc' ? b : null;
-    if (!npcRef) return;
-    const npc = this.npcs.get(npcRef.id);
-    if (!npc) return;
-    const pv = this.player.body.linvel();
-    const nv = npc.parts[0].body.linvel();
-    const rel = Math.hypot(pv.x - nv.x, pv.z - nv.z);
-    this.wreckNpc(npcRef.id, rel);
-    this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
-    this.sound.crash(rel);
-  }
-
-  private wreckNpc(id: number, _impact: number): void {
+    // NPC pile-ups are handled by the traffic; we get the NPC the player or a rival hit.
+    const id = this.trafficWorld.onNpcContact(a, b);
+    if (id === null) return;
     const npc = this.npcs.get(id);
-    if (!npc || npc.wrecked) return;
-    npc.wreck();
-    this.sideOf.get(id)?.sim.removeAgent(id);
+    if (!npc) return;
+    // Only a real hit knocks it out of control; a scrape it drives on from (street racing).
+    const racerV = this.racerVelBefore[playerHit ? 0 : (rival?.id ?? -1) + 1];
+    const nv = npc.parts[0].body.linvel();
+    const hard = !racerV || knocksOut(racerV, nv, normal);
+    if (hard) this.trafficWorld.wreck(id);
+    if (!playerHit) return;
+    const rel = racerV ? closingSpeed(racerV, nv, normal) : 0;
     this.touched.add(id);
     this.prevRelS.delete(id);
+    this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
+    if (hard) this.sound.crash(rel);
   }
 
-  private removeNpc(npc: NpcVehicle): void {
-    npc.dispose();
-    this.npcs.delete(npc.id);
-    this.sideOf.get(npc.id)?.sim.removeAgent(npc.id);
-    this.sideOf.delete(npc.id);
-    this.prevRelS.delete(npc.id);
-    this.touched.delete(npc.id);
-  }
-
-  private cullVehicles(): void {
-    const ps = this.player.s;
-    const wrecks: NpcVehicle[] = [];
-    for (const npc of [...this.npcs.values()]) {
-      if (npc.wrecked) {
-        if (npc.wreckTime > WRECK_LIFETIME || npc.s < ps - 260 || npc.s > ps + 900) this.removeNpc(npc);
-        else wrecks.push(npc);
-      } else {
-        const side = this.sideOf.get(npc.id)!;
-        const agent = side.sim.agents.get(npc.id);
-        if (!agent || shouldDespawn(agent.s, this.playerS(side.frame), side.facing)) this.removeNpc(npc);
-      }
-    }
-    if (wrecks.length > MAX_WRECKS) {
-      // Oldest first, and only ones not ahead of the player.
-      const removable = wrecks.filter((w) => w.s < ps).sort((x, y) => y.wreckTime - x.wreckTime);
-      for (let i = 0; i < wrecks.length - MAX_WRECKS && i < removable.length; i++) this.removeNpc(removable[i]);
-    }
-  }
-
-  /** Player position along a carriageway's own s axis. */
-  private playerS(frame: RoadFrame): number {
-    const t = this.player.body.translation();
-    return frame.fromWorld(t.x, t.z).s;
-  }
-
-  private spawn(initial: boolean): void {
-    for (const side of this.sides) this.spawnSide(side, initial);
-  }
-
-  private spawnSide(side: Side, initial: boolean): void {
-    const occupied: Occupant[] = [];
-    for (const a of side.sim.agents.values()) {
-      occupied.push({ s: a.s, lane: a.lane, length: a.length, v: a.v });
-      if (a.targetLane !== null && a.targetLane !== a.lane) occupied.push({ s: a.s, lane: a.targetLane, length: a.length, v: a.v });
-    }
-    const p = this.playerBox(side.frame);
-    for (const lane of lanesOccupied(p.dMin, p.dMax)) occupied.push({ s: p.s, lane, length: p.length, v: Math.max(0, p.v) });
-    for (const npc of this.npcs.values()) {
-      if (!npc.wrecked) continue;
-      // A wreck blocks every lane it touches.
-      for (const o of npc.obstacles(side.frame)) for (const lane of lanesOccupied(o.dMin, o.dMax)) occupied.push({ s: o.s, lane, length: o.length, v: 0 });
-    }
-    const reqs = planSpawns({
-      playerS: this.playerS(side.frame),
-      playerV: this.player.speed,
-      raceTime: this.flow.raceTime,
-      occupied,
-      rng: this.rng,
-      initial,
-      spacing: this.trafficSettings.spacing,
-      facing: side.facing,
-    });
-    for (const r of reqs) {
-      const agent = side.sim.addAgent(r.kind, r.s, r.lane, this.rng);
-      agent.v = Math.min(agent.v, r.vMax);
-      this.npcs.set(agent.id, new NpcVehicle(this.physics, this.scene, this.wheelPool, side.frame, agent, this.rng));
-      this.sideOf.set(agent.id, side);
-    }
+  /** Drop near-miss bookkeeping for vehicles the traffic has removed. */
+  private forgetRemovedNpcs(): void {
+    for (const id of this.prevRelS.keys()) if (!this.npcs.has(id)) this.prevRelS.delete(id);
+    for (const id of this.touched) if (!this.npcs.has(id)) this.touched.delete(id);
   }
 
   private checkNearMisses(): void {
     const p = this.player;
     const fp = p.footprint();
-    for (const side of this.sides) {
+    for (const side of this.trafficWorld.sides) {
       for (const agent of side.sim.agents.values()) {
         // Work in world terms so oncoming cars count too.
         const w = side.frame.toWorld(agent.s, agent.d);
@@ -454,9 +458,14 @@ export class Game {
       npc.render(alpha, this.flares);
       for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
     }
+    this.rivals.render(alpha, this.flares);
+    for (const r of this.rivals.list) this.npcBeams.add(r.car.mesh, pp.x, pp.z);
     this.flares.end();
     this.npcBeams.end();
     this.wheelPool.commit();
+    const planned = this.aiDriver as { plan?: Plan | null; planAge?: number } | null;
+    if (this.showPlan && this.aiActive && this.flow.phase === 'racing' && planned?.plan) this.planPath.show(planned.plan, planned.planAge ?? 0);
+    else this.planPath.hide();
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
     // After the road has placed this frame's street lights.
@@ -477,6 +486,9 @@ export class Game {
       muted: this.sound.muted,
       gear: this.player.gearbox.gear,
       rpm: this.player.rpm,
+      aiDriving: this.aiActive && this.flow.phase === 'racing',
+      place: this.rivals.rank(this.player.s, this.flow.finishTime),
+      racers: this.rivals.list.length + 1,
     });
     const h = this.renderer.domElement.height;
     updateFlareScale(this.flares.material, this.camera, h);

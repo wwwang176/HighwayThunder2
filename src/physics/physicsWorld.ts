@@ -1,20 +1,23 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { LEFT_RAIL_X, RAIL_D, ROAD_LENGTH } from '../config';
 
-export type EntityRef = { type: 'player' } | { type: 'npc'; id: number } | { type: 'static' };
+export type EntityRef = { type: 'player' } | { type: 'rival'; id: number } | { type: 'npc'; id: number } | { type: 'static' };
 
 // Collision group bits (membership << 16 | filter).
 export const G_STATIC = 1;
 export const G_PLAYER = 2;
 export const G_NPC_LIVE = 4;
 export const G_WRECK = 8;
-const ALL = G_STATIC | G_PLAYER | G_NPC_LIVE | G_WRECK;
+export const G_RIVAL = 16;
+const ALL = G_STATIC | G_PLAYER | G_NPC_LIVE | G_WRECK | G_RIVAL;
 
 export const groups = (membership: number, filter: number) => (membership << 16) | filter;
 export const STATIC_GROUPS = groups(G_STATIC, ALL);
-export const PLAYER_GROUPS = groups(G_PLAYER, G_STATIC | G_NPC_LIVE | G_WRECK);
+export const PLAYER_GROUPS = groups(G_PLAYER, G_STATIC | G_NPC_LIVE | G_WRECK | G_RIVAL);
+/** Rival racers hit everything: the player, traffic, wrecks, the rails and each other. */
+export const RIVAL_GROUPS = groups(G_RIVAL, ALL);
 /** Live NPCs never touch each other: pile-ups only spread through wrecks. */
-export const NPC_LIVE_GROUPS = groups(G_NPC_LIVE, G_STATIC | G_PLAYER | G_WRECK);
+export const NPC_LIVE_GROUPS = groups(G_NPC_LIVE, G_STATIC | G_PLAYER | G_WRECK | G_RIVAL);
 export const WRECK_GROUPS = groups(G_WRECK, ALL);
 
 export const ROAD_START_S = -300;
@@ -34,6 +37,18 @@ export class PhysicsWorld {
   static async create(): Promise<PhysicsWorld> {
     await RAPIER.init();
     return new PhysicsWorld();
+  }
+
+  /** A fresh world once RAPIER.init() has completed (e.g. one per training generation). */
+  static createSync(): PhysicsWorld {
+    return new PhysicsWorld();
+  }
+
+  /** Release the WASM-side world. The object must not be used afterwards. */
+  free(): void {
+    this.eventQueue.free();
+    this.world.free();
+    this.owners.clear();
   }
 
   set timestep(dt: number) {
@@ -72,13 +87,28 @@ export class PhysicsWorld {
     this.owners.delete(collider.handle);
   }
 
-  step(onContact: (a: EntityRef, b: EntityRef) => void): void {
+  /** `normal`: which way the two pushed on each other (unit, on the ground; sign unspecified), null when unknown. */
+  step(onContact: (a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null) => void): void {
     this.world.step(this.eventQueue);
     this.eventQueue.drainCollisionEvents((h1, h2, started) => {
       if (!started) return;
       const a = this.owners.get(h1);
       const b = this.owners.get(h2);
-      if (a && b) onContact(a, b);
+      if (a && b) onContact(a, b, this.contactNormal(h1, h2));
     });
+  }
+
+  private contactNormal(h1: number, h2: number): { x: number; z: number } | null {
+    const c1 = this.world.getCollider(h1);
+    const c2 = this.world.getCollider(h2);
+    if (!c1 || !c2) return null;
+    let out: { x: number; z: number } | null = null;
+    this.world.contactPair(c1, c2, (m) => {
+      if (out || m.numContacts() === 0) return;
+      const n = m.normal();
+      const len = Math.hypot(n.x, n.z);
+      if (len > 1e-3) out = { x: n.x / len, z: n.z / len };
+    });
+    return out;
   }
 }

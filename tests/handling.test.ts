@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque } from '../src/vehicles/handling';
+import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale } from '../src/vehicles/handling';
 
 const P = DEFAULT_CAR;
 
@@ -112,13 +112,14 @@ describe('Gearbox', () => {
 
 describe('engine through the gearbox', () => {
   const R = 0.34;
-  it('1st gear at launch overpowers the rear tyres (burnout), but not once rolling with weight transfer', () => {
+  it('1st gear overpowers the rear tyres, at launch and still rolling (the 1.5x engine: a street racer)', () => {
     const g = new Gearbox();
     const rearStatic = (P.mass * 9.81) / 2;
     expect(g.wheelTorque(1, 0, P) / R).toBeGreaterThan(P.muPeak * P.rearGrip * (rearStatic + 1900));
-    // Mid 1st gear, wheels rolling: peak grip with weight transfer holds the engine.
+    // Mid 1st gear, wheels rolling: even with weight transfer the tyres cannot hold it all (it was the
+    // other way round before the engine was made 1.5x stronger for more pull at 150-250 km/h).
     const omega = 45 / 3.6 / R;
-    expect(g.wheelTorque(1, omega, P) / R).toBeLessThan(P.muPeak * P.rearGrip * (rearStatic + 1900));
+    expect(g.wheelTorque(1, omega, P) / R).toBeGreaterThan(P.muPeak * P.rearGrip * (rearStatic + 1900));
   });
   it('2nd gear (from its upshift speed) does not overpower the rear tyres', () => {
     const g = new Gearbox();
@@ -214,5 +215,32 @@ describe('stability control (ESC)', () => {
     expect(Math.abs(escTorque(5, -5, v, P))).toBeLessThanOrEqual(P.escMaxTorque);
     expect(escTorque(0.6, 0.3, v, { ...P, escGain: 0 })).toBe(0);
     expect(escTorque(0.6, 0.3, 3, P)).toBe(0); // inactive when crawling
+  });
+});
+
+describe('aeroGripScale', () => {
+  const p = { ...DEFAULT_CAR, aeroGrip: 0.8, aeroGripFrom: 50, aeroGripTo: 250 };
+  const at = (kmh: number) => aeroGripScale(kmh / 3.6, p);
+  it('none below where it starts, all of it from where it ends, half way in the middle', () => {
+    expect(at(0)).toBe(1);
+    expect(at(50)).toBe(1);
+    expect(at(150)).toBeCloseTo(1.4, 5);
+    expect(at(250)).toBeCloseTo(1.8, 5);
+    expect(at(320)).toBeCloseTo(1.8, 5);
+  });
+  it('an S-curve: slow to start and to finish, no kink', () => {
+    expect(at(60) - at(50)).toBeLessThan(at(155) - at(145));
+    expect(at(250) - at(240)).toBeLessThan(at(155) - at(145));
+  });
+});
+
+describe('rollInfluenceAt', () => {
+  const p = { ...DEFAULT_CAR, rollInfluence: 1, rollRefKmh: 150 };
+  it('as set up to rollRefKmh, then less as the grip grows: the most rolling torque stays that there', () => {
+    expect(rollInfluenceAt(100 / 3.6, p)).toBe(1);
+    expect(rollInfluenceAt(150 / 3.6, p)).toBe(1);
+    const at280 = rollInfluenceAt(280 / 3.6, p);
+    expect(at280).toBeLessThan(1);
+    expect(at280 * effectiveMu(280 / 3.6, p)).toBeCloseTo(effectiveMu(150 / 3.6, p), 5);
   });
 });

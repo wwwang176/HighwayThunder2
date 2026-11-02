@@ -1,8 +1,9 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
-import { PLAYER_GROUPS, PhysicsWorld } from '../physics/physicsWorld';
-import { CarParams, DEFAULT_CAR, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, smoothSteer, steerAngle } from './handling';
+import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
+import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, rollInfluenceAt, smoothSteer, aeroGripScale, steerAngle } from './handling';
+import { CarSpec, STREET_RACER } from './cars';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
 import { AIM_DOWN, createHeadlight } from './headlight';
@@ -10,6 +11,18 @@ import { emitFlares } from './npcVehicle';
 import type { LightFlares } from '../render/lightFlares';
 import { TireParams } from './tireModel';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
+
+/** How to build a PlayerCar (the player's, a rival's, or a training ghost). */
+export interface PlayerCarOptions {
+  /** Car type (default: the street racer). */
+  spec?: CarSpec;
+  /** Who the collider is: the player (default) or a rival. Without a scene and without this: a ghost. */
+  entity?: Extract<EntityRef, { type: 'player' } | { type: 'rival' }>;
+  /** Body colour (default: the spec's). */
+  color?: number;
+  /** Real headlights that light the scene (default true; rivals use glowing beams instead). */
+  realLights?: boolean;
+}
 
 export const PLAYER_W = 1.86;
 export const PLAYER_H = 1.1;
@@ -50,13 +63,14 @@ type WheelState = ChassisWheel;
  */
 export class PlayerCar {
   readonly body: RAPIER.RigidBody;
-  readonly collider: RAPIER.Collider;
+  /** The body's collision box (null for ghosts). */
+  readonly collider: RAPIER.Collider | null;
   readonly mesh: THREE.Group;
   private readonly lights: VehicleLights;
   private readonly visuals: { steer: THREE.Group; spin: THREE.Group }[] = [];
   readonly chassis: TyreChassis;
   readonly wheels: WheelState[];
-  params: CarParams = { ...DEFAULT_CAR };
+  params: CarParams;
   private steer = 0;
   private throttle = 0;
   readonly gearbox = new Gearbox();
@@ -78,30 +92,46 @@ export class PlayerCar {
   private prevQuat = new THREE.Quaternion();
   private currQuat = new THREE.Quaternion();
 
-  constructor(physics: PhysicsWorld, scene: THREE.Scene) {
+  /**
+   * @param scene where to add the car's model (and, for the player, its real
+   * headlights). Null and no `opts.entity`: an AI training "ghost" - same
+   * physics, no visuals, and it only touches the road.
+   */
+  constructor(physics: PhysicsWorld, scene: THREE.Scene | null, opts: PlayerCarOptions = {}) {
+    const spec = opts.spec ?? STREET_RACER;
+    this.params = { ...spec.params };
     const p = this.params;
-    this.body = physics.world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(laneCenter(1), RIDE_Y, 0)
-        .setCcdEnabled(true)
-        .setCanSleep(false),
-    );
+    const ghost = !opts.entity && scene === null;
+    const entity = opts.entity ?? { type: 'player' };
     const inertia = {
       x: (p.mass / 12) * (0.8 * 0.8 + PLAYER_L * PLAYER_L),
       y: (p.mass / 12) * (PLAYER_W * PLAYER_W + PLAYER_L * PLAYER_L),
       z: (p.mass / 12) * (PLAYER_W * PLAYER_W + 0.8 * 0.8),
     };
-    this.collider = physics.world.createCollider(
-      RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
-        .setTranslation(0, 0.1, 0)
-        .setMassProperties(p.mass, { x: 0, y: -0.15, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
-        .setFriction(0.3)
-        .setRestitution(0.05)
-        .setCollisionGroups(PLAYER_GROUPS)
-        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-      this.body,
-    );
-    physics.register(this.collider, { type: 'player' });
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(laneCenter(1), RIDE_Y, 0).setCanSleep(false);
+    if (ghost) {
+      // No collider at all: a ghost stands on its wheel rays only, and with dozens
+      // of them stacked on the start line, the rays must not have to test each other.
+      // Same mass properties as the player's collider gives (COM at body y + comY).
+      this.body = physics.world.createRigidBody(
+        bodyDesc.setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 }),
+      );
+      this.collider = null;
+    } else {
+      this.body = physics.world.createRigidBody(bodyDesc.setCcdEnabled(true));
+      this.collider = physics.world.createCollider(
+        RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
+          .setTranslation(0, 0.1, 0)
+          // The collider sits 0.1 m up the body: its mass centre is placed to land at body y + comY.
+          .setMassProperties(p.mass, { x: 0, y: p.comY - 0.1, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
+          .setFriction(0.3)
+          .setRestitution(0.05)
+          .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
+          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+        this.body,
+      );
+      physics.register(this.collider, entity);
+    }
 
     // Wheels: 0 FL, 1 FR, 2 RL, 3 RR.
     const wheels: WheelState[] = [];
@@ -121,12 +151,21 @@ export class PlayerCar {
     this.wheels = wheels;
     this.chassis = new TyreChassis(physics, this.body, wheels, this.chassisSetup());
 
-    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, 0xd62828, true, false, false);
+    if (scene === null) {
+      this.mesh = new THREE.Group();
+      this.lights = { left: [], right: [], brake: [] };
+      this.readBack();
+      this.snapInterpolation();
+      return;
+    }
+    const realLights = opts.realLights ?? true;
+    // Without real lights it shows NPC-style glowing beams instead (rivals: real lights are expensive).
+    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, true, false, !realLights);
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
     // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
     // of a round cone; the two beams overlap ahead and each casts its own shadow.
-    for (const side of [-1, 1]) {
+    for (const side of realLights ? [-1, 1] : []) {
       const x = side * (PLAYER_W / 2 - 0.4);
       const hl = createHeadlight(HEADLIGHT_INTENSITY / 2);
       hl.position.set(x, -0.05, -PLAYER_L / 2 - 0.15);
@@ -141,7 +180,7 @@ export class PlayerCar {
       this.mesh.add(w.steer);
       this.visuals.push(w);
     }
-    scene.add(this.mesh);
+    scene!.add(this.mesh);
     this.readBack();
     this.snapInterpolation();
   }
@@ -150,12 +189,22 @@ export class PlayerCar {
     return this.vLong;
   }
 
+  /** Yaw rate (rad/s), positive turning toward +d like `yaw`. */
+  get yawRate(): number {
+    return -this.body.angvel().y;
+  }
+
+  /** Where the steering is now (-1..1): the input after its rise / return ramp. */
+  get wheel(): number {
+    return this.steer;
+  }
+
   /** Strongest tyre slide this step (m/s of slip), for sound. */
   get maxSlip(): number {
     return this.chassis.maxSlip;
   }
 
-  private chassisSetup() {
+  private chassisSetup(speed = 0) {
     const p = this.params;
     const tire: TireParams = {
       muPeak: p.muPeak,
@@ -173,6 +222,7 @@ export class PlayerCar {
         [0, 1, p.antiRollFront],
         [2, 3, p.antiRollRear],
       ] as [number, number, number][],
+      rollInfluence: rollInfluenceAt(speed, p),
       tire,
       surfaceGrip: (x: number) => this.surfaceGrip(x),
     };
@@ -216,12 +266,13 @@ export class PlayerCar {
     // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,
     // so both rears light up (and hook up) together instead of one-wheel peel.
     const lsd = Math.max(-1500, Math.min(1500, p.lsd * (this.wheels[2].omega - this.wheels[3].omega)));
-    this.chassis.setup = this.chassisSetup();
+    this.chassis.setup = this.chassisSetup(this.vLong);
+    const grip = aeroGripScale(Math.hypot(this.vLong, this.vLat), p);
     for (const w of this.wheels) {
       w.springK = p.springK;
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
-      w.gripScale = w.front ? 1 : p.rearGrip;
+      w.gripScale = (w.front ? 1 : p.rearGrip) * grip;
     }
     this.chassis.step(
       dt,

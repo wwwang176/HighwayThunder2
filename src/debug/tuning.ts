@@ -4,9 +4,13 @@ import type { CameraParams } from '../render/cameraRig';
 import { WRECK_TRIP } from '../vehicles/npcVehicle';
 import { NIGHT } from '../world/roadScene';
 import { NPC_BEAM } from '../render/npcBeams';
+import { PLANNER } from '../ai/planner';
+import { DRIVER_TUNING } from '../ai/plannerDriver';
+import { RIVAL_TUNING } from '../game/rivals';
+import { CONTACT_TUNING } from '../game/contact';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
-export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }): GUI {
+export function createTuningPanel(car: CarParams, camera: CameraParams, traffic: { spacing: number }, ai: { speedCapKmh: number }): GUI {
   const gui = new GUI({ title: '調校面板（` 切換）' });
   const d = gui.addFolder('動力 / 轉向');
   d.add(car, 'power', 100_000, 800_000, 10_000).name('馬力 W');
@@ -31,6 +35,10 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   s.add(car, 'antiRollFront', 0, 60_000, 1_000).name('前防傾桿');
   s.add(car, 'antiRollRear', 0, 60_000, 1_000).name('後防傾桿');
   s.add(car, 'rearGrip', 0.7, 1.5, 0.01).name('後輪抓地倍率');
+  s.add(car, 'aeroGrip', 0, 1.5, 0.01).name('氣動抓地（飽和時多幾成）');
+  s.add(car, 'aeroGripTo', 100, 300, 1).name('氣動抓地飽和速度 km/h');
+  s.add(car, 'rollRefKmh', 50, 300, 1).name('此速度以上側傾隨抓地減少 km/h');
+  s.add(car, 'rollInfluence', 0, 1, 0.01).name('車身傾斜（翻滾力矩比例）');
   s.add(car, 'muPeak', 0.5, 2, 0.01).name('輪胎抓地（臨界）');
   s.add(car, 'muSlide', 0.3, 1.5, 0.01).name('輪胎抓地（滑動）');
   s.add(car, 'slipAnglePeak', 0.04, 0.3, 0.005).name('側滑角臨界 rad');
@@ -53,6 +61,51 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   t.add(traffic, 'spacing', 30, 250, 1).name('同車道平均間距 m');
   t.add(WRECK_TRIP, 'car', 1, 6, 0.1).name('事故轎車橫滑翻車摩擦');
   t.add(WRECK_TRIP, 'truck', 0.8, 4, 0.1).name('事故貨車橫滑翻車摩擦');
+  const a = gui.addFolder('AI 駕駛');
+  a.add(ai, 'speedCapKmh', 150, 300, 5).name('AI 最高時速 km/h（強度）');
+  a.add(PLANNER, 'gapAhead', 0, 10, 0.5).name('跟車：保險桿距離 m');
+  a.add(PLANNER, 'headway', 0, 1.5, 0.05).name('跟車：再加車速 × 秒');
+  a.add(PLANNER, 'gapBehind', 0, 15, 0.5).name('切入：留給後車距離 m');
+  // How finely the plan is cut: S-lines and gaps against swinging past (all the AI cars, from their next plan).
+  // Each with the side room it was measured with (30 x 5 km, a crash putting it back at 60 km/h;
+  // hits judged by closing speed along the contact). maxLateralChange only counts with maxLateral > 1.
+  const old = { cellsPerLane: 4, latGrip: 0 };
+  const grids: Record<string, [Partial<typeof PLANNER>, boolean]> = {
+    '物理極限＋神經網路控制': [{ step: 0.25, cellsPerLane: 8, latGrip: 1, maxLateral: 6, sideMargin: 0.15, swingMargin: 0.1 }, true], // 98.3 s, 10 resets
+    '物理極限＋原本控制': [{ step: 0.25, cellsPerLane: 8, latGrip: 1, maxLateral: 6, sideMargin: 0.15, swingMargin: 0.1 }, false], // 100.2 s, 15
+    '細 0.25 秒・衝一半＋多留側距': [{ ...old, step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.15, swingMargin: 0.1 }, false], // 101.8 s, 25
+    '細 0.25 秒・衝一半': [{ ...old, step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, false], // 102.6 s, 42
+    '細 0.25 秒＋猛（很衝）': [{ ...old, step: 0.25, maxLateral: 2, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, false], // 108.4 s, 153 (old rule: any 15 km/h)
+    '標準 0.5 秒（穩）': [{ ...old, step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.1 }, false], // 101.1 s, 2
+  };
+  const grid = { choice: Object.keys(grids)[0] };
+  a.add(grid, 'choice', Object.keys(grids))
+    .name('規劃格子')
+    .onChange((k: string) => {
+      Object.assign(PLANNER, grids[k][0]);
+      DRIVER_TUNING.netTracker = grids[k][1];
+      a.controllersRecursive().forEach((c) => c.updateDisplay());
+    });
+  a.add(DRIVER_TUNING, 'netTracker').name('方向盤用神經網路（關：原本的公式）');
+  a.add(PLANNER, 'lookBehind').name('換道看後方（關：完全不管後車）');
+  a.add(PLANNER, 'diagonal').name('斜線換道（關：換道整步佔滿橫向寬度）');
+  a.add(PLANNER, 'steerClear').name('閃開前車（開：靠轉向不靠煞車）');
+  a.add(PLANNER, 'cutInTime', 0, 1.5, 0.05).name('切入：再加後車追近速度 × 秒');
+  a.add(PLANNER, 'sideMargin', 0, 1, 0.05).name('並行：側向留距 m');
+  a.add(PLANNER, 'swingMargin', 0, 1, 0.05).name('橫移時往移動側再多留 m');
+  a.add(PLANNER, 'hardBrake', 4, 12, 0.5).name('規劃最大煞車 m/s²');
+  a.add(PLANNER, 'brakeCost', 0, 10, 0.1).name('不愛煞車（每減 1 m/s 扣 m）');
+  a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');
+  const r = gui.addFolder('電腦對手（橡皮筋）');
+  r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
+  r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');
+  r.add(RIVAL_TUNING, 'maxBoost', 0, 1, 0.05).name('最多加強（抓地＋引擎）');
+  r.add(RIVAL_TUNING, 'waitFrom', 50, 600, 10).name('領先幾 m 開始等');
+  r.add(RIVAL_TUNING, 'waitFull', 100, 1000, 10).name('領先幾 m 等到最慢');
+  r.add(RIVAL_TUNING, 'waitSpeed', 0.5, 1, 0.05).name('等待時速度 × 玩家車速');
+  r.add(RIVAL_TUNING, 'teleportBehind', 100, 2000, 50).name('落後幾 m 拉回玩家附近');
+  const k = gui.addFolder('碰撞');
+  k.add(CONTACT_TUNING, 'npcWreckSpeed', 0, 30, 0.5).name('撞進 NPC 多快才失控（m/s，只算撞擊方向，側擦不算超車速度）');
   gui.hide();
   return gui;
 }

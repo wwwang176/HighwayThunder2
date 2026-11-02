@@ -3,6 +3,7 @@ import { lowBeamCookie, TAN_HALF } from '../vehicles/headlight';
 
 const MAX = 700;
 const LIFE = 1.6; // s
+export const SMOKE_LIFE = LIFE;
 const ALBEDO = 0.86;
 /** Night sky glow + moon reaching the smoke (irradiance, linear). */
 const AMBIENT = new THREE.Color(0x1c2740).multiplyScalar(0.35).add(new THREE.Color(0x8fa4d8).multiplyScalar(0.06));
@@ -45,6 +46,17 @@ export function smokeLightFromSpot(l: THREE.SpotLight): SmokeLight {
     light.cookie = { right, up: new THREE.Vector3().crossVectors(right, dir) };
   }
   return light;
+}
+
+/**
+ * A puff `age` s old: size (m) and opacity. Past its life it has no size at all: a dead
+ * puff left at full size, only transparent, still cost the GPU every pixel it covered -
+ * a few hundred where a burnout had been held the frame rate near 30 (100 without).
+ */
+export function puffLook(age: number): { size: number; alpha: number } {
+  if (age >= LIFE) return { size: 0, alpha: 0 };
+  const t = age / LIFE;
+  return { size: 0.8 + t * 3.2, alpha: 0.45 * (1 - t) * Math.min(1, t * 8) };
 }
 
 const vec3s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3());
@@ -192,21 +204,19 @@ export class TireSmoke {
 
   /** Advance the puffs; `lights` (world space, see smokeLightFromSpot) light them this frame. */
   update(dt: number, lights: SmokeLight[] = []): void {
+    const drag = Math.exp(-2.5 * dt);
     for (let i = 0; i < MAX; i++) {
-      if (this.age[i] >= LIFE) {
-        this.alpha[i] = 0;
-        continue;
+      if (this.age[i] < LIFE) {
+        this.age[i] += dt;
+        this.vel[i * 3] *= drag;
+        this.vel[i * 3 + 2] *= drag;
+        this.pos[i * 3] += this.vel[i * 3] * dt;
+        this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
+        this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
       }
-      this.age[i] += dt;
-      const t = this.age[i] / LIFE;
-      const drag = Math.exp(-2.5 * dt);
-      this.vel[i * 3] *= drag;
-      this.vel[i * 3 + 2] *= drag;
-      this.pos[i * 3] += this.vel[i * 3] * dt;
-      this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
-      this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
-      this.size[i] = 0.8 + t * 3.2;
-      this.alpha[i] = 0.45 * (1 - t) * Math.min(1, t * 8);
+      const look = puffLook(this.age[i]);
+      this.size[i] = look.size;
+      this.alpha[i] = look.alpha;
     }
     (this.geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('size') as THREE.BufferAttribute).needsUpdate = true;
@@ -237,6 +247,7 @@ export class TireSmoke {
   clear(): void {
     this.age.fill(LIFE);
     this.alpha.fill(0);
+    this.size.fill(0);
     this.carry.clear();
   }
 }

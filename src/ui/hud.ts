@@ -15,6 +15,11 @@ export interface HudFrame {
   gear: number;
   rpm: number;
   reverse: boolean;
+  /** The trained AI is driving the player's car. */
+  aiDriving: boolean;
+  /** The player's place among `racers` cars (no rivals: not shown). */
+  place: number;
+  racers: number;
 }
 
 export const TACHO_MAX = 8000;
@@ -65,13 +70,14 @@ export class Hud {
     root.innerHTML = html`
       <div id="title" class="panel center">
         <div class="logo">HIGHWAY<span>THUNDER 2</span></div>
-        <div class="subtitle">高速公路穿梭賽 · 10 公里直線衝刺</div>
+        <div class="subtitle">高速公路穿梭賽 · 5 公里直線衝刺</div>
         <table class="keys">
           <tr><td><kbd>W</kbd> / <kbd>↑</kbd></td><td>油門</td></tr>
           <tr><td><kbd>S</kbd> / <kbd>↓</kbd></td><td>煞車 / 倒車</td></tr>
           <tr><td><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd></td><td>轉向</td></tr>
           <tr><td><kbd>C</kbd></td><td>按住看正後方</td></tr>
           <tr><td><kbd>R</kbd></td><td>重置到車道上（冷卻 3 秒）</td></tr>
+          <tr><td><kbd>I</kbd></td><td>AI 接手駕駛（再按一次拿回）</td></tr>
           <tr><td><kbd>Esc</kbd></td><td>暫停</td></tr>
           <tr><td><kbd>M</kbd></td><td>靜音</td></tr>
         </table>
@@ -82,7 +88,10 @@ export class Hud {
       <div id="countdown" class="countdown"></div>
       <div id="hud">
         <div class="hud-tl"><div class="label">時間</div><div class="value" data-id="time">0:00.000</div></div>
-        <div class="hud-tr"><div class="label">剩餘距離</div><div class="value" data-id="remain">10.00 km</div></div>
+        <div class="hud-tr">
+          <div class="label">剩餘距離</div><div class="value" data-id="remain">10.00 km</div>
+          <div data-id="placeBox"><div class="label">名次</div><div class="value" data-id="place">1 / 6</div></div>
+        </div>
         <div class="progress"><div class="bar" data-id="bar"></div><div class="flag">🏁</div></div>
         <div class="hud-bl">
           <div class="label">險過</div><div class="value" data-id="nm">0</div>
@@ -104,6 +113,7 @@ export class Hud {
           </div>
         </div>
         <div class="mute" data-id="mute">🔇 靜音</div>
+        <div class="ai-badge" data-id="ai">AI 駕駛中 <small>I 拿回控制 · P 路線</small></div>
       </div>
       <div id="toast" class="toast" data-id="toast">險過！</div>
       <div id="pause" class="panel center">
@@ -130,11 +140,18 @@ export class Hud {
   }
 
   nearMiss(): void {
+    this.message('險過！', 1);
+  }
+
+  /** Flash a short message in the middle of the screen. */
+  message(text: string, seconds = 2.5): void {
     const t = this.el.toast;
+    t.textContent = text;
+    t.classList.toggle('long', text.length > 8);
     t.classList.remove('show');
     void t.offsetWidth; // restart animation
     t.classList.add('show');
-    this.toastTimer = 1;
+    this.toastTimer = seconds;
   }
 
   private show(id: string, on: boolean): void {
@@ -156,7 +173,8 @@ export class Hud {
       if (phase === 'finished') {
         this.el.finishTime.textContent = formatTime(flow.finishTime ?? 0);
         this.el.record.style.display = flow.isBest ? '' : 'none';
-        this.el.finishStats.textContent = `最佳成績 ${flow.best !== null ? formatTime(flow.best) : '-'} · 險過 ${flow.nearMisses} 次`;
+        const place = f.racers > 1 ? `第 ${f.place} 名（共 ${f.racers} 台） · ` : '';
+        this.el.finishStats.textContent = `${place}最佳成績 ${flow.best !== null ? formatTime(flow.best) : '-'} · 險過 ${flow.nearMisses} 次`;
       }
     }
 
@@ -172,6 +190,8 @@ export class Hud {
     this.el.time.textContent = formatTime(phase === 'finished' ? flow.finishTime ?? 0 : flow.raceTime);
     const remain = Math.max(0, ROAD_LENGTH - f.playerS) / 1000;
     this.el.remain.textContent = `${remain.toFixed(2)} km`;
+    this.el.placeBox.style.display = f.racers > 1 ? '' : 'none';
+    this.el.place.textContent = `${f.place} / ${f.racers}`;
     this.el.bar.style.width = `${Math.min(100, Math.max(0, (f.playerS / ROAD_LENGTH) * 100))}%`;
     this.el.speed.textContent = String(Math.max(0, Math.round(f.speedKmh)));
     this.el.nm.textContent = String(flow.nearMisses);
@@ -183,6 +203,7 @@ export class Hud {
       phase === 'racing' ? (f.resetCooldown > 0 ? `R 重置 ${f.resetCooldown.toFixed(1)}s` : 'R 重置 可用') : '';
     this.el.reset.classList.toggle('ready', phase === 'racing' && f.resetCooldown <= 0);
     this.el.mute.style.display = f.muted ? '' : 'none';
+    this.el.ai.style.display = f.aiDriving ? '' : 'none';
 
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;

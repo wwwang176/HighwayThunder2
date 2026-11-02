@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { GameFlow, formatTime } from '../src/game/gameState';
-import { BEST_TIME_KEY } from '../src/config';
+import { BEST_TIME_KEY, ROAD_LENGTH } from '../src/config';
 
 function memStorage(init: Record<string, string> = {}) {
   const m = new Map(Object.entries(init));
@@ -27,14 +27,14 @@ describe('GameFlow', () => {
     expect(g.raceTime).toBeLessThan(1);
   });
 
-  it('finishes at 10 km and stores best time only when faster', () => {
+  it('finishes at the end of the road and stores best time only when faster', () => {
     const st = memStorage({ [BEST_TIME_KEY]: '100' });
     const g = new GameFlow(st);
     expect(g.best).toBe(100);
     g.start();
     runTo(g, 3.05);
-    runTo(g, 50, 5000);
-    g.update(0.01, 10000);
+    runTo(g, 50, ROAD_LENGTH / 2);
+    g.update(0.01, ROAD_LENGTH);
     expect(g.phase).toBe('finished');
     expect(g.finishTime).not.toBeNull();
     expect(g.isBest).toBe(true);
@@ -43,8 +43,8 @@ describe('GameFlow', () => {
     const g2 = new GameFlow(st);
     g2.start();
     runTo(g2, 3.05);
-    runTo(g2, 80, 5000);
-    g2.update(0.01, 10001);
+    runTo(g2, 80, ROAD_LENGTH / 2);
+    g2.update(0.01, ROAD_LENGTH + 1);
     expect(g2.isBest).toBe(false);
     expect(Number(st.m.get(BEST_TIME_KEY))).toBeCloseTo(g.finishTime!, 5);
   });
@@ -53,9 +53,9 @@ describe('GameFlow', () => {
     const g = new GameFlow(memStorage());
     g.start();
     runTo(g, 3.05);
-    g.update(0.01, 10000);
+    g.update(0.01, ROAD_LENGTH);
     const ft = g.finishTime;
-    runTo(g, 5, 10500);
+    runTo(g, 5, ROAD_LENGTH + 500);
     g.togglePause();
     expect(g.phase).toBe('finished');
     expect(g.finishTime).toBe(ft);

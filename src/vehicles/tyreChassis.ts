@@ -64,6 +64,13 @@ export interface ChassisSetup {
   travel: number; // max compression from rest (m)
   inertia: number; // wheel + driveline inertia (kg·m²)
   antiRoll: [number, number, number][]; // [left wheel, right wheel, N/m]
+  /**
+   * Share (0..1) of the tyres' rolling torque the body gets: their forces act
+   * this far up from the road toward the centre of mass' height (1: at the road,
+   * real; 0: level with it, no roll). The body still leans, but grip that would
+   * tip it over does not (cannon.js RaycastVehicle's rollInfluence). Default 1.
+   */
+  rollInfluence?: number;
   tire: TireParams;
   surfaceGrip: (x: number) => number;
 }
@@ -115,6 +122,8 @@ export class TyreChassis {
     const r = this.body.rotation();
     TMP_Q.set(r.x, r.y, r.z, r.w);
     UP.set(0, 1, 0).applyQuaternion(TMP_Q);
+    const raise = 1 - (s.rollInfluence ?? 1);
+    const com = raise > 0 ? this.body.worldCom() : null;
 
     // 1) Suspension: ray from each hard point down along the chassis.
     const comp: number[] = [];
@@ -189,6 +198,8 @@ export class TyreChassis {
       if (w.inContact && (res.Fx !== 0 || res.Fy !== 0)) {
         const fx = FWD.x * res.Fx + RIGHT.x * res.Fy;
         const fz = FWD.z * res.Fx + RIGHT.z * res.Fy;
+        // rollInfluence: the force acts part way up from the road toward the centre of mass' height.
+        if (com) CONTACT.addScaledVector(UP, raise * ((com.x - CONTACT.x) * UP.x + (com.y - CONTACT.y) * UP.y + (com.z - CONTACT.z) * UP.z));
         this.body.applyImpulseAtPoint({ x: fx * dt, y: 0, z: fz * dt }, CONTACT, true);
       }
     });

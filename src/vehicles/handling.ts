@@ -5,8 +5,11 @@
  * aids: the car goes wherever its nose points.
  */
 
+import { STREET_RACER } from './cars/streetRacer';
+
 export interface CarParams {
   mass: number; // kg
+  comY: number; // m, centre of mass height relative to the body's centre (which rides 0.55 m up); lower = harder to roll
   power: number; // W, engine peak power
   maxDriveForce: number; // N at the rear axle when reversing / pedal-mapping limit
   engineTorque: number; // N·m, engine peak torque
@@ -41,6 +44,11 @@ export interface CarParams {
   muSlide: number;
   slipAnglePeak: number; // rad
   rearGrip: number; // rear tyre grip multiplier (wider rear tyres)
+  rollInfluence: number; // 0..1 share of the tyres' rolling torque the body gets (1 real; lower leans but does not tip over)
+  aeroGrip: number; // extra tyre grip from aero at full effect (no spring load: see aeroGripScale)
+  aeroGripFrom: number; // km/h where it starts
+  aeroGripTo: number; // km/h where it is all there
+  rollRefKmh: number; // km/h up to which rollInfluence is as set (less past it: rollInfluenceAt)
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
   counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
@@ -49,47 +57,8 @@ export interface CarParams {
   escMaxTorque: number; // N·m
 }
 
-export const DEFAULT_CAR: CarParams = {
-  mass: 1300,
-  power: 290_000,
-  maxDriveForce: 9_500,
-  engineTorque: 400,
-  redline: 7500,
-  idleRpm: 900,
-  driveEfficiency: 0.9,
-  wheelRadius: 0.34,
-  maxSpeed: 83.3,
-  reverseMax: 8,
-  reverseForce: 4_000,
-  brakeForceMax: 26_000,
-  brakeFrontBias: 0.75,
-  dragK: 0.4,
-  downforceK: 1.6,
-  wheelbase: 2.6,
-  maxSteer: 0.55,
-  latAccelLimit: 55,
-  steerRise: 6,
-  steerFall: 9,
-  throttleRise: 20,
-  suspensionRest: 0.3,
-  suspensionTravel: 0.2,
-  springK: 35_000,
-  damperBump: 3_000,
-  damperRebound: 4_500,
-  antiRollFront: 18_000,
-  antiRollRear: 8_000,
-  wheelInertia: 1.2,
-  muPeak: 1.3,
-  muSlide: 0.85,
-  slipAnglePeak: 0.105, // ~6 deg, performance street tyre
-  rearGrip: 1.12,
-  slipFalloff: 18,
-  lsd: 150,
-  counterSteer: 0.8,
-  steerSlowdownSpeed: Infinity,
-  escGain: 9000,
-  escMaxTorque: 12000,
-};
+/** The player car's handling (the street racer: src/vehicles/cars/streetRacer.ts). */
+export const DEFAULT_CAR: CarParams = STREET_RACER.params;
 
 export interface DriveInput {
   throttle: number; // 0..1
@@ -254,7 +223,19 @@ export function steerRange(speed: number, p: CarParams): number {
 
 /** Grip coefficient including aerodynamic downforce at this speed. */
 export function effectiveMu(speed: number, p: CarParams): number {
-  return p.muPeak * (1 + (p.downforceK * speed * speed) / (p.mass * G));
+  return p.muPeak * (1 + (p.downforceK * speed * speed) / (p.mass * G)) * aeroGripScale(speed, p);
+}
+
+/**
+ * Tyre grip multiplier from aero at this speed, without pressing the car into
+ * its springs (real downforce that size bottoms the suspension): 1 up to
+ * `aeroGripFrom` km/h, rising along an S-curve to 1 + `aeroGrip` at
+ * `aeroGripTo` and staying there - no kink, and no grip that keeps growing
+ * with v² (2.7 g at 280 km/h was twitchy and leaned too far).
+ */
+export function aeroGripScale(speed: number, p: CarParams): number {
+  const u = Math.max(0, Math.min(1, ((Math.abs(speed) * 3.6 - p.aeroGripFrom) / (p.aeroGripTo - p.aeroGripFrom))));
+  return 1 + p.aeroGrip * u * u * (3 - 2 * u);
 }
 
 /** Highest yaw rate the tyres (with downforce) can sustain at this speed. */
@@ -303,4 +284,16 @@ export function steerAngle(input: number, vLong: number, vLat: number, p: CarPar
   const handsOff = 1 - Math.min(1, Math.abs(input));
   const a = driver + trail * handsOff;
   return Math.max(-p.maxSteer, Math.min(p.maxSteer, a));
+}
+
+/**
+ * The rollInfluence to use at this speed: as set up to `rollRefKmh`, then less
+ * as aero adds grip, so the most rolling torque the tyres can put on the body
+ * stays what it is there - the body leans by how close to the limit the car
+ * turns, not by how much grip speed has added.
+ */
+export function rollInfluenceAt(speed: number, p: CarParams): number {
+  const ref = p.rollRefKmh / 3.6;
+  const v = Math.abs(speed);
+  return v <= ref ? p.rollInfluence : (p.rollInfluence * effectiveMu(ref, p)) / effectiveMu(v, p);
 }

@@ -3,7 +3,7 @@ export const LANE_WIDTH = 3.75;
 export const ROAD_HALF_WIDTH = (LANE_COUNT * LANE_WIDTH) / 2; // 7.5
 export const SHOULDER = 2.5;
 export const RAIL_D = ROAD_HALF_WIDTH + SHOULDER; // 10
-export const ROAD_LENGTH = 10000;
+export const ROAD_LENGTH = 5000; // m: a race of about a minute and a half
 
 // Divided highway: oncoming carriageway on our left, separated by a grass median
 // you can drive across. Guardrails only on the two outer edges.
@@ -27,7 +27,7 @@ export const COUNTDOWN_SECONDS = 3;
 export const WRECK_LIFETIME = 12;
 export const MAX_WRECKS = 12;
 
-export const BEST_TIME_KEY = 'highwayThunder2.bestTime';
+export const BEST_TIME_KEY = 'highwayThunder2.bestTime.5km'; // per race length: 10 km times are not 5 km records
 
 export type VehicleKind = 'car' | 'truck' | 'container';
 
