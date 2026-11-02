@@ -85,7 +85,7 @@ def make_materials():
     MAT["lens"] = material("lens", srgb(0xFFE8C0), 0.25, 0.1, 1.2)  # fog lamps, always on (indicators blink over them)
     MAT["tyre"] = material("tyre", srgb(0x0B0B0B), 0.95)
     MAT["rim"] = material("rim", srgb(0x1E1E22), 0.4, 0.6)
-    MAT["spoke"] = material("spoke", srgb(0x4A4A52), 0.35, 0.8)  # gunmetal, standing out of the dark dish
+    MAT["spoke"] = material("spoke", srgb(0x707078), 0.3, 0.8)  # light gunmetal, standing out of the dark dish
 
 
 # ---------------------------------------------------------------- helpers
@@ -340,9 +340,11 @@ def build_shell():
     lips = []
     for wy in (WHEEL_YR, WHEEL_YF):
         p = lerp_keys(BODY_KEYS, wy)
-        out = p["w"] + p["f"] + 0.035
-        for side in (-1, 1):
-            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.28, 0.45, -10, 190, 22, "paint", ARCH_R + 0.04))
+        front = wy > 0
+        out = p["w"] + p["f"] + (0.045 if front else 0.035)
+        for side in (-1, 1):  # the front lips a little fuller
+            lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.28, 0.45, -10, 190, 22, "paint",
+                                  ARCH_R + (0.055 if front else 0.04)))
     union(shell, lips)
 
     # Wheel arches, cut in from each side (the middle of the car stays whole); dark inside.
@@ -359,7 +361,7 @@ def build_shell():
 # ---------------------------------------------------------------- the greenhouse
 
 CABIN_FLOOR = 0.72  # the greenhouse is a closed solid reaching down into the body (merged into it)
-RG = 0.53  # the rear glass's half-width: sail panels either side of it (well inside the roof's edge roll: its corners are rounded)
+RG = 0.55  # the rear glass's half-width: slim sail panels either side of it (inside the roof's edge roll: its corners are rounded)
 WT_REF = 0.60
 
 
@@ -380,13 +382,16 @@ def build_cabin():
     DOME = 0.06
     verts = []
     for y, wb, wt, zt, _ in stations:
+        # The base runs 2.5 cm under the body's top: the glass meets the body at its own angle (a base
+        # just under the surface would graze it, and the boolean leave slivers that crinkle the shading).
+        sink = 0.025
         if wt is None:  # on the body: spread across like the roof, out to the belt
             xs = [0, S_IN, S_OUT, RG, WT_REF - 0.03, WT_REF, wb]
-            half = [(x, body_top_z(y, x) - 0.004) for x in xs]
+            half = [(x, body_top_z(y, x) - sink) for x in xs]
         else:
             top = lambda x: zt + DOME * (1 - (x / wt) ** 2)  # noqa: E731
             half = [(0, top(0)), (S_IN, top(S_IN)), (S_OUT, top(S_OUT)), (RG, top(RG)),
-                    (wt - 0.03, zt - 0.006), (wt, zt - 0.03), (wb, body_top_z(y, wb) - 0.004)]
+                    (wt - 0.03, zt - 0.006), (wt, zt - 0.03), (wb, body_top_z(y, wb) - sink)]
         row = [(-x, z) for x, z in reversed(half[1:])] + half  # left belt, over the roof, to the right belt
         row += [(-wb * 0.9, CABIN_FLOOR), (wb * 0.9, CABIN_FLOOR)]
         verts += [(x, y, z) for x, z in row]
@@ -450,7 +455,7 @@ def build_cabin():
         d2 = (edges[1].other_vert(v).co - v.co).normalized()
         if d1.dot(d2) > -0.9:  # turning more than ~25 degrees
             corners.append(v)
-    res = bmesh.ops.bevel(bm, geom=corners, offset=0.045, offset_type="OFFSET", segments=4, profile=0.5,
+    res = bmesh.ops.bevel(bm, geom=corners, offset=0.035, offset_type="OFFSET", segments=4, profile=0.5,
                           affect="VERTICES", clamp_overlap=True)
     for f in res["faces"]:
         f.material_index = 0
@@ -469,8 +474,7 @@ def build_scoop():
     y0, y1 = 0.55, 1.70
     n = 8
     # Across (right half): top centre, stripe in, top edge, rounded shoulder, stripe out, foot (under the hood).
-    xs = [0.0, S_IN, 0.20, 0.24, S_OUT, 0.39]
-    seg = ["paint", "stripe", "stripe", "stripe", "paint"]  # between consecutive points
+    seg =["paint", "stripe", "stripe", "stripe", "paint"]  # between consecutive points
     verts, faces, fm = [], [], []
     names = ["paint", "stripe", "trim"]
     for k in range(n + 1):
@@ -479,8 +483,8 @@ def build_scoop():
         h = 0.11 * t ** 1.3 - 0.008  # buried at the back, emerging forward
         zs = body_top_z(y, 0)
         half = [(0.0, zs + h), (S_IN, zs + h), (0.20, zs + h - 0.004), (0.24, zs + h - 0.022),
-                (S_OUT, zs + h * 0.3 - 0.006), (0.39, body_top_z(y, 0.39) - 0.012)]
-        row = [(-x, z) for x, z in reversed(half[1:])] + half + [(0.39, 0.80), (-0.39, 0.80)]
+                (S_OUT, zs + h * 0.3 - 0.006), (0.37, body_top_z(y, 0.37) - 0.035)]  # the foot well under: a clean meeting line
+        row = [(-x, z) for x, z in reversed(half[1:])] + half + [(0.37, 0.78), (-0.37, 0.78)]
         verts += [(x, y, z) for x, z in row]
     m = 13
     across = [m_ for m_ in reversed(seg)] + seg  # 10 top segments, left foot to right foot
@@ -528,6 +532,14 @@ def build_ducktail():
     return mesh_object("ducktail", verts, faces, ["paint"])
 
 
+def tail_corner(s):
+    """The tail's slanting corner on side s, in plan: its start at the tail, the direction along it for
+    panel() (whose right is outward), and the unit vector running from the tail forward along it."""
+    p0, p1 = Vector((s * 0.745, TAIL + 0.005)), Vector((s * 0.862, -2.105))
+    out = (p1 - p0).normalized()
+    return p0, (out if s > 0 else -out), out
+
+
 def build_recesses():
     """Cut into the body: the grille (lamps in pods inside it), the lower intake, the tail-light panel."""
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731  (the nose face's lean)
@@ -536,6 +548,9 @@ def build_recesses():
     tail = box("tailpanel", -0.72, 0.72, TAIL - 0.3, TAIL + 0.035, 0.68, 0.92, "trim")  # out to the corners
     valance = box("valance", -0.55, 0.55, TAIL - 0.3, TAIL + 0.03, 0.38, 0.50, "trim")  # a dark diffuser low on the tail
     cuts = [grille, intake, tail, valance]
+    for s in (-1, 1):  # the light panel wraps round the tail's corners
+        p0, along, out = tail_corner(s)
+        cuts.append(panel("tailwrap", p0 + out * 0.07, along, 0.035, 0.06, 0.15, 0.68, 0.92, "trim"))
     # The door: a fine shut line at its front and back edges (below the shoulder crease), and a handle recess.
     for s in (-1, 1):
         for y in (0.50, -0.55):
@@ -598,12 +613,13 @@ def build_lights():
             x0, x1 = sorted((s * (0.004 + k * (seg + 0.014)), s * (0.004 + k * (seg + 0.014) + seg)))
             parts.append(box(f"{name}{k}", x0, x1, floor - 0.015, floor + 0.025, 0.72, 0.86, "tail"))
             sockets.append(box(f"{name}{k}_socket", x0 - G, x1 + G, floor - 0.03, floor + 0.04, 0.72 - G, 0.86 + G, "trim"))
-        # The bar wraps round the corner: a segment on the slanting side of the tail.
-        p0, p1 = Vector((s * 0.745, TAIL + 0.005)), Vector((s * 0.862, -2.105))
-        along = (p1 - p0).normalized() if s > 0 else (p0 - p1).normalized()
-        c = p0 + (p1 - p0).normalized() * 0.056  # starting right at the corner, where the bar ends
-        parts.append(panel(f"{name}_wrap", c, along, 0.045, -0.015, 0.10, 0.72, 0.86, "tail"))
-        sockets.append(panel(f"{name}_wrap_socket", c, along, 0.06, 0.04, 0.10 + 2 * G, 0.72 - G, 0.86 + G, "trim"))
+        # The bar wraps round the corner: two more segments (a rib between) in the panel's wrap-round.
+        p0, along, out = tail_corner(s)
+        for k, at in enumerate((0.035, 0.104)):
+            c = p0 + out * at
+            # In the wrap-round's floor (3.5 cm in), standing 1 cm proud of it like the bar's segments.
+            parts.append(panel(f"{name}_wrap{k}", c, along, 0.055, -0.025, 0.055, 0.72, 0.86, "tail"))
+            sockets.append(panel(f"{name}_wrap{k}_socket", c, along, 0.07, 0.04, 0.055 + 2 * G, 0.72 - G, 0.86 + G, "trim"))
         lamps.append(join(parts, name))
     for name, s in (("ind_RL", -1), ("ind_RR", 1)):  # over the outermost segment
         x0, x1 = sorted((s * (BAR - seg), s * BAR))
@@ -634,7 +650,7 @@ def build_wheel():
         ring(-hw + 0.015, WHEEL_R),  # 3
         ring(-hw, WHEEL_R * 0.88),  # 4
         ring(-hw + 0.02, r_in),  # 5 rim lip, inner side
-        ring(hw - 0.15, r_in * 0.98),  # 6 the dish's floor, deep
+        ring(hw - 0.19, r_in * 0.98),  # 6 the dish's floor, deep
         ring(-hw + 0.02, r_in * 0.5),  # 7 back
         ring(hw - 0.008, r_in + 0.022),  # 8 the rim's bright lip, round the dish
     ]
@@ -663,12 +679,12 @@ def build_wheel():
     wheel = mesh_object("wheel", verts, faces, ["tyre", "rim", "spoke"], fm)
 
     parts = []
-    hub = disc("hub", 0, 0, 0, 0.05, 0.08, "spoke", 10)  # its back sunk into the dish floor
+    hub = disc("hub", 0, 0, 0, 0.05, 0.11, "spoke", 10)  # its back sunk into the dish floor
     hub.rotation_euler = (0, 0, -math.pi / 2)
-    hub.location = (hw - 0.085, 0, 0)
+    hub.location = (hw - 0.10, 0, 0)
     parts.append(hub)
     for k in range(5):  # bold spokes standing up out of the dish
-        sp = box("spoke", hw - 0.17, hw - 0.095, -0.038, 0.038, 0.03, r_in * 0.96, "spoke")
+        sp = box("spoke", hw - 0.21, hw - 0.11, -0.038, 0.038, 0.03, r_in * 0.96, "spoke")  # from the deep floor up
         sp.rotation_euler = (2 * math.pi * k / 5, 0, 0)
         parts.append(sp)
     for p in parts:
