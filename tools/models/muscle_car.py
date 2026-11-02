@@ -341,10 +341,10 @@ def build_shell():
     for wy in (WHEEL_YR, WHEEL_YF):
         p = lerp_keys(BODY_KEYS, wy)
         front = wy > 0
-        out = p["w"] + p["f"] + (0.045 if front else 0.035)
-        for side in (-1, 1):  # the front lips a little fuller
+        out = p["w"] + p["f"] + 0.045
+        for side in (-1, 1):
             lips.append(arc_solid("lip", side * 0.80, side * out, wy, WHEEL_Z, 0.28, 0.45, -10, 190, 22, "paint",
-                                  ARCH_R + (0.055 if front else 0.04)))
+                                  ARCH_R + (0.055 if front else 0.05)))
     union(shell, lips)
 
     # Wheel arches, cut in from each side (the middle of the car stays whole); dark inside.
@@ -387,11 +387,12 @@ def build_cabin():
         sink = 0.025
         if wt is None:  # on the body: spread across like the roof, out to the belt
             xs = [0, S_IN, S_OUT, RG, WT_REF - 0.03, WT_REF, wb]
-            half = [(x, body_top_z(y, x) - sink) for x in xs]
+            half = [(x, body_top_z(y, x) - (0.07 if x == wb else sink)) for x in xs]
         else:
             top = lambda x: zt + DOME * (1 - (x / wt) ** 2)  # noqa: E731
+            # The belt deeper still: there the side glass / C-pillar meets the curved shoulder.
             half = [(0, top(0)), (S_IN, top(S_IN)), (S_OUT, top(S_OUT)), (RG, top(RG)),
-                    (wt - 0.03, zt - 0.006), (wt, zt - 0.03), (wb, body_top_z(y, wb) - sink)]
+                    (wt - 0.03, zt - 0.006), (wt, zt - 0.03), (wb, body_top_z(y, wb) - 0.07)]
         row = [(-x, z) for x, z in reversed(half[1:])] + half  # left belt, over the roof, to the right belt
         row += [(-wb * 0.9, CABIN_FLOOR), (wb * 0.9, CABIN_FLOOR)]
         verts += [(x, y, z) for x, z in row]
@@ -455,10 +456,14 @@ def build_cabin():
         d2 = (edges[1].other_vert(v).co - v.co).normalized()
         if d1.dot(d2) > -0.9:  # turning more than ~25 degrees
             corners.append(v)
-    res = bmesh.ops.bevel(bm, geom=corners, offset=0.035, offset_type="OFFSET", segments=4, profile=0.5,
-                          affect="VERTICES", clamp_overlap=True)
-    for f in res["faces"]:
-        f.material_index = 0
+    # The windshield and side windows get a bigger round than the rear glass, which has less room by the roof's edge.
+    rear = [v for v in corners if v.co.y < NOSE - 0.70 * L]
+    front = [v for v in corners if v.co.y >= NOSE - 0.70 * L]
+    for vs, r in ((front, 0.06), (rear, 0.035)):
+        res = bmesh.ops.bevel(bm, geom=vs, offset=r, offset_type="OFFSET", segments=5, profile=0.5,
+                              affect="VERTICES", clamp_overlap=True)
+        for f in res["faces"]:
+            f.material_index = 0
     bm.to_mesh(cabin.data)
     bm.free()
     if os.environ.get("MODEL_DEBUG"):
@@ -513,7 +518,7 @@ def build_ducktail():
     """The ducktail lip: growing out of the deck at y -1.85 and sweeping up in a curve to its edge 9 cm
     behind the tail, narrowing with the tail, its top corners rounded."""
     y0, y1 = -1.85, TAIL - 0.09
-    za = body_top_z(y0, 0.8) - 0.004  # its front edge just under the deck
+    za = body_top_z(y0, 0.8) - 0.03  # its front edge well under the deck: it meets the deck along one clean line
     ze = 1.045
     n = 8
     verts, faces = [], []
@@ -568,6 +573,8 @@ def build_inserts():
     parts = [box("grillebar", -0.29, 0.29, NOSE - 0.055, NOSE - 0.02, 0.624, 0.656, "spoke", lean)]  # a heavy bar, tucked in
     for x in (-0.34, -0.12, 0.12, 0.34):
         parts.append(box("fin", x - 0.01, x + 0.01, TAIL + 0.008, TAIL + 0.04, 0.385, 0.495, "trim"))
+    # A brow over the lamps: the grille's top edge jutting 1.2 cm out over the opening.
+    parts.append(box("brow", -0.765, 0.765, NOSE - 0.03, NOSE + 0.012, 0.738, 0.762, "paint", lean))
     # Thin bright bumper blades: across the tail under the light panel, and at the nose's corners.
     parts.append(box("rblade", -0.70, 0.70, TAIL - 0.03, TAIL + 0.06, 0.615, 0.645, "chrome"))
     for s in (-1, 1):
@@ -827,7 +834,7 @@ def main():
     bpy.ops.object.select_all(action="DESELECT")
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
-    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(55))  # soft roof edges; creases and openings stay sharp
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(45))  # creases and openings stay sharp
     # Normals weighted by face area: big panels shade flat and clean, the thin slivers the booleans
     # leave along their cuts no longer bend the shading of the panels around them.
     wn = body.modifiers.new("wn", "WEIGHTED_NORMAL")
