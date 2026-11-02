@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BEAM_LAMP_H } from './headlight';
 import type { BeamSpot } from '../render/npcBeams';
+import type { CarStyle } from './cars/types';
 
 /**
  * Procedural low-poly vehicles. Every model's origin is the center of its
@@ -143,8 +144,13 @@ export const CAR_COLORS = [0xe8e8e8, 0x2b2b2b, 0x8a8f96, 0x1d4e89, 0xb3261e, 0x2
 export const CONTAINER_COLORS = [0x1f5fa8, 0xb8352a, 0x2f7d4a, 0xd88a1a, 0x6b6b6b, 0x8a2f6e, 0x0f8a8a];
 export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
 
-/** Generic sedan / player car. */
-export function buildCar(w: number, h: number, l: number, color: number, sporty = false, withWheels = true, beam = true): VehicleModel {
+/**
+ * Generic sedan (`style` false) or a racer's body: `true` / 'super' the low
+ * supercar with a wing, 'muscle' a long-hooded muscle car.
+ */
+export function buildCar(w: number, h: number, l: number, color: number, style: CarStyle | boolean = false, withWheels = true, beam = true): VehicleModel {
+  if (style === 'muscle') return buildMuscleCar(w, h, l, color, withWheels, beam);
+  const sporty = style !== false;
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
   const g = -h / 2;
@@ -164,6 +170,31 @@ export function buildCar(w: number, h: number, l: number, color: number, sporty 
     box(root, 0.35, 0.01, l * 0.98, std(0xffffff, 0.3), 0.25, g + 0.28 + bodyH + 0.005, 0, false);
   }
   if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.33);
+  addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
+  return { root, lights };
+}
+
+/** Muscle car: a tall slab of a body, long hood with a scoop, small cabin set back, twin stripes, a ducktail. (The nose is -z.) */
+function buildMuscleCar(w: number, h: number, l: number, color: number, withWheels: boolean, beam: boolean): VehicleModel {
+  const root = new THREE.Group();
+  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const g = -h / 2;
+  const paint = std(color, 0.3, 0.45);
+  const bodyH = 0.64;
+  const top = g + 0.28 + bodyH;
+  box(root, w, bodyH, l, paint, 0, g + 0.28 + bodyH / 2, 0);
+  const cabinH = 0.4;
+  const cabinL = l * 0.34;
+  const cabinZ = l * 0.12; // well back: the hood is long
+  box(root, w * 0.8, cabinH, cabinL, paint, 0, top + cabinH / 2, cabinZ);
+  box(root, w * 0.82, cabinH * 0.78, cabinL * 0.9, GLASS, 0, top + cabinH / 2 - 0.02, cabinZ, false);
+  box(root, w * 0.32, 0.09, l * 0.2, DARK, 0, top + 0.045, -l * 0.26); // hood scoop
+  const stripe = std(0xffb347, 0.4);
+  for (const x of [-0.17, 0.17]) box(root, 0.2, 0.012, l * 0.99, stripe, x, top + 0.006, 0, false); // over hood, roof and boot
+  for (const x of [-0.17, 0.17]) box(root, 0.2, 0.012, cabinL * 0.98, stripe, x, top + cabinH + 0.006, cabinZ, false);
+  box(root, w * 0.94, 0.07, 0.12, paint, 0, top + 0.035, l / 2 - 0.08); // ducktail
+  for (const z of [-l / 2, l / 2]) box(root, w * 1.01, 0.12, 0.1, CHROME, 0, g + 0.36, z, false); // bumpers
+  if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.35);
   addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
   return { root, lights };
 }

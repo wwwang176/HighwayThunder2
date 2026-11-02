@@ -84,6 +84,11 @@ export class GameFlow {
   }
 }
 
+/** Whether cars can be picked (the setup page, a race started on them): only before a race - at the title or after the finish. */
+export function picksCars(phase: Phase): boolean {
+  return phase === 'title' || phase === 'finished';
+}
+
 export function formatTime(sec: number): string {
   const ms = Math.floor(sec * 1000 + 1e-6);
   const m = Math.floor(ms / 60000);

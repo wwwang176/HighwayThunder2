@@ -42,6 +42,10 @@ export class WorkerPlanSource implements PlanSource {
     this.worker.postMessage(msg);
   }
 
+  dispose(): void {
+    this.worker.terminate();
+  }
+
   take(): PlanAnswer | null {
     const a = this.answer;
     this.answer = null;

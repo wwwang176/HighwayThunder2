@@ -13,6 +13,7 @@ import { CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
 import { Blocker, computeResetSpot } from './reset';
 import { trackerFrom } from '../ai/netTracker';
+import { aiTopSpeed } from '../ai/aiTopSpeed';
 
 /**
  * Rival racers' settings (mutable: the tuning panel). Gaps are "rival minus
@@ -82,7 +83,7 @@ export function needsReset(r: { s: number; d: number; yaw: number; speed: number
 }
 
 /** Rival colours: none the player's red, none of the traffic's. */
-const RIVAL_COLORS = [0x1e88e5, 0xffb300, 0x8e24aa, 0x00c853, 0x00bcd4];
+export const RIVAL_COLORS = [0x1e88e5, 0xffb300, 0x8e24aa, 0x00c853, 0x00bcd4];
 /** Start grid: [lane, s] (the player starts in lane 1 at s = -3). */
 const GRID: [number, number][] = [
   [0, -3],
@@ -106,6 +107,8 @@ const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 
 export interface Rival {
   index: number;
+  /** Its car type: the base its rubber band boosts from, its own top speed and AI tables. */
+  spec: CarSpec;
   car: PlayerCar;
   driver: PlannerDriver;
   /** s it has been slower than RIVAL_TUNING.stuckSpeed. */
@@ -136,20 +139,21 @@ export class Rivals {
   readonly list: Rival[] = [];
   private readonly boxBuf: TrafficBox[] = [];
 
+  /** `specs`: each rival's car type, one rival each (up to the start grid's size). */
   constructor(
-    physics: PhysicsWorld,
+    private readonly physics: PhysicsWorld,
     scene: THREE.Scene | null,
     makeSource: () => PlanSource | null,
-    count = RIVAL_TUNING.count,
-    private readonly spec: CarSpec = STREET_RACER,
+    specs: CarSpec[] = Array.from({ length: RIVAL_TUNING.count }, () => STREET_RACER),
   ) {
-    for (let i = 0; i < Math.min(count, GRID.length); i++) {
+    for (let i = 0; i < Math.min(specs.length, GRID.length); i++) {
+      const spec = specs[i];
       const car = new PlayerCar(physics, scene, { spec, entity: { type: 'rival', id: i }, color: RIVAL_COLORS[i % RIVAL_COLORS.length], realLights: false });
       const driver = new PlannerDriver(makeSource());
       driver.accel = spec.ai.accel;
       driver.latAccel = spec.ai.latAccel;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      const r: Rival = { index: i, car, driver, stuckFor: 0, boost: 0, finishTime: null, resets: 0 };
+      const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, finishTime: null, resets: 0 };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
       this.list.push(r);
     }
@@ -177,7 +181,8 @@ export class Rivals {
       const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), view.speedCap);
       r.boost += (band.boost - r.boost) * Math.min(1, dt / BAND_SMOOTH);
       this.applyBoost(r);
-      const cap = r.finishTime === null ? band.speedCap : Math.min(band.speedCap, FINISHED_SPEED);
+      const top = aiTopSpeed(band.speedCap, r.spec); // its own top speed when lower than the AI's cap
+      const cap = r.finishTime === null ? top : Math.min(top, FINISHED_SPEED);
       r.car.params.maxSpeed = cap;
       r.car.prePhysics(r.driver.drive(selfStateOf(r.car, cap), this.othersAsBoxes(r, view), r.car.params), dt);
     }
@@ -241,6 +246,15 @@ export class Rivals {
     for (const r of this.list) r.car.render(alpha, flares);
   }
 
+  /** Take every rival out of the world (new ones, on other cars, take their place). */
+  dispose(): void {
+    for (const r of this.list) {
+      r.car.dispose(this.physics);
+      r.driver.dispose();
+    }
+    this.list.length = 0;
+  }
+
   /** Everything but `r` on its road: traffic, the player, the other rivals. */
   private othersAsBoxes(r: Rival, view: RaceView): TrafficBox[] {
     const out = this.boxBuf;
@@ -253,7 +267,7 @@ export class Rivals {
 
   /** Engine and grip with the rubber band's boost (the grip through `surfaceGrip`). */
   private applyBoost(r: Rival): void {
-    const base = this.spec.params;
+    const base = r.spec.params;
     const k = 1 + r.boost;
     r.car.params.power = base.power * k;
     r.car.params.engineTorque = base.engineTorque * k;

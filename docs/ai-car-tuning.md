@@ -5,14 +5,16 @@ AI 對手開車靠兩部分：
 - **規劃器**（`src/ai/planner.ts`）：搜尋最快又不撞的路線。它要知道「這台車做得到多少」：加速度、煞車力、側向抓地力。
 - **方向盤神經網路**（`src/ai/netTracker.ts`）：照著路線開，在原本的方向盤公式上加修正。它是**針對單一車種訓練**的，學的是那台車的轉向反應。
 
-這些資料都放在車輛設定 `CarSpec.ai` 裡（街頭跑車：`src/vehicles/cars/streetRacer.ts`）：
+這些資料都放在各車的車輛設定 `CarSpec.ai` 裡（超跑：`src/vehicles/cars/streetRacer.ts`，肌肉車：`muscleCar.ts`）：
 
 | 欄位 | 內容 | 來源 |
 |---|---|---|
 | `accel` | 各車速的全油門加速度（m/s²） | 量車（步驟 A） |
 | `brake` | 全煞車減速度（m/s²） | 量車（步驟 A） |
 | `latAccel` | 各車速的全舵側向加速度（m/s²），規劃器的橫移極限 | 量車（步驟 A） |
-| `tracker` | 方向盤神經網路的權重 | 訓練（步驟 B），存在 `streetRacerTracker.ts` |
+| `tracker` | 方向盤神經網路的權重 | 訓練（步驟 B），每台車一個檔案：`<車名>Tracker.ts`（例如 `muscleCarTracker.ts`） |
+
+所有工具都用 `CAR=<車輛 id>` 指定車種，不加就是超跑（`street-racer`）。
 
 沒有 `tracker` 的車，方向盤自動改用原本的公式（Stanley）。能開，只是大幅橫移後外拋比較多。
 
@@ -42,11 +44,14 @@ CAR=street-racer npx vitest run --config training/vitest.config.ts training/meas
 ## 步驟 B：訓練方向盤神經網路
 
 ```bash
-GENS=40 POP=60 SCENARIOS=8 SIGMA=0.15 SAVE=1 npx vitest run --config training/vitest.config.ts training/tracker.train.ts
+CAR=muscle-car GENS=40 POP=60 SCENARIOS=8 SIGMA=0.15 SAVE=1 npx vitest run --config training/vitest.config.ts training/tracker.train.ts
 ```
 
 - **一定要加 `SAVE=1`**，否則跑完不會留下任何結果。
-- 每 5 代用固定的 8 個驗證情境評分。分數比之前最好的低（越低越好）就**立刻存檔**到 `src/vehicles/cars/streetRacerTracker.ts`，所以中途停掉也不會白跑。
+- 每 5 代用固定的 8 個驗證情境評分。分數比之前最好的低（越低越好）就**立刻存檔**到該車的權重檔（`src/vehicles/cars/<車名>Tracker.ts`），所以中途停掉也不會白跑。
+- 注意：第一次評分不管有沒有贏過原本公式都會存檔。**跑完要確認最後的分數比原本公式低**，否則還原權重檔（空陣列＝用原本公式）。
+- 開著遊戲的開發伺服器時，每次存檔都會讓遊戲頁面自動重新整理。
+- 練習用的路線依該車自己的側向抓地表和極速產生。
 - 輸出怎麼看：
   - 第一行 `plain tracker on validation: cost 0.5841, rms 0.260 m, p95 0.55, max 1.23`：原本公式的成績，用來對照。
   - `validation 0.4098 (rms 0.21 m, p95 0.48 ...) saved`：神經網路的成績，`saved` 表示這次有存檔。
@@ -73,13 +78,17 @@ done; wait
   - `light contacts` 總和（輕擦）；
   - `tracker alone ... moving` 的 p95（方向盤跟路線的偏離，越小越好）。
 - 想跟原本的公式比：加 `NET_TRACKER=0` 會關掉網路。要試其他規劃設定：`PLANNER_JSON='{"sideMargin":0.05}'`。
-- 街頭跑車目前的基準（2026-11-02）：
+- 目前的基準（2026-11-02，預設的物理極限規劃）：
 
-| 設定 | 平均完賽 | 撞車重置 | 輕擦 | 橫移時偏離 p95 |
+| 車種／方向盤 | 平均完賽 | 撞車重置 | 輕擦 | 橫移時偏離 p95 |
 |---|---|---|---|---|
-| 物理極限規劃＋神經網路（預設） | 98.3 秒 | 10 | 6 | 0.27 m |
-| 物理極限規劃＋原本公式 | 100.2 秒 | 15 | 18 | 0.40 m |
-| 標準 0.5 秒格子（穩） | 101.1 秒 | 2 | 1 | － |
+| 超跑＋神經網路（預設） | 98.3 秒 | 10 | 6 | 0.27 m |
+| 超跑＋原本公式 | 100.2 秒 | 15 | 18 | 0.40 m |
+| 超跑，標準 0.5 秒格子（穩） | 101.1 秒 | 2 | 1 | － |
+| 肌肉車＋神經網路（預設） | 98.3 秒 | 33 | 11 | 0.22–0.25 m |
+| 肌肉車＋原本公式 | 106.6 秒 | 84 | 40 | 0.42–0.47 m |
+
+肌肉車撞得比超跑多，是過彎抓地低、容易甩尾的個性（設計上手感優先），平均時間相同。
 
 新數字明顯比預設那一列差（例如撞車多出一倍），就回頭檢查步驟 A 的數字有沒有貼對，再重新訓練。
 
@@ -91,16 +100,17 @@ done; wait
    - 「方向盤用神經網路」勾選框可以單獨開關，用來對照。
 3. 觀察鑽縫後會不會外拋、大幅換道時車身穩不穩，以及畫面順不順（規劃每次約 60 ms，在背景執行緒計算）。
 
-## 新增車種時目前要手動改的地方
+## 新增車種的步驟
 
-現在只有街頭跑車一台車，下面幾處都是寫死給它用的。加第二台車時要一起改：
+1. 在 `src/vehicles/cars/` 新增 `<車名>.ts`（`CarSpec`：`id`、顯示名稱、顏色、外型 `style`、`params`），以及空的權重檔 `<車名>Tracker.ts`（`export const <ID>_TRACKER: number[] = [];`），並加進 `index.ts` 的 `CARS`。
+2. 調手感：`training/cornering.train.ts` 的各項量測都接受 `CAR` 和 `CAR_JSON='{"springK":20000}'`（暫時覆蓋參數，不用改檔）：
+   - `launch`：0–100、0–200、極速、起步翹頭角度；
+   - `cornering`：全舵抓地與是否打滑或翻車；
+   - `turnIn`：換一個車道的時間；
+   - `maneuvers`：換道、急閃、蛇行時的側傾與是否翻車；
+   - `powerOn`：彎中補油時甩尾的角度。
+   - 記得加 `CAR_JSON='{"muPeak":<1.25 倍>}'` 檢查橡皮筋 +25% 抓地時也不會翻車。
+3. 依序做 A → B → C → D。
+4. 要讓玩家能選：加進 `src/game/carSelection.ts` 的 `PICKABLE` 和 `CAR_CARDS`。
 
-- `training/tracker.train.ts`：
-  - 訓練用的車是 `new PlayerCar(physics, null)`，也就是預設的街頭跑車。要改成依 `CAR` 參數選車。
-  - 存檔路徑寫死為 `src/vehicles/cars/streetRacerTracker.ts`。要改成每台車各自一個權重檔，例如 `<車名>Tracker.ts`。
-  - `CONTINUE=1` 讀的是 `STREET_RACER.ai.tracker`。
-- `src/ai/trainingSim.ts`（步驟 C 跑分用）：建立車輛時用預設車種，要能指定車種。
-- `src/game/rivals.ts`：對手的車種是建構時傳入的 `spec`（預設街頭跑車）。換車種時，`accel`、`latAccel`、`tracker` 會跟著那台車的 `CarSpec.ai` 走，不用另外改。
-- `src/ai/plannerDriver.ts`：`PlannerDriver` 的預設值是街頭跑車的表格。新車要像 `rivals.ts` 一樣，在建立後把 `accel`、`latAccel`、`tracker` 設成該車的。
-
-做法：先把新車加進 `src/vehicles/cars/index.ts` 的 `CARS`，把上面幾處改成依車種參數運作，再依序做 A → B → C → D。
+遊戲中每台車（玩家與每個對手）的 `accel`、`latAccel`、`tracker` 和極速都跟著自己的 `CarSpec` 走，不用另外改程式。

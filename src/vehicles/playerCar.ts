@@ -160,7 +160,7 @@ export class PlayerCar {
     }
     const realLights = opts.realLights ?? true;
     // Without real lights it shows NPC-style glowing beams instead (rivals: real lights are expensive).
-    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, true, false, !realLights);
+    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, spec.style, false, !realLights);
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
     // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
@@ -325,6 +325,13 @@ export class PlayerCar {
   }
 
   /** Place the car in a lane, upright, pointing down the road, at the given speed. */
+  /** Take the car out of the world for good (another car type takes its place): body, collider, model and lights. */
+  dispose(physics: PhysicsWorld): void {
+    if (this.collider) physics.unregister(this.collider);
+    physics.world.removeRigidBody(this.body); // its collider goes with it
+    this.mesh.removeFromParent();
+  }
+
   resetTo(s: number, lane: number, speed: number): void {
     const p = this.params;
     this.body.setTranslation({ x: laneCenter(lane), y: RIDE_Y + 0.02, z: -s }, true);

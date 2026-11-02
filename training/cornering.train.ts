@@ -2,9 +2,14 @@ import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { openGround } from './openGround';
 import { PlayerCar } from '../src/vehicles/playerCar';
-import { STREET_RACER } from '../src/vehicles/cars';
+import { CARS } from '../src/vehicles/cars';
 import { KMH, PHYSICS_DT } from '../src/config';
 import * as THREE from 'three';
+
+/** The car type these measure (CAR=muscle-car; default the supercar), with CAR_JSON='{"springK":24000}' changes on top. */
+const BASE_SPEC = CARS[process.env.CAR ?? 'street-racer'];
+if (!BASE_SPEC) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
+const CAR_SPEC = { ...BASE_SPEC, params: { ...BASE_SPEC.params, ...JSON.parse(process.env.CAR_JSON ?? '{}') } };
 
 /**
  * How hard the car corners: at a steady speed, full steering for 1.5 s; the
@@ -24,7 +29,7 @@ it('cornering', async () => {
       const physics = openGround();
       physics.timestep = PHYSICS_DT;
       // Settings go in before the car is built: the centre of mass is fixed then.
-      const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
+      const car = new PlayerCar(physics, null, { spec: { ...CAR_SPEC, params: { ...CAR_SPEC.params, ...change } } });
       car.params.maxSpeed = kmh * KMH;
       car.resetTo(0, 1, kmh * KMH);
       const course = () => car.yaw + Math.atan2(car.vLat, Math.max(1, car.vLong));
@@ -70,7 +75,7 @@ it('turnIn', async () => {
   for (const [name, change] of Object.entries(variants)) {
     const physics = openGround();
     physics.timestep = PHYSICS_DT;
-    const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
+    const car = new PlayerCar(physics, null, { spec: { ...CAR_SPEC, params: { ...CAR_SPEC.params, ...change } } });
     car.params.maxSpeed = kmh * KMH;
     car.resetTo(0, 1, kmh * KMH);
     const d0 = car.d;
@@ -122,7 +127,7 @@ it('maneuvers', async () => {
       for (const [move, keys] of Object.entries(moves)) {
         const physics = openGround();
         physics.timestep = PHYSICS_DT;
-        const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
+        const car = new PlayerCar(physics, null, { spec: { ...CAR_SPEC, params: { ...CAR_SPEC.params, ...change } } });
         car.params.maxSpeed = kmh * KMH;
         car.resetTo(0, 1, kmh * KMH);
         const plan: [number, number][] = [[0, 0.5], ...keys, [0, 1.5]]; // settle on the springs first
@@ -160,7 +165,7 @@ it('tap', async () => {
     for (const kmh of speeds([200, 280])) {
       const physics = openGround();
       physics.timestep = PHYSICS_DT;
-      const car = new PlayerCar(physics, null, { spec: { ...STREET_RACER, params: { ...STREET_RACER.params, ...change } } });
+      const car = new PlayerCar(physics, null, { spec: { ...CAR_SPEC, params: { ...CAR_SPEC.params, ...change } } });
       car.params.maxSpeed = kmh * KMH;
       car.resetTo(0, 1, kmh * KMH);
       const roll = () => {
@@ -212,6 +217,71 @@ it('tap', async () => {
     out.push(`${name}\n  ${row.join('\n  ')}`);
   }
   process.stdout.write(out.join('\n') + '\n');
+});
+
+/**
+ * Full throttle from a standstill down a straight: seconds to 100 / 200 km/h, the top speed it
+ * reaches in 40 s, and how far the nose comes up (pitch, deg; + nose up) in the first 3 s.
+ *   CAR=muscle-car npx vitest run --config training/vitest.config.ts training/cornering.train.ts -t launch
+ */
+it('launch', async () => {
+  await RAPIER.init();
+  const physics = openGround();
+  physics.timestep = PHYSICS_DT;
+  const car = new PlayerCar(physics, null, { spec: CAR_SPEC });
+  car.resetTo(0, 1, 0);
+  const d0 = car.d;
+  const times: Record<number, number> = {};
+  let pitchMax = 0;
+  let top = 0;
+  const nose = new THREE.Vector3();
+  for (let i = 1; i <= Math.round(40 / PHYSICS_DT); i++) {
+    const t = i * PHYSICS_DT;
+    const steer = Math.max(-1, Math.min(1, -(car.d - d0) * 0.05 - car.yaw));
+    car.prePhysics({ throttle: 1, brake: 0, steer }, PHYSICS_DT);
+    physics.step(() => {});
+    car.postPhysics();
+    const kmh = car.speed / KMH;
+    top = Math.max(top, kmh);
+    for (const mark of [100, 200]) if (times[mark] === undefined && kmh >= mark) times[mark] = t;
+    if (t < 3) {
+      const q = car.body.rotation();
+      nose.set(0, 0, -1).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w));
+      pitchMax = Math.max(pitchMax, Math.asin(nose.y) * 57.3);
+    }
+  }
+  physics.free();
+  const s = (x?: number) => (x === undefined ? 'never' : `${x.toFixed(2)} s`);
+  process.stdout.write(`${CAR_SPEC.id}: 0-100 ${s(times[100])}, 0-200 ${s(times[200])}, top ${top.toFixed(0)} km/h (40 s), nose up ${pitchMax.toFixed(1)} deg (first 3 s)\n`);
+});
+
+/**
+ * Power oversteer: holding a turn (steer STEER, default 0.6) on a third of the throttle for 1 s,
+ * then flooring it for 1.5 s - the biggest body slip angle (deg) after the throttle goes down, and
+ * whether it spun. A tail-happy car slides here; a planted one does not.
+ *   CAR=muscle-car npx vitest run --config training/vitest.config.ts training/cornering.train.ts -t powerOn
+ */
+it('powerOn', async () => {
+  await RAPIER.init();
+  const steer = Number(process.env.STEER ?? 0.6);
+  const row: string[] = [];
+  for (const kmh of speeds([60, 100, 150])) {
+    const physics = openGround();
+    physics.timestep = PHYSICS_DT;
+    const car = new PlayerCar(physics, null, { spec: CAR_SPEC });
+    car.resetTo(0, 1, kmh * KMH);
+    let slipMax = 0;
+    for (let i = 1; i <= Math.round(2.5 / PHYSICS_DT); i++) {
+      const t = i * PHYSICS_DT;
+      car.prePhysics({ throttle: t < 1 ? 0.33 : 1, brake: 0, steer }, PHYSICS_DT);
+      physics.step(() => {});
+      car.postPhysics();
+      if (t >= 1) slipMax = Math.max(slipMax, Math.abs(Math.atan2(car.vLat, Math.max(1, car.vLong))));
+    }
+    row.push(`${kmh}: slip ${(slipMax * 57.3).toFixed(0)}°${slipMax > 0.35 ? ' SPUN' : ''}`);
+    physics.free();
+  }
+  process.stdout.write(`${CAR_SPEC.id} power on in a turn: ${row.join(' | ')}\n`);
 });
 
 /** Speeds (km/h) to test at: KMHS=100,150,200 or the test's own. */

@@ -2,7 +2,8 @@ import { ROAD_LENGTH } from '../config';
 import { formatTime, GameFlow } from '../game/gameState';
 
 export interface HudHandlers {
-  onStart(): void;
+  /** Start / play again: on to the setup page (cars). */
+  onSetup(): void;
   onResume(): void;
   onTitle(): void;
 }
@@ -132,8 +133,8 @@ export class Hud {
     for (const id of ['title', 'countdown', 'hud', 'pause', 'finish']) this.el[id] = root.querySelector(`#${id}`)!;
     root.querySelectorAll<HTMLElement>('[data-id]').forEach((e) => (this.el[e.dataset.id!] = e));
     this.el.tachoTicks.innerHTML = tachoTicksSvg();
-    this.el.startBtn.onclick = () => handlers.onStart();
-    this.el.againBtn.onclick = () => handlers.onStart();
+    this.el.startBtn.onclick = () => handlers.onSetup();
+    this.el.againBtn.onclick = () => handlers.onSetup();
     this.el.resumeBtn.onclick = () => handlers.onResume();
     this.el.pauseTitleBtn.onclick = () => handlers.onTitle();
     this.el.finishTitleBtn.onclick = () => handlers.onTitle();

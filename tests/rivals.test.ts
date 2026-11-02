@@ -1,7 +1,15 @@
-import { describe, it, expect } from 'vitest';
-import { needsReset, placeOf, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
+import { beforeAll, describe, it, expect } from 'vitest';
+import RAPIER from '@dimforge/rapier3d-compat';
+import { needsReset, placeOf, Rivals, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
 import { KMH } from '../src/config';
 import { laneCenter } from '../src/road/coords';
+import { PhysicsWorld } from '../src/physics/physicsWorld';
+import { PlayerCar } from '../src/vehicles/playerCar';
+import { MUSCLE_CAR, STREET_RACER } from '../src/vehicles/cars';
+
+beforeAll(async () => {
+  await RAPIER.init();
+});
 
 const T = RIVAL_TUNING;
 const cap = 300 * KMH;
@@ -56,5 +64,59 @@ describe('needsReset', () => {
     expect(needsReset({ ...ok, yaw: 1.2 })).toBe('spun');
     expect(needsReset({ ...ok, d: 12 })).toBe('off-road');
     expect(needsReset({ ...ok, playerS: ok.s + T.teleportBehind + 1 })).toBe('far-behind');
+  });
+});
+
+describe('Rivals on their own cars', () => {
+  const make = () => {
+    const physics = PhysicsWorld.createSync();
+    return { physics, rivals: new Rivals(physics, null, () => null, [MUSCLE_CAR, STREET_RACER]) };
+  };
+
+  it("each drives with its own car's tables", () => {
+    const { physics, rivals } = make();
+    expect(rivals.list[0].driver.latAccel).toBe(MUSCLE_CAR.ai.latAccel);
+    expect(rivals.list[1].driver.latAccel).toBe(STREET_RACER.ai.latAccel);
+    physics.free();
+  });
+
+  it('the rubber band boosts each car from its own engine', () => {
+    const { physics, rivals } = make();
+    const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
+    for (const r of rivals.list) r.boost = 0.25;
+    rivals.drive(1 / 120, { player, traffic: [], speedCap: 300 * KMH, raceTime: 0 });
+    const k = 1 + rivals.list[0].boost;
+    expect(k).toBeGreaterThan(1.2); // still boosted (the band eases off slowly)
+    expect(rivals.list[0].car.params.power).toBeCloseTo(MUSCLE_CAR.params.power * k, 3);
+    expect(rivals.list[1].car.params.power).toBeCloseTo(STREET_RACER.params.power * (1 + rivals.list[1].boost), 3);
+    physics.free();
+  });
+
+  it('never runs past its own top speed, whatever the AI cap', () => {
+    const { physics, rivals } = make();
+    const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
+    rivals.drive(1 / 120, { player, traffic: [], speedCap: 300 * KMH, raceTime: 0 });
+    expect(rivals.list[0].car.params.maxSpeed).toBeLessThanOrEqual(MUSCLE_CAR.params.maxSpeed);
+    physics.free();
+  });
+
+  it('dispose stops their planners (each a Web Worker in the game)', () => {
+    const physics = PhysicsWorld.createSync();
+    let stopped = 0;
+    const source = () => ({ busy: false, request() {}, take: () => null, dispose: () => void stopped++ });
+    const rivals = new Rivals(physics, null, source, [MUSCLE_CAR, STREET_RACER]);
+    rivals.dispose();
+    expect(stopped).toBe(2);
+    physics.free();
+  });
+
+  it('dispose leaves nothing behind in the physics world', () => {
+    const physics = PhysicsWorld.createSync();
+    const before = physics.world.bodies.len();
+    const rivals = new Rivals(physics, null, () => null, [MUSCLE_CAR, STREET_RACER]);
+    expect(physics.world.bodies.len()).toBe(before + 2);
+    rivals.dispose();
+    expect(physics.world.bodies.len()).toBe(before);
+    physics.free();
   });
 });

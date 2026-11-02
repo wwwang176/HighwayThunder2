@@ -83,3 +83,31 @@ button.secondary { background: #e6e6e6; box-shadow: 0 4px 0 #999; font-size: 16p
 .gear-box .gear { font-size: 22px; }
 .gear-box .rpm { font-size: 11px; opacity: 0.8; font-variant-numeric: tabular-nums; min-width: 34px; }
 .gear-box .rpm.red { color: #ff3b30; opacity: 1; font-weight: 800; }
+
+/* Setup page before a race (src/ui/setupPanel.ts): simple for now. */
+#setup { position: absolute; inset: 0; pointer-events: auto; overflow-y: auto;
+  background: radial-gradient(ellipse at 50% 120%, rgba(27,42,74,0.96) 0%, rgba(7,10,18,0.97) 70%); }
+.setup-wrap { max-width: 1040px; margin: 0 auto; padding: 28px 32px; }
+.setup-wrap h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: 4px; }
+.setup-wrap .sub { color: #8b96ad; margin-bottom: 18px; }
+.setup-wrap h3 { font-size: 16px; color: #9fb3d9; letter-spacing: 2px; margin: 20px 0 10px; }
+.car-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.car-card { border: 2px solid #2a3550; border-radius: 10px; padding: 14px; background: #0e1422; cursor: pointer; }
+.car-card.sel { border-color: #ff4d3d; box-shadow: 0 0 18px #ff4d3d55; }
+.car-card.off { opacity: 0.4; cursor: default; }
+.car-card .swatch { height: 46px; border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center;
+  justify-content: center; font-weight: bold; color: #fffc; text-shadow: 0 1px 2px #0008; }
+.car-card .name { font-size: 20px; font-weight: bold; }
+.car-card .tag { color: #8b96ad; font-size: 13px; margin: 2px 0 10px; }
+.car-card .stat { display: grid; grid-template-columns: 44px 1fr; align-items: center; font-size: 13px; margin: 3px 0; color: #b9c3d8; }
+.car-card .bar { height: 7px; background: #1d2638; border-radius: 4px; overflow: hidden; }
+.car-card .bar i { display: block; height: 100%; background: linear-gradient(90deg, #ffb347, #ff4d3d); }
+.rival-picks { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.rival-pick { background: #0e1422; border: 1px solid #2a3550; border-radius: 8px; padding: 10px; }
+.rival-pick .who { font-size: 13px; color: #8b96ad; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.rival-pick .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.rival-pick select { width: 100%; background: #151d30; color: #e8ecf4; border: 1px solid #34425f; border-radius: 6px; padding: 6px; font: 14px inherit; font-family: inherit; }
+.setup-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 24px; }
+.setup-row > div { display: flex; gap: 10px; }
+.setup-row button { margin: 0; }
+.setup-row button.secondary { min-width: 0; }
