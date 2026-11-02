@@ -87,9 +87,12 @@ describe('putBackAt', () => {
     expect(at.speed).toBeCloseTo(60 / 3.6);
   });
 
-  it('brought back closer than it starts being brought back from', () => {
-    expect(T.placeBehind).toBeLessThan(T.teleportBehind);
-    expect(T.placeAhead).toBeLessThan(T.waitFrom); // ahead, it races again before it waits
+  it('the same both ways: brought back from as far, to as far (out of sight), well short of being brought back again', () => {
+    expect(T.teleportAhead).toBe(T.teleportBehind);
+    expect(T.placeAhead).toBe(T.placeBehind);
+    expect(T.placeBehind).toBeGreaterThanOrEqual(200);
+    expect(T.placeBehind).toBeLessThanOrEqual(T.teleportBehind / 2);
+    expect(T.placeAhead).toBeLessThan(T.waitFull); // ahead, it is not yet waiting its slowest
   });
 });
 

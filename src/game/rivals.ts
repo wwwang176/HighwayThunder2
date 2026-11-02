@@ -33,12 +33,15 @@ export const RIVAL_TUNING = {
   waitSpeed: 0.9,
   /** m/s: it never waits slower than this (a car parked on the road is a wreck waiting to happen). */
   waitMinSpeed: 60 * KMH,
-  /** Further behind than this it is put back into the race `placeBehind` m behind the player, at the player's speed. */
-  teleportBehind: 250,
-  placeBehind: 30,
-  /** Further ahead than this (past the rubber band's waiting) it is brought back `placeAhead` m ahead of the player, at the player's speed. */
+  /**
+   * Further behind than this it is put back into the race `placeBehind` m
+   * behind the player, at the player's speed; the same ahead (past the rubber
+   * band's waiting). Both ways alike, far enough not to pop up in sight.
+   */
+  teleportBehind: 400,
+  placeBehind: 200,
   teleportAhead: 400,
-  placeAhead: 120,
+  placeAhead: 200,
   /** Slower than this (m/s) for `stuckTime` s: stuck, put back on the road. */
   stuckSpeed: 5 * KMH,
   stuckTime: 2,
