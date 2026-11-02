@@ -205,8 +205,8 @@ BODY_KEYS = [
     (TAIL, dict(w=0.74, f=0.0, zb=0.31, ztop=1.005, crown=0.01)),  # the ducktail's lip; the tail tapers in
     (-2.10, dict(w=0.84, f=0.03, zb=0.25, ztop=0.99, crown=0.015)),
     (-1.95, dict(w=0.90, f=0.07, zb=0.205, ztop=0.955, crown=0.02)),  # the deck, kicking up into the ducktail
-    (-1.65, dict(w=0.93, f=0.11, zb=0.19, ztop=0.95, crown=0.02)),
-    (WHEEL_YR, dict(w=0.94, f=0.135, zb=0.19, ztop=0.95, crown=0.02)),  # the haunches, much wider than the cabin
+    (-1.65, dict(w=0.93, f=0.10, zb=0.19, ztop=0.95, crown=0.02)),
+    (WHEEL_YR, dict(w=0.94, f=0.12, zb=0.19, ztop=0.95, crown=0.02)),  # the haunches, much wider than the cabin
     (-0.95, dict(w=0.925, f=0.07, zb=0.19, ztop=0.935, crown=0.02)),
     (-0.50, dict(w=0.90, f=0.0, zb=0.19, ztop=0.865, crown=0.02)),  # the beltline climbs to the haunches
     (0.20, dict(w=0.885, f=0.0, zb=0.19, ztop=0.845, crown=0.02)),  # the waist, pinched in at the door; sills low
@@ -296,7 +296,9 @@ def build_shell():
     for y in ys:
         pts, mats = body_loop(lerp_keys(BODY_KEYS, y))
         n = len(pts)
-        verts += [(x, nose_shear(y, z), z) for x, z in pts]
+        # The nose also bows forward a little in plan (2.5 cm at the middle), over the lamps.
+        k = max(0.0, min(1.0, (y - (NOSE - 0.24)) / 0.24))
+        verts += [(x, nose_shear(y, z) + k * 0.025 * max(0.0, 1 - (x / 0.86) ** 2), z) for x, z in pts]
     for s in range(len(ys) - 1):
         a, b = s * n, (s + 1) * n
         for i in range(n):
@@ -350,7 +352,7 @@ def build_cabin():
         # y, belt half-width, roof half-width, roof height at its edge (none: a base line on the hood / deck),
         # and what the band from here to the next station is
         (NOSE - 0.33 * L, 0.84, None, None, "windshield"),  # windshield base
-        (0.45, 0.84, 0.58, 1.245, "roof"),  # the header, rounding the roof down into the windshield
+        (0.45, 0.84, 0.575, 1.235, "roof"),  # the header, rounding the roof down into the windshield
         (NOSE - 0.41 * L, 0.84, 0.61, 1.285, "roof"),  # roof front
         (-0.25, 0.85, 0.64, 1.295, "roof"),
         (NOSE - 0.70 * L + 0.04, 0.90, 0.625, 1.272, "cpillar"),  # roof rear
@@ -416,6 +418,24 @@ def build_cabin():
         res = bmesh.ops.inset_region(bm, faces=faces_, thickness=0.022, depth=0.0, use_even_offset=True)
         for f in res["faces"]:
             f.material_index = 0
+
+    # Round the glass's corners: bevel each corner of a window's outline; the corner piece goes to the frame.
+    def is_edge(e):
+        mats = {f.material_index == 2 for f in e.link_faces}
+        return len(mats) == 2
+    corners = []
+    for v in bm.verts:
+        edges = [e for e in v.link_edges if is_edge(e)]
+        if len(edges) != 2:
+            continue
+        d1 = (edges[0].other_vert(v).co - v.co).normalized()
+        d2 = (edges[1].other_vert(v).co - v.co).normalized()
+        if d1.dot(d2) > -0.9:  # turning more than ~25 degrees
+            corners.append(v)
+    res = bmesh.ops.bevel(bm, geom=corners, offset=0.045, offset_type="OFFSET", segments=4, profile=0.5,
+                          affect="VERTICES", clamp_overlap=True)
+    for f in res["faces"]:
+        f.material_index = 0
     bm.to_mesh(cabin.data)
     bm.free()
     return cabin
@@ -481,7 +501,7 @@ def build_inserts():
     """Merged into the recesses once they are cut: a bar across the grille, fins in the tail's diffuser.
     Each stands up from its recess's floor and stops short of the surface."""
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731
-    parts = [box("grillebar", -0.29, 0.29, NOSE - 0.055, NOSE - 0.025, 0.632, 0.648, "paint", lean)]  # tucked in
+    parts = [box("grillebar", -0.29, 0.29, NOSE - 0.055, NOSE - 0.02, 0.624, 0.656, "spoke", lean)]  # a heavy bar, tucked in
     for x in (-0.34, -0.12, 0.12, 0.34):
         parts.append(box("fin", x - 0.01, x + 0.01, TAIL + 0.008, TAIL + 0.04, 0.385, 0.495, "trim"))
     return parts
