@@ -41,25 +41,50 @@
   .bar { height: 0.55vh; background: rgba(255,255,255,0.08); border-radius: 1vh; overflow: hidden; margin-top: 0.6vh; }
   .bar i { display: block; height: 100%; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, #fff), var(--accent)); box-shadow: 0 0 0.8vw var(--accent); transition: width 0.3s; }
 
-  /* rivals + start, bottom */
-  .bottom { position: fixed; left: 3vw; right: 3vw; bottom: 3.5vh; display: flex; align-items: flex-end; gap: 1.2vw; }
-  .rivals { flex: 1; }
-  .tools { display: flex; gap: 0.6vw; margin-bottom: 1vh; }
-  .tool { width: 3.2vw; height: 3.2vw; padding: 0; display: grid; place-items: center; background: var(--glass); border: 1px solid var(--line);
-    border-radius: 0.5vw; color: #b9c4d8; cursor: pointer; backdrop-filter: blur(6px); }
-  .tool:hover { color: #fff; border-color: var(--accent); }
-  .tool .icon { width: 2.2vw; height: 2.2vw; }
+  /* the race at a glance + start, bottom: the settings themselves are in the pop-up */
+  .bottom { position: fixed; left: 3vw; right: 3vw; bottom: 3.5vh; display: flex; align-items: flex-end; justify-content: space-between; gap: 1.2vw; }
+  .race { display: flex; align-items: center; gap: 1.6vw; padding: 1.4vh 1.4vw; background: var(--glass); border: 1px solid var(--line); border-radius: 0.7vw;
+    backdrop-filter: blur(6px); color: #e9eef8; font: inherit; cursor: pointer; transition: border-color 0.15s; }
+  .race:hover, .race:focus-visible { border-color: var(--accent); outline: none; }
+  .race .item { display: flex; align-items: center; gap: 0.6vw; font-size: 1vw; font-weight: 700; }
+  .race .item > .icon { width: 1.8vw; height: 1.8vw; color: #8fa0bd; }
+  .race .sep { width: 1px; height: 4vh; background: var(--line); }
+  .race .item > .icon.mini { width: 3.4vw; height: 1.7vw; color: var(--c); }
+  .race .edit { color: var(--accent); font-size: 1.2vw; }
 
-  /* What an icon means, on hover or keyboard focus (icons stand in for text). */
-  [data-tip] { position: relative; }
-  [data-tip]::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 0.8vh); transform: translate(-50%, 0.4vh);
-    padding: 0.6vh 0.7vw; border-radius: 0.4vw; background: rgba(10, 14, 24, 0.94); border: 1px solid var(--accent); color: #eef3fb;
-    font: 600 0.8vw/1.2 "Microsoft JhengHei", sans-serif; white-space: nowrap; pointer-events: none; opacity: 0;
-    transition: opacity 0.12s, transform 0.12s; box-shadow: 0 0.4vh 1.2vw rgba(0,0,0,0.5); z-index: 10; }
-  [data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
-  /* The stat icons' tips open to their left, out of the panel (above, they covered the row above). */
-  .stat [data-tip]::after { left: auto; right: calc(100% + 0.8vw); bottom: auto; top: 50%; transform: translate(0.4vw, -50%); }
-  .stat [data-tip]:hover::after, .stat [data-tip]:focus-visible::after { transform: translate(0, -50%); }
+  /* the race settings pop-up */
+  .back { position: fixed; inset: 0; display: none; place-items: center; background: rgba(2, 4, 10, 0.6); backdrop-filter: blur(3px); }
+  .back.open { display: grid; }
+  .modal { position: relative; width: 58vw; padding: 6.4vh 2.2vw 2.6vh; background: rgba(10, 14, 24, 0.92); border: 1px solid var(--line);
+    border-top: 0.4vh solid var(--accent); border-radius: 0.9vw; box-shadow: 0 2vh 6vh rgba(0,0,0,0.6); }
+  .close { position: absolute; right: 1.2vw; top: 1.6vh; width: 2.4vw; height: 2.4vw; border: 0; border-radius: 50%; background: rgba(255,255,255,0.06);
+    color: #b9c4d8; font-size: 1.3vw; cursor: pointer; }
+  .close:hover { color: #fff; background: rgba(255,255,255,0.12); }
+  .row { display: grid; grid-template-columns: 3vw 1fr; align-items: center; gap: 1vw; margin: 2.2vh 0; }
+  .row > .icon { width: 2.2vw; height: 2.2vw; color: var(--accent); justify-self: center; }
+  .seg { display: flex; gap: 0.5vw; }
+  .seg button { flex: 1; padding: 1.3vh 0; border: 1px solid var(--line); border-radius: 0.5vw; background: rgba(255,255,255,0.04); color: #b9c4d8;
+    font: 700 1vw/1 "Microsoft JhengHei", sans-serif; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.6vw; }
+  .seg button .icon { width: 1.8vw; height: 1.8vw; }
+  .seg button:hover { color: #fff; }
+  .seg button.sel { color: #fff; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: inset 0 0 1vw -0.4vw var(--accent); }
+  .rival-row { display: grid; grid-template-columns: auto 1fr; gap: 0.8vw; align-items: center; }
+  .tools { display: flex; flex-direction: column; gap: 0.6vh; }
+  .tool { width: 2.8vw; height: 2.8vw; padding: 0; display: grid; place-items: center; background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+    border-radius: 0.5vw; color: #b9c4d8; cursor: pointer; }
+  .tool:hover { color: #fff; border-color: var(--accent); }
+  .tool .icon { width: 1.9vw; height: 1.9vw; }
+  .modal .slots { gap: 0.6vw; min-width: 0; }
+  .modal .slot { padding: 1vh 0.3vw; min-width: 0; }
+  .modal .slot .icon { width: 4.4vw; height: 2.4vw; }
+  .done { display: block; margin: 3vh 0 0 auto; padding: 1.4vh 3vw; border: 0; border-radius: 0.6vw; background: var(--accent); color: #fff;
+    font: italic 900 1.2vw/1 system-ui, "Microsoft JhengHei", sans-serif; letter-spacing: 0.2vw; cursor: pointer; }
+
+  /* What an icon means, on hover or keyboard focus (lab/tooltip.ts places it with Floating UI). */
+  .tip { position: absolute; left: 0; top: 0; padding: 0.6vh 0.7vw; border-radius: 0.4vw; background: rgba(10, 14, 24, 0.96); border: 1px solid var(--accent);
+    color: #eef3fb; font: 600 0.8vw/1.2 "Microsoft JhengHei", sans-serif; white-space: nowrap; pointer-events: none; opacity: 0;
+    transition: opacity 0.12s; box-shadow: 0 0.4vh 1.2vw rgba(0,0,0,0.5); z-index: 100; }
+  .tip.on { opacity: 1; }
   .slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8vw; }
   .slot { display: grid; grid-template-columns: 1.4vw 1fr 1.4vw; align-items: center; padding: 1vh 0.6vw; background: var(--glass);
     border: 1px solid var(--line); border-radius: 0.6vw; border-top: 0.35vh solid var(--c); backdrop-filter: blur(6px); }
@@ -81,19 +106,39 @@
 <div class="spec" id="spec"></div>
 
 <div class="bottom">
-  <div class="rivals">
-    <div class="tools">
-      <button class="tool" data-tip="對手全部隨機" aria-label="對手全部隨機"><span class="icon" style="--src:url(ui-assets/icon-random.png)"></span></button>
-      <button class="tool" data-tip="對手全部和我同車種" aria-label="對手全部和我同車種"><span class="icon" style="--src:url(ui-assets/icon-same.png)"></span></button>
-    </div>
-    <div class="slots" id="slots"></div>
-  </div>
+  <button class="race" id="race" data-tip="修改比賽設定"></button>
   <button class="go">開始比賽</button>
+</div>
+
+<div class="back" id="back">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="比賽設定">
+    <button class="close" id="close" data-tip="關閉" data-tip-place="left">✕</button>
+    <div class="row">
+      <span class="icon" style="--src:url(ui-assets/icon-rivals.png)" data-tip="對手" tabindex="0"></span>
+      <div class="rival-row">
+        <div class="tools">
+          <button class="tool" id="all-random" data-tip="對手全部隨機"><span class="icon" style="--src:url(ui-assets/icon-random.png)"></span></button>
+          <button class="tool" id="all-same" data-tip="對手全部和我同車種" data-tip-place="bottom"><span class="icon" style="--src:url(ui-assets/icon-same.png)"></span></button>
+        </div>
+        <div class="slots" id="slots"></div>
+      </div>
+    </div>
+    <div class="row">
+      <span class="icon" style="--src:url(ui-assets/icon-difficulty.png)" data-tip="難易度" tabindex="0"></span>
+      <div class="seg" id="difficulty"></div>
+    </div>
+    <div class="row">
+      <span class="icon" style="--src:url(ui-assets/icon-night-clear.png)" data-tip="天氣" tabindex="0"></span>
+      <div class="seg" id="weather"></div>
+    </div>
+    <button class="done" id="done">完成</button>
+  </div>
 </div>
 
 <script type="module">
   import * as THREE from 'three';
   import { buildCar } from '/src/vehicles/models.ts';
+  import { installTooltips } from '/lab/tooltip.ts';
 
   // The three cars, with their measured numbers (training/cornering.train.ts).
   const CARS = {
@@ -118,11 +163,52 @@
       `<div class="cls ${id === picked ? 'sel' : ''}" data-id="${id}">${icon(k.icon, 'car')}<div class="t">${k.name}</div></div>`).join('');
     document.getElementById('spec').innerHTML = `
       <h1>${c.name}</h1>
-      ${c.stats.map(([ic, , v, f]) => `<div class="stat"><span data-tip="${STAT_TIPS[ic]}" aria-label="${STAT_TIPS[ic]}" tabindex="0">${icon(ic)}</span><span class="v">${v}</span><div class="bar"><i style="width:${f * 100}%"></i></div></div>`).join('')}`;
-    document.getElementById('slots').innerHTML = rivals.map((id, i) =>
-      `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="arrow">◀</span><div class="mid">${icon(CARS[id].icon, 'car')}</div><span class="arrow">▶</span></div>`).join('');
+      ${c.stats.map(([ic, , v, f]) => `<div class="stat"><span data-tip="${STAT_TIPS[ic]}" data-tip-place="left" tabindex="0">${icon(ic)}</span><span class="v">${v}</span><div class="bar"><i style="width:${f * 100}%"></i></div></div>`).join('')}`;
     document.querySelectorAll('.cls').forEach((e) => (e.onclick = () => { picked = e.dataset.id; draw(); showCar(); }));
+    drawRace();
   }
+
+  // The race at a glance (the button that opens the pop-up), and the pop-up.
+  const DIFFICULTY = ['簡單', '普通', '困難', '極限'];
+  const WEATHER = [['icon-night-clear', '晴夜'], ['icon-night-rain', '雨夜'], ['icon-night-fog', '霧夜']];
+  let difficulty = 1;
+  let weather = 0;
+  const ids = Object.keys(CARS);
+  function drawRace() {
+    document.getElementById('race').innerHTML = `
+      <span class="item">${icon('icon-rivals')}${rivals.map((id, i) => `<span class="icon mini" style="--src:url(ui-assets/${CARS[id].icon}.png);--c:${RIVAL_COLORS[i]}"></span>`).join('')}</span>
+      <span class="sep"></span>
+      <span class="item">${icon('icon-difficulty')}${DIFFICULTY[difficulty]}</span>
+      <span class="sep"></span>
+      <span class="item">${icon(WEATHER[weather][0])}${WEATHER[weather][1]}</span>
+      <span class="edit">✎</span>`;
+  }
+  function drawModal() {
+    document.getElementById('slots').innerHTML = rivals.map((id, i) =>
+      `<div class="slot" style="--c:${RIVAL_COLORS[i]}"><span class="arrow" data-i="${i}" data-d="-1">◀</span><div class="mid" data-tip="${CARS[id].name}">${icon(CARS[id].icon, 'car')}</div><span class="arrow" data-i="${i}" data-d="1">▶</span></div>`).join('');
+    document.querySelectorAll('.slot .arrow').forEach((a) => (a.onclick = () => {
+      const i = Number(a.dataset.i);
+      rivals[i] = ids[(ids.indexOf(rivals[i]) + Number(a.dataset.d) + ids.length) % ids.length];
+      drawModal();
+      drawRace();
+    }));
+    document.getElementById('difficulty').innerHTML = DIFFICULTY.map((d, i) => `<button class="${i === difficulty ? 'sel' : ''}" data-i="${i}">${d}</button>`).join('');
+    document.getElementById('weather').innerHTML = WEATHER.map(([ic, w], i) => `<button class="${i === weather ? 'sel' : ''}" data-i="${i}">${icon(ic)}${w}</button>`).join('');
+    document.querySelectorAll('#difficulty button').forEach((b) => (b.onclick = () => { difficulty = Number(b.dataset.i); drawModal(); drawRace(); }));
+    document.querySelectorAll('#weather button').forEach((b) => (b.onclick = () => { weather = Number(b.dataset.i); drawModal(); drawRace(); }));
+  }
+  const back = document.getElementById('back');
+  const open = () => { drawModal(); back.classList.add('open'); };
+  const close = () => back.classList.remove('open');
+  document.getElementById('race').onclick = open;
+  document.getElementById('close').onclick = close;
+  document.getElementById('done').onclick = close;
+  back.onclick = (e) => e.target === back && close();
+  addEventListener('keydown', (e) => e.key === 'Escape' && close());
+  document.getElementById('all-random').onclick = () => { for (let i = 0; i < rivals.length; i++) rivals[i] = ids[Math.floor(Math.random() * ids.length)]; drawModal(); drawRace(); };
+  document.getElementById('all-same').onclick = () => { rivals.fill(picked); drawModal(); drawRace(); };
+  installTooltips();
+  if (new URLSearchParams(location.search).has('open')) open();
 
   // The car itself: the game's own model, under the lamp, slowly turning.
   const canvas = document.getElementById('car');
