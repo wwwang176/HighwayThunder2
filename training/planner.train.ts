@@ -23,7 +23,7 @@ it('planner', async () => {
   if (process.env.PLANNER_JSON) Object.assign(PLANNER, JSON.parse(process.env.PLANNER_JSON));
   if (process.env.EMERGENCY_FROM) DRIVER_TUNING.emergencyFrom = Number(process.env.EMERGENCY_FROM);
   if (process.env.LANE_K) LANE_TUNING.k = Number(process.env.LANE_K); // the tracker's pull back onto the plan (1/s)
-  if (process.env.NET_TRACKER) DRIVER_TUNING.netTracker = true; // steer with the car's trained network
+  if (process.env.NET_TRACKER) DRIVER_TUNING.netTracker = process.env.NET_TRACKER !== '0'; // 0: the plain tracker, not the car's trained network
   await RAPIER.init();
   const out: string[] = [];
   const all = { lateralMoving: [] as number[], lateralHolding: [] as number[], along: [] as number[], speedAtOverride: [] as number[], nowMoving: [] as number[], nowHolding: [] as number[] };
