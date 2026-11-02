@@ -39,8 +39,8 @@ L = 4.4
 NOSE = L / 2
 TAIL = -L / 2
 WHEEL_R = 0.30
-WHEEL_W = 0.40
-WHEEL_X = 0.86  # the tyres' outer faces flush with the fender bulges
+WHEEL_W = 0.46
+WHEEL_X = 0.87  # the tyres' outer faces flush with the fender bulges
 WHEEL_YF = NOSE - 0.275 * L  # 0.99
 WHEEL_YR = NOSE - 0.795 * L  # -1.30
 WHEEL_Z = WHEEL_R  # centre height above the ground
@@ -78,6 +78,7 @@ def make_materials():
     MAT["stripe"] = material("stripe", srgb(0x141414), 0.6)
     MAT["glass"] = material("glass", srgb(0x161A20), 0.3, 0.2)
     MAT["trim"] = material("trim", srgb(0x1C1C1C), 0.7)
+    MAT["chrome"] = material("chrome", srgb(0xB4B4B8), 0.25, 0.9)
     MAT["head"] = material("lamp_head", srgb(0xFFD890), 0.2, 0, 1.6)  # warm (the game swaps in its own glow)
     MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 3)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
@@ -117,6 +118,19 @@ def box(name, x0, x1, y0, y1, z0, z1, mat, shear=None):
     v = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
     if shear:
         v = [(x, shear(y, z), z) for x, y, z in v]
+    return mesh_object(name, v, BOX_FACES, [mat])
+
+
+def panel(name, c, along, d_in, d_out, length, z0, z1, mat):
+    """A box standing on a vertical face: centred at plan point c, `along` the face (a unit 2D vector),
+    reaching d_in behind and d_out in front of it (the face's normal is `along` turned right)."""
+    ax, ay = along
+    nx, ny = ay, -ax
+    v = []
+    for s in (-0.5, 0.5):
+        for d in (-d_in, d_out):
+            for z in (z0, z1):
+                v.append((c[0] + ax * s * length + nx * d, c[1] + ay * s * length + ny * d, z))
     return mesh_object(name, v, BOX_FACES, [mat])
 
 
@@ -182,8 +196,12 @@ def boolean(target, others, op):
         mod.material_mode = "TRANSFER"
         mod.object = p
         bpy.context.view_layer.objects.active = target
+        before = len(target.data.polygons)
+        name = p.name
         bpy.ops.object.modifier_apply(modifier="b")
         bpy.data.objects.remove(p)
+        if os.environ.get("MODEL_DEBUG"):
+            print(f"[boolean] {op} {name}: {before} -> {len(target.data.polygons)} faces")
     return target
 
 
@@ -228,8 +246,8 @@ def nose_shear(y, z):
 
 
 # Stripe edges (x) across the top: paint | stripe | gap | stripe | paint.
-S_IN = 0.07
-S_OUT = 0.31
+S_IN = 0.06
+S_OUT = 0.345
 
 
 def body_half(p):
@@ -341,7 +359,7 @@ def build_shell():
 # ---------------------------------------------------------------- the greenhouse
 
 CABIN_FLOOR = 0.72  # the greenhouse is a closed solid reaching down into the body (merged into it)
-RG = 0.53  # the rear glass's half-width: sail panels either side of it
+RG = 0.53  # the rear glass's half-width: sail panels either side of it (well inside the roof's edge roll: its corners are rounded)
 WT_REF = 0.60
 
 
@@ -438,21 +456,44 @@ def build_cabin():
         f.material_index = 0
     bm.to_mesh(cabin.data)
     bm.free()
+    if os.environ.get("MODEL_DEBUG"):
+        print(f"[cabin] {len(corners)} corners rounded; {mesh_check(cabin)}")
     return cabin
 
 
 # ---------------------------------------------------------------- details
 
 def build_scoop():
-    """A scoop rising out of the hood, narrower on top, its dark mouth facing forward."""
-    y0, y1 = 0.80, 1.62
-    zb = 0.82  # under the hood's surface
-    zr = body_top_z(y0, 0) + 0.002  # its back starts at the hood surface: it grows out of it
-    zf = body_top_z(y1, 0) + 0.11
-    v = [(-0.32, y0, zb), (0.32, y0, zb), (0.32, y1, zb), (-0.32, y1, zb),
-         (-0.18, y0, zr), (0.18, y0, zr), (0.22, y1, zf), (-0.22, y1, zf)]
-    f = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (3, 0, 4, 7), (2, 3, 7, 6)]
-    return mesh_object("scoop", v, f, ["paint", "trim"], [0, 0, 0, 0, 0, 1])
+    """A long bulge growing out of the hood and rising toward its dark mouth at the front; its sides slope
+    down into the hood and the stripes run on over it."""
+    y0, y1 = 0.55, 1.70
+    n = 8
+    # Across (right half): top centre, stripe in, top edge, rounded shoulder, stripe out, foot (under the hood).
+    xs = [0.0, S_IN, 0.20, 0.24, S_OUT, 0.39]
+    seg = ["paint", "stripe", "stripe", "stripe", "paint"]  # between consecutive points
+    verts, faces, fm = [], [], []
+    names = ["paint", "stripe", "trim"]
+    for k in range(n + 1):
+        t = k / n
+        y = y0 + (y1 - y0) * t
+        h = 0.11 * t ** 1.3 - 0.008  # buried at the back, emerging forward
+        zs = body_top_z(y, 0)
+        half = [(0.0, zs + h), (S_IN, zs + h), (0.20, zs + h - 0.004), (0.24, zs + h - 0.022),
+                (S_OUT, zs + h * 0.3 - 0.006), (0.39, body_top_z(y, 0.39) - 0.012)]
+        row = [(-x, z) for x, z in reversed(half[1:])] + half + [(0.39, 0.80), (-0.39, 0.80)]
+        verts += [(x, y, z) for x, z in row]
+    m = 13
+    across = [m_ for m_ in reversed(seg)] + seg  # 10 top segments, left foot to right foot
+    for k in range(n):
+        a, b = k * m, (k + 1) * m
+        for i in range(10):
+            faces.append((a + i, a + i + 1, b + i + 1, b + i))
+            fm.append(names.index(across[i]))
+        faces += [(a + 10, a + 11, b + 11, b + 10), (a + 11, a + 12, b + 12, b + 11), (a + 12, a, b, b + 12)]
+        fm += [0, 0, 0]
+    faces += [tuple(reversed(range(m))), tuple(n * m + i for i in range(m))]
+    fm += [0, 2]  # the buried back, the dark mouth
+    return mesh_object("scoop", verts, faces, names, fm)
 
 
 def build_details():
@@ -492,9 +533,17 @@ def build_recesses():
     lean = lambda y, z: y - LEAN * (NOSE_TOP - z)  # noqa: E731  (the nose face's lean)
     grille = box("grille", -0.775, 0.775, NOSE - 0.045, NOSE + 0.3, 0.53, 0.75, "trim", lean)  # clear of the nose's sides
     intake = box("intake", -0.70, 0.70, NOSE - 0.04, NOSE + 0.3, 0.385, 0.435, "trim", lean)  # a thin slit
-    tail = box("tailpanel", -0.68, 0.68, TAIL - 0.3, TAIL + 0.035, 0.68, 0.92, "trim")
+    tail = box("tailpanel", -0.72, 0.72, TAIL - 0.3, TAIL + 0.035, 0.68, 0.92, "trim")  # out to the corners
     valance = box("valance", -0.55, 0.55, TAIL - 0.3, TAIL + 0.03, 0.38, 0.50, "trim")  # a dark diffuser low on the tail
-    return [grille, intake, tail, valance]
+    cuts = [grille, intake, tail, valance]
+    # The door: a fine shut line at its front and back edges (below the shoulder crease), and a handle recess.
+    for s in (-1, 1):
+        for y in (0.50, -0.55):
+            x0, x1 = sorted((s * 0.868, s * 1.3))
+            cuts.append(box("doorline", x0, x1, y - 0.003, y + 0.003, 0.33, 0.775, "trim"))
+        x0, x1 = sorted((s * 0.874, s * 1.3))
+        cuts.append(box("handle", x0, x1, -0.43, -0.31, 0.70, 0.725, "trim"))
+    return cuts
 
 
 def build_inserts():
@@ -504,6 +553,11 @@ def build_inserts():
     parts = [box("grillebar", -0.29, 0.29, NOSE - 0.055, NOSE - 0.02, 0.624, 0.656, "spoke", lean)]  # a heavy bar, tucked in
     for x in (-0.34, -0.12, 0.12, 0.34):
         parts.append(box("fin", x - 0.01, x + 0.01, TAIL + 0.008, TAIL + 0.04, 0.385, 0.495, "trim"))
+    # Thin bright bumper blades: across the tail under the light panel, and at the nose's corners.
+    parts.append(box("rblade", -0.70, 0.70, TAIL - 0.03, TAIL + 0.06, 0.615, 0.645, "chrome"))
+    for s in (-1, 1):
+        x0, x1 = sorted((s * 0.56, s * 0.79))
+        parts.append(box("fblade", x0, x1, NOSE - 0.06, NOSE + 0.025, 0.47, 0.50, "chrome", lean))
     return parts
 
 
@@ -522,7 +576,7 @@ def build_lights():
         parts = []
         for k, x in enumerate((s * 0.42, s * 0.668)):
             # Standing 3 cm up from the grille's floor: in plain sight, 1.5 cm inside the opening.
-            parts.append(disc(f"{name}{k}", x, floor + 0.03, 0.638, 0.092, 0.04, "head", 20, lean))
+            parts.append(disc(f"{name}{k}", x, floor + 0.012, 0.638, 0.092, 0.04, "head", 20, lean))
             sockets.append(disc(f"{name}{k}_socket", x, floor + 0.06, 0.638, 0.092 + 0.014, 0.10, "trim", 20, lean))
         lamps.append(join(parts, name))
 
@@ -536,16 +590,23 @@ def build_lights():
     # Tail light bar across the tail panel (its floor at TAIL + 0.035), indicators blinking over its ends.
     # Four segments a side, dark ribs between them.
     floor = TAIL + 0.035
-    seg = (0.64 - 0.004 - 3 * 0.014) / 4
+    BAR = 0.70  # the bar's half-width
+    seg = (BAR - 0.004 - 3 * 0.014) / 4
     for name, s in (("tail_L", -1), ("tail_R", 1)):
         parts = []
         for k in range(4):
             x0, x1 = sorted((s * (0.004 + k * (seg + 0.014)), s * (0.004 + k * (seg + 0.014) + seg)))
             parts.append(box(f"{name}{k}", x0, x1, floor - 0.015, floor + 0.025, 0.72, 0.86, "tail"))
             sockets.append(box(f"{name}{k}_socket", x0 - G, x1 + G, floor - 0.03, floor + 0.04, 0.72 - G, 0.86 + G, "trim"))
+        # The bar wraps round the corner: a segment on the slanting side of the tail.
+        p0, p1 = Vector((s * 0.745, TAIL + 0.005)), Vector((s * 0.862, -2.105))
+        along = (p1 - p0).normalized() if s > 0 else (p0 - p1).normalized()
+        c = p0 + (p1 - p0).normalized() * 0.056  # starting right at the corner, where the bar ends
+        parts.append(panel(f"{name}_wrap", c, along, 0.045, -0.015, 0.10, 0.72, 0.86, "tail"))
+        sockets.append(panel(f"{name}_wrap_socket", c, along, 0.06, 0.04, 0.10 + 2 * G, 0.72 - G, 0.86 + G, "trim"))
         lamps.append(join(parts, name))
     for name, s in (("ind_RL", -1), ("ind_RR", 1)):  # over the outermost segment
-        x0, x1 = sorted((s * (0.64 - seg), s * 0.64))
+        x0, x1 = sorted((s * (BAR - seg), s * BAR))
         lamps.append(box(name, x0, x1, floor - 0.020, floor - 0.017, 0.72, 0.86, "ind"))
     return lamps, sockets, lenses
 
@@ -575,13 +636,16 @@ def build_wheel():
         ring(-hw + 0.02, r_in),  # 5 rim lip, inner side
         ring(hw - 0.15, r_in * 0.98),  # 6 the dish's floor, deep
         ring(-hw + 0.02, r_in * 0.5),  # 7 back
+        ring(hw - 0.008, r_in + 0.022),  # 8 the rim's bright lip, round the dish
     ]
-    for k in range(5):
-        a, b = rings[k], rings[k + 1]
+    # Round the outside: the lip (bright), then the tyre over to the inner side.
+    chain = [rings[0], rings[8], rings[1], rings[2], rings[3], rings[4], rings[5]]
+    for k in range(len(chain) - 1):
+        a, b = chain[k], chain[k + 1]
         for i in range(n):
             j = (i + 1) % n
             faces.append((a + i, a + j, b + j, b + i))
-            fm.append(0)
+            fm.append(2 if k == 0 else 0)
     a, b = rings[0], rings[6]
     for i in range(n):
         j = (i + 1) % n
@@ -596,7 +660,7 @@ def build_wheel():
         fm.append(0)
     faces.append(tuple(rings[7] + i for i in reversed(range(n))))
     fm.append(0)
-    wheel = mesh_object("wheel", verts, faces, ["tyre", "rim"], fm)
+    wheel = mesh_object("wheel", verts, faces, ["tyre", "rim", "spoke"], fm)
 
     parts = []
     hub = disc("hub", 0, 0, 0, 0.05, 0.08, "spoke", 10)  # its back sunk into the dish floor
@@ -748,6 +812,13 @@ def main():
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
     bpy.ops.object.shade_smooth_by_angle(angle=math.radians(55))  # soft roof edges; creases and openings stay sharp
+    # Normals weighted by face area: big panels shade flat and clean, the thin slivers the booleans
+    # leave along their cuts no longer bend the shading of the panels around them.
+    wn = body.modifiers.new("wn", "WEIGHTED_NORMAL")
+    wn.mode = "FACE_AREA"
+    wn.weight = 100
+    wn.keep_sharp = True
+    bpy.ops.object.modifier_apply(modifier="wn")
     wheel = build_wheel()
 
     # Down to the origin (GROUND above the ground); the wheel stays centred on its axle.
@@ -759,6 +830,11 @@ def main():
     print(f"[muscle_car] triangles: body {tri(body)}, lamps {sum(tri(o) for o in lamps)}, wheel {tri(wheel)}")
     for o in [body, wheel]:
         print(f"[muscle_car] check {o.name}: {mesh_check(o)}")
+    # A boolean gone wrong can leave a small closed mesh that passes the checks above: the body must
+    # still be the whole car.
+    size = Vector([max(v.co[i] for v in body.data.vertices) - min(v.co[i] for v in body.data.vertices) for i in range(3)])
+    print(f"[muscle_car] body size: {size.x:.2f} x {size.y:.2f} x {size.z:.2f} m")
+    assert size.y > L - 0.05 and size.x > 1.8 and size.z > 1.0, "the body is not the whole car: a boolean failed"
     objs = [body, *lamps]
     print(f"[muscle_car] faces touching between objects: {sum(touching(a, b) for i, a in enumerate(objs) for b in objs[i + 1:])}")
 
