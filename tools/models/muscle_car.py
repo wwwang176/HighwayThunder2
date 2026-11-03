@@ -191,6 +191,7 @@ def load_body():
     for f in new:
         for l in f.loops:
             l[uv].uv = around[l.vert]
+    unfold(bm)
     bm.to_mesh(ob.data)
     bm.free()
 
@@ -198,6 +199,40 @@ def load_body():
     w, h = img.size
     px = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)
     return ob, px
+
+
+def crossing_pairs(bm):
+    """Pairs of faces cutting through each other (sharing no corner)."""
+    tri = bm.copy()
+    owner = tri.faces.layers.int.new("owner")
+    for f, g in zip(tri.faces, bm.faces):
+        f[owner] = g.index
+    bmesh.ops.triangulate(tri, faces=tri.faces)
+    tri.faces.ensure_lookup_table()
+    tree = BVHTree.FromBMesh(tri, epsilon=0.0)
+    bm.faces.ensure_lookup_table()
+    pairs = {tuple(sorted((tri.faces[i][owner], tri.faces[j][owner]))) for i, j in tree.overlap(tree)
+             if not ({v.index for v in tri.faces[i].verts} & {v.index for v in tri.faces[j].verts})}
+    tri.free()
+    return [(bm.faces[i], bm.faces[j]) for i, j in pairs if i != j and not (set(bm.faces[i].verts) & set(bm.faces[j].verts))]
+
+
+def unfold(bm, most=0.03):
+    """Where the generation folded the surface over itself (thin faces crossing), weld the two crossing faces'
+    nearest corners together (at their midpoint), until nothing crosses."""
+    for _ in range(20):
+        pairs = crossing_pairs(bm)
+        if not pairs:
+            return
+        bm.faces.ensure_lookup_table()
+        for a, b in pairs:
+            if not (a.is_valid and b.is_valid):
+                continue
+            va, vb = min(((p, q) for p in a.verts for q in b.verts), key=lambda pq: (pq[0].co - pq[1].co).length)
+            assert (va.co - vb.co).length < most, f"faces cross {(va.co - vb.co).length:.3f} m apart at {tuple(va.co)}"
+            bmesh.ops.pointmerge(bm, verts=[va, vb], merge_co=(va.co + vb.co) / 2)
+        bmesh.ops.dissolve_degenerate(bm, edges=bm.edges, dist=1e-5)
+    raise AssertionError("faces still cross after welding")
 
 
 def loose_parts(bm):
