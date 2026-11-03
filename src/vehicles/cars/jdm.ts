@@ -1,18 +1,20 @@
 import type { CarSpec } from './types';
 import { STREET_RACER } from './streetRacer';
 import { JDM_TRACKER } from './jdmTracker';
+import { JDM_COLLIDER } from './jdmCollider';
 
 /**
  * The tuned JDM car: the best in a corner - the most grip, the quickest and
  * most exact answer to the wheel, a stiff low body that hardly leans and a
  * tail that stays put. Its price is the straight: the lowest top speed.
- * The supercar's size before its model (its own model will set its own).
+ * A four-door sedan, a little smaller than the other two (its model's size).
  */
 export const JDM_CAR: CarSpec = {
   id: 'jdm',
   name: '改裝車',
   color: 0x3a8dde,
   style: 'jdm',
+  collider: JDM_COLLIDER, // its model's body up to the hood (sloping down to the nose; the wing at the tail), and its cabin
   params: {
     ...STREET_RACER.params,
     // training/cornering.train.ts against the supercar (muscle car): 0-100 4.04 s (4.20 / 4.01), 0-200 10.9 s
@@ -39,29 +41,30 @@ export const JDM_CAR: CarSpec = {
     slipAnglePeak: 0.09,
     lsd: 200,
     escGain: 12_000,
-    wheelRadius: 0.34,
-    wheelbase: 2.6,
-    width: 1.86,
+    wheelRadius: 0.302, // its model's tyres: 245/30 R18
+    wheelbase: 2.42, // its model's
+    width: 1.92, // its model's size
     length: 4.4,
   },
   // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
+  // Measured 2026-11-03 on its model's size.
   ai: {
     accel: [
-      [0, 7.3],
-      [50, 7.3],
+      [0, 7.1],
+      [50, 7.1],
       [100, 6.1],
       [150, 4.2],
-      [200, 2.8],
+      [200, 2.7],
     ],
-    brake: 12.3,
+    brake: 9.0,
     latAccel: [
       [0, 12.3],
       [50, 12.3],
-      [100, 15.2],
-      [150, 20],
-      [200, 23.4],
-      [250, 25.5],
-      [300, 27.3],
+      [100, 15],
+      [150, 19.7],
+      [200, 23.1],
+      [250, 25.3],
+      [300, 27.1],
     ],
     tracker: JDM_TRACKER,
   },

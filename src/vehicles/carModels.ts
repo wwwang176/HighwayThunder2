@@ -22,6 +22,7 @@ import type { CarStyle } from './cars/types';
 const FILES: Partial<Record<CarStyle, string>> = {
   super: 'models/supercar.glb',
   muscle: 'models/muscle-car.glb',
+  jdm: 'models/jdm.glb',
 };
 
 /** Where a file car's wheels go (model space; nose toward -Z) and their radius. */
