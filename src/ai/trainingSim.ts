@@ -38,7 +38,12 @@ export interface Ghost {
   lane: number;
   /** Vehicles it is touching now (id → since when). */
   touching: Map<number, number>;
+  /** Last time its body slipped past SLIDING (for RunResult.crashLog). */
+  slidAt: number;
 }
+
+/** Body slip angle (rad) that counts as sliding: cornering hard and changing lanes it stays near 6°. */
+const SLIDING = (10 * Math.PI) / 180;
 
 /**
  * The lane whose traffic from behind would brake for this car in the game: the
@@ -151,6 +156,7 @@ export class TrainingSim {
         laneChanges: 0,
         lane: START_LANE,
         touching: new Map(),
+        slidAt: -Infinity,
       });
     }
     this.traffic.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, (f) => this.occupants(f));
@@ -242,9 +248,12 @@ export class TrainingSim {
       return;
     }
     const [w, l] = [c.width, c.length];
-    const contact = isOffRoad(c.s, c.d, c.yaw, w, l)
+    if (Math.abs(Math.atan2(c.vLat, Math.max(1, Math.abs(c.vLong)))) > SLIDING) g.slidAt = this.time;
+    const offRoad = isOffRoad(c.s, c.d, c.yaw, w, l);
+    const contact = offRoad
       ? 'crash'
       : judgeContacts(touching(c.s, c.d, c.yaw, this.boxes, own, this.touched, w, l), { s: c.s, d: c.d, yaw: c.yaw, vS, vD, w, l }, this.time, g.touching);
+    if (contact === 'crash') (g.result.crashLog ??= []).push({ offRoad, sliding: this.time - g.slidAt < 1, kmh: Math.hypot(vS, vD) * 3.6 });
     if (contact === 'crash' && this.resetOnCrash !== null) {
       // As a rival in the game: put back on the road nearby at a reset speed, and race on.
       const spot = computeResetSpot(c.s, c.d, this.boxes.filter((b) => !b.phantom), this.resetOnCrash);

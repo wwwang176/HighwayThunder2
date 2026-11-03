@@ -64,6 +64,8 @@ it('planner', async () => {
       `${seed}: ${end}, avg ${Math.round((r.distance / sim.time) * 3.6)} km/h, max ${Math.round(maxV * 3.6)}, lane changes ${g.laneChanges}, ` +
         `off lane centre ${Math.round((100 * offCentre) / steps)}%, light contacts ${r.contacts}, resets ${r.resets ?? 0}, emergency brake ${Math.round((100 * driver.overrides) / steps)}% of steps, ${(ms / 1000).toFixed(1)} s cpu`,
     );
+    // Each crash: off the road (O) or into traffic (T), sliding just before it (*), and the speed.
+    if (r.crashLog?.length) out.push(`  crashes: ${r.crashLog.map((k) => `${k.offRoad ? 'O' : 'T'}${k.sliding ? '*' : ''}${Math.round(k.kmh)}`).join(' ')}`);
     for (const k of Object.keys(all) as (keyof typeof all)[]) all[k].push(...st[k]);
     sim.dispose();
   }

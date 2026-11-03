@@ -31,6 +31,8 @@ export interface RunResult {
   contacts?: number;
   /** Times put back on the road after a crash (TrainingSimOptions.resetOnCrash). */
   resets?: number;
+  /** Each crash: off the road or into traffic, whether it was sliding (body slip past 10°) in the second before, at what speed. */
+  crashLog?: { offRoad: boolean; sliding: boolean; kmh: number }[];
 }
 
 /**
