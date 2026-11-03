@@ -14,7 +14,9 @@ const SKY = `${import.meta.env.BASE_URL}ui/garage-sky.jpg`;
 // The camera: round the car (at the origin, its nose toward the camera's left), swinging slowly either side of a
 // front three-quarter view, close.
 const CAM = { r: 8.2, h: 1.1, look: 0.6, base: -0.42, swing: 0.35, period: 26, fov: 26 };
-const CAR_YAW = Math.PI - 0.62; // its nose (-z) turned toward the camera, three-quarter
+// Its nose (-z) turned toward the camera, three-quarter: the swing never brings the camera closer than 8 degrees
+// to straight ahead of it (from there to 48).
+const CAR_YAW = Math.PI - 0.9;
 // Where things stand (the camera looks along -z): the lamp front right, the guardrail along the right, the
 // parking bays under the car, the city far ahead.
 // (Beside the car, not behind it: behind, the windscreens mirrored it into the camera, glaring.)
