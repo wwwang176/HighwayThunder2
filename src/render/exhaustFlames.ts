@@ -21,7 +21,7 @@ function fireTextures() {
   return textures;
 }
 
-/** A flame's look: the sprites' spacing back from the tip and their sizes (m), the last (smallest) to the first. */
+/** A flame's look: the sprites' spacing back from the tip and their sizes (m), the first to the last. */
 interface Look {
   step: number;
   size: [number, number];
@@ -34,7 +34,7 @@ const LOOK: Record<'backfire' | 'nitro', Look> = {
 
 /**
  * Flames out of a car's exhaust pipes: an orange one while it backfires, a blue one while its nitro burns. Each
- * a few fire sprites (glowing, added on) in a row back from the tip, shrinking, flickering: jumping about a
+ * a few fire sprites (glowing, added on) in a row back from the tip, growing, flickering: jumping about a
  * little, their brightness and turn new every frame. Children of the car's body.
  */
 export class ExhaustFlames {
@@ -59,7 +59,7 @@ export class ExhaustFlames {
       );
       const k = i / (N - 1);
       s.position.z = (i + 0.5) * look.step; // back from the tip (the tail is +z)
-      s.scale.setScalar(look.size[1] + (look.size[0] - look.size[1]) * k); // biggest at the tip
+      s.scale.setScalar(look.size[0] + (look.size[1] - look.size[0]) * k);
       s.userData.z = s.position.z;
       s.userData.alpha = look.alpha;
       s.renderOrder = 2;
