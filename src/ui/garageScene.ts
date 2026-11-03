@@ -5,9 +5,9 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { NpcBeams } from '../render/npcBeams';
 import { CARS } from '../vehicles/cars';
-import { AIM_DOWN, createHeadlight } from '../vehicles/headlight';
-import { buildCar, type FlareSpot } from '../vehicles/models';
+import { buildCar } from '../vehicles/models';
 import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
 
 const SKY = `${import.meta.env.BASE_URL}ui/garage-sky.jpg`;
@@ -25,8 +25,6 @@ const LAMP = { x: 4.6, z: 1.5, h: 6.6, arm: 1.5 };
 const RAIL_X = 5.6;
 const FAR = 140; // the backdrop's distance (a curved strip round the car); the ground 2 FAR across
 const PUDDLES = 28; // the wet patches' picture, times across the ground (each 10 m)
-const HEADLIGHT_INTENSITY = 450; // candela: the race's pair's (playerCar.ts), as one lamp
-const GARAGE_AIM = THREE.MathUtils.degToRad(5); // its headlights aimed this much lower than the race's
 
 /**
  * The garage's scene: the picked car parked on a wet lay-by at night, under a sodium lamp, the city's lights
@@ -42,6 +40,7 @@ export class GarageScene {
   private readonly bloom: UnrealBloomPass;
   private readonly bokeh: BokehPass;
   private readonly shadow: THREE.Mesh;
+  private readonly beams = new NpcBeams();
   private car: THREE.Object3D | null = null;
   private running = false;
   private t = 0;
@@ -51,8 +50,6 @@ export class GarageScene {
     this.renderer.setPixelRatio(1); // (the depth of field softens most of it anyway)
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
-    this.renderer.shadowMap.enabled = true; // (the headlight's beam pattern is applied through its shadow map)
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.background = new THREE.Color(0x070a14);
     this.scene.fog = new THREE.Fog(0x080b15, 20, 110);
 
@@ -89,6 +86,7 @@ export class GarageScene {
     const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
     this.composer = new EffectComposer(this.renderer, target);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // Only the lights themselves bloom (over 1), not what they light.
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.5, 1.0);
     this.composer.addPass(this.bloom);
     this.bokeh = new BokehPass(this.scene, this.camera, { focus: CAM.r, aperture: 0.0006, maxblur: 0.008 });
@@ -101,10 +99,15 @@ export class GarageScene {
   show(id: string, livery?: string): void {
     if (this.car) this.scene.remove(this.car);
     const spec = CARS[id];
-    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, false, livery).root;
+    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, true, livery).root;
     this.car.position.y = PLAYER_H / 2; // on the ground
     this.car.rotation.y = CAR_YAW;
-    this.headlights(this.car);
+    this.car.updateMatrix();
+    // Its low beam on the ground ahead, as the race's NPCs' (no real light: one by the nose, seen from in front,
+    // glared off the wet asphalt right under the camera).
+    this.beams.begin();
+    this.beams.add(this.car, 0, 0);
+    this.beams.end();
     this.scene.add(this.car);
     this.resize();
     if (!this.running) {
@@ -123,23 +126,6 @@ export class GarageScene {
 
   stop(): void {
     this.running = false;
-  }
-
-  /**
-   * Its headlights on the ground ahead: the race's low beam (its cut-off and spread: headlight.ts), one lamp
-   * between its headlamps (one light, not two: every light costs every pixel, its shadow map too), aimed as in
-   * the race; its pool mirrored in the wet too. A child of the car.
-   */
-  private headlights(car: THREE.Object3D): void {
-    const heads = ((car.userData.flares ?? []) as FlareSpot[]).filter((f) => f.kind === 'head');
-    if (!heads.length) return;
-    const at = heads.reduce((s, f) => s.add(new THREE.Vector3(f.x, f.y, f.z)), new THREE.Vector3()).divideScalar(heads.length);
-    const beam = createHeadlight(HEADLIGHT_INTENSITY);
-    beam.shadow.mapSize.set(512, 512);
-    beam.position.copy(at);
-    // Aimed lower than in the race (its cut-off on the ground a few metres ahead, not far off the picture's left).
-    beam.target.position.set(at.x, at.y - Math.tan(AIM_DOWN + GARAGE_AIM) * 30, at.z - 30); // the nose is -z
-    car.add(beam, beam.target);
   }
 
   private frame(): void {
@@ -168,10 +154,9 @@ export class GarageScene {
     grain.repeat.set(30, 30);
     const rough = wet.clone();
     rough.repeat.set(PUDDLES, PUDDLES);
-    const asphalt = new THREE.Mesh(
-      new THREE.PlaneGeometry(2 * FAR, 2 * FAR),
-      new THREE.MeshStandardMaterial({ color: 0x2a2c31, map: grain, roughness: 0.75, roughnessMap: invert(rough) }),
-    );
+    const mat = new THREE.MeshStandardMaterial({ color: 0x2a2c31, map: grain, roughness: 0.75, roughnessMap: invert(rough) });
+    this.beams.patch(mat); // the car's low beam on it
+    const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(2 * FAR, 2 * FAR), mat);
     asphalt.rotation.x = -Math.PI / 2;
     this.scene.add(asphalt);
 
@@ -194,6 +179,7 @@ export class GarageScene {
   /** The parking bays: white lines across, the car in one, the lay-by's edge line along. */
   private bays(): void {
     const paint = new THREE.MeshStandardMaterial({ color: 0xcfd2d6, roughness: 0.5 });
+    this.beams.patch(paint);
     const line = (w: number, l: number, x: number, z: number) => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l), paint);
       m.rotation.x = -Math.PI / 2;
