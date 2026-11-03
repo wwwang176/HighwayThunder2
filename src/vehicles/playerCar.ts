@@ -83,7 +83,7 @@ export class PlayerCar {
   private steer = 0;
   private throttle = 0;
   readonly gearbox = new Gearbox();
-  /** Its nitro (emptied at the race's start: the game's; a reset on the road keeps it). */
+  /** Its nitro (full at the race's start: the game's; a reset on the road keeps it). */
   readonly nitro = new Nitro();
   readonly headlights: THREE.SpotLight[] = [];
   rpm = 900;

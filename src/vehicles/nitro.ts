@@ -21,7 +21,7 @@ export const NITRO = {
 };
 
 export class Nitro {
-  level = 0;
+  level = 1; // full at a race's start
   /** Burning (as of the last update). */
   active = false;
 
@@ -37,8 +37,9 @@ export class Nitro {
     this.level = Math.min(1, this.level + NITRO.nearMiss);
   }
 
+  /** A race's start: full. */
   reset(): void {
-    this.level = 0;
+    this.level = 1;
     this.active = false;
   }
 }

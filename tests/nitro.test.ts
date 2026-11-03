@@ -8,9 +8,10 @@ const run = (n: Nitro, seconds: number, want: boolean, dt = 0.01) => {
 };
 
 describe('nitro', () => {
-  it('starts empty and fills on its own in NITRO.refill seconds', () => {
+  it('starts full; from empty, fills on its own in NITRO.refill seconds', () => {
     const n = new Nitro();
-    expect(n.level).toBe(0);
+    expect(n.level).toBe(1);
+    n.level = 0;
     run(n, NITRO.refill / 2, false);
     expect(n.level).toBeCloseTo(0.5, 2);
     run(n, NITRO.refill, false);
@@ -30,6 +31,7 @@ describe('nitro', () => {
 
   it('a near miss adds NITRO.nearMiss, up to full', () => {
     const n = new Nitro();
+    n.level = 0;
     n.nearMiss();
     expect(n.level).toBeCloseTo(NITRO.nearMiss);
     n.level = 0.9;
@@ -37,12 +39,12 @@ describe('nitro', () => {
     expect(n.level).toBe(1);
   });
 
-  it('reset: empty, off', () => {
+  it('reset (a race\'s start): full, off', () => {
     const n = new Nitro();
-    n.level = 0.7;
+    n.level = 0.3;
     n.update(0.01, true);
     n.reset();
-    expect(n.level).toBe(0);
+    expect(n.level).toBe(1);
     expect(n.active).toBe(false);
   });
 });
