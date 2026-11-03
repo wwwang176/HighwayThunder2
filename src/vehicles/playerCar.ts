@@ -137,8 +137,9 @@ export class PlayerCar {
           shape
             .setDensity(0)
             // The body slides on what it touches - the road, the rails, other cars - rather than catching and
-            // tripping over (at 0.3, averaged with the road's 0.9, light knocks rolled it). The tyres grip apart.
-            .setFriction(0.1)
+            // tripping over (at 0.3, averaged with the road's 0.9, light knocks rolled it), and grounding under
+            // hard braking hardly slows it (at 0.1 it dragged). The tyres grip apart.
+            .setFriction(0.02)
             .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
             .setRestitution(0.05)
             .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
