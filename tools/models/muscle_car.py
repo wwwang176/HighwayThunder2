@@ -83,7 +83,7 @@ MAT = {}
 
 def make_materials():
     MAT["head"] = material("lamp_head", srgb(0xFFD890), 0.2, 0, 1.0)  # warm (the game swaps in its own glow)
-    MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 3)
+    MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 1.2)  # (the game swaps in its own: dim, bright braking)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
     MAT["tyre"] = material("tyre", srgb(0x0B0B0B), 0.95)
     MAT["rim"] = material("rim", srgb(0x1E1E22), 0.4, 0.6)
@@ -180,6 +180,17 @@ def load_body():
     tyres = [f for f in bm.faces if all(in_tyre(v) for v in f.verts)]
     bmesh.ops.delete(bm, geom=tyres, context="FACES")
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+    # Bits of tread left floating where the tyres met the ground.
+    bmesh.ops.delete(bm, geom=[v for part in loose_parts(bm) if len(part) < 20 for v in part], context="VERTS")
+    # The holes the tyres left where they met the wheel wells (and a few the generation left): closed, each
+    # corner taking its UV from the face beside it.
+    uv = bm.loops.layers.uv.active
+    around = {v: next(l[uv].uv.copy() for l in v.link_loops) for e in bm.edges if e.is_boundary for v in e.verts}
+    new = bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)["faces"]
+    new = bmesh.ops.triangulate(bm, faces=new, quad_method="BEAUTY", ngon_method="EAR_CLIP")["faces"]
+    for f in new:
+        for l in f.loops:
+            l[uv].uv = around[l.vert]
     bm.to_mesh(ob.data)
     bm.free()
 
@@ -187,6 +198,26 @@ def load_body():
     w, h = img.size
     px = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)
     return ob, px
+
+
+def loose_parts(bm):
+    """The mesh's connected pieces, as lists of verts."""
+    seen, parts = set(), []
+    for v in bm.verts:
+        if v in seen:
+            continue
+        seen.add(v)
+        stack, part = [v], []
+        while stack:
+            a = stack.pop()
+            part.append(a)
+            for e in a.link_edges:
+                b = e.other_vert(a)
+                if b not in seen:
+                    seen.add(b)
+                    stack.append(b)
+        parts.append(part)
+    return parts
 
 
 def colour_class(rgb):
@@ -205,15 +236,93 @@ def sample(px, uv):
     return px[min(h - 1, max(0, int(uv.y % 1 * h))), min(w - 1, max(0, int(uv.x % 1 * w))), :3]
 
 
-def white_paint(ob, px):
-    """The texture with its paint made white (keeping its light and shade), as the `paint` material."""
+def paint_mask(px):
+    """The texture's paint pixels (colour_class "paint", vectorised) and every pixel's brightness."""
     rgb = px[..., :3]
     mx, mn = rgb.max(axis=2), rgb.min(axis=2)
     s = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1e-6), 0)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
     hue = np.where(mx == r, ((g - b) / np.maximum(mx - mn, 1e-6)) % 6, np.where(mx == g, (b - r) / np.maximum(mx - mn, 1e-6) + 2,
                                                                                 (r - g) / np.maximum(mx - mn, 1e-6) + 4)) / 6
-    paint = (s > 0.45) & (mx > 0.25) & (hue >= 0.012) & (hue < 0.14)
+    return (s > 0.45) & (mx > 0.25) & (hue >= 0.012) & (hue < 0.14), mx
+
+
+def paint_uv(px):
+    """A UV in the middle of a patch of plain paint, of the paint's usual brightness."""
+    paint, mx = paint_mask(px)
+    solid = paint.copy()
+    for dy in range(-6, 7, 3):
+        for dx in range(-6, 7, 3):
+            solid &= np.roll(paint, (dy, dx), axis=(0, 1))
+    ys, xs = np.nonzero(solid)
+    i = np.argmin(np.abs(mx[ys, xs] - np.median(mx[paint])))
+    h, w = paint.shape
+    return Vector(((xs[i] + 0.5) / w, (ys[i] + 0.5) / h))
+
+
+def build_apron(body, px, z_out=0.345, inset=0.01, n=8):
+    """Fills the generated nose's slot between the bumper and the splitter (a jaw from the side): a solid lower
+    apron following the bumper's outline (at z_out) just inside it, from the splitter up under the bumper,
+    unioned in. Each face takes the texture's colour at the body nearest it (so its paint shades on from the
+    body's), or plain paint where that isn't paint."""
+    bb = bmesh.new()
+    bb.from_mesh(body.data)
+    bmesh.ops.triangulate(bb, faces=bb.faces)
+    bb.faces.ensure_lookup_table()
+    buv = bb.loops.layers.uv.active
+    tree = BVHTree.FromBMesh(bb)
+    plain = paint_uv(px)
+
+    def uv_near(co):
+        p, _, idx, _ = tree.find_nearest(co)
+        f = bb.faces[idx]
+        w = barycentric(p, *(l.vert.co for l in f.loops))
+        uv = sum((l[buv].uv * k for l, k in zip(f.loops, w)), Vector((0, 0)))
+        return uv if colour_class(sample(px, uv)) == "paint" else plain
+
+    back, z0, z1 = 1.58, 0.215, 0.335
+    centre = Vector((0, back, z_out))
+    side = []  # the bumper's outline at z_out, from the right side round to the front centre
+    for i in range(n + 1):
+        a = math.pi / 2 * i / n
+        d = Vector((math.cos(a), math.sin(a), 0))
+        p = tree.ray_cast(centre + d * 3, -d)[0]
+        assert p is not None, f"apron: nothing at {math.degrees(a):.0f} degrees"
+        side.append(p - d * inset)
+    outline = [(-p.x, p.y) for p in side] + [(p.x, p.y) for p in reversed(side[:-1])]
+    n = len(outline)
+    verts = [(x, y, z) for z in (z0, z1) for x, y in outline]
+    faces = [tuple(range(n)), tuple(range(2 * n - 1, n - 1, -1))] + [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+    me = bpy.data.meshes.new("apron")
+    me.from_pydata(verts, [], faces)
+    me.materials.append(body.data.materials[0])
+    apron = bpy.data.objects.new("apron", me)
+    bpy.context.collection.objects.link(apron)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4], ngon_method="EAR_CLIP")
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    uv = bm.loops.layers.uv.new(body.data.uv_layers.active.name)
+    for f in bm.faces:  # one texel a face (a UV per corner would stretch across the texture's islands)
+        texel = uv_near(f.calc_center_median())
+        for l in f.loops:
+            l[uv].uv = texel
+    bm.to_mesh(me)
+    bm.free()
+    bb.free()
+    mod = body.modifiers.new("b", "BOOLEAN")
+    mod.operation = "UNION"
+    mod.solver = "EXACT"
+    mod.use_hole_tolerant = True
+    mod.object = apron
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.object.modifier_apply(modifier="b")
+    bpy.data.objects.remove(apron)
+
+
+def white_paint(ob, px):
+    """The texture with its paint made white (keeping its light and shade), as the `paint` material."""
+    paint, mx = paint_mask(px)
     ref = np.percentile(mx[paint], 90)  # the paint's bright, lit tone goes to white
     out = px.copy()
     out[paint, :3] = np.minimum(1.0, mx[paint] / ref)[:, None]
@@ -315,11 +424,22 @@ def build_lights(body, px):
         clear_of(lamps[-1], [body], Vector((0, 1, 0)))
 
     red = hits(True, "red")
-    xs = sorted(abs(x) for x, z in red)
-    zs = sorted(z for x, z in red)
+    # The bar: the longest run of rows (1 cm apart) mostly red, not the odd red line above or below it.
+    rows = {}
+    for x, z in red:
+        rows[round(z * 100)] = rows.get(round(z * 100), 0) + 1
+    full = sorted(k for k, c in rows.items() if c >= 0.3 * max(rows.values()))
+    runs = [[full[0]]]
+    for k in full[1:]:
+        if k == runs[-1][-1] + 1:
+            runs[-1].append(k)
+        else:
+            runs.append([k])
+    run = max(runs, key=len)
+    bz0, bz1 = run[0] / 100, run[-1] / 100
+    xs = sorted(abs(x) for x, z in red if bz0 <= z <= bz1)
     pick = lambda q, frac: q[int(frac * (len(q) - 1))]  # noqa: E731
     bx0, bx1 = max(0.02, pick(xs, 0.03)), pick(xs, 0.97)
-    bz0, bz1 = pick(zs, 0.05), pick(zs, 0.95)
     print(f"[muscle_car] tail bar: |x| {bx0:.2f}..{bx1:.2f}, z {bz0:.2f}..{bz1:.2f} ({len(red)} red hits)")
     seg = (bx1 - bx0) * 0.2
     for side, s in (("L", -1), ("R", 1)):
@@ -538,6 +658,7 @@ def main():
     make_materials()
 
     body, px = load_body()
+    build_apron(body, px)
     lamps = build_lights(body, px)
     white_paint(body, px)
     bpy.ops.object.select_all(action="DESELECT")
@@ -582,4 +703,5 @@ def main():
     print(f"[muscle_car] wrote {out}")
 
 
-main()
+if __name__ == "__main__":
+    main()
