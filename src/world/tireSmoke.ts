@@ -225,7 +225,7 @@ export class TireSmoke {
       this.pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.3;
       // Smoke is left behind: it keeps only a little of the car's motion.
       this.vel[i * 3] = carVx * 0.15 + (Math.random() - 0.5) * 1.2;
-      this.vel[i * 3 + 1] = 0.5 + Math.random() * 0.6;
+      this.vel[i * 3 + 1] = 0.25 + Math.random() * 0.3; // (rising: it climbed twice as high)
       this.vel[i * 3 + 2] = carVz * 0.15 + (Math.random() - 0.5) * 1.2;
       this.turn[i] = Math.random() * Math.PI * 2;
       this.spin[i] = (Math.random() * 2 - 1) * PUFF_SPIN;
