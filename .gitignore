@@ -4,3 +4,4 @@ dist/
 *.log
 training/out/
 __pycache__/
+*.blend1
