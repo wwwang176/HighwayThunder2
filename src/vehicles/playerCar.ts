@@ -81,6 +81,7 @@ export class PlayerCar {
   readonly mesh: THREE.Group;
   private readonly lights: VehicleLights;
   private flames: ExhaustFlames | null = null;
+  private held = false;
   private readonly backfire = new Backfire();
   private readonly visuals: { steer: THREE.Group; spin: THREE.Group }[] = [];
   readonly chassis: TyreChassis;
@@ -386,6 +387,23 @@ export class PlayerCar {
   exhaust(dt: number): void {
     const pops = this.backfire.update(dt, this.throttle, this.rpm / this.params.redline);
     this.flames?.update(dt, pops, this.nitro.active);
+  }
+
+  /**
+   * Held to its spot (the start grid) or let go: it can't move along the ground nor turn, but rises, squats and
+   * rocks on its springs and spins its wheels as it pleases (a burnout on the line goes nowhere).
+   */
+  holdInPlace(on: boolean): void {
+    if (on === this.held) return;
+    this.held = on;
+    this.body.setEnabledTranslations(!on, true, !on, true);
+    this.body.setEnabledRotations(true, !on, true, true);
+    if (on) {
+      const v = this.body.linvel();
+      const w = this.body.angvel();
+      this.body.setLinvel({ x: 0, y: v.y, z: 0 }, true);
+      this.body.setAngvel({ x: w.x, y: 0, z: w.z }, true);
+    }
   }
 
   resetTo(s: number, lane: number, speed: number): void {

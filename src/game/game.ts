@@ -455,6 +455,7 @@ export class Game {
     // obstacles to both), then drive the NPC bodies along the planned paths.
     this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
 
+    this.player.holdInPlace(this.flow.phase === 'countdown'); // (on the grid a burnout goes nowhere)
     this.player.prePhysics(input, dt);
     // How the racers were moving going into the step: a contact is judged on that, not on the bounce.
     const before = this.player.body.linvel();
