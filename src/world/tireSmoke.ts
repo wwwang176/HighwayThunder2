@@ -9,8 +9,16 @@ const ALBEDO = 0.86;
 const AMBIENT = new THREE.Color(0x1c2740).multiplyScalar(0.35).add(new THREE.Color(0x8fa4d8).multiplyScalar(0.06));
 /** Most lights the smoke shader takes (street lights + player + nearest NPC headlights). */
 const MAX_LIGHTS = 16;
-/** A puff's lit radius relative to its size attribute (matches its look on screen). */
-const PUFF_RADIUS = 0.3;
+/** A puff's picture: its alpha the smoke's density (thicker in the middle, grainy), from the first Highway Thunder. */
+const PUFF_TEXTURE = `${import.meta.env.BASE_URL}fx/smoke.png`;
+/** How fast a puff turns (rad/s, either way, at most): no two alike, none still. */
+const PUFF_SPIN = 0.6;
+/** The fake volume's shade averages under 1 (its far side, its core): this brings a puff back to its light. */
+const SHADE_GAIN = 1.15;
+
+function puffTexture(): THREE.Texture {
+  return new THREE.TextureLoader().load(PUFF_TEXTURE); // (only its alpha is read)
+}
 
 /**
  * A light the smoke is lit by, in world space: a spot light (with an optional
@@ -63,11 +71,14 @@ const vec3s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3()
 const vec4s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4());
 
 /**
- * Tyre smoke: soft grey puffs emitted where a tyre is sliding hard (burnouts,
- * lock-ups, slides). One Points draw call; particles grow, rise and fade. Each
- * pixel of a puff is lit by the lights around it (three.js's punctual-light
- * falloff, spot cones, the low-beam pattern), so light fades smoothly across
- * the smoke instead of changing from one puff to the next.
+ * Tyre smoke: grey puffs (a grainy smoke picture, each turned its own way and turning) emitted where a tyre is
+ * sliding hard (burnouts, lock-ups, slides). One Points draw call; particles grow, rise and fade.
+ *
+ * Lit as grok-aircraft2 lights its smoke: each puff by the lights around it (three.js's punctual-light
+ * falloff, spot cones, the low-beam pattern) once, at its centre (the vertex shader: per pixel, with a dozen
+ * lights, it cost most of a frame in a thick cloud); per pixel only a fake volume: the puff a ball (a normal
+ * from where on it the pixel is), its side toward the light (their weighted direction) lit, the far side and
+ * its dense core (the picture's alpha: the light's way through it) darker.
  */
 export class TireSmoke {
   private readonly pos = new Float32Array(MAX * 3);
@@ -75,6 +86,8 @@ export class TireSmoke {
   private readonly age = new Float32Array(MAX).fill(LIFE);
   private readonly size = new Float32Array(MAX);
   private readonly alpha = new Float32Array(MAX);
+  private readonly turn = new Float32Array(MAX);
+  private readonly spin = new Float32Array(MAX);
   private readonly geo = new THREE.BufferGeometry();
   private readonly uniforms = {
     lightCount: { value: 0 },
@@ -87,6 +100,7 @@ export class TireSmoke {
     lightRight: { value: vec4s() },
     lightUp: { value: vec3s() },
     cookieTex: { value: lowBeamCookie(128) },
+    puffTex: { value: puffTexture() },
     ambient: { value: AMBIENT.clone().multiplyScalar(ALBEDO / Math.PI) },
   };
   private next = 0;
@@ -96,30 +110,18 @@ export class TireSmoke {
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('turn', new THREE.BufferAttribute(this.turn, 1).setUsage(THREE.DynamicDrawUsage));
     const mat = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       fog: true,
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { scale: { value: 600 } }]),
       vertexShader: `
+        #define MAX_LIGHTS ${MAX_LIGHTS}
         attribute float size;
         attribute float alpha;
+        attribute float turn;
         uniform float scale;
-        varying float vAlpha;
-        varying vec3 vCenter;
-        varying float vRadius;
-        #include <fog_pars_vertex>
-        void main() {
-          vAlpha = alpha;
-          vCenter = (modelMatrix * vec4(position, 1.0)).xyz;
-          vRadius = size * ${PUFF_RADIUS.toFixed(2)};
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size * scale / -mvPosition.z;
-          gl_Position = projectionMatrix * mvPosition;
-          #include <fog_vertex>
-        }`,
-      fragmentShader: `
-        #define MAX_LIGHTS ${MAX_LIGHTS}
         uniform int lightCount;
         uniform vec3 lightPos[MAX_LIGHTS];
         uniform vec3 lightColor[MAX_LIGHTS];
@@ -128,21 +130,18 @@ export class TireSmoke {
         uniform vec4 lightRight[MAX_LIGHTS];
         uniform vec3 lightUp[MAX_LIGHTS];
         uniform sampler2D cookieTex;
-        uniform vec3 ambient;
         varying float vAlpha;
-        varying vec3 vCenter;
-        varying float vRadius;
-        #include <fog_pars_fragment>
+        varying float vTurn;
+        varying vec3 vLit;
+        varying vec3 vToLight;
+        #include <fog_pars_vertex>
         void main() {
-          vec2 c = gl_PointCoord - 0.5;
-          float d = dot(c, c);
-          if (d > 0.25) discard;
-          float soft = 1.0 - d * 4.0;
-          // Where this pixel is in the world: the sprite faces the camera.
-          vec3 camRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
-          vec3 camUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-          vec3 p = vCenter + (camRight * c.x - camUp * c.y) * 2.0 * vRadius;
+          vAlpha = alpha;
+          vTurn = turn;
+          // The light reaching the puff's centre, and the way it comes from (each light's, by its strength).
+          vec3 p = (modelMatrix * vec4(position, 1.0)).xyz;
           vec3 e = vec3(0.0);
+          vec3 toLight = vec3(0.0);
           for (int i = 0; i < MAX_LIGHTS; i++) {
             if (i >= lightCount) break;
             vec3 l = p - lightPos[i];
@@ -162,10 +161,41 @@ export class TireSmoke {
                 k *= (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ? texture2D(cookieTex, uv).r : 0.0;
               }
             }
-            e += lightColor[i] * k;
+            vec3 c = lightColor[i] * k;
+            e += c;
+            toLight -= l / max(dist, 0.001) * (c.r + c.g + c.b);
           }
           // Outgoing light of a diffuse grey surface (albedo / pi x irradiance), as the scene's materials.
-          gl_FragColor = vec4(ambient + e * ${(ALBEDO / Math.PI).toFixed(4)}, vAlpha * soft * soft);
+          vLit = e * ${(ALBEDO / Math.PI).toFixed(4)};
+          vToLight = mat3(viewMatrix) * toLight; // (seen from the camera: the puff faces it)
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * scale / -mvPosition.z;
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: `
+        uniform sampler2D puffTex;
+        uniform vec3 ambient;
+        varying float vAlpha;
+        varying float vTurn;
+        varying vec3 vLit;
+        varying vec3 vToLight;
+        #include <fog_pars_fragment>
+        void main() {
+          vec2 c = gl_PointCoord - 0.5;
+          float cs = cos(vTurn), sn = sin(vTurn);
+          float density = texture2D(puffTex, mat2(cs, sn, -sn, cs) * c + 0.5).a;
+          if (density < 0.004) discard;
+          // The puff a ball: its normal where this pixel is (x right, y up, z toward the camera).
+          vec2 xy = vec2(c.x, -c.y) * 2.0;
+          vec3 n = vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
+          float lightLen = length(vToLight);
+          float facing = lightLen > 1e-6 ? dot(normalize(n), vToLight / lightLen) : 0.0;
+          float direct = smoothstep(-0.35, 0.85, facing);
+          // Its dense core the light's longest way through: darkest on the far side.
+          float core = pow(density, 1.35);
+          float shade = mix(0.58, 1.0, direct) * (1.0 - core * mix(0.32, 0.12, direct));
+          gl_FragColor = vec4(ambient + vLit * shade * ${SHADE_GAIN.toFixed(2)}, vAlpha * density);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
           #include <fog_fragment>
@@ -197,6 +227,8 @@ export class TireSmoke {
       this.vel[i * 3] = carVx * 0.15 + (Math.random() - 0.5) * 1.2;
       this.vel[i * 3 + 1] = 0.5 + Math.random() * 0.6;
       this.vel[i * 3 + 2] = carVz * 0.15 + (Math.random() - 0.5) * 1.2;
+      this.turn[i] = Math.random() * Math.PI * 2;
+      this.spin[i] = (Math.random() * 2 - 1) * PUFF_SPIN;
       this.age[i] = 0;
     }
     this.carry.set(id, n);
@@ -213,6 +245,7 @@ export class TireSmoke {
         this.pos[i * 3] += this.vel[i * 3] * dt;
         this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
         this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+        this.turn[i] += this.spin[i] * dt;
       }
       const look = puffLook(this.age[i]);
       this.size[i] = look.size;
@@ -221,6 +254,7 @@ export class TireSmoke {
     (this.geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('size') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('alpha') as THREE.BufferAttribute).needsUpdate = true;
+    (this.geo.getAttribute('turn') as THREE.BufferAttribute).needsUpdate = true;
     this.setLights(lights);
   }
 
