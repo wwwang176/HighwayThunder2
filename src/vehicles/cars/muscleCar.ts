@@ -6,7 +6,7 @@ import { MUSCLE_CAR_TRACKER } from './muscleCarTracker';
  * The muscle car: the hardest pull off the line (big torque - the nose comes up
  * under full throttle), soft springs that lean and pitch, a tail that steps out
  * under power, less grip in a corner and a lower top speed than the supercar.
- * Same size as the supercar (the AI's room-keeping assumes it).
+ * A little bigger than the supercar (its model's size: params.width, length).
  */
 export const MUSCLE_CAR: CarSpec = {
   id: 'muscle-car',
@@ -41,9 +41,11 @@ export const MUSCLE_CAR: CarSpec = {
     aeroGrip: 0.4,
     lsd: 600,
     escGain: 1_500, // 0: it spins whenever the throttle goes down in a turn
-    // Its model's (public/models/muscle-car.glb, tools/models/muscle_car.py): the wheels in its arches.
+    // Its model's (public/models/muscle-car.glb, tools/models/muscle_car.py): the wheels in its arches, its body.
     wheelRadius: 0.324,
     wheelbase: 2.54,
+    width: 1.99,
+    length: 4.52,
   },
   // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
   ai: {
@@ -59,10 +61,10 @@ export const MUSCLE_CAR: CarSpec = {
     latAccel: [
       [0, 8.9],
       [50, 8.9],
-      [100, 9.9],
+      [100, 10.1],
       [150, 11.9],
-      [200, 13.6],
-      [250, 14.4],
+      [200, 13.5],
+      [250, 14.5],
       [300, 15.3],
     ],
     tracker: MUSCLE_CAR_TRACKER,

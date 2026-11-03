@@ -11,7 +11,7 @@ import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { CarSpec, STREET_RACER } from '../vehicles/cars';
 import { randomLivery } from '../vehicles/carModels';
-import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
+import { PlayerCar } from '../vehicles/playerCar';
 import { Blocker, computeResetSpot } from './reset';
 import { trackerFrom } from '../ai/netTracker';
 import { aiTopSpeed } from '../ai/aiTopSpeed';
@@ -242,7 +242,7 @@ export class Rivals {
       const t = r.car.body.translation();
       const v = r.car.body.linvel();
       const f = OUR_FRAME.forwardWorld(r.car.yaw);
-      return { ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: PLAYER_W, l: PLAYER_L, vx: v.x, vz: v.z }), id: RIVAL_BOX_ID - r.index, isPlayer: true };
+      return { ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: r.car.width, l: r.car.length, vx: v.x, vz: v.z }), id: RIVAL_BOX_ID - r.index, isPlayer: true };
     });
   }
 
@@ -252,7 +252,7 @@ export class Rivals {
     for (const r of this.list) {
       const c = r.car;
       const s = frame.fromWorld(c.d, -c.s).s;
-      for (const lane of lanesOccupied(c.d - PLAYER_W / 2, c.d + PLAYER_W / 2)) out.push({ s, lane, length: PLAYER_L, v: Math.max(0, c.speed) });
+      for (const lane of lanesOccupied(c.d - c.width / 2, c.d + c.width / 2)) out.push({ s, lane, length: c.length, v: Math.max(0, c.speed) });
     }
     return out;
   }

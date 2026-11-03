@@ -475,7 +475,7 @@ export class Game {
     const t = this.player.body.translation();
     const v = this.player.body.linvel();
     const f = OUR_FRAME.forwardWorld(this.player.yaw);
-    return boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: 1.86, l: 4.4, vx: v.x, vz: v.z });
+    return boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: this.player.width, l: this.player.length, vx: v.x, vz: v.z });
   }
 
   private onContact(a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null): void {

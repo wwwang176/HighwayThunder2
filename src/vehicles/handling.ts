@@ -17,6 +17,8 @@ export interface CarParams {
   idleRpm: number; // rpm
   driveEfficiency: number; // driveline efficiency
   wheelRadius: number; // m
+  width: number; // m, the body (collider, the box others see and the AI keeps clear with)
+  length: number; // m
   maxSpeed: number; // m/s, rev limiter (wheel surface speed)
   reverseMax: number; // m/s
   reverseForce: number; // N

@@ -31,7 +31,7 @@ export function planPedals(p: Plan, age: number, v: number, table?: AccelTable):
   if (a > -COAST_DECEL) return { throttle: 0, brake: 0 };
   return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / FULL_BRAKE_DECEL) };
 }
-const HALF_LENGTH = 2.2;
+const HALF_LENGTH = 2.2; // the car's, unless its SelfState says (the street racer's)
 const HALF_WIDTH = 0.93;
 /** Bumper gap (m) the emergency brake keeps when it has to step in. */
 const STOP_GAP = 1.5;
@@ -60,17 +60,18 @@ export function emergencyBrake(self: SelfState, traffic: TrafficBox[], plannedVD
   // Sideways speed: what the car has, or what the plan is taking it to if more (the car lags the plan).
   const actual = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
   const vD = Math.abs(plannedVD) > Math.abs(actual) && Math.sign(plannedVD) !== -Math.sign(actual) ? plannedVD : actual;
+  const halfW = self.halfWidth ?? HALF_WIDTH;
   for (const t of traffic) {
-    if (t.phantom || t.s <= self.s || t.dMax < self.d - HALF_WIDTH || t.dMin > self.d + HALF_WIDTH) continue;
+    if (t.phantom || t.s <= self.s || t.dMax < self.d - halfW || t.dMin > self.d + halfW) continue;
     const closing = self.vLong - t.v;
     if (closing <= 0) continue;
-    const room = t.s - t.length / 2 - (self.s + HALF_LENGTH) - STOP_GAP;
+    const room = t.s - t.length / 2 - (self.s + (self.halfLength ?? HALF_LENGTH)) - STOP_GAP;
     // Swerving away from it: no brake if the car is clear of it sideways before it gets there. With
     // `steerClear` (as the planner): pulling out from dead behind it too.
     const side = t.dMax < self.d ? 1 : t.dMin > self.d ? -1 : PLANNER.steerClear ? 0 : NaN;
     const away = vD > SWERVING ? side === 1 || side === 0 : vD < -SWERVING ? side === -1 || side === 0 : false;
     if (away) {
-      const overlap = vD > 0 ? t.dMax - (self.d - HALF_WIDTH) : self.d + HALF_WIDTH - t.dMin;
+      const overlap = vD > 0 ? t.dMax - (self.d - halfW) : self.d + halfW - t.dMin;
       if (closing * (overlap / Math.abs(vD)) < room) continue;
     }
     need = Math.max(need, room <= 0.1 ? Infinity : (closing * closing) / (2 * room));
@@ -153,7 +154,17 @@ export class PlannerDriver implements Driver {
     if (!this.plan || this.planAge >= REPLAN_EVERY) {
       const previous = this.plan && { plan: this.plan, age: this.planAge };
       const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
-      const ego = { s: self.s, d: self.d, v: self.vLong, speedCap: self.speedCap, vD, accel: this.accelTable(), latAccel: this.latAccel };
+      const ego: PlanEgo = {
+        s: self.s,
+        d: self.d,
+        v: self.vLong,
+        speedCap: self.speedCap,
+        vD,
+        accel: this.accelTable(),
+        latAccel: this.latAccel,
+        halfWidth: self.halfWidth,
+        halfLength: self.halfLength,
+      };
       if (!this.source) this.adopt(plan(ego, traffic, previous), this.clock);
       else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);
     }

@@ -17,6 +17,8 @@ export const STREET_RACER: CarSpec = {
     idleRpm: 900,
     driveEfficiency: 0.9,
     wheelRadius: 0.34,
+    width: 1.86,
+    length: 4.4,
     maxSpeed: 83.3,
     reverseMax: 8,
     reverseForce: 4_000,

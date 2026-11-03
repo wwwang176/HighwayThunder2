@@ -26,6 +26,7 @@ export interface PlayerCarOptions {
   realLights?: boolean;
 }
 
+/** The street racer's size (each car's own: CarParams.width, length; PlayerCar.width, length). */
 export const PLAYER_W = 1.86;
 export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
@@ -105,9 +106,9 @@ export class PlayerCar {
     const ghost = !opts.entity && scene === null;
     const entity = opts.entity ?? { type: 'player' };
     const inertia = {
-      x: (p.mass / 12) * (0.8 * 0.8 + PLAYER_L * PLAYER_L),
-      y: (p.mass / 12) * (PLAYER_W * PLAYER_W + PLAYER_L * PLAYER_L),
-      z: (p.mass / 12) * (PLAYER_W * PLAYER_W + 0.8 * 0.8),
+      x: (p.mass / 12) * (0.8 * 0.8 + p.length * p.length),
+      y: (p.mass / 12) * (p.width * p.width + p.length * p.length),
+      z: (p.mass / 12) * (p.width * p.width + 0.8 * 0.8),
     };
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(laneCenter(1), RIDE_Y, 0).setCanSleep(false);
     if (ghost) {
@@ -121,7 +122,7 @@ export class PlayerCar {
     } else {
       this.body = physics.world.createRigidBody(bodyDesc.setCcdEnabled(true));
       this.collider = physics.world.createCollider(
-        RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
+        RAPIER.ColliderDesc.roundCuboid(p.width / 2 - 0.05, 0.3, p.length / 2 - 0.05, 0.05)
           .setTranslation(0, 0.1, 0)
           // The collider sits 0.1 m up the body: its mass centre is placed to land at body y + comY.
           .setMassProperties(p.mass, { x: 0, y: p.comY - 0.1, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
@@ -161,16 +162,16 @@ export class PlayerCar {
     }
     const realLights = opts.realLights ?? true;
     // Without real lights it shows NPC-style glowing beams instead (rivals: real lights are expensive).
-    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, spec.style, false, !realLights, opts.livery);
+    const model = buildCar(p.width, PLAYER_H, p.length, opts.color ?? spec.color, spec.style, false, !realLights, opts.livery);
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
     // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
     // of a round cone; the two beams overlap ahead and each casts its own shadow.
     for (const side of realLights ? [-1, 1] : []) {
-      const x = side * (PLAYER_W / 2 - 0.4);
+      const x = side * (p.width / 2 - 0.4);
       const hl = createHeadlight(HEADLIGHT_INTENSITY / 2);
-      hl.position.set(x, -0.05, -PLAYER_L / 2 - 0.15);
-      hl.target.position.set(x, -0.05 - Math.tan(AIM_DOWN) * 30, -PLAYER_L / 2 - 30);
+      hl.position.set(x, -0.05, -p.length / 2 - 0.15);
+      hl.target.position.set(x, -0.05 - Math.tan(AIM_DOWN) * 30, -p.length / 2 - 30);
       model.root.add(hl, hl.target);
       this.headlights.push(hl);
     }
@@ -188,6 +189,15 @@ export class PlayerCar {
 
   get speed(): number {
     return this.vLong;
+  }
+
+  /** Its body's size (m): its collider, the box others see. */
+  get width(): number {
+    return this.params.width;
+  }
+
+  get length(): number {
+    return this.params.length;
   }
 
   /** Yaw rate (rad/s), positive turning toward +d like `yaw`. */
@@ -378,8 +388,9 @@ export class PlayerCar {
   footprint(): { s: number; dMin: number; dMax: number; length: number } {
     const c = Math.abs(Math.cos(this.yaw));
     const sn = Math.abs(Math.sin(this.yaw));
-    const halfD = (PLAYER_W / 2) * c + (PLAYER_L / 2) * sn;
-    const halfS = (PLAYER_L / 2) * c + (PLAYER_W / 2) * sn;
+    const { width: w, length: l } = this.params;
+    const halfD = (w / 2) * c + (l / 2) * sn;
+    const halfS = (l / 2) * c + (w / 2) * sn;
     return { s: this.s, dMin: this.d - halfD, dMax: this.d + halfD, length: halfS * 2 };
   }
 }
