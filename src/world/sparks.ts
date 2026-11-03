@@ -13,9 +13,16 @@ export const SPARKS = {
   /** Life, s (each one between these). */
   life: [0.3, 0.7] as const,
   /** Air drag on the bits, 1/s. */
-  drag: 2.5,
+  drag: 1.5,
+  /**
+   * Where between the two surfaces' velocities a spark leaves (0: the second's, 1: the first's), each between
+   * these; below 0, flung on past the second (scraping a rail, back past it, off the car faster than it slides).
+   */
+  fling: [-0.25, 0.6] as const,
   /** Scatter about the slide's direction, times the sliding speed. */
-  spread: 0.22,
+  spread: 0.18,
+  /** Kick off the contact (along its normal), at most, times the sliding speed. */
+  kick: 0.12,
   /** Of a vertical speed, what a bounce off the road keeps. */
   bounce: 0.35,
 };
@@ -23,9 +30,9 @@ export const SPARKS = {
 const MAX = 1500;
 const G = -9.81;
 /** A streak's length: how far it moves in this long (motion blur), within these. */
-const STREAK_T = 0.04;
+const STREAK_T = 0.022;
 const STREAK_MIN = 0.08;
-const STREAK_MAX = 1.2;
+const STREAK_MAX = 1.6;
 const RADIUS = 0.022;
 
 /** How fast two surfaces slide over each other: their relative velocity across the normal `n`. */
@@ -100,10 +107,10 @@ export class Sparks {
     const i = this.next;
     this.next = (this.next + 1) % MAX;
     const at = t.points[Math.floor(Math.random() * t.count)];
-    // Off one surface or the other, at a speed between theirs: along the slide, scattered (less up than
-    // across), kicked off the contact and up a little.
-    const u = 0.15 + Math.random() * 0.7;
-    const kick = (Math.random() < 0.5 ? -1 : 1) * Math.random() * 0.15 * slide;
+    // Off one surface or the other, at a speed between theirs or flung on past the slower one's: along the
+    // slide, scattered (less up than across), kicked off the contact and up a little.
+    const u = SPARKS.fling[0] + Math.random() * (SPARKS.fling[1] - SPARKS.fling[0]);
+    const kick = (Math.random() < 0.5 ? -1 : 1) * Math.random() * SPARKS.kick * slide;
     const s = SPARKS.spread * slide;
     const o = i * 3;
     this.pos[o] = at.x;
@@ -116,8 +123,11 @@ export class Sparks {
     this.life[i] = SPARKS.life[0] + Math.random() * (SPARKS.life[1] - SPARKS.life[0]);
   }
 
-  /** Moves them on `dt` s (each frame; 0 while paused). */
-  update(dt: number): void {
+  /**
+   * Moves them on `dt` s (each frame; 0 while paused). `view`: how the camera moves (its streaks are blurred
+   * by how they move across the picture, not through the world).
+   */
+  update(dt: number, view: { x: number; y: number; z: number }): void {
     const damp = Math.exp(-SPARKS.drag * dt);
     let top = -1;
     for (let i = 0; i < MAX; i++) {
@@ -148,8 +158,11 @@ export class Sparks {
       this.vel[o + 1] = vy;
       this.vel[o + 2] = vz;
 
-      const speed = Math.hypot(vx, vy, vz);
-      if (speed > 1e-4) Q.setFromUnitVectors(UNIT_Z, D.set(vx / speed, vy / speed, vz / speed));
+      const rx = vx - view.x;
+      const ry = vy - view.y;
+      const rz = vz - view.z;
+      const speed = Math.hypot(rx, ry, rz);
+      if (speed > 1e-4) Q.setFromUnitVectors(UNIT_Z, D.set(rx / speed, ry / speed, rz / speed));
       else Q.identity();
       S.set(1, 1, THREE.MathUtils.clamp(speed * STREAK_T, STREAK_MIN, STREAK_MAX));
       // Its tail where it was: the streak trails behind it.
