@@ -379,21 +379,17 @@ LIVERIES = [
 LIVERY_SIZE = 1024
 
 
-def face_class(px, f, uv):
-    """The class of most of a face's texture: its centre and halfway to each corner."""
+def face_colour(px, f, uv):
+    """The median colour of a face's texture: its centre and halfway to each corner."""
     c = sum((l[uv].uv for l in f.loops), Vector((0, 0))) / len(f.loops)
-    votes = {}
-    for p in [c] + [c + (l[uv].uv - c) * 0.5 for l in f.loops]:
-        k = colour_class(sample(px, p))
-        votes[k] = votes.get(k, 0) + 1
-    return max(votes, key=votes.get)
+    return np.median(np.array([sample(px, p) for p in [c] + [c + (l[uv].uv - c) * 0.5 for l in f.loops]]), axis=0)
 
 
 def split_glass(body, px):
-    """The windows to their own `glass` material; the rest stays `paint`. A window: the texture's dark grey above
-    the belt (or its black where the surface leans back like the rear window: the roof's black is its stripes),
-    as one piece facing one way: grown from its biggest face over the faces turned less than 12 degrees from
-    it (not the roof's, the hood's, the deck's, where the stripes' edges read dark grey).
+    """The windows to their own `glass` material; the rest stays `paint`. A window: the texture's glass grey
+    (0.13 to 0.25, colourless; the stripes are blacker, 0.11) above the belt, as one piece facing one way:
+    grown from its biggest face over the faces turned less than 12 degrees from it (not the roof's, the
+    hood's, the deck's, where the stripes' soft edges can read as that grey).
     Returns the faces stripes may cross (up-facing tops: hood, roof, deck, ducktail) as UV triangles."""
     body.data.materials[0].name = "paint"
     body.data.materials.append(material("glass", srgb(0x161A20), 0.15, 0.3))
@@ -402,8 +398,8 @@ def split_glass(body, px):
     uv = bm.loops.layers.uv.active
     cand = set()
     for f in bm.faces:
-        k = face_class(px, f, uv)
-        if f.calc_center_median().z > 0.8 and (k == "grey" or (k == "dark" and f.normal.y < -0.3)):
+        _, s, v = colorsys.rgb_to_hsv(*face_colour(px, f, uv))
+        if f.calc_center_median().z > 0.8 and 0.13 < v < 0.25 and s < 0.15:
             cand.add(f)
     glass = set()
     left = set(cand)
