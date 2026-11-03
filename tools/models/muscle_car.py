@@ -6,24 +6,28 @@ Run (Blender 5.x, headless):
 
 The body comes from tools/models/src/muscle-car-tripo.glb: Tripo3D's multiview-to-model from our concept
 images (docs/art/muscle-car: front34, side, rear34; smart low poly). This script:
-  - turns it into the game's frame and size (nose toward +y, 4.25 m long, wheels on the ground),
+  - turns it into the game's frame (nose toward +y, wheels on the ground), works on it at 4.25 m long and
+    at the end scales it all up to WIDTH,
   - makes it exactly symmetric (the right half mirrored onto the left),
-  - strips the generated tyres (our own wheel goes in their place),
-  - makes its texture's paint white, so the game can tint the `paint` material any colour,
+  - strips the generated tyres (our own wheel goes in their place), mends the generation's flaws,
+  - splits the windows off as `glass`,
+  - repaints its texture once per livery (LIVERIES: paint, stripes), flat colours,
   - adds the lamps as separate objects over the texture's lamps (the game switches them).
 
 Builds in Blender space (X right, Y forward = nose, Z up), then moves the body down so the origin
 is GROUND above the ground, midway between the axles. Exported Y-up: the nose points to -Z in three.js.
 
 Objects in the GLB (the game finds them by name):
-  body                        paint (the texture; tinted by the game)
-  head_L / head_R             headlamps (the texture's lamp faces, lifted off the body)
-  tail_L / tail_R             the tail light bar's halves (also the brake lights)
+  body                        paint (the first livery's texture), glass
+  head_L / head_R             headlamps (round lamps over the texture's)
+  tail_L / tail_R             the tail light bar's halves (also the brake lights; extras "bar": a light bar)
   ind_FL ind_FR ind_RL ind_RR indicators (glowing plates over the fog lamps and the bar's ends, hidden while off)
   wheel                       one wheel at the origin, axle along X, rim face +X (outer side on the right)
+Beside it, <out without .glb>/: each livery's texture (<name>.png, for `paint`) and liveries.json.
 """
 
 import colorsys
+import json
 import math
 import os
 import sys
@@ -36,7 +40,8 @@ from mathutils.bvhtree import BVHTree
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "muscle-car-tripo.glb")
 GROUND = 0.55  # the origin's height above the ground
-LENGTH = 4.25
+WIDTH = 1.99  # the finished car's (all of it scaled up to this at the end)
+LENGTH = 4.25  # the length it is worked on at (every size below is at this scale)
 
 # The generated car (1 m long, nose toward +x, its tyres' bottom at z = -0.14), into ours.
 SRC_SCALE = LENGTH / 1.0
@@ -50,7 +55,6 @@ WHEEL_W = 0.30
 WHEEL_X = 0.74
 WHEEL_YF = SRC_TYRES[0][0] - AXLE_MID
 WHEEL_YR = SRC_TYRES[1][0] - AXLE_MID
-WHEEL_Z = WHEEL_R
 
 LIFT = 0.003  # how far a lamp floats off the body (no faces touching)
 
@@ -271,14 +275,20 @@ def sample(px, uv):
     return px[min(h - 1, max(0, int(uv.y % 1 * h))), min(w - 1, max(0, int(uv.x % 1 * w))), :3]
 
 
-def paint_mask(px):
-    """The texture's paint pixels (colour_class "paint", vectorised) and every pixel's brightness."""
+def hsv(px):
+    """Hue, saturation and value of every texel (as colorsys, vectorised)."""
     rgb = px[..., :3]
     mx, mn = rgb.max(axis=2), rgb.min(axis=2)
     s = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1e-6), 0)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
     hue = np.where(mx == r, ((g - b) / np.maximum(mx - mn, 1e-6)) % 6, np.where(mx == g, (b - r) / np.maximum(mx - mn, 1e-6) + 2,
                                                                                 (r - g) / np.maximum(mx - mn, 1e-6) + 4)) / 6
+    return hue, s, mx
+
+
+def paint_mask(px):
+    """The texture's paint pixels (colour_class "paint", vectorised) and every pixel's brightness."""
+    hue, s, mx = hsv(px)
     return (s > 0.45) & (mx > 0.25) & (hue >= 0.012) & (hue < 0.14), mx
 
 
@@ -355,30 +365,120 @@ def build_apron(body, px, z_out=0.345, inset=0.01, n=8):
     bpy.data.objects.remove(apron)
 
 
-def white_paint(ob, px):
-    """The texture with its paint made white (keeping its light and shade), as the `paint` material."""
-    paint, mx = paint_mask(px)
-    ref = np.percentile(mx[paint], 90)  # the paint's bright, lit tone goes to white
-    out = px.copy()
-    out[paint, :3] = np.minimum(1.0, mx[paint] / ref)[:, None]
+# ---------------------------------------------------------------- materials and liveries
+
+# Paint and stripes (None: plain). The first is the car's own; the game picks among them by name.
+LIVERIES = [
+    ("orange-black", 0xF2780C, 0x141414),
+    ("orange", 0xF2780C, None),
+    ("blue-white", 0x1F5FC4, 0xF0F0F0),
+    ("blue", 0x1F5FC4, None),
+    ("black", 0x1A1A1C, None),
+    ("black-white", 0x1A1A1C, 0xF0F0F0),
+]
+LIVERY_SIZE = 1024
+
+
+def face_class(px, f, uv):
+    """The class of most of a face's texture: its centre and halfway to each corner."""
+    c = sum((l[uv].uv for l in f.loops), Vector((0, 0))) / len(f.loops)
+    votes = {}
+    for p in [c] + [c + (l[uv].uv - c) * 0.5 for l in f.loops]:
+        k = colour_class(sample(px, p))
+        votes[k] = votes.get(k, 0) + 1
+    return max(votes, key=votes.get)
+
+
+def split_glass(body, px):
+    """The windows (the texture's dark grey above the belt, or its black where the surface leans back like
+    the rear window: the roof's black is its stripes) to their own `glass` material; the rest stays `paint`.
+    Returns the faces stripes may cross (up-facing tops: hood, roof, deck, ducktail) as UV triangles."""
+    body.data.materials[0].name = "paint"
+    body.data.materials.append(material("glass", srgb(0x161A20), 0.15, 0.3))
+    bm = bmesh.new()
+    bm.from_mesh(body.data)
+    uv = bm.loops.layers.uv.active
+    tops = []
+    glass = 0
+    for f in bm.faces:
+        k = face_class(px, f, uv)
+        c = f.calc_center_median()
+        if c.z > 0.8 and (k == "grey" or (k == "dark" and f.normal.y < -0.3)):
+            f.material_index = 1
+            glass += 1
+        elif f.normal.z > 0.5 and c.z > 0.7:
+            uvs = [l[uv].uv.copy() for l in f.loops]
+            tops += [(uvs[0], uvs[i], uvs[i + 1]) for i in range(1, len(uvs) - 1)]
+    bm.to_mesh(body.data)
+    bm.free()
+    print(f"[muscle_car] glass faces: {glass}")
+    return tops
+
+
+def raster(tris, h, w):
+    """Texels (h x w) covered by UV triangles, grown 3 texels (for the texture's filtering at their edges)."""
+    mask = np.zeros((h, w), bool)
+    for a, b, c in tris:
+        pts = np.array([[p.x * w, p.y * h] for p in (a, b, c)])
+        x0, y0 = np.floor(pts.min(axis=0)).astype(int)
+        x1, y1 = np.ceil(pts.max(axis=0)).astype(int)
+        x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w - 1), min(y1, h - 1)
+        if x1 < x0 or y1 < y0:
+            continue
+        gx, gy = np.meshgrid(np.arange(x0, x1 + 1) + 0.5, np.arange(y0, y1 + 1) + 0.5)
+        (ax, ay), (bx, by), (cx, cy) = pts
+        den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if abs(den) < 1e-12:
+            continue
+        l1 = ((by - cy) * (gx - cx) + (cx - bx) * (gy - cy)) / den
+        l2 = ((cy - ay) * (gx - cx) + (ax - cx) * (gy - cy)) / den
+        inside = (l1 >= 0) & (l2 >= 0) & (l1 + l2 <= 1)
+        mask[y0:y1 + 1, x0:x1 + 1] |= inside
+    grown = mask.copy()
+    for d in range(1, 4):
+        for ax in (0, 1):
+            grown |= np.roll(mask, d, axis=ax) | np.roll(mask, -d, axis=ax)
+    return grown
+
+
+def hex_rgb(hex_):
+    return np.array([((hex_ >> s) & 255) / 255 for s in (16, 8, 0)], np.float32)  # sRGB, as the texture's bytes
+
+
+def livery_textures(px, tops):
+    """One texture per livery, all from the generated one: its paint (and the dark it fades into at an edge)
+    becomes the livery's paint, flat; the dark on the tops (the stripes) its stripe colour, or paint; the rest
+    (grille, lamps, trim) as it was. Returns {name: image}."""
     h, w = px.shape[:2]
-    img = bpy.data.images.new("paint", w, h, alpha=True)
-    img.pixels.foreach_set(out.ravel())
-    img.scale(1024, 1024)
+    rgb = px[..., :3]
+    hue, s, mx = hsv(px)
+    allowed = raster(tops, h, w)[..., None]
+    orange = ((s > 0.3) & (hue >= 0.012) & (hue < 0.14))[..., None]
+    dark = ((~orange[..., 0]) & (mx < 0.3))[..., None]
+    t = np.clip((0.45 - mx) / 0.33, 0, 1)[..., None]  # 0 paint .. 1 black
+    black = np.full(3, 0.07, np.float32)
+    out = {}
+    for name, paint, stripe in LIVERIES:
+        p = hex_rgb(paint)
+        top = hex_rgb(stripe) if stripe is not None else p
+        mixed = np.where(allowed, p * (1 - t) + top * t, p * (1 - t) + black * t)
+        img_px = np.where(orange | (dark & allowed), mixed, rgb)
+        full = np.concatenate([img_px, np.ones((h, w, 1), np.float32)], axis=2)
+        img = bpy.data.images.new(f"livery-{name}", w, h, alpha=False)
+        img.pixels.foreach_set(full.astype(np.float32).ravel())
+        img.scale(LIVERY_SIZE, LIVERY_SIZE)
+        out[name] = img
+    return out
+
+
+def use_livery(body, img):
+    """The `paint` material shows `img` as it is (white base colour)."""
+    m = body.data.materials["paint"]
     img.pack()
-    m = ob.data.materials[0]
-    m.name = "paint"
-    m.node_tree.nodes["Image Texture"].image = img
-    m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (*srgb(0xF2780C), 1)
-    # Base colour times the texture: the game's tint.
     nt = m.node_tree
-    mix = nt.nodes.new("ShaderNodeMix")
-    mix.data_type = "RGBA"
-    mix.blend_type = "MULTIPLY"
-    mix.inputs["Factor"].default_value = 1.0
-    mix.inputs[7].default_value = (*srgb(0xF2780C), 1)
-    nt.links.new(nt.nodes["Image Texture"].outputs["Color"], mix.inputs[6])
-    nt.links.new(mix.outputs[2], nt.nodes["Principled BSDF"].inputs["Base Color"])
+    nt.nodes["Image Texture"].image = img
+    nt.links.new(nt.nodes["Image Texture"].outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
+    m.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.35
 
 
 # ---------------------------------------------------------------- lamps
@@ -612,7 +712,7 @@ def touching(a, b):
 
 # ---------------------------------------------------------------- preview
 
-def preview(out_dir, export_objs, wheel):
+def preview(out_dir, export_objs, wheel, spots, body, liveries):
     scene = bpy.context.scene
     engines = [e.identifier for e in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
     scene.render.engine = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in engines else "BLENDER_EEVEE"
@@ -643,11 +743,11 @@ def preview(out_dir, export_objs, wheel):
     for o in export_objs:  # indicators off, as the game shows them most of the time
         o.hide_render = o.name.startswith("ind_")
     shown = []
-    for x in (-WHEEL_X, WHEEL_X):
-        for y in (WHEEL_YR, WHEEL_YF):
+    for x in (-spots["x"], spots["x"]):
+        for y in (spots["rear"], spots["front"]):
             w = wheel.copy()
             bpy.context.collection.objects.link(w)
-            w.location = (x, y, WHEEL_Z - GROUND)
+            w.location = (x, y, spots["r"] - GROUND)
             w.rotation_euler = (0, 0, math.pi if x < 0 else 0)
             shown.append(w)
     bpy.ops.mesh.primitive_plane_add(size=30, location=(0, 0, -GROUND))
@@ -676,6 +776,15 @@ def preview(out_dir, export_objs, wheel):
         cam_data.ortho_scale = 5.2
         scene.render.filepath = os.path.join(out_dir, f"muscle-{name}.png")
         bpy.ops.render.render(write_still=True)
+    cam_data.type = "PERSP"
+    cam_data.lens = 50
+    for name, img in liveries.items():  # each livery from the front and the back
+        use_livery(body, img)
+        for view in ("front34", "rear34"):
+            cam.location = views[view]
+            cam.rotation_euler = (target - views[view]).to_track_quat("-Z", "Y").to_euler()
+            scene.render.filepath = os.path.join(out_dir, f"livery-{name}-{view}.png")
+            bpy.ops.render.render(write_still=True)
     for o in shown + lights + [floor, cam]:
         bpy.data.objects.remove(o)
     for o in export_objs:
@@ -695,17 +804,27 @@ def main():
     body, px = load_body()
     build_apron(body, px)
     lamps = build_lights(body, px)
-    white_paint(body, px)
+    for o in lamps:
+        if o.name.startswith("tail_"):
+            o["bar"] = True  # a light bar: lit all along, no flare at its centre
+    liveries = livery_textures(px, split_glass(body, px))
+    use_livery(body, liveries[LIVERIES[0][0]])
     bpy.ops.object.select_all(action="DESELECT")
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
     bpy.ops.object.shade_smooth_by_angle(angle=math.radians(30))  # low-poly facets, the curves still curved
     wheel = build_wheel()
 
-    # Down to the origin (GROUND above the ground); the wheel stays centred on its axle.
+    # Up to the car's size (the ground and the axles' midpoint stay put), then down to the origin (GROUND
+    # above the ground); the wheel stays centred on its axle.
+    g = WIDTH / (max(v.co.x for v in body.data.vertices) - min(v.co.x for v in body.data.vertices))
+    for o in [body, *lamps, wheel]:
+        o.data.transform(Matrix.Scale(g, 4))
     for o in [body, *lamps]:
         o.data.transform(Matrix.Translation((0, 0, -GROUND)))
         o.data.update()
+    spots = {"x": WHEEL_X * g, "front": WHEEL_YF * g, "rear": WHEEL_YR * g, "r": WHEEL_R * g}
+    print("[muscle_car] wheels: " + ", ".join(f"{k} {v:.3f}" for k, v in spots.items()))
 
     tri = lambda o: sum(len(p.vertices) - 2 for p in o.data.polygons)  # noqa: E731
     print(f"[muscle_car] triangles: body {tri(body)}, lamps {sum(tri(o) for o in lamps)}, wheel {tri(wheel)}")
@@ -721,12 +840,26 @@ def main():
 
     if prev:
         os.makedirs(prev, exist_ok=True)
-        preview(prev, [body, *lamps], wheel)
+        preview(prev, [body, *lamps], wheel, spots, body, liveries)
+        use_livery(body, liveries[LIVERIES[0][0]])
+
+    # The liveries beside the GLB (it holds the first): <out without .glb>/<name>.jpg and liveries.json.
+    # (JPEG: the texture's trim keeps the generation's grain, which PNG can't squeeze.)
+    folder = os.path.splitext(os.path.abspath(out))[0]
+    os.makedirs(folder, exist_ok=True)
+    for f in os.listdir(folder):
+        os.remove(os.path.join(folder, f))
+    for name, img in liveries.items():
+        img.file_format = "JPEG"
+        img.save(filepath=os.path.join(folder, f"{name}.jpg"), quality=90)
+    with open(os.path.join(folder, "liveries.json"), "w") as f:
+        json.dump([{"name": name, "paint": f"#{paint:06x}", "stripe": None if stripe is None else f"#{stripe:06x}",
+                    "file": f"{name}.jpg"} for name, paint, stripe in LIVERIES], f, indent=2)
+        f.write("\n")
 
     bpy.ops.object.select_all(action="DESELECT")
     for o in [body, *lamps, wheel]:
         o.select_set(True)
-    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     bpy.ops.export_scene.gltf(
         filepath=os.path.abspath(out),
         export_format="GLB",
@@ -734,8 +867,10 @@ def main():
         export_yup=True,
         export_apply=True,
         export_materials="EXPORT",
+        export_image_format="JPEG",
+        export_extras=True,  # the tail lights' "bar"
     )
-    print(f"[muscle_car] wrote {out}")
+    print(f"[muscle_car] wrote {out} and {len(liveries)} liveries in {folder}")
 
 
 if __name__ == "__main__":
