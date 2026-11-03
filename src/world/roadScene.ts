@@ -14,7 +14,7 @@ const FOG = 0x05070d;
 export const LAMP_COLOR = 0xffe9d2;
 /** Night lighting levels (mutable: tuned live from the panel). */
 export const NIGHT = {
-  lampIntensity: 1000, // candela, real street lights near the player (one per lamp pair)
+  lampIntensity: 400, // candela, real street lights near the player (one per lamp pair; at 1000 the road glared)
   poolStrength: 0.2, // painted light pools on the road (as bright as the real lights make the road)
 };
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
@@ -104,8 +104,6 @@ function roadTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
 const TEXTURES = `${import.meta.env.BASE_URL}textures/`;
 /** The asphalt's picture (cracked, worn): over the road's markings, tiled every ASPHALT.tile m along the world. */
 const ASPHALT = { file: 'road-small.jpg', tile: 5, strength: 0.85, mean: 0.168 };
-/** How much light the road gives back, times its markings' colours (the lamps lit it too bright). */
-const ROAD_ALBEDO = 0.4;
 /** The grass's picture, tiled every GRASS.tile m (dividing the strip's period, so it doesn't jump), darkened. */
 const GRASS = { file: 'grass-small.jpg', tile: 2.5, tint: 0x6f7f62 };
 
@@ -199,7 +197,7 @@ export class RoadScene {
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(2 * RAIL_D, STRIP_LEN).rotateX(-Math.PI / 2),
       withAsphalt(
-        new THREE.MeshStandardMaterial({ map: roadTexture(renderer), color: new THREE.Color(ROAD_ALBEDO, ROAD_ALBEDO, ROAD_ALBEDO), roughness: 0.92 }),
+        new THREE.MeshStandardMaterial({ map: roadTexture(renderer), roughness: 0.92 }),
         renderer,
       ),
     );
