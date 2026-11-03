@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import {
   addRival,
   allRandom,
@@ -11,9 +10,9 @@ import {
   Weather,
 } from '../game/carSelection';
 import { DIFFICULTIES } from '../game/difficulty';
+import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
-import { buildCar } from '../vehicles/models';
-import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
+import { GarageScene } from './garageScene';
 import { installTooltips } from './tooltip';
 
 const html = String.raw;
@@ -39,7 +38,7 @@ const KEYS: [string, string][] = [
 ];
 
 /**
- * The garage: the car to race in (a turning 3D model under a street lamp),
+ * The garage: the car to race in (parked on a wet lay-by at night, drawn live: garageScene.ts),
  * its measured stats, the race at a glance (rivals by car type, difficulty,
  * weather) with a pop-up to change it, and the start. No explanatory text:
  * icons, with their meaning on hover / focus (data-tip).
@@ -47,7 +46,7 @@ const KEYS: [string, string][] = [
 export class Garage {
   private readonly el: HTMLElement;
   private sel!: CarSelection;
-  private readonly preview: Preview;
+  private readonly preview: GarageScene;
   private readonly backdrop: HTMLElement;
 
   constructor(
@@ -59,7 +58,6 @@ export class Garage {
     this.el.id = 'garage';
     this.el.style.display = 'none';
     this.el.innerHTML = html`
-      <div class="g-bg" style="background-image:url(${UI}garage-bg.jpg)"></div>
       <canvas class="g-car"></canvas>
       <div class="g-vignette"></div>
       <div class="g-brand">${icon('emblem')}<div class="g-name">HIGHWAY THUNDER 2</div></div>
@@ -100,7 +98,7 @@ export class Garage {
       rows[i].tabIndex = 0;
     });
     installTooltips(this.el);
-    this.preview = new Preview(this.el.querySelector('.g-car')!);
+    this.preview = new GarageScene(this.el.querySelector('.g-car')!);
     this.q('.g-go').onclick = () => this.start();
     this.q('.g-race').onclick = () => this.openPop('race');
     this.q('.g-keys').onclick = () => this.openPop('keys');
@@ -124,7 +122,7 @@ export class Garage {
     this.closePop();
     this.el.style.display = '';
     this.draw();
-    this.preview.show(this.sel.player);
+    this.show();
     (document.activeElement as HTMLElement | null)?.blur(); // the button that opened it must not take an Enter
   }
 
@@ -145,17 +143,42 @@ export class Garage {
     this.el.querySelectorAll('.g-back.open').forEach((b) => b.classList.remove('open'));
   }
 
-  /** ← → step through the cars. */
+  /** ↑ ↓ step through the cars. */
   step(d: number): void {
     const i = PICKABLE.indexOf(this.sel.player);
     this.pick(PICKABLE[(i + d + PICKABLE.length) % PICKABLE.length]);
+  }
+
+  /** ← → step through the car's paint jobs. */
+  stepPaint(d: number): void {
+    const jobs = paintJobs(CARS[this.sel.player].style).map((j) => j.name);
+    if (!jobs.length) return;
+    const i = Math.max(0, jobs.indexOf(this.paintOf(this.sel.player) ?? ''));
+    this.paint(jobs[(i + d + jobs.length) % jobs.length]);
   }
 
   private pick(id: string): void {
     if (!PICKABLE.includes(id) || id === this.sel.player) return;
     this.sel = { ...this.sel, player: id };
     this.draw();
-    this.preview.show(id);
+    this.show();
+  }
+
+  private paint(name: string): void {
+    if (name === this.paintOf(this.sel.player)) return;
+    this.sel = { ...this.sel, paint: { ...this.sel.paint, [this.sel.player]: name } };
+    this.draw();
+    this.show();
+  }
+
+  /** The paint job picked for car `id` (none picked: its own, the first). */
+  private paintOf(id: string): string | undefined {
+    return this.sel.paint[id] ?? paintJobs(CARS[id].style)[0]?.name;
+  }
+
+  /** The picked car in its paint, in the scene. */
+  private show(): void {
+    this.preview.show(this.sel.player, this.paintOf(this.sel.player));
   }
 
   private change(sel: CarSelection): void {
@@ -180,11 +203,18 @@ export class Garage {
       (c) => `<button class="g-cls ${c.id === s.player ? 'sel' : ''}" data-id="${c.id}">${icon(c.icon, 'car')}<span class="t">${c.name}</span></button>`,
     ).join('');
     this.el.querySelectorAll<HTMLElement>('.g-cls').forEach((b) => (b.onclick = () => this.pick(b.dataset.id!)));
+    // Under its name, its paint jobs: a swatch each (the stripes across a corner), the picked one ringed.
+    const picked = this.paintOf(s.player);
+    const swatch = (j: PaintJob) =>
+      `<button class="g-paint ${j.name === picked ? 'sel' : ''}" data-paint="${j.name}" ` +
+      `style="--p:${j.paint};--s:${j.stripe ?? j.paint}"></button>`;
     this.q('.g-spec').innerHTML =
       `<h1>${me.name}</h1>` +
+      `<div class="g-paints">${paintJobs(CARS[s.player].style).map(swatch).join('')}</div>` +
       me.stats
         .map((st) => `<div class="g-stat"><span data-tip="${st.tip}" data-tip-place="left" tabindex="0">${icon(st.icon)}</span><span class="v">${st.value}</span><div class="bar"><i style="width:${st.bar * 100}%"></i></div></div>`)
         .join('');
+    this.el.querySelectorAll<HTMLElement>('.g-paint').forEach((b) => (b.onclick = () => this.paint(b.dataset.paint!)));
     // The race at a glance: the rivals by car type (silhouette x how many), difficulty, weather.
     const lineUp = PICKABLE.filter((id) => s.rivals.includes(id))
       .map((id) => `<span class="count" data-tip="${CARS[id].name}">${icon(card(id).icon, 'mini')}×${s.rivals.filter((r) => r === id).length}</span>`)
@@ -225,80 +255,5 @@ export class Garage {
     this.q('[data-seg="weather"]').innerHTML = WEATHERS.map(
       ([k, ic, name]) => `<button class="${k === s.weather ? 'sel' : ''}" ${k === 'clear' ? '' : 'aria-disabled="true" data-tip="即將推出"'}>${icon(ic)}${name}</button>`,
     ).join('');
-  }
-}
-
-/** The picked car, turning slowly under the lamp: the game's own model in its own small renderer (only while the garage is open). */
-class Preview {
-  private readonly renderer: THREE.WebGLRenderer;
-  private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(22, 1, 0.1, 100);
-  private readonly shadow: THREE.Mesh;
-  private car: THREE.Object3D | null = null;
-  private running = false;
-  private angle = 2.3; // nose (-z) toward the camera, three-quarter
-
-  constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.camera.position.set(0, 1.6, 17.5);
-    this.camera.lookAt(0, 0.55, 0);
-    this.scene.add(new THREE.HemisphereLight(0x6f86c8, 0x1a1208, 0.6));
-    const lamp = new THREE.SpotLight(0xffb36b, 120, 30, 0.7, 0.6, 1.6);
-    lamp.position.set(2.5, 7, 1);
-    this.scene.add(lamp, lamp.target);
-    const rim = new THREE.DirectionalLight(0x6fa8ff, 1.4);
-    rim.position.set(-6, 3, -6);
-    this.scene.add(rim);
-    // A soft contact shadow under the car (a child of it: it turns with it).
-    const c = document.createElement('canvas');
-    c.width = c.height = 128;
-    const g = c.getContext('2d')!;
-    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grad.addColorStop(0, 'rgba(0,0,0,0.85)');
-    grad.addColorStop(0.55, 'rgba(0,0,0,0.5)');
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 128, 128);
-    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 5.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
-    this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.position.y = -PLAYER_H / 2 + 0.01;
-    addEventListener('resize', () => this.resize());
-  }
-
-  show(id: string): void {
-    if (this.car) this.scene.remove(this.car);
-    const spec = CARS[id];
-    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, false).root;
-    this.car.position.y = PLAYER_H / 2; // on the floor
-    this.car.add(this.shadow);
-    this.scene.add(this.car);
-    this.resize();
-    if (!this.running) {
-      this.running = true;
-      let last = performance.now();
-      const loop = (now: number) => {
-        if (!this.running) return;
-        this.angle += ((now - last) / 1000) * 0.25;
-        last = now;
-        this.car!.rotation.y = this.angle;
-        this.renderer.render(this.scene, this.camera);
-        requestAnimationFrame(loop);
-      };
-      requestAnimationFrame(loop);
-    }
-  }
-
-  stop(): void {
-    this.running = false;
-  }
-
-  private resize(): void {
-    this.renderer.setSize(innerWidth, innerHeight, false);
-    this.camera.aspect = innerWidth / innerHeight;
-    this.camera.updateProjectionMatrix();
-    // The car sits low in the middle, on the empty parking spot of the backdrop.
-    this.camera.setViewOffset(innerWidth, innerHeight, 0, -innerHeight * 0.12, innerWidth, innerHeight);
   }
 }
