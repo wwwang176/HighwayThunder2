@@ -1,0 +1,15 @@
+Use only the image_gen tool to make the three images below, then copy each into the current folder with exactly the file name given (keep the format the tool produces; if it is not .png, use that extension instead). Check each image matches its description (the view, which end of the car is shown, a four-door notchback sedan, a gloss black roof, no bolts or rivets anywhere) before copying it; if not, make it again. Do nothing else: no other tools, no other files.
+
+Subject (the same car in all three, every detail identical): an ORIGINAL fictional rally-bred Japanese-style FOUR-DOOR compact sports SEDAN, heavily tuned, for a night-time highway street-racing video game, the nimblest car in the game. It must not resemble any real brand or model: no logos, no badges, no brand-like grille or lights, no text, numbers or stickers anywhere.
+Body: a boxy, upright four-door sedan with four visible doors, a NOTCHBACK: a separate flat trunk lid and a fairly upright rear window (NOT a fastback, NOT a coupe, NOT a hatchback); an upright, blunt, near-vertical nose and front fascia; a long flat hood with two dark heat-extractor vents and a small central air intake; flat, squared-off panels and sharp creases.
+Wide body: smooth, seamlessly moulded wide-body fenders that flare far out over all four wheels and blend into the body lines (NO bolts, NO rivets, NO screws, no bolt-on look anywhere on the car), wide stance with the wheels pushed out to the fender edges, deep side skirts.
+Front: one big, wide, flat front splitter (a single layer, NOT several stacked layers) that sticks far forward under the bumper, with two canards on each corner, a large dark lower intake.
+Rear: an exaggerated, huge two-element GT wing on tall uprights standing on the trunk lid, very high and wide, with big flat endplates; a large aggressive rear diffuser with tall fins.
+Headlights: compact squared-off headlight housings, each with a row of three small square LED projector cells.
+Tail lights: two separate squarish tail light clusters at the rear corners, each made of three short horizontal red bars stacked, with a gloss black panel between them (not a full-width light bar).
+Wheels: deep-dish ten-spoke bronze wheels, low-profile tyres.
+Paint: bright blue (#3a8dde family); gloss black roof (the whole roof panel, in every view), splitter, canards, side skirts, wing, diffuser and mirror caps. Style: clean stylised game concept art, readable simple shapes and flat panels (as if it will be built as a low-poly 3D model), symmetric, soft studio lighting, plain dark neutral grey background, no scenery, whole car in frame with margin.
+
+1. jdm-front34 — three-quarter FRONT view from slightly above (the nose and the left side), headlights on.
+2. jdm-side — exact side profile (orthographic-looking, the nose pointing left), wheels fully visible, all four doors visible.
+3. jdm-rear34 — three-quarter REAR view from slightly above (the tail and the right side): we see the back of the car, the trunk lid, the GT wing, the two tail light clusters lit, the diffuser; no headlights in view.
