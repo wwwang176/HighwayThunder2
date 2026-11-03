@@ -38,7 +38,7 @@ import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
-import { GameFlow, picksCars } from './gameState';
+import { GameFlow, picksCars, type Phase } from './gameState';
 import { RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
 import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
@@ -51,6 +51,8 @@ const RIVAL_CSS = RIVAL_COLORS.map((c) => `#${c.toString(16).padStart(6, '0')}`)
 const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
 const PLAYER_OBSTACLE_ID = -1;
+/** How fast the race's time runs, by phase (frame()): stopped in a pause, slow motion past the finish line. */
+const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0, finished: 0.1 };
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -365,8 +367,12 @@ export class Game {
     // The garage covers the whole screen and draws its own car: the world waits (and the GPU rests), the FPS meter too.
     this.stats.dom.style.visibility = this.garage.isOpen ? 'hidden' : '';
     if (this.garage.isOpen) return;
-    if (this.flow.phase !== 'paused' && !this.freeze) {
-      this.accumulator += dt;
+    // The race's time this frame: 0 while paused, slowed past the finish (TIME_SCALE). The world and everything
+    // that moves with the race (effects, the camera, the HUD's pop-ups) run on it, so a pause stills the whole
+    // picture; only the menus run on real time.
+    const play = dt * (TIME_SCALE[this.flow.phase] ?? 1);
+    if (play > 0 && !this.freeze) {
+      this.accumulator += play;
       let steps = 0;
       while (this.accumulator >= PHYSICS_DT && steps < MAX_SUBSTEPS) {
         this.fixedStep(PHYSICS_DT);
@@ -375,9 +381,6 @@ export class Game {
       }
       if (steps === MAX_SUBSTEPS) this.accumulator = 0;
     }
-    // The race's time this frame: 0 while paused. Everything that moves with the race (effects, the camera, the
-    // HUD's pop-ups) runs on it, so a pause stills the whole picture; only the menus run on real time.
-    const play = this.flow.phase === 'paused' ? 0 : dt;
     document.body.classList.toggle('game-paused', this.flow.phase === 'paused'); // (the HUD's CSS animations too)
     this.render(play, this.accumulator / PHYSICS_DT);
   }
