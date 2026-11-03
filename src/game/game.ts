@@ -36,6 +36,7 @@ import { Garage } from '../ui/garage';
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
 import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
+import { Sparks } from '../world/sparks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars } from './gameState';
 import { RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
@@ -93,6 +94,7 @@ export class Game {
   private wheelPool!: WheelInstances;
   private skids!: SkidMarks;
   private smoke!: TireSmoke;
+  private sparks!: Sparks;
   readonly stats = new Stats();
   private gui: GUI;
   private accumulator = 0;
@@ -133,6 +135,7 @@ export class Game {
     this.trafficWorld = new TrafficWorld(physics, this.scene, this.wheelPool, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.scene);
+    this.sparks = new Sparks(this.scene);
     this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
     document.body.appendChild(this.stats.dom);
     this.hud = new Hud(uiRoot, this.flow, {
@@ -312,6 +315,7 @@ export class Game {
     this.rivals.place();
     this.skids.clear();
     this.smoke.clear();
+    this.sparks.clear();
     this.rig.snap();
     this.trafficWorld.spacing = this.trafficSettings.spacing;
     this.trafficWorld.reset(this.focus(), (f) => this.playerOccupants(f));
@@ -446,6 +450,11 @@ export class Game {
       this.racerVelBefore[i + 1] = { x: v.x, z: v.z };
     });
     this.physics.step((a, b, n) => this.onContact(a, b, n));
+    this.physics.touches((t) => {
+      // Metal on the grass throws none (the ground is one collider, verges and median too).
+      const ground = (t.a.type === 'static' || t.b.type === 'static') && t.mid.y < 0.15;
+      if (!ground || surfaceGrip(t.mid.x) >= 1) this.sparks.touch(t, dt);
+    });
     this.player.postPhysics();
     this.trafficWorld.afterPhysics();
     this.rivals.after(dt, view, this.trafficWorld.ourBoxes(this.rivalTraffic), racing);
@@ -606,6 +615,7 @@ export class Game {
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
     // After the road has placed this frame's street lights.
+    this.sparks.update(this.flow.phase === 'paused' ? 0 : dt);
     this.smoke.update(this.flow.phase === 'paused' ? 0 : dt, [
       ...this.road.activeLights().map(smokeLightFromSpot),
       ...this.player.smokeLights(),
