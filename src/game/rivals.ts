@@ -49,6 +49,11 @@ export const RIVAL_TUNING = {
   stuckTime: 2,
   /** Heading off the road by more than this (rad): spun, put back on the road. */
   spunYaw: 0.9,
+  /**
+   * Stuck, spun or off the road within this (m) of the player, either way, it is left as it is: put back where
+   * it was, it would vanish and pop up again in plain sight.
+   */
+  resetClear: 150,
 };
 
 /**
@@ -81,11 +86,12 @@ export function placeOf(playerS: number, playerFinish: number | null, rivals: { 
 
 export type ResetReason = 'stuck' | 'spun' | 'off-road' | 'far-behind' | 'far-ahead';
 
-/** Whether a rival has to be put back into the race, and why (null: it is racing). */
+/** Whether a rival has to be put back into the race, and why (null: it is racing, or the player is too near to see it put back). */
 export function needsReset(r: { s: number; d: number; yaw: number; speed: number; stuckFor: number; playerS: number }): ResetReason | null {
   const T = RIVAL_TUNING;
   if (r.playerS - r.s > T.teleportBehind) return 'far-behind';
   if (r.s - r.playerS > T.teleportAhead) return 'far-ahead';
+  if (Math.abs(r.s - r.playerS) < T.resetClear) return null; // (the player would see it pop)
   if (Math.abs(r.d) > RAIL_D) return 'off-road';
   if (Math.abs(r.yaw) > T.spunYaw) return 'spun';
   if (r.speed < T.stuckSpeed && r.stuckFor > T.stuckTime) return 'stuck';

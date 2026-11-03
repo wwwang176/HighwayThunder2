@@ -58,12 +58,23 @@ describe('needsReset', () => {
     expect(needsReset(ok)).toBe(null);
   });
 
-  it('stopped too long, spun round, off the road, or hopelessly far behind: back into the race', () => {
-    expect(needsReset({ ...ok, speed: 0.5, stuckFor: T.stuckTime + 0.1 })).toBe('stuck');
-    expect(needsReset({ ...ok, speed: 0.5, stuckFor: T.stuckTime - 0.1 })).toBe(null);
-    expect(needsReset({ ...ok, yaw: 1.2 })).toBe('spun');
-    expect(needsReset({ ...ok, d: 12 })).toBe('off-road');
+  it('stopped too long, spun round, off the road (the player well away), or hopelessly far behind: back into the race', () => {
+    const away = { ...ok, playerS: ok.s + T.resetClear + 1 };
+    expect(needsReset({ ...away, speed: 0.5, stuckFor: T.stuckTime + 0.1 })).toBe('stuck');
+    expect(needsReset({ ...away, speed: 0.5, stuckFor: T.stuckTime - 0.1 })).toBe(null);
+    expect(needsReset({ ...away, yaw: 1.2 })).toBe('spun');
+    expect(needsReset({ ...away, d: 12 })).toBe('off-road');
     expect(needsReset({ ...ok, playerS: ok.s + T.teleportBehind + 1 })).toBe('far-behind');
+  });
+
+  it('stuck, spun or off the road within resetClear of the player, either way: left where it is (no popping)', () => {
+    for (const gap of [0, T.resetClear - 1, -(T.resetClear - 1)]) {
+      const near = { ...ok, playerS: ok.s + gap };
+      expect(needsReset({ ...near, speed: 0.5, stuckFor: T.stuckTime + 0.1 })).toBe(null);
+      expect(needsReset({ ...near, yaw: 1.2 })).toBe(null);
+      expect(needsReset({ ...near, d: 12 })).toBe(null);
+    }
+    expect(needsReset({ ...ok, playerS: ok.s - T.resetClear - 1, yaw: 1.2 })).toBe('spun'); // far behind it, too
   });
 
   it('hopelessly far ahead: brought back to wait for the player', () => {
