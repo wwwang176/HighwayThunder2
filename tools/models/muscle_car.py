@@ -426,8 +426,36 @@ def split_glass(body, px):
             tops += [(uvs[0], uvs[i], uvs[i + 1]) for i in range(1, len(uvs) - 1)]
     bm.to_mesh(body.data)
     bm.free()
-    print(f"[muscle_car] glass faces: {len(glass)} (of {len(cand)} dark ones up top)")
+    print(f"[muscle_car] glass faces: {len(glass)} (of {len(cand)} glass-grey ones up top)")
     return tops
+
+
+def flat_windows(body):
+    """Each window one pane: all its corners take the pane's (area-weighted) normal, so it shines as one sheet
+    (the mirrored halves meet at a slight crease down the middle, a bright line across the glass)."""
+    me = body.data
+    glass = me.materials.find("glass")
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.faces.ensure_lookup_table()
+    normals = [Vector(c.vector) for c in me.corner_normals]
+    left = {f for f in bm.faces if f.material_index == glass}
+    while left:
+        pane, stack = set(), [left.pop()]
+        while stack:
+            a = stack.pop()
+            pane.add(a)
+            for e in a.edges:
+                for b in e.link_faces:
+                    if b in left:
+                        left.discard(b)
+                        stack.append(b)
+        way = sum((f.normal * f.calc_area() for f in pane), Vector()).normalized()
+        for f in pane:
+            for i in me.polygons[f.index].loop_indices:
+                normals[i] = way
+    bm.free()
+    me.normals_split_custom_set(normals)
 
 
 def raster(tris, h, w):
@@ -828,6 +856,14 @@ def main():
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
     bpy.ops.object.shade_smooth_by_angle(angle=math.radians(30))  # low-poly facets, the curves still curved
+    # Normals weighted by face area: the big panels set them, the generation's long thin slivers (under the rear
+    # window, along the stripes) don't bend them into streaks of light.
+    wn = body.modifiers.new("wn", "WEIGHTED_NORMAL")
+    wn.mode = "FACE_AREA"
+    wn.weight = 100
+    wn.keep_sharp = True
+    bpy.ops.object.modifier_apply(modifier="wn")
+    flat_windows(body)
     wheel = build_wheel()
 
     # Up to the car's size (the ground and the axles' midpoint stay put), then down to the origin (GROUND
