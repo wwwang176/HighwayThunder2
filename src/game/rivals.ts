@@ -11,6 +11,7 @@ import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { CarSpec, STREET_RACER } from '../vehicles/cars';
 import { randomLivery } from '../vehicles/carModels';
+import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
 import { Blocker, computeResetSpot } from './reset';
 import { trackerFrom } from '../ai/netTracker';
@@ -136,6 +137,8 @@ export interface Rival {
   stuckFor: number;
   /** Rubber band boost now (smoothed). */
   boost: number;
+  /** When it uses its nitro (by rule: nitro.ts). */
+  nitroAi: NitroAi;
   finishTime: number | null;
   resets: number;
 }
@@ -180,7 +183,7 @@ export class Rivals {
       driver.accel = spec.ai.accel;
       driver.latAccel = spec.ai.latAccel;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, finishTime: null, resets: 0 };
+      const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0 };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
       this.list.push(r);
     }
@@ -193,6 +196,8 @@ export class Rivals {
       const [lane, s] = GRID[r.index];
       r.car.resetTo(s, lane, 0);
       r.driver.reset();
+      r.car.nitro.reset();
+      r.nitroAi.reset();
       r.stuckFor = 0;
       r.boost = 0;
       r.finishTime = null;
@@ -211,7 +216,8 @@ export class Rivals {
       const top = aiTopSpeed(band.speedCap, r.spec); // its own top speed when lower than the AI's cap
       const cap = r.finishTime === null ? top : Math.min(top, FINISHED_SPEED);
       r.car.params.maxSpeed = cap;
-      r.car.prePhysics(r.driver.drive(selfStateOf(r.car, cap), this.othersAsBoxes(r, view), r.car.params), dt);
+      const input = r.driver.drive(selfStateOf(r.car, cap), this.othersAsBoxes(r, view), r.car.params);
+      r.car.prePhysics({ ...input, nitro: r.nitroAi.want(dt, input.throttle, r.car.nitro) }, dt);
     }
   }
 

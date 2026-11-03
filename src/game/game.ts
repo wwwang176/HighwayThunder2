@@ -22,6 +22,7 @@ import { Hud } from '../ui/hud';
 import { HandlingInput } from '../vehicles/handling';
 import { NpcVehicle } from '../vehicles/npcVehicle';
 import { WheelInstances } from '../vehicles/wheelInstances';
+import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
 import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PlannerDriver } from '../ai/plannerDriver';
@@ -100,6 +101,8 @@ export class Game {
   private prevRelS = new Map<number, number>();
   private touched = new Set<number>();
   private lastInput: HandlingInput = HOLD;
+  /** The AI driving the player's car (I) uses the nitro as the rivals do. */
+  private readonly playerNitroAi = new NitroAi();
   /** The player's gear last frame (a gear going in shakes the camera). */
   private lastGear = 1;
   /** Overrides keyboard input when set (used by automated checks). */
@@ -303,6 +306,8 @@ export class Game {
     this.prevRelS.clear();
     this.touched.clear();
     this.player.resetTo(-3, 1, 0);
+    this.player.nitro.reset();
+    this.playerNitroAi.reset();
     this.aiDriver?.reset(this.player.d);
     this.rivals.place();
     this.skids.clear();
@@ -401,7 +406,8 @@ export class Game {
           this.player.params.maxSpeed = cap;
           const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
           for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
-          return this.aiDriver.drive(selfStateOf(this.player, cap), seen, this.player.params);
+          const input = this.aiDriver.drive(selfStateOf(this.player, cap), seen, this.player.params);
+          return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
         }
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
@@ -571,6 +577,7 @@ export class Game {
           const gap = Math.max(w.x - agent.width / 2 - fp.dMax, fp.dMin - (w.x + agent.width / 2));
           if (detectNearMiss(prev, rel, gap, p.speed) && this.flow.phase === 'racing') {
             this.flow.addNearMiss();
+            this.player.nitro.nearMiss();
             this.hud.nearMiss();
             this.sound.whoosh();
           }
@@ -621,6 +628,8 @@ export class Game {
       muted: this.sound.muted,
       gear: this.player.gearbox.gear,
       rpm: this.player.rpm,
+      nitro: this.player.nitro.level,
+      nitroOn: this.player.nitro.active,
       aiDriving: this.aiActive && this.flow.phase === 'racing',
       place: this.rivals.rank(this.player.s, this.flow.finishTime),
       racers: [

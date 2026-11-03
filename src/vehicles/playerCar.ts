@@ -4,6 +4,7 @@ import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
 import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, rollInfluenceAt, smoothSteer, aeroGripScale, steerAngle } from './handling';
 import { CarSpec, STREET_RACER } from './cars';
+import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
 import { AIM_DOWN, createHeadlight } from './headlight';
@@ -82,6 +83,8 @@ export class PlayerCar {
   private steer = 0;
   private throttle = 0;
   readonly gearbox = new Gearbox();
+  /** Its nitro (full at the race's start: the game's; a reset on the road keeps it). */
+  readonly nitro = new Nitro();
   readonly headlights: THREE.SpotLight[] = [];
   rpm = 900;
   driveMode: DriveMode = 'D';
@@ -281,11 +284,15 @@ export class PlayerCar {
     this.gearbox.update(this.vLong, dt);
     // Displayed / audible rpm bounces off the limiter but never far past it.
     this.rpm = Math.min(p.redline * 1.03, this.gearbox.engineRpm(rearOmega, p));
-    const cmd = driveCommand({ ...input, throttle: this.throttle }, this.vLong, p, this.driveMode);
+    // Nitro: a harder push, a little past the limiter (on the throttle only).
+    const boost = this.nitro.update(dt, !!input.nitro && input.throttle > 0);
+    const limit = boost ? { ...p, maxSpeed: p.maxSpeed * NITRO.topSpeed } : p;
+    const cmd = driveCommand({ ...input, throttle: this.throttle }, this.vLong, limit, this.driveMode);
     this.driveMode = cmd.mode;
     // Forward drive comes from the engine through the current gear (reverse keeps
     // the simple pedal force). The rev limiter bounds wheelspin.
     if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / p.wheelRadius;
+    if (boost && this.driveMode === 'D') cmd.engineForce *= NITRO.force;
     // Stability control also trims power once the car is sliding sideways.
     if (p.escGain > 0 && cmd.engineForce > 0 && bodySlip > 0.15) {
       cmd.engineForce *= Math.max(0, 1 - (bodySlip - 0.15) / 0.2);
