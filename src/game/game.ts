@@ -100,6 +100,8 @@ export class Game {
   private prevRelS = new Map<number, number>();
   private touched = new Set<number>();
   private lastInput: HandlingInput = HOLD;
+  /** The player's gear last frame (a gear going in shakes the camera). */
+  private lastGear = 1;
   /** Overrides keyboard input when set (used by automated checks). */
   inputOverride: HandlingInput | null = null;
   /** Debug: stop the real-time loop from advancing the simulation. */
@@ -486,7 +488,7 @@ export class Game {
       const pv = this.player.body.linvel();
       const rv = this.rivals.list[rival.id].car.body.linvel();
       const rel = Math.hypot(pv.x - rv.x, pv.z - rv.z);
-      this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
+      this.crashShake(rel, normal ?? { x: pv.x - rv.x, z: pv.z - rv.z });
       this.sound.crash(rel);
       return;
     }
@@ -504,8 +506,45 @@ export class Game {
     const rel = racerV ? closingSpeed(racerV, nv, normal) : 0;
     this.touched.add(id);
     this.prevRelS.delete(id);
-    this.rig.shake(Math.min(0.5, 0.05 + rel * 0.012));
+    this.crashShake(rel, normal ?? (racerV ? { x: racerV.x - nv.x, z: racerV.z - nv.z } : null));
     if (hard) this.sound.crash(rel);
+  }
+
+  /**
+   * A hit shakes the camera, the harder the more: most along the hit (`dir`: the contact's normal, or the cars'
+   * relative velocity), much across it too - most hits are along the road, and the camera moving to and from
+   * the car is hardly seen.
+   */
+  private crashShake(rel: number, dir: { x: number; z: number } | null): void {
+    const d = dir && Math.hypot(dir.x, dir.z) > 1e-6 ? dir : { x: 1, z: 0 };
+    this.rig.shake({ dir: { x: d.x, y: 0.3, z: d.z }, amplitude: Math.min(0.5, 0.05 + rel * 0.012), frequency: 14, seconds: 0.5, wave: 'noise', across: 0.8 });
+  }
+
+  /**
+   * Wheels on the grass shake the camera a little, up and down: the more of them and the faster, the more
+   * (full with all four on it from 40 km/h, 3.6 cm), quicker with speed (10 Hz at 50 km/h, 22 at 150, at most 25).
+   */
+  private grassRumble(): void {
+    const t = this.player.body.translation();
+    const cos = Math.cos(this.player.yaw);
+    const sin = Math.sin(this.player.yaw);
+    const half = this.player.params.wheelbase / 2;
+    let onGrass = 0;
+    for (const side of [-1, 1]) for (const along of [-half, half]) if (surfaceGrip(t.x + cos * side * 0.8 + sin * along) < 1) onGrass++;
+    const kmh = Math.abs(this.player.speed) * 3.6;
+    this.rig.rumble(0.036 * (onGrass / 4) * Math.min(1, kmh / 40), Math.min(25, 4 + kmh * 0.12));
+  }
+
+  /**
+   * A gear going in (up, under throttle): the camera dropped back a little and brought on again, along the car
+   * - the push of the drive taking up. The lower the gear and the more throttle, the harder.
+   */
+  private gearShake(from: number): void {
+    const throttle = this.lastInput.throttle;
+    if (throttle < 0.1) return;
+    const fx = Math.sin(this.player.yaw);
+    const fz = -Math.cos(this.player.yaw);
+    this.rig.shake({ dir: { x: -fx, y: 0, z: -fz }, amplitude: (0.64 * throttle) / (from + 1), frequency: 6, seconds: 0.3, wave: 'sine' });
   }
 
   /** Drop near-miss bookkeeping for vehicles the traffic has removed. */
@@ -563,6 +602,10 @@ export class Game {
       ...this.npcBeams.smokeLights(),
     ]);
     const lookBack = this.flow.phase === 'racing' && this.keyboard.isDown('KeyC');
+    const gear = this.player.gearbox.gear;
+    if (gear > this.lastGear && this.flow.phase === 'racing') this.gearShake(this.lastGear);
+    this.lastGear = gear;
+    this.grassRumble();
     this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     this.sound.setEngine(this.player.rpm, this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);

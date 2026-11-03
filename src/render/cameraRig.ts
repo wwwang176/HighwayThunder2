@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ShakeManager, type Shake } from './shake';
 
 export interface CameraParams {
   distance: number;
@@ -69,17 +70,24 @@ export class CameraRig {
   params = { ...DEFAULT_CAMERA };
   private camYaw = 0;
   private reversing = false;
-  private shakeAmount = 0;
+  private readonly shakes = new ShakeManager();
   private initialized = false;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
-  shake(amount: number): void {
-    this.shakeAmount = Math.min(0.6, Math.max(this.shakeAmount, amount));
+  /** Shake the camera (dropped if smaller than what is left of the shake going). */
+  shake(s: Shake): void {
+    this.shakes.add(s);
+  }
+
+  /** A steady shake (rough ground), set every frame; 0: none. */
+  rumble(swing: number, frequency: number): void {
+    this.shakes.rumble(swing, frequency);
   }
 
   snap(): void {
     this.initialized = false;
+    this.shakes.stop();
   }
 
   update(
@@ -107,13 +115,14 @@ export class CameraRig {
     const cam = this.camera;
     cam.position.set(carPos.x - fx * p.distance, carPos.y + p.height, carPos.z - fz * p.distance);
 
-    if (this.shakeAmount > 0.001) {
-      cam.position.x += (Math.random() - 0.5) * this.shakeAmount;
-      cam.position.y += (Math.random() - 0.5) * this.shakeAmount * 0.6;
-      this.shakeAmount *= Math.exp(-dt * 8);
-    }
+    this.shakes.update(dt);
+    const o = this.shakes.offset();
+    cam.position.x += o.x;
+    cam.position.y += o.y;
+    cam.position.z += o.z;
 
     cam.lookAt(carPos.x + fx * p.lookAhead, carPos.y + 0.9, carPos.z + fz * p.lookAhead);
+    cam.rotateZ(this.shakes.roll()); // the shake's tilt: a sideways move alone is hardly seen
 
     const speed = Math.abs(vForward);
     const fov = p.fovMin + (p.fovMax - p.fovMin) * Math.min(1, speed / maxSpeed) ** 1.5;
