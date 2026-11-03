@@ -1,0 +1,62 @@
+[
+  {
+    "name": "silver",
+    "paint": "#8a8f96",
+    "stripe": null,
+    "file": "silver.jpg"
+  },
+  {
+    "name": "white",
+    "paint": "#e8e8e8",
+    "stripe": null,
+    "file": "white.jpg"
+  },
+  {
+    "name": "black",
+    "paint": "#2b2b2b",
+    "stripe": null,
+    "file": "black.jpg"
+  },
+  {
+    "name": "blue",
+    "paint": "#1d4e89",
+    "stripe": null,
+    "file": "blue.jpg"
+  },
+  {
+    "name": "red",
+    "paint": "#b3261e",
+    "stripe": null,
+    "file": "red.jpg"
+  },
+  {
+    "name": "green",
+    "paint": "#2e6b3a",
+    "stripe": null,
+    "file": "green.jpg"
+  },
+  {
+    "name": "beige",
+    "paint": "#d9c7a3",
+    "stripe": null,
+    "file": "beige.jpg"
+  },
+  {
+    "name": "indigo",
+    "paint": "#5b5f97",
+    "stripe": null,
+    "file": "indigo.jpg"
+  },
+  {
+    "name": "yellow",
+    "paint": "#f0b429",
+    "stripe": null,
+    "file": "yellow.jpg"
+  },
+  {
+    "name": "brown",
+    "paint": "#6c3b2a",
+    "stripe": null,
+    "file": "brown.jpg"
+  }
+]

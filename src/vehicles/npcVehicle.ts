@@ -7,14 +7,17 @@ import {
   buildCar,
   buildContainerCab,
   buildContainerTrailer,
+  buildTrafficBody,
   buildTruck,
   CAR_COLORS,
+  CAR_LIVERIES,
   cloneModel,
   compactModel,
   CONTAINER_COLORS,
   setBrake,
   setIndicators,
   TRUCK_COLORS,
+  TRUCK_LIVERIES,
   VehicleLights,
   VehicleModel,
 } from './models';
@@ -36,6 +39,12 @@ const FIFTH_WHEEL_Y = -CONTAINER_H / 2 + 1.25;
 // Trailer-local z where the wheels / side underride guard begin: like real trailers,
 // ~3 m behind the kingpin (behind the landing gear), leaving room for the tractor to articulate.
 const TRAILER_TAIL_START = -KINGPIN_FROM_TRAILER_CENTER + 3.0;
+
+// The traffic's models (public/models/sedan.glb, truck.glb), measured off the files: where the file's origin
+// (midway between its axles) sits along the physics box (centred on the body, nose to tail), its axles
+// either side of it, the wheels' x, radius and width (tyres 185/60 R15, 275/80 R22.5).
+const SEDAN = { z: -0.078, axle: 1.224, x: 0.74, r: 0.301, width: 0.18 };
+const BOX_TRUCK = { z: -0.108, axle: 2.158, x: 1.109, r: 0.506, width: 0.26 };
 
 const SAG = 0.06; // static suspension compression we design for (m)
 
@@ -150,13 +159,18 @@ export function emitFlares(mesh: THREE.Object3D, lights: VehicleLights, flares: 
   }
   for (const ind of [...lights.left, ...lights.right]) {
     if (!ind.visible) continue;
-    FLARE_V.copy(ind.position).applyMatrix4(mesh.matrix);
+    const at = (ind.userData.flare as { x: number; y: number; z: number } | undefined) ?? ind.position; // a file body's lamp: its spot
+    FLARE_V.set(at.x, at.y, at.z).applyMatrix4(mesh.matrix);
     flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.5, 0.04, 0.35);
   }
 }
 
 function pick<T>(arr: T[], rng: () => number): T {
-  return arr[Math.floor(rng() * arr.length) % arr.length];
+  return arr[pickIndex(arr.length, rng)];
+}
+
+function pickIndex(n: number, rng: () => number): number {
+  return Math.floor(rng() * n) % n;
 }
 
 const TRAILER_MASS = 16000;
@@ -169,21 +183,23 @@ const KINGPIN_LOAD = (() => {
 
 function partSpecs(kind: VehicleKind, sp: Agent['spec']): PartSpec[] {
   if (kind === 'car') {
+    const m = SEDAN;
     return [
       {
         w: sp.width, h: sp.height, l: sp.length, mass: sp.mass, clearance: 0.3,
-        axles: [-sp.length * 0.32, sp.length * 0.32], steerAxles: 1, driven: [false, true],
-        wheelR: 0.33, wheelW: 0.26, halfTrack: sp.width / 2 - 0.1, rest: 0.3, frictionSlip: 2.2,
+        axles: [m.z - m.axle, m.z + m.axle], steerAxles: 1, driven: [false, true],
+        wheelR: m.r, wheelW: m.width, halfTrack: m.x, rest: 0.3, frictionSlip: 2.2,
       },
     ];
   }
   if (kind === 'truck') {
-    const l = sp.length;
+    // Body from its box's floor (0.51 m) up; the lower box (0.3 m up) keeps cars from going under it.
+    const m = BOX_TRUCK;
     return [
       {
-        w: sp.width, h: sp.height, l, mass: sp.mass, clearance: 0.8,
-        axles: [-l / 2 + 1.3, l / 2 - 2.2, l / 2 - 1.2], steerAxles: 1, driven: [false, true, true],
-        wheelR: 0.5, wheelW: 0.35, halfTrack: sp.width / 2 - 0.2, rest: 0.35, frictionSlip: 1.6,
+        w: sp.width, h: sp.height, l: sp.length, mass: sp.mass, clearance: 0.5,
+        axles: [m.z - m.axle, m.z + m.axle], steerAxles: 1, driven: [false, true],
+        wheelR: m.r, wheelW: m.width, halfTrack: m.x, rest: 0.35, frictionSlip: 1.6,
       },
     ];
   }
@@ -249,11 +265,21 @@ export class NpcVehicle {
         model(`trailer|${color}`, () => buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color, false)),
       ];
     } else if (agent.kind === 'truck') {
-      const color = pick(TRUCK_COLORS, rng);
-      models = [model(`truck|${color}`, () => buildTruck(sp.width, sp.height, sp.length, color, false))];
+      const i = pickIndex(TRUCK_COLORS.length, rng);
+      models = [
+        model(`truck|${i}`, () =>
+          buildTrafficBody('truck', sp.height, sp.length, BOX_TRUCK.z, TRUCK_LIVERIES[i]) ??
+          buildTruck(sp.width, sp.height, sp.length, TRUCK_COLORS[i], false),
+        ),
+      ];
     } else {
-      const color = pick(CAR_COLORS, rng);
-      models = [model(`car|${color}`, () => buildCar(sp.width, sp.height, sp.length, color, false, false))];
+      const i = pickIndex(CAR_COLORS.length, rng);
+      models = [
+        model(`car|${i}`, () =>
+          buildTrafficBody('sedan', sp.height, sp.length, SEDAN.z, CAR_LIVERIES[i]) ??
+          buildCar(sp.width, sp.height, sp.length, CAR_COLORS[i], false, false),
+        ),
+      ];
     }
     specs.forEach((s, i) => this.parts.push(this.makePart(s, models[i])));
     this.totalMass = specs.reduce((m, s) => m + s.mass, 0);

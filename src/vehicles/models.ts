@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { BEAM_LAMP_H } from './headlight';
 import type { BeamSpot } from '../render/npcBeams';
 import type { CarStyle } from './cars/types';
-import { carTemplate, type CarTemplate, type WheelSpots } from './carModels';
+import { carTemplate, type CarTemplate, type TrafficModel, type WheelSpots } from './carModels';
 
 /**
  * Procedural low-poly vehicles. Every model's origin is the center of its
@@ -144,6 +144,9 @@ function addLights(
 export const CAR_COLORS = [0xe8e8e8, 0x2b2b2b, 0x8a8f96, 0x1d4e89, 0xb3261e, 0x2e6b3a, 0xd9c7a3, 0x5b5f97, 0xf0b429, 0x6c3b2a];
 export const CONTAINER_COLORS = [0x1f5fa8, 0xb8352a, 0x2f7d4a, 0xd88a1a, 0x6b6b6b, 0x8a2f6e, 0x0f8a8a];
 export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
+// The same colours' paint jobs in the traffic's files (tools/models/sedan.py, truck.py: the truck's cab), in their order.
+export const CAR_LIVERIES = ['white', 'black', 'silver', 'blue', 'red', 'green', 'beige', 'indigo', 'yellow', 'brown'];
+export const TRUCK_LIVERIES = ['white', 'blue', 'green', 'yellow'];
 
 /**
  * Generic sedan (`style` false) or a racer's body: `true` / 'super' the low
@@ -219,17 +222,38 @@ function paintFor(base: THREE.Material, t: CarTemplate, color: number, livery: s
 }
 
 /**
+ * A traffic body from its file (carModels.ts), in the paint job `livery`, the
+ * file's origin (midway between its axles) `z` along the physics box; no wheels
+ * (the traffic's are shared). Undefined until the files are loaded (and in the
+ * tests): the caller's procedural body then.
+ */
+export function buildTrafficBody(name: TrafficModel, h: number, l: number, z: number, livery: string): VehicleModel | undefined {
+  const t = carTemplate(name);
+  return t && fromTemplate(t, h, l, 0, false, true, livery, z, true);
+}
+
+/**
  * A car body made in Blender: painted (its paint job `livery`, its own by
  * default; or `color`), its named lamps wired up like addLights' (glow
- * materials, indicators off, brake lights, flare spots - none on a light bar -,
- * the NPC-style beam).
+ * materials, indicators off, brake lights, flare spots - none on a light bar
+ * unless `barFlares` -, the NPC-style beam). Its origin `z` along the box.
  */
-function fromTemplate(t: CarTemplate, h: number, l: number, color: number, withWheels: boolean, beam: boolean, livery?: string): VehicleModel {
+function fromTemplate(
+  t: CarTemplate,
+  h: number,
+  l: number,
+  color: number,
+  withWheels: boolean,
+  beam: boolean,
+  livery?: string,
+  z = 0,
+  barFlares = false,
+): VehicleModel {
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [] };
   const g = -h / 2;
   const body = t.body.clone(true);
-  body.position.y = g + MODEL_GROUND;
+  body.position.set(0, g + MODEL_GROUND, z);
   root.add(body);
   const painted: THREE.Mesh[] = [];
   body.traverse((o) => {
@@ -263,12 +287,14 @@ function fromTemplate(t: CarTemplate, h: number, l: number, color: number, withW
     const tail = lamp(`tail_${side}`, BRAKE_DIM);
     if (tail) {
       tail.box.getCenter(c);
-      if (!tail.mesh.userData.bar) flares.push({ x: c.x, y: c.y, z: tail.box.max.z + 0.1, kind: 'tail' });
+      if (barFlares || !tail.mesh.userData.bar) flares.push({ x: c.x, y: c.y, z: tail.box.max.z + 0.1, kind: 'tail' });
       lights.brake.push(tail.mesh);
     }
     for (const end of ['F', 'R']) {
       const ind = lamp(`ind_${end}${side}`, INDICATOR);
       if (!ind) continue;
+      ind.box.getCenter(c);
+      ind.mesh.userData.flare = { x: c.x, y: c.y, z: c.z }; // its glow (model space: the mesh itself sits at the file's origin)
       ind.mesh.visible = false;
       (side === 'L' ? lights.left : lights.right).push(ind.mesh);
     }

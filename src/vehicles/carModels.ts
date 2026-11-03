@@ -18,11 +18,19 @@ import type { CarStyle } from './cars/types';
  *
  * Beside it, `<file without .glb>/liveries.json`: the paint jobs, each a texture
  * for the `paint` material (the first is the car's own).
+ *
+ * The traffic's bodies too (`sedan`, `truck`: models.ts buildTrafficBody), their
+ * own wheels and lamps from the same file; a truck's box is `plain` (no livery).
  */
-const FILES: Partial<Record<CarStyle, string>> = {
+export type TrafficModel = 'sedan' | 'truck';
+type ModelName = CarStyle | TrafficModel;
+
+const FILES: Partial<Record<ModelName, string>> = {
   super: 'models/supercar.glb',
   muscle: 'models/muscle-car.glb',
   jdm: 'models/jdm.glb',
+  sedan: 'models/sedan.glb',
+  truck: 'models/truck.glb',
 };
 
 /** Where a file car's wheels go (model space; nose toward -Z) and their radius. */
@@ -49,9 +57,9 @@ interface LiveryEntry {
   file: string;
 }
 
-const templates = new Map<CarStyle, CarTemplate>();
+const templates = new Map<ModelName, CarTemplate>();
 
-export function carTemplate(style: CarStyle): CarTemplate | undefined {
+export function carTemplate(style: ModelName): CarTemplate | undefined {
   return templates.get(style);
 }
 
@@ -73,7 +81,7 @@ export async function loadCarModels(base = import.meta.env.BASE_URL): Promise<vo
         const caliper = gltf.scene.getObjectByName('caliper') ?? null;
         caliper?.removeFromParent();
         const spots = wheel && 'r' in wheel.userData ? (wheel.userData as WheelSpots) : null;
-        templates.set(style as CarStyle, { body: gltf.scene, wheel, caliper, spots, liveries });
+        templates.set(style as ModelName, { body: gltf.scene, wheel, caliper, spots, liveries });
       } catch (e) {
         console.warn(`car model ${file} not loaded, using the built-in shape`, e);
       }
