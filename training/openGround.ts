@@ -1,4 +1,3 @@
-import RAPIER from '@dimforge/rapier3d-compat';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 
 /**
@@ -8,10 +7,6 @@ import { PhysicsWorld } from '../src/physics/physicsWorld';
  */
 export function openGround(): PhysicsWorld {
   const physics = PhysicsWorld.createSync();
-  const rails: RAPIER.Collider[] = [];
-  physics.world.forEachCollider((c) => {
-    if (!c.parent() && c.halfExtents().x < 50) rails.push(c); // the ground is 160 m wide
-  });
-  for (const c of rails) physics.world.removeCollider(c, false);
+  for (const c of physics.rails) physics.world.removeCollider(c, false);
   return physics;
 }

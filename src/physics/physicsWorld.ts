@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { LEFT_RAIL_X, RAIL_D, ROAD_LENGTH } from '../config';
+import { LEFT_RAIL_X, RAIL_D } from '../config';
 
 export type EntityRef = { type: 'player' } | { type: 'rival'; id: number } | { type: 'npc'; id: number } | { type: 'static' };
 
@@ -62,11 +62,10 @@ function upOf(body: RAPIER.RigidBody | null, out: THREE.Vector3): void {
   out.set(0, 1, 0).applyQuaternion(Q.set(r.x, r.y, r.z, r.w));
 }
 
-export const ROAD_START_S = -300;
-export const ROAD_END_S = ROAD_LENGTH + 800;
-
 export class PhysicsWorld {
   readonly world: RAPIER.World;
+  /** The guardrails' colliders (training runs without them: training/openGround). */
+  readonly rails: RAPIER.Collider[] = [];
   private readonly eventQueue: RAPIER.EventQueue;
   private readonly owners = new Map<number, EntityRef>();
   /** Pairs of (registered) colliders touching, by their handles. */
@@ -112,27 +111,30 @@ export class PhysicsWorld {
     this.world.timestep = dt;
   }
 
+  /**
+   * The ground and the guardrails as half-spaces: planes with everything beyond them solid. Not boxes: a car's
+   * body sliding along a box the road's length now and then got a contact normal along the road (the box's end,
+   * as it were), and was stopped and thrown off the rail in one step. Against a plane the push is always its
+   * normal; nothing tunnels through one (all behind it is solid), and nothing gets over the rails (they have no
+   * top) or off the ground's edge (it has none).
+   */
   private createStatics(): void {
-    const half = (ROAD_END_S - ROAD_START_S) / 2;
-    const centerZ = -(ROAD_START_S + half);
     const ground = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(80, 0.5, half)
-        .setTranslation(0, -0.5, centerZ)
-        .setFriction(0.9)
-        .setCollisionGroups(STATIC_GROUPS),
+      new RAPIER.ColliderDesc(new RAPIER.HalfSpace({ x: 0, y: 1, z: 0 })).setFriction(0.9).setCollisionGroups(STATIC_GROUPS),
     );
     this.register(ground, { type: 'static' });
-    // Guardrails only on the outer edges; the median between carriageways is open grass.
-    // Thick rails so wrecks (no CCD) cannot tunnel through.
-    for (const x of [RAIL_D + 0.6, LEFT_RAIL_X - 0.6]) {
+    // Guardrails only on the outer edges (their inner faces, facing the road); the median between carriageways
+    // is open grass.
+    for (const [x, nx] of [[RAIL_D, -1], [LEFT_RAIL_X, 1]]) {
       const rail = this.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.6, 0.8, half)
-          .setTranslation(x, 0.8, centerZ)
+        new RAPIER.ColliderDesc(new RAPIER.HalfSpace({ x: nx, y: 0, z: 0 }))
+          .setTranslation(x, 0, 0)
           .setFriction(0.1)
           .setRestitution(0.1)
           .setCollisionGroups(STATIC_GROUPS),
       );
       this.register(rail, { type: 'static' });
+      this.rails.push(rail);
     }
   }
 
