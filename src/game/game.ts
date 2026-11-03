@@ -522,7 +522,7 @@ export class Game {
 
   /**
    * Wheels on the grass shake the camera a little, up and down: the more of them and the faster, the more
-   * (full with all four on it from 40 km/h, 3.6 cm), quicker with speed (10 Hz at 50 km/h, 22 at 150, at most 25).
+   * (full with all four on it from 40 km/h, 2.2 cm), quicker with speed (10 Hz at 50 km/h, 22 at 150, at most 25).
    */
   private grassRumble(): void {
     const t = this.player.body.translation();
@@ -532,7 +532,7 @@ export class Game {
     let onGrass = 0;
     for (const side of [-1, 1]) for (const along of [-half, half]) if (surfaceGrip(t.x + cos * side * 0.8 + sin * along) < 1) onGrass++;
     const kmh = Math.abs(this.player.speed) * 3.6;
-    this.rig.rumble(0.036 * (onGrass / 4) * Math.min(1, kmh / 40), Math.min(25, 4 + kmh * 0.12));
+    this.rig.rumble(0.0216 * (onGrass / 4) * Math.min(1, kmh / 40), Math.min(25, 4 + kmh * 0.12));
   }
 
   /**
@@ -544,7 +544,7 @@ export class Game {
     if (throttle < 0.1) return;
     const fx = Math.sin(this.player.yaw);
     const fz = -Math.cos(this.player.yaw);
-    this.rig.shake({ dir: { x: -fx, y: 0, z: -fz }, amplitude: (0.64 * throttle) / (from + 1), frequency: 6, seconds: 0.3, wave: 'sine' });
+    this.rig.shake({ dir: { x: -fx, y: 0, z: -fz }, amplitude: (0.384 * throttle) / (from + 1), frequency: 6, seconds: 0.3, wave: 'sine' });
   }
 
   /** Drop near-miss bookkeeping for vehicles the traffic has removed. */

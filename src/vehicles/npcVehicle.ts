@@ -46,11 +46,11 @@ const TRAILER_TAIL_START = -KINGPIN_FROM_TRAILER_CENTER + 3.0;
 const SEDAN = { z: -0.078, axle: 1.224, x: 0.74, r: 0.301, width: 0.18 };
 const BOX_TRUCK = { z: -0.108, axle: 2.158, x: 1.109, r: 0.506, width: 0.26 };
 // The container truck's cab (cab.glb, tyres 295/80 R22.5): its origin midway between its front and last axles,
-// its axles from the box's centre (front, then the two at the back), its cabin's back wall.
-const CAB = { z: 0.271, axles: [-1.76, 1.246, 2.302], x: 1.051, r: 0.522, width: 0.3, cabinBack: -0.36 };
-// Its trailer (trailer.glb: its origin its middle; twin tyres 295/80 R22.5, as one wide wheel between them), its
-// container's top.
-const TRAILER = { x: 0.92, r: 0.522, width: 0.6, top: 3.92 };
+// its axles from the box's centre (front, then the two at the back, on twin tyres), its cabin's back wall.
+// (Twins shown a little narrower than they are, 8 cm apart, the gap between them clear.)
+const CAB = { z: 0.271, axles: [-1.76, 1.246, 2.302], x: 1.051, r: 0.522, width: 0.27, twin: { from: 1, x: 0.93, gap: 0.35 }, cabinBack: -0.36 };
+// Its trailer (trailer.glb: its origin its middle; twin tyres 295/80 R22.5), its container's top.
+const TRAILER = { x: 0.92, r: 0.522, width: 0.27, twin: { from: 0, x: 0.922, gap: 0.35 }, top: 3.92 };
 
 const SAG = 0.06; // static suspension compression we design for (m)
 
@@ -104,6 +104,8 @@ interface PartSpec {
   wheelR: number;
   wheelW: number;
   halfTrack: number;
+  /** Twin tyres (each wheelW wide) on the axles from `from` on: their middle's x, the gap between theirs. */
+  twin?: { from: number; x: number; gap: number };
   rest: number;
   frictionSlip: number;
   extraLoad?: { load: number; z: number };
@@ -114,6 +116,10 @@ interface PartSpec {
 
 interface Wheel {
   slot: number;
+  /** Twin tyres: the second one's slot, both shown either side of `shownX`, `gap` apart (-1: one tyre at x). */
+  slot2: number;
+  shownX: number;
+  gap: number;
   staticLoad: number; // N, design load (sets spring rates)
   x: number;
   z: number;
@@ -213,7 +219,7 @@ function partSpecs(kind: VehicleKind, sp: Agent['spec']): PartSpec[] {
     {
       w: sp.width, h: CONTAINER_H, l: CAB_L, mass: sp.mass, clearance: 0.9,
       axles: CAB.axles, steerAxles: 1, driven: [false, true, true],
-      wheelR: CAB.r, wheelW: CAB.width, halfTrack: CAB.x, rest: 0.35, frictionSlip: 1.6,
+      wheelR: CAB.r, wheelW: CAB.width, halfTrack: CAB.x, twin: CAB.twin, rest: 0.35, frictionSlip: 1.6,
       extraLoad: { load: KINGPIN_LOAD, z: HITCH_FROM_CAB_CENTER },
       // Full-height cabin up front (its model's, 3.7 m tall); behind it only a low chassis under the fifth
       // wheel, so the trailer can sit over it without touching - and hit the cabin when it jackknifes.
@@ -225,7 +231,7 @@ function partSpecs(kind: VehicleKind, sp: Agent['spec']): PartSpec[] {
     {
       w: sp.width, h: CONTAINER_H, l: TRAILER_L, mass: TRAILER_MASS, clearance: 1.1,
       axles: TRAILER_AXLES, steerAxles: 0, driven: [false, false, false],
-      wheelR: TRAILER.r, wheelW: TRAILER.width, halfTrack: TRAILER.x, rest: 0.35, frictionSlip: 1.6,
+      wheelR: TRAILER.r, wheelW: TRAILER.width, halfTrack: TRAILER.x, twin: TRAILER.twin, rest: 0.35, frictionSlip: 1.6,
       kingpinZ: -KINGPIN_FROM_TRAILER_CENTER,
       // Box body above the fifth wheel; wheels / underride guard only behind the tractor.
       boxes: [
@@ -362,8 +368,12 @@ export class NpcVehicle {
         vehicle.setWheelMaxSuspensionForce(idx, loads[ai] * 4);
         vehicle.setWheelFrictionSlip(idx, s.frictionSlip);
         vehicle.setWheelSideFrictionStiffness(idx, 1);
+        const twin = s.twin && ai >= s.twin.from ? s.twin : null;
         wheels.push({
           slot: this.wheelPool.alloc(),
+          slot2: twin ? this.wheelPool.alloc() : -1,
+          shownX: side * (twin ? twin.x : s.halfTrack),
+          gap: twin ? twin.gap : 0,
           staticLoad: loads[ai],
           x: side * s.halfTrack,
           z,
@@ -568,9 +578,14 @@ export class NpcVehicle {
         const spin = cw ? cw.spin : p.vehicle!.wheelRotation(i) ?? 0;
         const steer = cw ? -cw.steer : p.vehicle!.wheelSteering(i) ?? 0;
         TMP_E.set(spin, steer, 0, 'YXZ');
-        TMP_M2.compose(TMP_V.set(w.x, w.connY - len, w.z), TMP_Q.setFromEuler(TMP_E), TMP_S.set(w.width, w.r, w.r));
-        TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2);
-        this.wheelPool.set(w.slot, TMP_M);
+        TMP_Q.setFromEuler(TMP_E);
+        TMP_S.set(w.width, w.r, w.r);
+        for (const [slot, dx] of [[w.slot, -w.gap / 2], [w.slot2, w.gap / 2]]) {
+          if (slot < 0) continue;
+          TMP_M2.compose(TMP_V.set(w.shownX + dx, w.connY - len, w.z), TMP_Q, TMP_S);
+          TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2);
+          this.wheelPool.set(slot, TMP_M);
+        }
       });
     }
   }
@@ -599,7 +614,10 @@ export class NpcVehicle {
   dispose(): void {
     if (this.joint) this.physics.world.removeImpulseJoint(this.joint, true);
     for (const p of this.parts) {
-      for (const w of p.wheels) this.wheelPool.release(w.slot);
+      for (const w of p.wheels) {
+        this.wheelPool.release(w.slot);
+        if (w.slot2 >= 0) this.wheelPool.release(w.slot2);
+      }
       if (p.vehicle) this.physics.world.removeVehicleController(p.vehicle);
       for (const c of p.colliders) this.physics.unregister(c);
       this.physics.world.removeRigidBody(p.body);
