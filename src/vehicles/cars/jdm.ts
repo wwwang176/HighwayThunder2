@@ -21,6 +21,7 @@ export const JDM_CAR: CarSpec = {
     // with +25 % grip. 0-100 hardly answers to the engine (the launch); 0-200 does.
     mass: 1200,
     comY: -0.3,
+    comFwd: 0, // half the weight on each axle
     power: 340_000,
     engineTorque: 450,
     maxDriveForce: 11_000,

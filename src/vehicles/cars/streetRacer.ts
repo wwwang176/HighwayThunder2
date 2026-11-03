@@ -12,7 +12,7 @@ export const STREET_RACER: CarSpec = {
   params: {
     mass: 1300,
     comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h
-    comFwd: 0, // mid-engined: half the weight on each axle
+    comFwd: -0.2, // mid-engined (behind the cabin): 42 % of the weight on the front tyres, 58 % on the rear (0.08 x the 2.5 m wheelbase)
     power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
     maxDriveForce: 14_250,
     engineTorque: 600,
@@ -26,9 +26,10 @@ export const STREET_RACER: CarSpec = {
     reverseMax: 8,
     reverseForce: 4_000,
     brakeForceMax: 26_000,
-    // Hard braking and steering (training/cornering.train.ts brakeSteer): at 0.75 the rears locked and it spun
-    // below ~150 km/h; at 0.82 the tail steps out 7-9°. More to the front brakes a little less in all.
-    brakeFrontBias: 0.82,
+    // Hard braking and steering (training/cornering.train.ts brakeSteer), its weight 42:58: at 0.78 the tail steps
+    // out 7-9° and it stops as it did at 50:50 with 0.82; at 0.75 14° at 120 km/h, at 0.72 it spins; at 0.82 it
+    // brakes less (the lighter front tyres lock first).
+    brakeFrontBias: 0.78,
     frontBrakeApart: true,
     dragK: 0.4,
     downforceK: 0.4, // the real part (presses the springs); most of the aero grip is aeroGrip
@@ -66,27 +67,26 @@ export const STREET_RACER: CarSpec = {
   },
   ai: {
     // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
-    // Re-measured with the low centre of mass: within 0.6 m/s² (50: 6.2, brake 10.7) - kept, the benchmark did
-    // better with these (105.2 s, no crash vs 106.4 s, one crash in 15).
+    // Measured 2026-11-03 on its model's size, its weight 42:58 (the launch quicker: the rear tyres carry more).
     accel: [
-      [0, 6.8],
-      [50, 6.8],
+      [0, 7.8],
+      [50, 7.8],
       [100, 7.6],
       [150, 5.4],
       [200, 3.8],
-      [250, 2.5],
-      [300, 1.2],
+      [250, 2.6],
+      [300, 1.3],
     ],
-    brake: 11.2,
-    // Steady full-lock cornering (open ground, aero grip as of ead083d).
+    brake: 9.9,
+    // Steady full-lock cornering (open ground).
     latAccel: [
-      [0, 10.9],
-      [50, 10.9],
-      [100, 13.5],
-      [150, 17.7],
-      [200, 20.5],
-      [250, 22.2],
-      [300, 23.8],
+      [0, 10.8],
+      [50, 10.8],
+      [100, 13.3],
+      [150, 17.3],
+      [200, 19.8],
+      [250, 21.8],
+      [300, 23.6],
     ],
     tracker: STREET_RACER_TRACKER,
   },
