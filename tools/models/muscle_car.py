@@ -112,7 +112,10 @@ CAR = kit.Car(
     width=1.99,
     src_ground=0.14,
     tyres=[(1.311, 0.321, 0.291, 0.578, 0.876), (-1.073, 0.325, 0.321, 0.604, 0.935)],
-    wheel=(0.305, 0.30, 0.74),
+    tyre="275/40 R17",
+    rim="bold-5",
+    wheel_face=0.89,
+    caliper=0x222225,
     # Paint and stripes (None: plain). The first is the car's own; the game picks among them by name.
     liveries=[
         ("orange-black", 0xF2780C, 0x141414),

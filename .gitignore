@@ -3,3 +3,4 @@ dist/
 .superpowers/
 *.log
 training/out/
+__pycache__/

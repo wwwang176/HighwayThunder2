@@ -1,6 +1,6 @@
 # 車輛模型製作流程
 
-做肌肉車（2026-11）時摸索出來、確定可行的做法。下一台車照這份走。
+做肌肉車和超跑（2026-11）時摸索出來、確定可行的做法。下一台車照這份走，最後的「新車清單」是完整步驟。
 相關：`docs/ai-car-tuning.md`（新車進遊戲後量車、訓練 AI）。
 
 ## 0. 先記住的結論
@@ -35,11 +35,15 @@ python tools/models/tripo.py wait <task_id> <scratch 資料夾>
 - **多視角比單張好**：只給 `front34` 時車頭很好，但車尾靠猜，尾燈陽春。三張一起給，順序是前、左、後（右留空），車尾就對了。斜角圖放在「前」「後」的位置也能用。
 - 挑一個結果，把 `model.glb` 存成 `tools/models/src/<car>-tripo.glb`（進 repo）。
 
-## 4. 後處理腳本（`tools/models/muscle_car.py` 是範本）
+## 4. 後處理腳本
+
+共用的步驟都在 `tools/models/carkit.py`，輪子在 `tools/models/wheels.py`。每台車一個小檔（`muscle_car.py`、`supercar.py`）：用 `kit.Car(...)` 寫出這台車的設定（輪胎位置、尺寸、塗裝、輪胎規格、輪框、燈具、自己的修補），再呼叫 `kit.run(CAR)`。各參數的意思寫在 `Car` 的說明裡。
 
 ```sh
 blender -b --factory-startup -P tools/models/<car>.py -- --out public/models/<car>.glb --preview <scratch 資料夾>
 ```
+
+不加 `--out` 就直接寫進遊戲（`public/models/`，碰撞外形寫到 `src/vehicles/cars/`）。改了 `carkit.py` 後，要重建其他車比對輸出有沒有變（`cmp` 新舊 GLB、碰撞檔、塗裝 JPEG）。
 
 腳本依序做這些事，每一步都有做法和踩過的坑：
 
@@ -62,6 +66,7 @@ blender -b --factory-startup -P tools/models/<car>.py -- --out public/models/<ca
    - 只認貼圖的「玻璃灰」：亮度 0.13～0.25、幾乎沒彩度。**條紋的黑比玻璃更黑（約 0.11）**，絕對不能用「黑色」判斷玻璃，否則會把條紋抓進來。
    - 從面積最大的候選面開始往外長，只接受法線跟它相差 12° 以內的鄰面。這樣車頂、引擎蓋、行李箱上被條紋邊緣弄成灰色的面，就不會黏進窗戶。
    - 驗證方法：把玻璃材質換成藍色，從前、後、側面渲染。
+   - 車頂是黑色車身時（超跑），車頂的黑會落在玻璃灰的範圍裡，車頂整片變成玻璃。設 `roof_above`：這個高度以上朝上的面不當玻璃，而且整片換成車頂色（Tripo 還在超跑車頂的凹槽塗了一塊紅色）。
 9. **塗裝**（`LIVERIES`、`livery_textures`）：每款塗裝一張完整貼圖。
    - 車漆像素（含它跟黑色之間的過渡）換成該款漆色，純色、不帶 Tripo 的假光影。
    - 朝上的面（引擎蓋、車頂、行李箱、鴨尾翹）上的黑色是條紋，換成條紋色；純色款就換成漆色。
@@ -70,7 +75,17 @@ blender -b --factory-startup -P tools/models/<car>.py -- --out public/models/<ca
 10. **著色**：
     - `shade_smooth_by_angle(30°)`，再套 `WEIGHTED_NORMAL`（依面積加權）。不加權的話，生成的細長三角形會把法線拉歪，條紋上出現 X 形亮紋。
     - 每扇窗共用一個法線（`flat_windows`），否則鏡射的左右兩半在中線會有一道亮線。
-11. **輪子**：用腳本自己建的輪子（`build_wheel`），不要用生成的，因為遊戲要能轉動。
+11. **輪子**（`wheels.py`）：不用生成的輪子，因為遊戲要能轉動。輪胎和輪框分開做：
+   - **輪胎**用真實規格產生（`Car.tyre`，例如 `"305/25 R20"`：胎寬 305 mm、胎壁高 25 %、20 吋），外徑就是遊戲用的輪胎半徑（`CarParams.wheelRadius` 要跟它一致）。輪胎外側面對齊原本生成輪胎的外側（`wheel_face`）。
+   - **輪框**是模型：`tools/models/rims/<名稱>.blend`，可以直接在 Blender 打開修改。檔案裡只有一根輻條份的輪框（`slice`：外緣和輪圈的表面、`spoke`：輻條），程式依輻條數複製轉一圈；`hub`（輪轂、螺帽）和 `brake`（煞車碟）只用一次。模型的規則寫在 `wheels.py` 開頭。現有的 `thin-10`（超跑：細 10 輻、全黑）和 `bold-5`（肌肉車：粗 5 輻、拋光亮邊）是 `tools/models/rims/make_rims.py` 建的；新輪框就在那裡加一段，或直接在 Blender 照規則建。
+   - **一圈固定 40 段**，所以輻條數只能是 4、5、8、10、20。輪框兩側胎唇的頂點必須每 9° 一個，跟輪胎的頂點重合，合併後整顆輪子沒有縫（程式會檢查，對不上就報錯）。
+   - 輪框依輪胎的胎唇半徑和寬度縮放，同一個輪框可以配不同吋數。
+   - **卡鉗**（`Car.caliper` 顏色）：有煞車碟的輪框才做，獨立物件 `caliper`。遊戲裡掛在轉向那層，跟著轉向但不跟著滾動；左側鏡射，兩邊都在車軸後方。
+   - 面數：一顆要在 1,000 個三角形以內（現在 880～920，卡鉗另外 52）。輪胎和輪框必須保持 40 段，所以靠減少輪廓圈數：輪胎朝車身那側只留一段，輪框只留亮邊兩段和內側一段。輻條和輪轂直接疊上去，不用布林運算切合（切合會多出很多三角形）：插進輪框和輪轂裡的部分看不到，埋住的兩端也不封口。所以檢查會報輪子有穿插面和破邊，這是正常的。
+   - 遊戲裡沒有環境反射，全金屬材質只剩燈光的亮點，看起來是黑的。要「亮的金屬」（煞車碟）就用亮色、金屬度 0.6 左右。
+11-0. **輪拱內側**（`wheel_wells`）：補輪胎洞長出來的面帶著旁邊的車漆色，透過輪子看得到。輪拱裡朝向輪軸的面、輪胎外圍那圈朝外的平面，都改成獨立的深黑材質 `wheel_well`（不受塗裝影響）。
+   - 生成的輪拱上方是空的，會直接看到車殼的背面。遊戲裡車漆只畫正面，背面另外用深黑色畫（`models.ts` 的 `SHELL_INSIDE`），所以從任何縫隙看進車殼都是黑的。
+   - 試過在輪拱裡加內襯，但車殼裡殘留很多零碎的面，量不準內襯能多大，做大了就會從葉子板穿出來，所以放棄。
 11-1. **碰撞外形**（`collider_pieces`）：兩塊凸多面體，從模型量。
    - 車身：車底到引擎蓋、全寬、車頭到車尾。行李箱比引擎蓋高的話，頂面做成前低後高的梯形。
    - 車艙：擋風玻璃底部沿斜面上到車頂，再沿後窗下到後窗底部；寬度從窗台往車頂收窄。
@@ -89,12 +104,20 @@ blender -b --factory-startup -P tools/models/<car>.py -- --out public/models/<ca
 - Blender 的 `render.filepath` 要給**絕對路徑**；相對路徑會寫到 `C:\` 根目錄。
 - 匯出時 Blender 的 +Y（車頭）會變成 three.js 的 −Z。用 `import_scene.gltf` 讀回 GLB 時，車頭又回到 Blender 的 +Y。
 - 用 Blender 讀 8-bit 圖時，`image.pixels` 拿到的是 sRGB 編碼的值。寫貼圖時直接用 0x 色碼除以 255，不要先轉線性。
-- 腳本被其他 scratch 腳本 `import` 會產生 `tools/models/__pycache__/`，記得刪。
+- `carkit.py` 會 `import wheels`，所以會產生 `tools/models/__pycache__/`（已加進 `.gitignore`）。
+- `bpy.data.libraries.load` 會把你給 `dst.objects` 的那個 list **原地換成物件**，之後要用名稱就先另外複製一份。
 
 ## 7. 新車清單
 
 1. grok 概念圖三張 → `docs/art/<car>/`
 2. `tripo.py multiview` → 挑結果 → `tools/models/src/<car>-tripo.glb`
-3. 複製 `muscle_car.py` 成 `<car>.py`，重量 `SRC_TYRES`（輪胎）、`SRC_GROUND`、`WIDTH`、`LIVERIES`；看情況改局部修補（`build_apron`）
-4. 跑腳本 → 看預覽 → 修 → commit（`tools/models/`、`public/models/<car>.glb`、`public/models/<car>/`）
-5. 遊戲端：`src/vehicles/carModels.ts` 的 `FILES` 加一行，再依 `docs/ai-car-tuning.md` 調物理、訓練 AI
+3. 照 `supercar.py` 寫 `<car>.py`：量 `tyres`（生成的輪胎）、`src_ground`，填 `width`、`liveries`；燈具和局部修補依這台車的貼圖寫。車頂是黑色的話設 `roof_above`。
+4. **輪子**（每台車都要）：
+   - 輪胎規格 `tyre`：挑外徑接近生成輪胎的真實規格（腳本會印出兩者的半徑對照），寬度配車的個性。
+   - 輪框 `rim`：照概念圖的樣式，沒有合適的就在 `make_rims.py` 加一款（輻條數 4、5、8、10、20），先單獨渲染輪子給使用者看過再上車。
+   - **一定要有煞車碟和卡鉗**：煞車碟亮銀色（`make_rims.py` 的 `DISC`），卡鉗顏色寫在 `caliper`（超跑紅、肌肉車黑）。輪框後面不要做整片擋住的凹盤，否則看不到煞車。
+   - 一顆輪子 1,000 個三角形以內（腳本會印出來）。
+   - `wheel_face`：輪胎外側面的位置，通常是生成輪胎的外側（`tyres` 的最後一個值附近）。
+5. 跑腳本 → 看預覽（含輪拱：透過輪子不該看到車漆色）→ 修 → commit（`tools/models/`、`public/models/<car>.glb`、`public/models/<car>/`、碰撞檔）
+6. 遊戲端：`src/vehicles/carModels.ts` 的 `FILES` 加一行；`CarSpec` 填模型的尺寸（`width`、`length`、`wheelbase`＝前後輪距離、`wheelRadius`＝輪胎規格的半徑）和 `collider`。車身背面變深黑、卡鉗掛在轉向那層，都是自動的。再依 `docs/ai-car-tuning.md` 調物理、訓練 AI。
+7. 在遊戲車庫截圖確認（夜景很暗，看細節時暫時補一盞燈）。

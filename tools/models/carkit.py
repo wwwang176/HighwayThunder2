@@ -14,18 +14,21 @@ The body comes from tools/models/src/<car>-tripo.glb: Tripo3D's multiview-to-mod
   - splits the windows off as `glass`,
   - repaints its texture once per livery (`Car.liveries`: paint, stripes), flat colours,
   - adds the lamps as separate objects over the texture's lamps (`Car.lamps`; the game switches them),
-  - measures its collision shape.
+  - measures its collision shape,
+  - puts its wheel together: its tyre size on its rim model (wheels.py).
 
 Builds in Blender space (X right, Y forward = nose, Z up), then moves the body down so the origin
 is GROUND above the ground, midway between the axles. Exported Y-up: the nose points to -Z in three.js.
 
 Objects in the GLB (the game finds them by name):
-  body                        paint (the first livery's texture), glass
+  body                        paint (the first livery's texture), glass, wheel_well (near black)
   head_L / head_R             headlamps (lamps over the texture's)
   tail_L / tail_R             the tail light bar's halves (also the brake lights; extras "bar": a light bar)
   ind_FL ind_FR ind_RL ind_RR indicators (glowing plates, hidden while off)
   wheel                       one wheel at the origin, axle along X, rim face +X (outer side on the right);
                               extras x, front, rear (along the nose, + toward it), r: where the wheels go
+  caliper                     (when the car has one) its brake caliper, where it sits on the wheel; it steers
+                              with the wheel but doesn't roll (on the left, mirrored: behind the axle on both)
 Beside it, <out without .glb>/: each livery's texture (<name>.jpg, for `paint`) and liveries.json.
 """
 
@@ -41,6 +44,8 @@ import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
+import wheels
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 GROUND = 0.55  # the origin's height above the ground
 LENGTH = 4.25  # the length a car is worked on at (every size a Car gives is at this scale)
@@ -54,21 +59,33 @@ class Car:
     width       the finished car's (all of it scaled up to this at the end)
     src_ground  how far below the generated car's centre its tyres touch the ground (it is 1 m long, nose +x)
     tyres       its tyres in our frame before centring: (axle y, axle z, radius, inner x, outer x) front, rear
-    wheel       our wheel: (radius, width, x) at the working length
+    tyre        its tyres' size, as written on one ("245/30 R20"; the game takes its radius)
+    rim         its rim model: tools/models/rims/<rim>.blend (wheels.py)
+    wheel_face  x (working frame) where the tyres' outer faces go (in the arches)
+    caliper     its brake calipers' colour (0xRRGGBB; None: none, or the rim has no brake disc to show them)
     liveries    (name, paint, stripes or None) per paint job, the first the car's own
     glass_above z (working frame) above which its texture's glass grey is window
     tops_above  z above which up-facing faces are the tops its stripes may cross
-    collider    the generated collider's TS export name (src/vehicles/cars/<collider_file>.ts)
+    roof_above  z above which it is all roof, the stripes' colour through and through, whatever paint the
+                texture smudged onto it, and its up-facing faces never window, whatever grey the texture gave
+                them (None: no such roof)
+    collider   the generated collider's TS export name (src/vehicles/cars/<collider_file>.ts)
     lamps       lamps(body, px, surface) -> lamp objects (head_L/R, tail_L/R, ind_FL/FR/RL/RR)
     mend        mend(body, px): the car's own fixes to its generated body (or None)
+    paint_hue   (lo, hi) hue range of its paint on the texture (lo > hi: it wraps past 1, a red)
+    tail        tail(h, s, v): whether a texel is its tail lights' red (None: saturated red; a red car's
+                paint is red too, so it needs its own)
     """
 
-    def __init__(self, name, width, src_ground, tyres, wheel, liveries, collider, collider_file, lamps,
-                 mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None):
+    def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
+                 mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
+                 roof_above=None, caliper=None):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
-        self.wheel_r, self.wheel_w, self.wheel_x = wheel
+        self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
         self.lamps, self.mend, self.glass_above, self.tops_above = lamps, mend, glass_above, tops_above
+        self.roof_above = roof_above
+        self.paint_hue, self.tail = paint_hue, tail
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -110,9 +127,6 @@ def make_materials():
     MAT["head"] = material("lamp_head", srgb(0xFFD890), 0.2, 0, 1.0)  # warm (the game swaps in its own glow)
     MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 1.2)  # (the game swaps in its own: dim, bright braking)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
-    MAT["tyre"] = material("tyre", srgb(0x0B0B0B), 0.95)
-    MAT["rim"] = material("rim", srgb(0x1E1E22), 0.4, 0.6)
-    MAT["spoke"] = material("spoke", srgb(0x707078), 0.3, 0.8)
 
 
 # ---------------------------------------------------------------- helpers
@@ -137,26 +151,6 @@ def mesh_object(name, verts, faces, mats, face_mats=None):
     return ob
 
 
-BOX_FACES = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
-
-
-def box(name, x0, x1, y0, y1, z0, z1, mat):
-    v = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
-    return mesh_object(name, v, BOX_FACES, [mat])
-
-
-def disc(name, x, y, z, r, depth, mat, n=16):
-    """A round lamp (a short cylinder along Y), its front face at y."""
-    v = []
-    for yy in (y - depth, y):
-        for i in range(n):
-            a = 2 * math.pi * i / n
-            v.append((x + r * math.cos(a), yy, z + r * math.sin(a)))
-    f = [tuple(range(n)), tuple(range(n, 2 * n))]
-    f += [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
-    return mesh_object(name, v, f, [mat])
-
-
 def join(objs, name):
     bpy.ops.object.select_all(action="DESELECT")
     for o in objs:
@@ -166,20 +160,6 @@ def join(objs, name):
     ob = bpy.context.view_layer.objects.active
     ob.name = ob.data.name = name
     return ob
-
-
-def union(target, parts):
-    """Exact boolean union of each of `parts` into `target` (removing them)."""
-    for p in parts:
-        mod = target.modifiers.new("b", "BOOLEAN")
-        mod.operation = "UNION"
-        mod.solver = "EXACT"
-        mod.material_mode = "TRANSFER"
-        mod.object = p
-        bpy.context.view_layer.objects.active = target
-        bpy.ops.object.modifier_apply(modifier="b")
-        bpy.data.objects.remove(p)
-    return target
 
 
 # ---------------------------------------------------------------- the body
@@ -216,7 +196,9 @@ def load_body():
     for f in new:
         for l in f.loops:
             l[uv].uv = around[l.vert]
-    unfold(bm)
+    through = unfold(bm)
+    if through:
+        print(f"[{CAR.log}] parts going through each other (left be): {through} face pairs")
     bm.to_mesh(ob.data)
     bm.free()
 
@@ -244,18 +226,23 @@ def crossing_pairs(bm):
 
 def unfold(bm, most=0.03):
     """Where the generation folded the surface over itself (thin faces crossing), weld the two crossing faces'
-    nearest corners together (at their midpoint), until nothing crosses."""
+    nearest corners together (at their midpoint), until no fold is left. Faces crossing with their nearest
+    corners `most` or further apart are parts going through each other (a wing's stays through the deck): left
+    be. Returns how many such pairs are left."""
     for _ in range(20):
         pairs = crossing_pairs(bm)
-        if not pairs:
-            return
         bm.faces.ensure_lookup_table()
+        welded = False
         for a, b in pairs:
-            if not (a.is_valid and b.is_valid):
+            if not (a.is_valid and b.is_valid) or set(a.verts) & set(b.verts):  # (joined by a weld this round)
                 continue
             va, vb = min(((p, q) for p in a.verts for q in b.verts), key=lambda pq: (pq[0].co - pq[1].co).length)
-            assert (va.co - vb.co).length < most, f"faces cross {(va.co - vb.co).length:.3f} m apart at {tuple(va.co)}"
+            if (va.co - vb.co).length >= most:
+                continue
             bmesh.ops.pointmerge(bm, verts=[va, vb], merge_co=(va.co + vb.co) / 2)
+            welded = True
+        if not welded:
+            return len(pairs)
         bmesh.ops.dissolve_degenerate(bm, edges=bm.edges, dist=1e-5)
     raise AssertionError("faces still cross after welding")
 
@@ -280,13 +267,19 @@ def loose_parts(bm):
     return parts
 
 
+def in_paint_hue(h):
+    """Whether hue `h` (0..1; a texel's, or an array of them) is the car's paint's (Car.paint_hue, may wrap past 1)."""
+    lo, hi = CAR.paint_hue
+    return (h >= lo) & (h < hi) if lo <= hi else (h >= lo) | (h < hi)
+
+
 def colour_class(rgb):
     h, s, v = colorsys.rgb_to_hsv(*rgb)
     if v > 0.75 and s < 0.3:
         return "white"
-    if s > 0.6 and v > 0.45 and (h < 0.012 or h > 0.95):
+    if CAR.tail(h, s, v) if CAR.tail else s > 0.6 and v > 0.45 and (h < 0.012 or h > 0.95):
         return "red"
-    if s > 0.45 and v > 0.25 and 0.012 <= h < 0.14:
+    if s > 0.45 and v > 0.25 and in_paint_hue(h):
         return "paint"
     return "dark" if v < 0.12 else "grey"
 
@@ -310,7 +303,7 @@ def hsv(px):
 def paint_mask(px):
     """The texture's paint pixels (colour_class "paint", vectorised) and every pixel's brightness."""
     hue, s, mx = hsv(px)
-    return (s > 0.45) & (mx > 0.25) & (hue >= 0.012) & (hue < 0.14), mx
+    return (s > 0.45) & (mx > 0.25) & in_paint_hue(hue), mx
 
 
 def paint_uv(px):
@@ -342,7 +335,8 @@ def split_glass(body, px):
     (0.13 to 0.25, colourless; the stripes are blacker, 0.11) above the belt, as one piece facing one way:
     grown from its biggest face over the faces turned less than 12 degrees from it (not the roof's, the
     hood's, the deck's, where the stripes' soft edges can read as that grey).
-    Returns the faces stripes may cross (up-facing tops: hood, roof, deck, ducktail) as UV triangles."""
+    Returns the faces stripes may cross (up-facing tops: hood, roof, deck, ducktail) and the roof's (above
+    Car.roof_above, not glass), as UV triangles."""
     body.data.materials[0].name = "paint"
     body.data.materials.append(material("glass", srgb(0x161A20), 0.15, 0.3))
     bm = bmesh.new()
@@ -351,7 +345,9 @@ def split_glass(body, px):
     cand = set()
     for f in bm.faces:
         _, s, v = colorsys.rgb_to_hsv(*face_colour(px, f, uv))
-        if f.calc_center_median().z > CAR.glass_above and 0.13 < v < 0.25 and s < 0.15:
+        z = f.calc_center_median().z
+        roof = CAR.roof_above is not None and z > CAR.roof_above and f.normal.z > 0.95
+        if z > CAR.glass_above and 0.13 < v < 0.25 and s < 0.15 and not roof:
             cand.add(f)
     glass = set()
     left = set(cand)
@@ -368,18 +364,50 @@ def split_glass(body, px):
         left -= piece
         if sum(g.calc_area() for g in piece) > 0.02:
             glass |= piece
-    tops = []
+    tops, roof = [], []
     for f in bm.faces:
         c = f.calc_center_median()
         if f in glass:
             f.material_index = 1
-        elif f.normal.z > 0.5 and c.z > CAR.tops_above:
-            uvs = [l[uv].uv.copy() for l in f.loops]
-            tops += [(uvs[0], uvs[i], uvs[i + 1]) for i in range(1, len(uvs) - 1)]
+            continue
+        uvs = [l[uv].uv.copy() for l in f.loops]
+        tris = [(uvs[0], uvs[i], uvs[i + 1]) for i in range(1, len(uvs) - 1)]
+        if f.normal.z > 0.5 and c.z > CAR.tops_above:
+            tops += tris
+        if CAR.roof_above is not None and c.z > CAR.roof_above:
+            roof += tris
     bm.to_mesh(body.data)
     bm.free()
     print(f"[{CAR.log}] glass faces: {len(glass)} (of {len(cand)} glass-grey ones up top)")
-    return tops
+    return tops, roof
+
+
+def wheel_wells(body, reach=1.7, facing=0.3, ring=1.25):
+    """The wheel wells' faces near black (`wheel_well`, as the underside), whatever the texture has there (the
+    holes the tyres left were filled with the paint beside them):
+    - round each axle within `reach` tyre radii of it, between the tyre's inner side and the arch's outer edge,
+      the faces turned toward the axle (at least `facing` of their normal; the fenders' outsides face away);
+    - just round the tyre (within `ring` radii), the flat ones facing out across it, inside the arch's outer
+      edge (the fill round the generated tyre's wall).
+    (Above, the generated wells are open: one sees the shell's inside, its faces' backs. The game draws the
+    backs dark.)"""
+    me = body.data
+    me.materials.append(material("wheel_well", srgb(0x0B0B0C), 0.9))
+    k = len(me.materials) - 1
+    glass = me.materials.find("glass")
+    n = 0
+    for p in me.polygons:
+        if p.material_index == glass:
+            continue
+        c = p.center
+        for wy, wz, r, x0, x1 in CAR.tyres:
+            to_axle = Vector((0, wy - CAR.axle_mid - c.y, wz - c.z))
+            if (to_axle.length < r * reach and x0 - 0.15 <= abs(c.x) <= x1 + 0.02 and p.normal.dot(to_axle.normalized()) > facing
+                    or to_axle.length < r * ring and x0 <= abs(c.x) <= x1 - 0.01 and abs(p.normal.x) > 0.9):
+                p.material_index = k
+                n += 1
+                break
+    print(f"[{CAR.log}] wheel wells: {n} faces")
 
 
 def flat_windows(body):
@@ -483,15 +511,17 @@ def hex_rgb(hex_):
     return np.array([((hex_ >> s) & 255) / 255 for s in (16, 8, 0)], np.float32)  # sRGB, as the texture's bytes
 
 
-def livery_textures(px, tops):
+def livery_textures(px, tops_roof):
     """One texture per livery, all from the generated one: its paint (and the dark it fades into at an edge)
-    becomes the livery's paint, flat; the dark on the tops (the stripes) its stripe colour, or paint; the rest
-    (grille, lamps, trim) as it was. Returns {name: image}."""
+    becomes the livery's paint, flat; the dark on the tops (the stripes) its stripe colour, or paint; the roof
+    all its stripe colour; the rest (grille, lamps, trim) as it was. Returns {name: image}."""
+    tops, roof_tris = tops_roof
     h, w = px.shape[:2]
     rgb = px[..., :3]
     hue, s, mx = hsv(px)
     allowed = raster(tops, h, w)[..., None]
-    orange = ((s > 0.3) & (hue >= 0.012) & (hue < 0.14))[..., None]
+    roof = raster(roof_tris, h, w)[..., None] if roof_tris else np.zeros((h, w, 1), bool)
+    orange = ((s > 0.3) & in_paint_hue(hue))[..., None]  # (the paint: orange on the muscle car)
     dark = ((~orange[..., 0]) & (mx < 0.3))[..., None]
     t = np.clip((0.45 - mx) / 0.33, 0, 1)[..., None]  # 0 paint .. 1 black
     black = np.full(3, 0.07, np.float32)
@@ -501,6 +531,8 @@ def livery_textures(px, tops):
         top = hex_rgb(stripe) if stripe is not None else p
         mixed = np.where(allowed, p * (1 - t) + top * t, p * (1 - t) + black * t)
         img_px = np.where(orange | (dark & allowed), mixed, rgb)
+        if stripe is not None:
+            img_px = np.where(roof, hex_rgb(stripe), img_px)
         full = np.concatenate([img_px, np.ones((h, w, 1), np.float32)], axis=2)
         img = bpy.data.images.new(f"livery-{name}", w, h, alpha=False)
         img.pixels.foreach_set(full.astype(np.float32).ravel())
@@ -584,9 +616,29 @@ class Surface:
         self.tri.free()
 
 
-def tail_lamps(s, body):
-    """Tail lights: plates over the texture's red bar across the tail (its two halves); rear indicators over its
-    ends. [tail_L, ind_RL, tail_R, ind_RR]"""
+def cell_lamp(name, s, body, cells, mat, back=False, lift=LIFT, others=()):
+    """A lamp the shape of the texture's own: a facet over each 1 cm grid cell (x, z) a ray found it in, lying on
+    the body (`back`: on the tail), `lift` off it and then clear of the body and `others`."""
+    d = Vector((0, 1, 0)) if back else Vector((0, -1, 0))
+    verts, faces = [], []
+    for x, z in cells:
+        corners = []
+        for dx, dz in ((-0.005, -0.005), (0.005, -0.005), (0.005, 0.005), (-0.005, 0.005)):
+            p = s.tree.ray_cast(Vector((x + dx, 0, z + dz)) - d * 5, d)[0]
+            if p is None:
+                break
+            corners.append(tuple(p - d * lift))
+        if len(corners) == 4:
+            faces.append(tuple(range(len(verts), len(verts) + 4)))
+            verts += corners
+    ob = mesh_object(name, verts, faces, [mat])
+    clear_of(ob, [body, *others], -d)
+    return ob
+
+
+def tail_lamps(s, body, min_height=0.0):
+    """Tail lights: plates over the texture's red bar across the tail (its two halves), at least `min_height`
+    tall (a hairline bar would hardly show); rear indicators over its ends. [tail_L, ind_RL, tail_R, ind_RR]"""
     tree = s.tree
     lamps = []
     red = s.hits(True, "red")
@@ -604,6 +656,9 @@ def tail_lamps(s, body):
     run = max(runs, key=len)
     bz0, bz1 = run[0] / 100, run[-1] / 100
     xs = sorted(abs(x) for x, z in red if bz0 <= z <= bz1)
+    if bz1 - bz0 < min_height:
+        mid = (bz0 + bz1) / 2
+        bz0, bz1 = mid - min_height / 2, mid + min_height / 2
     pick = lambda q, frac: q[int(frac * (len(q) - 1))]  # noqa: E731
     bx0, bx1 = max(0.02, pick(xs, 0.03)), pick(xs, 0.97)
     print(f"[{CAR.log}] tail bar: |x| {bx0:.2f}..{bx1:.2f}, z {bz0:.2f}..{bz1:.2f} ({len(red)} red hits)")
@@ -643,73 +698,6 @@ def barycentric(p, a, b, c):
     return 1 - wb - wc, wb, wc
 
 
-# ---------------------------------------------------------------- the wheel
-
-def build_wheel():
-    """Tyre with a chunky dark wall, a deep dark dish and five spokes; centred on the origin, the dish faces +X."""
-    n = 20
-    hw = CAR.wheel_w / 2
-    r_in = CAR.wheel_r * 0.58
-    verts, faces, fm = [], [], []
-
-    def ring(x, r):
-        base = len(verts)
-        for i in range(n):
-            a = 2 * math.pi * i / n
-            verts.append((x, r * math.cos(a), r * math.sin(a)))
-        return base
-
-    rings = [
-        ring(hw - 0.02, r_in),  # 0 rim lip, inner edge
-        ring(hw, CAR.wheel_r * 0.88),  # 1 sidewall
-        ring(hw - 0.015, CAR.wheel_r),  # 2 a square shoulder
-        ring(-hw + 0.015, CAR.wheel_r),  # 3
-        ring(-hw, CAR.wheel_r * 0.88),  # 4
-        ring(-hw + 0.02, r_in),  # 5 inner side
-        ring(hw - 0.15, r_in * 0.98),  # 6 the dish's floor, deep
-        ring(-hw + 0.02, r_in * 0.5),  # 7 back
-        ring(hw - 0.008, r_in + 0.02),  # 8 the rim's bright lip
-    ]
-    chain = [rings[0], rings[8], rings[1], rings[2], rings[3], rings[4], rings[5]]
-    for k in range(len(chain) - 1):
-        a, b = chain[k], chain[k + 1]
-        for i in range(n):
-            j = (i + 1) % n
-            faces.append((a + i, a + j, b + j, b + i))
-            fm.append(2 if k == 0 else 0)
-    a, b = rings[0], rings[6]
-    for i in range(n):
-        j = (i + 1) % n
-        faces.append((a + i, b + i, b + j, a + j))
-        fm.append(1)
-    faces.append(tuple(rings[6] + i for i in range(n)))
-    fm.append(1)
-    a, b = rings[5], rings[7]
-    for i in range(n):
-        j = (i + 1) % n
-        faces.append((a + i, b + i, b + j, a + j))
-        fm.append(0)
-    faces.append(tuple(rings[7] + i for i in reversed(range(n))))
-    fm.append(0)
-    wheel = mesh_object("wheel", verts, faces, ["tyre", "rim", "spoke"], fm)
-
-    parts = []
-    hub = disc("hub", 0, 0, 0, 0.045, 0.10, "spoke", 10)  # its back sunk into the dish floor
-    hub.rotation_euler = (0, 0, -math.pi / 2)
-    hub.location = (hw - 0.07, 0, 0)
-    parts.append(hub)
-    for k in range(5):  # bold spokes standing up out of the deep floor
-        sp = box("spoke", hw - 0.17, hw - 0.09, -0.034, 0.034, 0.03, r_in * 0.96, "spoke")
-        sp.rotation_euler = (2 * math.pi * k / 5, 0, 0)
-        parts.append(sp)
-    for p in parts:
-        bpy.ops.object.select_all(action="DESELECT")
-        bpy.context.view_layer.objects.active = p
-        p.select_set(True)
-        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    return union(wheel, parts)
-
-
 # ---------------------------------------------------------------- checks
 
 def mesh_check(ob):
@@ -741,7 +729,7 @@ def touching(a, b):
 
 # ---------------------------------------------------------------- preview
 
-def preview(out_dir, export_objs, wheel, spots, body, liveries, pieces):
+def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces):
     scene = bpy.context.scene
     engines = [e.identifier for e in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
     scene.render.engine = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in engines else "BLENDER_EEVEE"
@@ -779,6 +767,12 @@ def preview(out_dir, export_objs, wheel, spots, body, liveries, pieces):
             w.location = (x, y, spots["r"] - GROUND)
             w.rotation_euler = (0, 0, math.pi if x < 0 else 0)
             shown.append(w)
+            if caliper:  # (as the game: mirrored on the left, so behind the axle on both sides)
+                c = caliper.copy()
+                bpy.context.collection.objects.link(c)
+                c.location = w.location
+                c.scale = (-1 if x < 0 else 1, 1, 1)
+                shown.append(c)
     bpy.ops.mesh.primitive_plane_add(size=30, location=(0, 0, -GROUND))
     floor = bpy.context.active_object
     floor.data.materials.append(material("floor", (0.12, 0.12, 0.13), 0.9))
@@ -871,6 +865,7 @@ def run(car):
             o["bar"] = True  # a light bar: lit all along, no flare at its centre
     liveries = livery_textures(px, split_glass(body, px))
     use_livery(body, liveries[car.liveries[0][0]])
+    wheel_wells(body)
     bpy.ops.object.select_all(action="DESELECT")
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
@@ -883,25 +878,27 @@ def run(car):
     wn.keep_sharp = True
     bpy.ops.object.modifier_apply(modifier="wn")
     flat_windows(body)
-    wheel = build_wheel()
 
     # Up to the car's size (the ground and the axles' midpoint stay put), then down to the origin (GROUND
-    # above the ground); the wheel stays centred on its axle.
+    # above the ground).
     g = car.width / (max(v.co.x for v in body.data.vertices) - min(v.co.x for v in body.data.vertices))
-    for o in [body, *lamps, wheel]:
-        o.data.transform(Matrix.Scale(g, 4))
     for o in [body, *lamps]:
+        o.data.transform(Matrix.Scale(g, 4))
         o.data.transform(Matrix.Translation((0, 0, -GROUND)))
         o.data.update()
-    spots = {"x": car.wheel_x * g, "front": car.wheel_yf * g, "rear": car.wheel_yr * g, "r": car.wheel_r * g}
-    print(f"[{CAR.log}] wheels: " + ", ".join(f"{k} {v:.3f}" for k, v in spots.items()))
+    # The wheel, real size (centred on its axle), its tyres' outer faces where the generated ones' were.
+    wheel, caliper, size = wheels.build_wheel(car.tyre, car.rim, car.caliper)
+    spots = {"x": car.wheel_face * g - size.width / 2, "front": car.wheel_yf * g, "rear": car.wheel_yr * g, "r": size.radius}
+    print(f"[{CAR.log}] wheels: {car.tyre} on {car.rim}: " + ", ".join(f"{k} {v:.3f}" for k, v in spots.items())
+          + f" (the generated tyres' radius {max(t[2] for t in car.tyres) * g:.3f})")
     for k, v in spots.items():  # where the wheels go (along the nose: + toward it), for the game (extras)
         wheel[k] = round(v, 4)
     pieces = collider_pieces(body)
     write_collider(pieces, collider_out)
 
     tri = lambda o: sum(len(p.vertices) - 2 for p in o.data.polygons)  # noqa: E731
-    print(f"[{CAR.log}] triangles: body {tri(body)}, lamps {sum(tri(o) for o in lamps)}, wheel {tri(wheel)}")
+    print(f"[{CAR.log}] triangles: body {tri(body)}, lamps {sum(tri(o) for o in lamps)}, wheel {tri(wheel)}"
+          + (f", caliper {tri(caliper)}" if caliper else ""))
     print(f"[{CAR.log}] lamps: {', '.join(f'{o.name} {len(o.data.polygons)}' for o in lamps)}")
     for o in [body, wheel]:
         print(f"[{CAR.log}] check {o.name}: {mesh_check(o)}")
@@ -914,7 +911,7 @@ def run(car):
 
     if prev:
         os.makedirs(prev, exist_ok=True)
-        preview(prev, [body, *lamps], wheel, spots, body, liveries, pieces)
+        preview(prev, [body, *lamps], wheel, caliper, spots, body, liveries, pieces)
         use_livery(body, liveries[car.liveries[0][0]])
 
     # The liveries beside the GLB (it holds the first): <out without .glb>/<name>.jpg and liveries.json.
@@ -932,7 +929,7 @@ def run(car):
         f.write("\n")
 
     bpy.ops.object.select_all(action="DESELECT")
-    for o in [body, *lamps, wheel]:
+    for o in [body, *lamps, wheel] + ([caliper] if caliper else []):
         o.select_set(True)
     bpy.ops.export_scene.gltf(
         filepath=os.path.abspath(out),
