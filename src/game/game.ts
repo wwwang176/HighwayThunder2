@@ -453,7 +453,7 @@ export class Game {
     this.physics.touches((t) => {
       // None off the ground (a car's nose dipping onto the road under hard braking threw them): only off the
       // rails and other vehicles.
-      const ground = (t.a.type === 'static' || t.b.type === 'static') && Math.abs(t.normal.y) > 0.7; // (the rails' face up and down)
+      const ground = (t.a.type === 'static' || t.b.type === 'static') && Math.abs(t.normal.y) > 0.7; // (a rail's side: across)
       if (!ground) this.sparks.touch(t, dt);
     });
     this.player.postPhysics();
