@@ -172,6 +172,9 @@ export class Gearbox {
   private cooldown = 0;
   /** s of an upshift still to go: the drive is cut (CarParams.shiftTime). */
   private cut = 0;
+  /** The upshift's length (s) and the revs it began at: through it they fall to the new gear's. */
+  private shiftLen = 0;
+  private fromRpm = 0;
 
   /** Mid-upshift: no drive. */
   get shifting(): boolean {
@@ -184,10 +187,15 @@ export class Gearbox {
     return (p.redline * RPM_TO_RAD) / wheelOmegaAtRedline;
   }
 
-  /** Engine rpm for a driven-wheel angular velocity (rad/s). */
+  /**
+   * Engine rpm for a driven-wheel angular velocity (rad/s). Through an upshift the engine is let go of, as off
+   * the throttle: its revs fall away from where the shift began to the new gear's, which they meet as it ends.
+   */
   engineRpm(wheelOmega: number, p: CarParams = DEFAULT_CAR): number {
-    const rpm = (Math.abs(wheelOmega) * this.ratio(this.gear, p)) / RPM_TO_RAD;
-    return Math.max(p.idleRpm, rpm);
+    const rpm = Math.max(p.idleRpm, (Math.abs(wheelOmega) * this.ratio(this.gear, p)) / RPM_TO_RAD);
+    if (this.cut <= 0 || this.shiftLen <= 0 || this.fromRpm <= rpm) return rpm;
+    const k = 1 - this.cut / this.shiftLen;
+    return this.fromRpm + (rpm - this.fromRpm) * k * k * (3 - 2 * k);
   }
 
   /**
@@ -207,15 +215,19 @@ export class Gearbox {
     return engine * tc * this.ratio(this.gear, p) * p.driveEfficiency * throttle;
   }
 
-  /** A step of `dt` s at `roadSpeed` (m/s): shifts on road speed; an upshift cuts the drive for p.shiftTime. */
-  update(roadSpeed: number, dt: number, p: CarParams = DEFAULT_CAR): void {
+  /**
+   * A step of `dt` s at `roadSpeed` (m/s), the driven wheels at `wheelOmega` (rad/s; default: rolling with the
+   * road): shifts on road speed; an upshift cuts the drive for p.shiftTime, the revs falling meanwhile.
+   */
+  update(roadSpeed: number, dt: number, p: CarParams = DEFAULT_CAR, wheelOmega = roadSpeed / p.wheelRadius): void {
     this.cut = Math.max(0, this.cut - dt);
     this.cooldown -= dt;
     if (this.cooldown > 0) return;
     const v = Math.abs(roadSpeed) * 3.6;
     if (this.gear < GEAR_TOP_KMH.length && v > GEAR_TOP_KMH[this.gear - 1] * SHIFT_UP) {
+      this.fromRpm = this.engineRpm(wheelOmega, p);
       this.gear++;
-      this.cut = p.shiftTime;
+      this.cut = this.shiftLen = p.shiftTime;
       this.cooldown = Math.max(SHIFT_TIME, p.shiftTime);
     } else if (this.gear > 1 && v < GEAR_TOP_KMH[this.gear - 2] * SHIFT_DOWN) {
       this.gear--;

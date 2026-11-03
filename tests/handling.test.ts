@@ -152,6 +152,26 @@ describe('Gearbox', () => {
     expect(g.gear).toBe(1);
     expect(g.shifting).toBe(false);
   });
+  it('through an upshift the revs fall away from the old gear\'s to the new gear\'s, as off the throttle, not at once', () => {
+    const q = { ...P, shiftTime: 0.3 };
+    const g = new Gearbox();
+    const v = (GEAR_TOP_KMH[0] / 3.6) * 0.95;
+    const omega = v / q.wheelRadius;
+    const before = g.engineRpm(omega, q);
+    g.update(v, 0.01, q, omega);
+    const after = new Gearbox();
+    after.gear = 2;
+    const target = after.engineRpm(omega, q);
+    expect(g.engineRpm(omega, q)).toBeGreaterThan(before - (before - target) * 0.1); // hardly dropped yet
+    const seen: number[] = [];
+    for (let t = 0; t < 0.3; t += 0.03) {
+      g.update(v, 0.03, q, omega);
+      seen.push(g.engineRpm(omega, q));
+    }
+    for (let i = 1; i < seen.length; i++) expect(seen[i]).toBeLessThanOrEqual(seen[i - 1] + 1e-6); // falling all the way
+    expect(seen[Math.floor(seen.length / 2)]).toBeGreaterThan(target + 1); // halfway, not there yet
+    expect(g.engineRpm(omega, q)).toBeCloseTo(target, 0); // the shift done: the new gear's
+  });
   it('downshifts when slowing and never skips below 1 or above 6', () => {
     const g = new Gearbox();
     for (let i = 0; i < 20; i++) g.update(90, 0.5);
