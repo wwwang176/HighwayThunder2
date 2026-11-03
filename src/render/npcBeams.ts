@@ -14,7 +14,7 @@ export interface BeamSpot {
 }
 
 /** Brightness of NPC low beams on the ground (tunable). */
-export const NPC_BEAM = { intensity: 7 };
+export const NPC_BEAM = { intensity: 5.9 };
 /** NPC headlight pair as a light source for tyre smoke (candela, like the player's). */
 const NPC_HEADLIGHT_CD = 900;
 /** How many of the nearest NPCs' headlights light tyre smoke. */
@@ -53,9 +53,13 @@ export class NpcBeams {
   private used: Candidate[] = [];
   private n = 0;
 
-  /** Make a ground material receive NPC low beams. */
+  /** Make a ground material receive NPC low beams (on top of any shader changes of its own). */
   patch(mat: THREE.MeshStandardMaterial): void {
-    mat.onBeforeCompile = (shader) => {
+    const own = mat.onBeforeCompile.bind(mat);
+    const ownKey = mat.customProgramCacheKey.bind(mat)();
+    mat.customProgramCacheKey = () => `${ownKey}|npcBeams`;
+    mat.onBeforeCompile = (shader, renderer) => {
+      own(shader, renderer);
       Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vBeamWorld;')
