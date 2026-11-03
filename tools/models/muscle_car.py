@@ -22,8 +22,9 @@ Objects in the GLB (the game finds them by name):
   head_L / head_R             headlamps (round lamps over the texture's)
   tail_L / tail_R             the tail light bar's halves (also the brake lights; extras "bar": a light bar)
   ind_FL ind_FR ind_RL ind_RR indicators (glowing plates over the fog lamps and the bar's ends, hidden while off)
-  wheel                       one wheel at the origin, axle along X, rim face +X (outer side on the right)
-Beside it, <out without .glb>/: each livery's texture (<name>.png, for `paint`) and liveries.json.
+  wheel                       one wheel at the origin, axle along X, rim face +X (outer side on the right);
+                              extras x, front, rear (along the nose, + toward it), r: where the wheels go
+Beside it, <out without .glb>/: each livery's texture (<name>.jpg, for `paint`) and liveries.json.
 """
 
 import colorsys
@@ -876,6 +877,8 @@ def main():
         o.data.update()
     spots = {"x": WHEEL_X * g, "front": WHEEL_YF * g, "rear": WHEEL_YR * g, "r": WHEEL_R * g}
     print("[muscle_car] wheels: " + ", ".join(f"{k} {v:.3f}" for k, v in spots.items()))
+    for k, v in spots.items():  # where the wheels go (along the nose: + toward it), for the game (extras)
+        wheel[k] = round(v, 4)
 
     tri = lambda o: sum(len(p.vertices) - 2 for p in o.data.polygons)  # noqa: E731
     print(f"[muscle_car] triangles: body {tri(body)}, lamps {sum(tri(o) for o in lamps)}, wheel {tri(wheel)}")

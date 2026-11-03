@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { BEAM_LAMP_H } from './headlight';
 import type { BeamSpot } from '../render/npcBeams';
 import type { CarStyle } from './cars/types';
+import { carTemplate, type CarTemplate, type WheelSpots } from './carModels';
 
 /**
  * Procedural low-poly vehicles. Every model's origin is the center of its
@@ -146,9 +147,22 @@ export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
 
 /**
  * Generic sedan (`style` false) or a racer's body: `true` / 'super' the low
- * supercar with a wing, 'muscle' a long-hooded muscle car.
+ * supercar with a wing, 'muscle' a long-hooded muscle car. A style with a file
+ * (carModels.ts) wears one of its paint jobs, `livery` (its own by default),
+ * rather than `color`.
  */
-export function buildCar(w: number, h: number, l: number, color: number, style: CarStyle | boolean = false, withWheels = true, beam = true): VehicleModel {
+export function buildCar(
+  w: number,
+  h: number,
+  l: number,
+  color: number,
+  style: CarStyle | boolean = false,
+  withWheels = true,
+  beam = true,
+  livery?: string,
+): VehicleModel {
+  const made = typeof style === 'string' ? carTemplate(style) : undefined;
+  if (made) return fromTemplate(made, h, l, color, withWheels, beam, livery);
   if (style === 'muscle') return buildMuscleCar(w, h, l, color, withWheels, beam);
   if (style === 'jdm') return buildJdmCar(w, h, l, color, withWheels, beam);
   const sporty = style !== false;
@@ -173,6 +187,101 @@ export function buildCar(w: number, h: number, l: number, color: number, style: 
   if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.33);
   addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
   return { root, lights };
+}
+
+// A body from a file (carModels.ts) stands on the ground at this depth below its origin.
+const MODEL_GROUND = 0.55;
+// Where a file car's wheels go when it brings its own (the garage) and the file doesn't say: the player car's.
+const MODEL_WHEELS: WheelSpots = { x: 0.8, front: 1.3, rear: -1.3, r: 0.34 };
+
+const paintCache = new Map<string, THREE.Material>();
+/** The paint: one of the file's paint jobs (`livery`, or its own), or for a file without them `color`. */
+function paintFor(base: THREE.Material, t: CarTemplate, color: number, livery: string | undefined): THREE.Material {
+  const name = livery !== undefined && t.liveries.has(livery) ? livery : t.liveries.keys().next().value;
+  const key = `${base.uuid}|${name ?? color}`;
+  let m = paintCache.get(key);
+  if (!m) {
+    const p = base.clone() as THREE.MeshStandardMaterial;
+    if (name !== undefined) {
+      p.map = t.liveries.get(name)!;
+      p.color.setHex(0xffffff);
+    } else p.color.setHex(color);
+    m = p;
+    paintCache.set(key, m);
+  }
+  return m;
+}
+
+/**
+ * A car body made in Blender: painted (its paint job `livery`, its own by
+ * default; or `color`), its named lamps wired up like addLights' (glow
+ * materials, indicators off, brake lights, flare spots - none on a light bar -,
+ * the NPC-style beam).
+ */
+function fromTemplate(t: CarTemplate, h: number, l: number, color: number, withWheels: boolean, beam: boolean, livery?: string): VehicleModel {
+  const root = new THREE.Group();
+  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const g = -h / 2;
+  const body = t.body.clone(true);
+  body.position.y = g + MODEL_GROUND;
+  root.add(body);
+  body.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mat = m.material as THREE.Material;
+    if (mat.name === 'paint') m.material = paintFor(mat, t, color, livery);
+    m.castShadow = mat.name !== 'glass';
+  });
+  root.updateMatrixWorld(true);
+  const flares: FlareSpot[] = (root.userData.flares = []);
+  const lamp = (name: string, mat: THREE.Material) => {
+    const m = body.getObjectByName(name) as THREE.Mesh | undefined;
+    if (!m) return undefined;
+    m.material = mat;
+    m.castShadow = false;
+    return { mesh: m, box: new THREE.Box3().setFromObject(m) };
+  };
+  const c = new THREE.Vector3();
+  for (const side of ['L', 'R'] as const) {
+    const head = lamp(`head_${side}`, HEADLIGHT);
+    if (head) {
+      head.box.getCenter(c);
+      flares.push({ x: c.x, y: c.y, z: head.box.min.z - 0.1, kind: 'head' });
+      if (beam) root.userData.beam = { frontZ: -l / 2, groundY: g, k: (c.y - g) / BEAM_LAMP_H } satisfies BeamSpot;
+    }
+    const tail = lamp(`tail_${side}`, BRAKE_DIM);
+    if (tail) {
+      tail.box.getCenter(c);
+      if (!tail.mesh.userData.bar) flares.push({ x: c.x, y: c.y, z: tail.box.max.z + 0.1, kind: 'tail' });
+      lights.brake.push(tail.mesh);
+    }
+    for (const end of ['F', 'R']) {
+      const ind = lamp(`ind_${end}${side}`, INDICATOR);
+      if (!ind) continue;
+      ind.mesh.visible = false;
+      (side === 'L' ? lights.left : lights.right).push(ind.mesh);
+    }
+  }
+  if (withWheels && t.wheel) {
+    const s = t.spots ?? MODEL_WHEELS;
+    for (const along of [s.front, s.rear]) {
+      for (const x of [-s.x, s.x]) {
+        const w = templateWheel(t, s.r, x < 0);
+        w.position.set(x, g + s.r, -along); // the nose is -z
+        root.add(w);
+      }
+    }
+  }
+  return { root, lights };
+}
+
+/** The file's wheel at radius `r`, its rim facing out (left wheels turned round). */
+function templateWheel(t: CarTemplate, r: number, left: boolean): THREE.Object3D {
+  const w = t.wheel!.clone(true);
+  w.scale.setScalar(r / (t.spots ?? MODEL_WHEELS).r);
+  w.rotation.set(0, left ? Math.PI : 0, 0);
+  w.traverse((o) => void ((o as THREE.Mesh).isMesh && (o.castShadow = true)));
+  return w;
 }
 
 /** Muscle car: a tall slab of a body, long hood with a scoop, small cabin set back, twin stripes, a ducktail. (The nose is -z.) */
@@ -285,10 +394,15 @@ export function buildContainerTrailer(w: number, h: number, trailerL: number, co
  * A single wheel for the player car: `steer` turns about Y, `spin` (child) rolls
  * about the axle. Spokes make the rotation visible.
  */
-export function buildWheel(r: number, width: number): { steer: THREE.Group; spin: THREE.Group } {
+export function buildWheel(r: number, width: number, style?: CarStyle, left = false): { steer: THREE.Group; spin: THREE.Group } {
   const steer = new THREE.Group();
   const spin = new THREE.Group();
   steer.add(spin);
+  const fromFile = style ? carTemplate(style) : undefined;
+  if (fromFile?.wheel) {
+    spin.add(templateWheel(fromFile, r, left));
+    return { steer, spin };
+  }
   const tire = new THREE.Mesh(wheelGeo, TIRE);
   tire.scale.set(width, r, r);
   tire.castShadow = true;

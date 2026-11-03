@@ -11,7 +11,7 @@ import { MUSCLE_CAR_TRACKER } from './muscleCarTracker';
 export const MUSCLE_CAR: CarSpec = {
   id: 'muscle-car',
   name: '肌肉車',
-  color: 0x2b2f3a,
+  color: 0xf2780c, // the concept's orange (docs/art/muscle-car): the dark paint was lost at night
   style: 'muscle',
   params: {
     ...STREET_RACER.params,
@@ -41,14 +41,17 @@ export const MUSCLE_CAR: CarSpec = {
     aeroGrip: 0.4,
     lsd: 600,
     escGain: 1_500, // 0: it spins whenever the throttle goes down in a turn
+    // Its model's (public/models/muscle-car.glb, tools/models/muscle_car.py): the wheels in its arches.
+    wheelRadius: 0.324,
+    wheelbase: 2.54,
   },
   // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
   ai: {
     accel: [
       [0, 7.1],
       [50, 7.1],
-      [100, 8.3],
-      [150, 6.4],
+      [100, 8.2],
+      [150, 6.3],
       [200, 4.3],
       [250, 2.7],
     ],
@@ -56,11 +59,11 @@ export const MUSCLE_CAR: CarSpec = {
     latAccel: [
       [0, 8.9],
       [50, 8.9],
-      [100, 9.6],
-      [150, 12],
-      [200, 13.5],
-      [250, 14.5],
-      [300, 15.4],
+      [100, 9.9],
+      [150, 11.9],
+      [200, 13.6],
+      [250, 14.4],
+      [300, 15.3],
     ],
     tracker: MUSCLE_CAR_TRACKER,
   },

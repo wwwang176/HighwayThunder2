@@ -20,6 +20,8 @@ export interface PlayerCarOptions {
   entity?: Extract<EntityRef, { type: 'player' } | { type: 'rival' }>;
   /** Body colour (default: the spec's). */
   color?: number;
+  /** Paint job, for a car with a model file (carModels.ts; default: its own). */
+  livery?: string;
   /** Real headlights that light the scene (default true; rivals use glowing beams instead). */
   realLights?: boolean;
 }
@@ -28,7 +30,6 @@ export const PLAYER_W = 1.86;
 export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
 
-const WHEEL_R = 0.34;
 const HEADLIGHT_INTENSITY = 900; // candela for both lamps together, brightest part of the beam (decay 1)
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
@@ -143,7 +144,7 @@ export class PlayerCar {
     ]) {
       wheels.push(
         makeWheel(
-          { x, z, connY: CONNECTION_Y, r: WHEEL_R, front: z < 0, springK: p.springK, bump: p.damperBump, rebound: p.damperRebound, mEff: (p.mass / 4) * 0.9, gripScale: 1 },
+          { x, z, connY: CONNECTION_Y, r: p.wheelRadius, front: z < 0, springK: p.springK, bump: p.damperBump, rebound: p.damperRebound, mEff: (p.mass / 4) * 0.9, gripScale: 1 },
           p.suspensionRest - 0.09,
         ),
       );
@@ -160,7 +161,7 @@ export class PlayerCar {
     }
     const realLights = opts.realLights ?? true;
     // Without real lights it shows NPC-style glowing beams instead (rivals: real lights are expensive).
-    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, spec.style, false, !realLights);
+    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, spec.style, false, !realLights, opts.livery);
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
     // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
@@ -176,7 +177,7 @@ export class PlayerCar {
     this.mesh = model.root;
     this.lights = model.lights;
     for (let i = 0; i < 4; i++) {
-      const w = buildWheel(WHEEL_R, WHEEL_W);
+      const w = buildWheel(p.wheelRadius, WHEEL_W, spec.style, i % 2 === 0); // even: the left wheels
       this.mesh.add(w.steer);
       this.visuals.push(w);
     }
@@ -253,14 +254,14 @@ export class PlayerCar {
     this.driveMode = cmd.mode;
     // Forward drive comes from the engine through the current gear (reverse keeps
     // the simple pedal force). The rev limiter bounds wheelspin.
-    if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / WHEEL_R;
+    if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / p.wheelRadius;
     // Stability control also trims power once the car is sliding sideways.
     if (p.escGain > 0 && cmd.engineForce > 0 && bodySlip > 0.15) {
       cmd.engineForce *= Math.max(0, 1 - (bodySlip - 0.15) / 0.2);
     }
-    const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * WHEEL_R;
-    const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * WHEEL_R;
-    const driveTorqueRear = cmd.engineForce * 0.5 * WHEEL_R;
+    const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * p.wheelRadius;
+    const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * p.wheelRadius;
+    const driveTorqueRear = cmd.engineForce * 0.5 * p.wheelRadius;
     setBrake(this.lights, cmd.brake > 0 && Math.abs(this.vLong) > 0.5);
 
     // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,
@@ -343,7 +344,7 @@ export class PlayerCar {
     this.gearbox.reset();
     this.driveMode = 'D';
     for (const w of this.wheels) {
-      w.omega = speed / WHEEL_R;
+      w.omega = speed / p.wheelRadius;
       w.susp = p.suspensionRest - (p.mass * G) / 4 / p.springK;
       w.sliding = false;
     }

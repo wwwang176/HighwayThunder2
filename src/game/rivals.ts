@@ -10,6 +10,7 @@ import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
 import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { CarSpec, STREET_RACER } from '../vehicles/cars';
+import { randomLivery } from '../vehicles/carModels';
 import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
 import { Blocker, computeResetSpot } from './reset';
 import { trackerFrom } from '../ai/netTracker';
@@ -168,7 +169,13 @@ export class Rivals {
   ) {
     for (let i = 0; i < Math.min(specs.length, GRID.length); i++) {
       const spec = specs[i];
-      const car = new PlayerCar(physics, scene, { spec, entity: { type: 'rival', id: i }, color: RIVAL_COLORS[i % RIVAL_COLORS.length], realLights: false });
+      const car = new PlayerCar(physics, scene, {
+        spec,
+        entity: { type: 'rival', id: i },
+        color: RIVAL_COLORS[i % RIVAL_COLORS.length],
+        livery: randomLivery(spec.style), // a car with paint jobs wears one at random (its colour is for the HUD)
+        realLights: false,
+      });
       const driver = new PlannerDriver(makeSource());
       driver.accel = spec.ai.accel;
       driver.latAccel = spec.ai.latAccel;
