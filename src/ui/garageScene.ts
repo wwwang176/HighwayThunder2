@@ -6,6 +6,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { CARS } from '../vehicles/cars';
+import { AIM_DOWN, createHeadlight } from '../vehicles/headlight';
 import { buildCar, type FlareSpot } from '../vehicles/models';
 import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
 
@@ -24,6 +25,8 @@ const LAMP = { x: 4.6, z: 1.5, h: 6.6, arm: 1.5 };
 const RAIL_X = 5.6;
 const FAR = 140; // the backdrop's distance (a curved strip round the car); the ground 2 FAR across
 const PUDDLES = 28; // the wet patches' picture, times across the ground (each 10 m)
+const HEADLIGHT_INTENSITY = 450; // candela: the race's pair's (playerCar.ts), as one lamp
+const GARAGE_AIM = THREE.MathUtils.degToRad(5); // its headlights aimed this much lower than the race's
 
 /**
  * The garage's scene: the picked car parked on a wet lay-by at night, under a sodium lamp, the city's lights
@@ -48,6 +51,8 @@ export class GarageScene {
     this.renderer.setPixelRatio(1); // (the depth of field softens most of it anyway)
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
+    this.renderer.shadowMap.enabled = true; // (the headlight's beam pattern is applied through its shadow map)
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.background = new THREE.Color(0x070a14);
     this.scene.fog = new THREE.Fog(0x080b15, 20, 110);
 
@@ -121,17 +126,19 @@ export class GarageScene {
   }
 
   /**
-   * Its headlights on the ground ahead: one spot between its headlamps (one light, not two: every light costs
-   * every pixel), aimed at the ground 4 m ahead (in the picture: the car's nose points off its left), wide, its
-   * pool mirrored in the wet too. A child of the car.
+   * Its headlights on the ground ahead: the race's low beam (its cut-off and spread: headlight.ts), one lamp
+   * between its headlamps (one light, not two: every light costs every pixel, its shadow map too), aimed as in
+   * the race; its pool mirrored in the wet too. A child of the car.
    */
   private headlights(car: THREE.Object3D): void {
     const heads = ((car.userData.flares ?? []) as FlareSpot[]).filter((f) => f.kind === 'head');
     if (!heads.length) return;
     const at = heads.reduce((s, f) => s.add(new THREE.Vector3(f.x, f.y, f.z)), new THREE.Vector3()).divideScalar(heads.length);
-    const beam = new THREE.SpotLight(0xfff0d8, 110, 25, 0.75, 0.7, 1.5);
+    const beam = createHeadlight(HEADLIGHT_INTENSITY);
+    beam.shadow.mapSize.set(512, 512);
     beam.position.copy(at);
-    beam.target.position.set(at.x, -PLAYER_H / 2, at.z - 4); // the nose is -z
+    // Aimed lower than in the race (its cut-off on the ground a few metres ahead, not far off the picture's left).
+    beam.target.position.set(at.x, at.y - Math.tan(AIM_DOWN + GARAGE_AIM) * 30, at.z - 30); // the nose is -z
     car.add(beam, beam.target);
   }
 
