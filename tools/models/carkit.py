@@ -60,7 +60,8 @@ class Car:
     name        file stem: tools/models/src/<name>-tripo.glb, public/models/<name>.glb (and <name>/ beside it)
     width       the finished car's (all of it scaled up to this at the end)
     src_ground  how far below the generated car's centre its tyres touch the ground (it is 1 m long, nose +x)
-    tyres       its tyres in our frame before centring: (axle y, axle z, radius, inner x, outer x) front, rear
+    tyres       its tyres in our frame before centring: (axle y, axle z, radius, inner x, outer x) front to back (a
+                truck's middle axles between: their tyres taken away too)
     tyre        its tyres' size, as written on one ("245/30 R20"; the game takes its radius)
     rim         its rim model: tools/models/rims/<rim>.blend (wheels.py)
     wheel_face  x (working frame) where the tyres' outer faces go (in the arches)
@@ -88,6 +89,11 @@ class Car:
     mend        mend(body, px): the car's own fixes to its generated body (or None)
     paint_hue   (lo, hi) hue range of its paint on the texture (lo > hi: it wraps past 1, a red)
     paint_grey  (lo, hi) brightness of its paint on the texture when it is a grey (None: a colour, by hue)
+    paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
+                edge (the livery's darkened as much; a dark paint, a navy, wants it lower)
+    trim        the faces whose texture isn't its paint (chassis, bumpers, grille) their own `trim` material,
+                the generated texture as it is: the texture shares texels between them and the paint (a
+                truck's chassis), which the livery would colour
     plain       (where(face centre, working frame) -> bool, 0xRRGGBB): the light faces (whites, light greys)
                 there in that flat colour, their own `plain` material, not the livery's (a truck's box: its
                 texture shares the cab's white, which takes the livery)
@@ -97,7 +103,7 @@ class Car:
 
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
-                 roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None):
+                 roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -105,13 +111,13 @@ class Car:
         self.glass_v, self.glass_y, self.roof_flat, self.frames_above = glass_v, glass_y, roof_flat, frames_above
         self.roof_above = roof_above
         self.paint_hue, self.tail, self.paint_grey, self.glass_bend = paint_hue, tail, paint_grey, glass_bend
-        self.glass_fill, self.plain = glass_fill, plain
+        self.glass_fill, self.plain, self.paint_fade, self.trim = glass_fill, plain, paint_fade, trim
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
-        self.axle_mid = (tyres[0][0] + tyres[1][0]) / 2  # the origin goes here, midway between the axles
+        self.axle_mid = (tyres[0][0] + tyres[-1][0]) / 2  # the origin goes here, midway between the front and back axles
         self.wheel_yf = tyres[0][0] - self.axle_mid
-        self.wheel_yr = tyres[1][0] - self.axle_mid
+        self.wheel_yr = tyres[-1][0] - self.axle_mid
 
 
 CAR = None  # the car being built (run)
@@ -306,7 +312,7 @@ def colour_class(rgb):
         return "white"
     if CAR.tail(h, s, v) if CAR.tail else s > 0.6 and v > 0.45 and (h < 0.012 or h > 0.95):
         return "red"
-    if s > 0.45 and v > 0.25 and in_paint_hue(h) or grey_paint(s, v):
+    if s > 0.45 and v > min(0.25, CAR.paint_fade) and in_paint_hue(h) or grey_paint(s, v):
         return "paint"
     return "dark" if v < 0.12 else "grey"
 
@@ -330,7 +336,7 @@ def hsv(px):
 def paint_mask(px):
     """The texture's paint pixels (colour_class "paint", vectorised) and every pixel's brightness."""
     hue, s, mx = hsv(px)
-    return (s > 0.45) & (mx > 0.25) & in_paint_hue(hue) | grey_paint(s, mx), mx
+    return (s > 0.45) & (mx > min(0.25, CAR.paint_fade)) & in_paint_hue(hue) | grey_paint(s, mx), mx
 
 
 def paint_uv(px):
@@ -349,6 +355,12 @@ def paint_uv(px):
 # ---------------------------------------------------------------- materials and liveries
 
 LIVERY_SIZE = 1024
+
+
+def face_points(f, uv):
+    """UVs across a face: its centre, and halfway and most of the way to each corner."""
+    c = sum((l[uv].uv for l in f.loops), Vector((0, 0))) / len(f.loops)
+    return [c] + [c + (l[uv].uv - c) * k for l in f.loops for k in (0.5, 0.85)]
 
 
 def face_colour(px, f, uv):
@@ -406,9 +418,22 @@ def split_glass(body, px):
         if not more:
             break
         glass |= more
+    mats = body.data.materials
     if CAR.plain is not None:
-        body.data.materials.append(material("plain", srgb(CAR.plain[1]), 0.5))
-    plain = 0
+        mats.append(material("plain", srgb(CAR.plain[1]), 0.5))
+    if CAR.trim:  # the generated texture, its paint's colour black (on the trim: edges, the wells), the liveries' size
+        trim = mats[0].copy()
+        trim.name = "trim"
+        hue, s, _ = hsv(px)
+        dark = px.copy()
+        dark[(s > 0.45) & in_paint_hue(hue), :3] = 0.04
+        img = bpy.data.images.new("trim", px.shape[1], px.shape[0], alpha=False)
+        img.pixels.foreach_set(dark.astype(np.float32).ravel())
+        img.scale(LIVERY_SIZE, LIVERY_SIZE)
+        img.pack()
+        trim.node_tree.nodes["Image Texture"].image = img
+        mats.append(trim)
+    plain = trimmed = 0
     tops, roof = [], []
     for f in bm.faces:
         c = f.calc_center_median()
@@ -418,9 +443,13 @@ def split_glass(body, px):
         if CAR.plain is not None and CAR.plain[0](c):
             _, s, v = colorsys.rgb_to_hsv(*face_colour(px, f, uv))
             if v > 0.6 and s < 0.1:
-                f.material_index = 2
+                f.material_index = mats.find("plain")
                 plain += 1
                 continue
+        if CAR.trim and not any(colour_class(sample(px, p)) == "paint" for p in face_points(f, uv)):  # (paint anywhere on it: paint)
+            f.material_index = mats.find("trim")
+            trimmed += 1
+            continue
         uvs = [l[uv].uv.copy() for l in f.loops]
         tris = [(uvs[0], uvs[i], uvs[i + 1]) for i in range(1, len(uvs) - 1)]
         if f.normal.z > 0.5 and c.z > CAR.tops_above:
@@ -433,7 +462,7 @@ def split_glass(body, px):
     bm.to_mesh(body.data)
     bm.free()
     print(f"[{CAR.log}] glass faces: {len(glass)} (of {len(cand)} glass-grey ones up top)"
-          + (f"; plain: {plain}" if CAR.plain is not None else ""))
+          + (f"; plain: {plain}" if CAR.plain is not None else "") + (f"; trim: {trimmed}" if CAR.trim else ""))
     return tops, roof
 
 
@@ -567,7 +596,7 @@ def livery_textures(px, tops_roof):
     roof = raster(roof_tris, h, w)[..., None] if roof_tris else np.zeros((h, w, 1), bool)
     orange = ((s > 0.3) & in_paint_hue(hue) | grey_paint(s, mx))[..., None]  # (the paint: orange on the muscle car)
     dark = ((~orange[..., 0]) & (mx < 0.3))[..., None]
-    t = np.clip((0.45 - mx) / 0.33, 0, 1)[..., None]  # 0 paint .. 1 black
+    t = np.clip((CAR.paint_fade - mx) / 0.33, 0, 1)[..., None]  # 0 paint .. 1 black
     black = np.full(3, 0.07, np.float32)
     out = {}
     for name, paint, stripe in CAR.liveries:
@@ -807,7 +836,8 @@ def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces)
         o.hide_render = o.name.startswith("ind_")
     shown = []
     for x in (-spots["x"], spots["x"]):
-        for y in (spots["rear"], spots["front"]):
+        k = spots["front"] / CAR.wheel_yf  # (working frame to the finished size)
+        for y in (spots["rear"], *((t[0] - CAR.axle_mid) * k for t in CAR.tyres[1:-1]), spots["front"]):
             w = wheel.copy()
             bpy.context.collection.objects.link(w)
             w.location = (x, y, spots["r"] - GROUND)
@@ -827,8 +857,9 @@ def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces)
     cam = bpy.data.objects.new("cam", cam_data)
     bpy.context.collection.objects.link(cam)
     scene.camera = cam
-    # Set for a car (to 4.6 m long); a longer vehicle (a truck) is seen from as much further off.
-    s = max(1.0, (max(v.co.y for v in body.data.vertices) - min(v.co.y for v in body.data.vertices)) / 4.6)
+    # Set for a car (to 4.6 m long, 2.2 m tall); a longer or taller vehicle (a truck) is seen from as much further off.
+    ext = lambda i: max(v.co[i] for v in body.data.vertices) - min(v.co[i] for v in body.data.vertices)  # noqa: E731
+    s = max(1.0, ext(1) / 4.6, ext(2) / 2.2)
     for lo in lights:
         lo.location *= s
         lo.data.energy *= s * s
