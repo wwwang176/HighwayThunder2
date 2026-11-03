@@ -606,7 +606,8 @@ export class Game {
     if (gear > this.lastGear && this.flow.phase === 'racing') this.gearShake(this.lastGear);
     this.lastGear = gear;
     this.grassRumble();
-    this.rig.update(dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
+    // Paused, the camera holds still too (its shakes stop where they are, and go on after).
+    this.rig.update(this.flow.phase === 'paused' ? 0 : dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     this.sound.setEngine(this.player.rpm, this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     this.hud.update(dt, {
