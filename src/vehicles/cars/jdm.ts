@@ -6,7 +6,7 @@ import { JDM_TRACKER } from './jdmTracker';
  * The tuned JDM car: the best in a corner - the most grip, the quickest and
  * most exact answer to the wheel, a stiff low body that hardly leans and a
  * tail that stays put. Its price is the straight: the lowest top speed.
- * Same size as the supercar (the AI's room-keeping assumes it).
+ * The supercar's size before its model (its own model will set its own).
  */
 export const JDM_CAR: CarSpec = {
   id: 'jdm',
@@ -38,6 +38,10 @@ export const JDM_CAR: CarSpec = {
     slipAnglePeak: 0.09,
     lsd: 200,
     escGain: 12_000,
+    wheelRadius: 0.34,
+    wheelbase: 2.6,
+    width: 1.86,
+    length: 4.4,
   },
   // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
   ai: {

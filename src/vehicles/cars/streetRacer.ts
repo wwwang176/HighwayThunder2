@@ -1,5 +1,6 @@
 import type { CarSpec } from './types';
 import { STREET_RACER_TRACKER } from './streetRacerTracker';
+import { SUPERCAR_COLLIDER } from './supercarCollider';
 
 /** The supercar (id `street-racer`: the player's car since the start; engine 1.5x, see git log). Quick, the highest top speed. */
 export const STREET_RACER: CarSpec = {
@@ -7,6 +8,7 @@ export const STREET_RACER: CarSpec = {
   name: '超跑',
   color: 0xd62828,
   style: 'super',
+  collider: SUPERCAR_COLLIDER, // its model's body up to the hood (and the wing at the tail), and its cabin
   params: {
     mass: 1300,
     comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h
@@ -17,9 +19,9 @@ export const STREET_RACER: CarSpec = {
     redline: 7500,
     idleRpm: 900,
     driveEfficiency: 0.9,
-    wheelRadius: 0.34,
-    width: 1.86,
-    length: 4.4,
+    wheelRadius: 0.33, // its model's tyres: 305/25 R20
+    width: 2.0, // its model's size
+    length: 4.5,
     maxSpeed: 83.3,
     reverseMax: 8,
     reverseForce: 4_000,
@@ -30,7 +32,7 @@ export const STREET_RACER: CarSpec = {
     frontBrakeApart: true,
     dragK: 0.4,
     downforceK: 0.4, // the real part (presses the springs); most of the aero grip is aeroGrip
-    wheelbase: 2.6,
+    wheelbase: 2.5, // its model's
     maxSteer: 0.55,
     latAccelLimit: 55,
     steerRise: 6,

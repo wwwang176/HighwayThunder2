@@ -11,13 +11,16 @@ import type { CarStyle } from './cars/types';
  * `head_L` `head_R`, `tail_L` `tail_R` (also the brake lights; extras `bar`: a
  * light bar), `ind_FL` `ind_FR` `ind_RL` `ind_RR`; and one `wheel` at the
  * origin, axle along X, its rim facing +X (extras: where the wheels go, `x`,
- * `front`, `rear` along the nose, and its radius `r`). The body's origin is the
- * centre of the physics box (ground at -0.55), its nose toward -Z.
+ * `front`, `rear` along the nose, and its radius `r`); maybe a `caliper`, where
+ * it sits on that wheel (it steers with the wheel but doesn't roll; mirrored on
+ * the left). The body's origin is the centre of the physics box (ground at
+ * -0.55), its nose toward -Z.
  *
  * Beside it, `<file without .glb>/liveries.json`: the paint jobs, each a texture
  * for the `paint` material (the first is the car's own).
  */
 const FILES: Partial<Record<CarStyle, string>> = {
+  super: 'models/supercar.glb',
   muscle: 'models/muscle-car.glb',
 };
 
@@ -33,6 +36,8 @@ export interface CarTemplate {
   /** Everything but the wheel. */
   body: THREE.Object3D;
   wheel: THREE.Object3D | null;
+  /** On the wheel, not rolling with it. */
+  caliper: THREE.Object3D | null;
   spots: WheelSpots | null;
   /** Paint jobs by name, in the file's order (the first is the car's own). */
   liveries: Map<string, THREE.Texture>;
@@ -64,8 +69,10 @@ export async function loadCarModels(base = import.meta.env.BASE_URL): Promise<vo
         const [gltf, liveries] = await Promise.all([loader.loadAsync(base + file), loadLiveries(base + file.replace(/\.glb$/, '/'))]);
         const wheel = gltf.scene.getObjectByName('wheel') ?? null;
         wheel?.removeFromParent();
+        const caliper = gltf.scene.getObjectByName('caliper') ?? null;
+        caliper?.removeFromParent();
         const spots = wheel && 'r' in wheel.userData ? (wheel.userData as WheelSpots) : null;
-        templates.set(style as CarStyle, { body: gltf.scene, wheel, spots, liveries });
+        templates.set(style as CarStyle, { body: gltf.scene, wheel, caliper, spots, liveries });
       } catch (e) {
         console.warn(`car model ${file} not loaded, using the built-in shape`, e);
       }

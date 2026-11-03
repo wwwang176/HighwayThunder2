@@ -111,7 +111,7 @@ describe('Gearbox', () => {
 });
 
 describe('engine through the gearbox', () => {
-  const R = 0.34;
+  const R = P.wheelRadius;
   it('1st gear overpowers the rear tyres, at launch and still rolling (the 1.5x engine: a street racer)', () => {
     const g = new Gearbox();
     const rearStatic = (P.mass * 9.81) / 2;

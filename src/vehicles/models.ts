@@ -195,13 +195,19 @@ const MODEL_GROUND = 0.55;
 const MODEL_WHEELS: WheelSpots = { x: 0.8, front: 1.3, rear: -1.3, r: 0.34 };
 
 const paintCache = new Map<string, THREE.Material>();
-/** The paint: one of the file's paint jobs (`livery`, or its own), or for a file without them `color`. */
+/**
+ * The inside of a file body's shell (its paint's back faces: seen up the wheel wells, which are open above),
+ * near black like the underside.
+ */
+const SHELL_INSIDE = new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.9, side: THREE.BackSide });
+/** The paint (its front faces): one of the file's paint jobs (`livery`, or its own), or for a file without them `color`. */
 function paintFor(base: THREE.Material, t: CarTemplate, color: number, livery: string | undefined): THREE.Material {
   const name = livery !== undefined && t.liveries.has(livery) ? livery : t.liveries.keys().next().value;
   const key = `${base.uuid}|${name ?? color}`;
   let m = paintCache.get(key);
   if (!m) {
     const p = base.clone() as THREE.MeshStandardMaterial;
+    p.side = THREE.FrontSide;
     if (name !== undefined) {
       p.map = t.liveries.get(name)!;
       p.color.setHex(0xffffff);
@@ -225,13 +231,18 @@ function fromTemplate(t: CarTemplate, h: number, l: number, color: number, withW
   const body = t.body.clone(true);
   body.position.y = g + MODEL_GROUND;
   root.add(body);
+  const painted: THREE.Mesh[] = [];
   body.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
     const mat = m.material as THREE.Material;
-    if (mat.name === 'paint') m.material = paintFor(mat, t, color, livery);
+    if (mat.name === 'paint') {
+      m.material = paintFor(mat, t, color, livery);
+      painted.push(m);
+    }
     m.castShadow = mat.name !== 'glass';
   });
+  for (const m of painted) m.add(new THREE.Mesh(m.geometry, SHELL_INSIDE)); // its back faces, dark
   root.updateMatrixWorld(true);
   const flares: FlareSpot[] = (root.userData.flares = []);
   const lamp = (name: string, mat: THREE.Material) => {
@@ -269,6 +280,11 @@ function fromTemplate(t: CarTemplate, h: number, l: number, color: number, withW
         const w = templateWheel(t, s.r, x < 0);
         w.position.set(x, g + s.r, -along); // the nose is -z
         root.add(w);
+        const c = templateCaliper(t, s.r, x < 0);
+        if (c) {
+          c.position.copy(w.position);
+          root.add(c);
+        }
       }
     }
   }
@@ -282,6 +298,15 @@ function templateWheel(t: CarTemplate, r: number, left: boolean): THREE.Object3D
   w.rotation.set(0, left ? Math.PI : 0, 0);
   w.traverse((o) => void ((o as THREE.Mesh).isMesh && (o.castShadow = true)));
   return w;
+}
+
+/** The file's brake caliper for a wheel at radius `r` (none if it has none): mirrored on the left, so behind the axle on both sides. */
+function templateCaliper(t: CarTemplate, r: number, left: boolean): THREE.Object3D | null {
+  if (!t.caliper) return null;
+  const c = t.caliper.clone(true);
+  const k = r / (t.spots ?? MODEL_WHEELS).r;
+  c.scale.set(left ? -k : k, k, k);
+  return c;
 }
 
 /** Muscle car: a tall slab of a body, long hood with a scoop, small cabin set back, twin stripes, a ducktail. (The nose is -z.) */
@@ -392,7 +417,8 @@ export function buildContainerTrailer(w: number, h: number, trailerL: number, co
 
 /**
  * A single wheel for the player car: `steer` turns about Y, `spin` (child) rolls
- * about the axle. Spokes make the rotation visible.
+ * about the axle. Spokes make the rotation visible. (A file's brake caliper
+ * steers but doesn't roll.)
  */
 export function buildWheel(r: number, width: number, style?: CarStyle, left = false): { steer: THREE.Group; spin: THREE.Group } {
   const steer = new THREE.Group();
@@ -401,6 +427,8 @@ export function buildWheel(r: number, width: number, style?: CarStyle, left = fa
   const fromFile = style ? carTemplate(style) : undefined;
   if (fromFile?.wheel) {
     spin.add(templateWheel(fromFile, r, left));
+    const c = templateCaliper(fromFile, r, left);
+    if (c) steer.add(c);
     return { steer, spin };
   }
   const tire = new THREE.Mesh(wheelGeo, TIRE);
