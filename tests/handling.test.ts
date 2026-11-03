@@ -1,7 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale } from '../src/vehicles/handling';
+import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
+
+describe('withMass', () => {
+  it('a heavier car with every force as much heavier: the same per kilogram, speeds and grip as they were', () => {
+    const base = { ...P, mass: 1000 };
+    const h = withMass(base, 1250);
+    expect(h.mass).toBe(1250);
+    for (const k of ['power', 'engineTorque', 'maxDriveForce', 'brakeForceMax', 'dragK', 'downforceK', 'springK', 'damperBump', 'antiRollFront', 'wheelInertia', 'lsd', 'lsdMax', 'escMaxTorque'] as const) {
+      expect(h[k] / h.mass).toBeCloseTo(base[k] / base.mass, 9);
+    }
+    expect(h.maxSpeed).toBe(base.maxSpeed);
+    expect(h.muPeak).toBe(base.muPeak);
+    expect(h.suspensionRest).toBe(base.suspensionRest);
+  });
+});
 
 describe('driveCommand', () => {
   const T = { throttle: 1, brake: 0, steer: 0 };

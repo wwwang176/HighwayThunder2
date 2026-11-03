@@ -297,7 +297,7 @@ export class PlayerCar {
 
     // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,
     // so both rears light up (and hook up) together instead of one-wheel peel.
-    const lsd = Math.max(-1500, Math.min(1500, p.lsd * (this.wheels[2].omega - this.wheels[3].omega)));
+    const lsd = Math.max(-p.lsdMax, Math.min(p.lsdMax, p.lsd * (this.wheels[2].omega - this.wheels[3].omega)));
     this.chassis.setup = this.chassisSetup(this.vLong);
     const grip = aeroGripScale(Math.hypot(this.vLong, this.vLat), p);
     for (const w of this.wheels) {

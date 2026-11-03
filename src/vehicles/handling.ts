@@ -57,6 +57,7 @@ export interface CarParams {
   rollRefKmh: number; // km/h up to which rollInfluence is as set (less past it: rollInfluenceAt)
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
+  lsdMax: number; // N·m, the most it moves
   counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
   steerSlowdownSpeed: number; // m/s; turn-in rate is halved at this speed (Infinity = never slower)
   escGain: number; // stability control: N·m of yaw correction per rad/s of yaw-rate error (0 = off)

@@ -1,5 +1,6 @@
 import type { CarSpec } from './types';
-import { STREET_RACER } from './streetRacer';
+import { SUPERCAR_TUNE } from './streetRacer';
+import { withMass } from './mass';
 import { JDM_TRACKER } from './jdmTracker';
 import { JDM_COLLIDER } from './jdmCollider';
 
@@ -15,8 +16,9 @@ export const JDM_CAR: CarSpec = {
   color: 0x3a8dde,
   style: 'jdm',
   collider: JDM_COLLIDER, // its model's body up to the hood (sloping down to the nose; the wing at the tail), and its cabin
-  params: {
-    ...STREET_RACER.params,
+  // Tuned at 1200 kg; it drives at 1400, a real tuned sedan's weight, every force as much heavier (withMass): the same.
+  params: withMass({
+    ...SUPERCAR_TUNE,
     // training/cornering.train.ts against the supercar (muscle car): 0-100 4.04 s (4.20 / 4.01), 0-200 10.9 s
     // (9.4 / 8.5), top 245 km/h (300 / 259), full-lock grip 1.55 / 2.38 g at 100 / 200 km/h (1.37 / 2.09),
     // a lane in 0.67 s (0.71), lean 1.9-2.3 deg (3.1-3.7), power on in a turn 2 deg (3). No rollover, also
@@ -45,7 +47,7 @@ export const JDM_CAR: CarSpec = {
     wheelbase: 2.42, // its model's
     width: 1.92, // its model's size
     length: 4.4,
-  },
+  }, 1400),
   // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
   // Measured 2026-11-03 on its model's size.
   ai: {

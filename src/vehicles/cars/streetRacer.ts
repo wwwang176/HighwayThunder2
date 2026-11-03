@@ -1,9 +1,10 @@
 import type { CarSpec } from './types';
 import { STREET_RACER_TRACKER } from './streetRacerTracker';
 import { SUPERCAR_COLLIDER } from './supercarCollider';
+import { withMass } from './mass';
 
-/** The supercar (id `street-racer`: the player's car since the start; engine 1.5x, see git log). Quick, the highest top speed. */
-export const STREET_RACER: CarSpec = {
+/** The supercar as tuned, at 1300 kg (it drives at 1500: STREET_RACER). */
+const SUPERCAR: CarSpec = {
   id: 'street-racer',
   name: '超跑',
   color: 0xd62828,
@@ -60,6 +61,7 @@ export const STREET_RACER: CarSpec = {
     rollRefKmh: 150,
     slipFalloff: 18,
     lsd: 150,
+    lsdMax: 1500,
     counterSteer: 0.8,
     steerSlowdownSpeed: Infinity,
     escGain: 9000,
@@ -91,3 +93,13 @@ export const STREET_RACER: CarSpec = {
     tracker: STREET_RACER_TRACKER,
   },
 };
+
+/** Its handling as tuned, at 1300 kg: where the other cars' start from (muscleCar.ts, jdm.ts). */
+export const SUPERCAR_TUNE = SUPERCAR.params;
+
+/**
+ * The supercar (id `street-racer`: the player's car since the start; engine 1.5x, see git log). Quick, the
+ * highest top speed. 1500 kg, a real mid-engined car's weight: as tuned at 1300, every force as much heavier
+ * (withMass), so it drives the same.
+ */
+export const STREET_RACER: CarSpec = { ...SUPERCAR, params: withMass(SUPERCAR_TUNE, 1500) };

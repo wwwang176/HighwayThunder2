@@ -1,5 +1,6 @@
 import type { CarSpec } from './types';
-import { STREET_RACER } from './streetRacer';
+import { SUPERCAR_TUNE } from './streetRacer';
+import { withMass } from './mass';
 import { MUSCLE_CAR_TRACKER } from './muscleCarTracker';
 import { MUSCLE_CAR_COLLIDER } from './muscleCarCollider';
 
@@ -15,8 +16,9 @@ export const MUSCLE_CAR: CarSpec = {
   color: 0xf2780c, // the concept's orange (docs/art/muscle-car): the dark paint was lost at night
   style: 'muscle',
   collider: MUSCLE_CAR_COLLIDER, // its model's body up to the hood (and deck), and its cabin
-  params: {
-    ...STREET_RACER.params,
+  // Tuned at 1450 kg; it drives at 1800, a real muscle car's weight, every force as much heavier (withMass): the same.
+  params: withMass({
+    ...SUPERCAR_TUNE,
     // training/cornering.train.ts (launch, powerOn, cornering, turnIn, maneuvers) against the supercar:
     // 0-100 4.0 s (4.2), 0-200 8.4 s (9.4), top 259 km/h (300), nose up ~2 deg at launch (0.7),
     // full-lock grip 1.06 / 1.4 g at 100 / 200 km/h (1.4 / 2.1), lean changing lanes 4.3-6 deg (3-4),
@@ -56,7 +58,7 @@ export const MUSCLE_CAR: CarSpec = {
     wheelbase: 2.54,
     width: 1.99,
     length: 4.52,
-  },
+  }, 1800),
   // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
   ai: {
     accel: [
