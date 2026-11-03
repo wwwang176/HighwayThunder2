@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { LampPools, type PoolColumn } from '../render/lampPools';
 import { makeFlareMaterial } from '../render/lightFlares';
 import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 
@@ -15,13 +16,12 @@ export const LAMP_COLOR = 0xffe9d2;
 /** Night lighting levels (mutable: tuned live from the panel). */
 export const NIGHT = {
   lampIntensity: 300, // candela, real street lights near the player (one per lamp pair; at 1000 the road glared)
-  poolStrength: 0.15, // painted light pools on the road (as bright as the real lights make the road)
+  poolStrength: 0.15, // the lamps' pools of light on the ground (render/lampPools; as bright as the real lights make the road)
 };
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
 const LAMP_HEIGHT = 9.8;
-const POOL_RADIUS = 14;
 // Real (shading) lights for the lamps over our carriageway inside this window;
-// everything else is a painted light pool on the road.
+// everything else only its pool of light on the ground (render/lampPools).
 const REAL_LIGHT_BEHIND = 40;
 const REAL_LIGHT_AHEAD = 160;
 const REAL_LIGHT_FADE = 25;
@@ -37,22 +37,6 @@ interface LampRow {
   x: number; // midway between the heads
   s: number; // strip-local
   heads: number[]; // indices into lampHeads
-}
-
-function poolTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d')!;
-  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-  grad.addColorStop(0, 'rgba(255,255,255,0.95)');
-  grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
-  grad.addColorStop(0.7, 'rgba(255,255,255,0.15)');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 256, 256);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
 }
 
 function seeded(seed: number) {
@@ -242,15 +226,14 @@ export class RoadScene {
   readonly lampFlareMaterial = makeFlareMaterial(2.5);
   /** Road and grass surfaces (receive NPC headlight beams, see render/npcBeams). */
   readonly groundMaterials: THREE.MeshStandardMaterial[] = [];
-  private pools!: THREE.InstancedMesh;
+  /** The street lights' pools of light on the ground (in the ground's shaders). */
+  private lampPools!: LampPools;
   private realLights: THREE.SpotLight[] = [];
 
   /** The street lights currently shining (for things lit by hand, like tyre smoke). */
   activeLights(): THREE.SpotLight[] {
     return this.realLights.filter((l) => l.visible && l.intensity > 0);
   }
-  private readonly poolColor = new THREE.Color(LAMP_COLOR);
-  private readonly tmpColor = new THREE.Color();
 
   constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
     scene.background = new THREE.Color(SKY);
@@ -353,20 +336,7 @@ export class RoadScene {
     const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.16, 10, 8), poleMat, poleCount);
     const arms = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.12, 0.12), poleMat, armCount);
     const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.16, 0.4), headMat, armCount);
-    this.pools = new THREE.InstancedMesh(
-      new THREE.PlaneGeometry(POOL_RADIUS * 2, POOL_RADIUS * 2).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({
-        map: poolTexture(),
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        fog: true,
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-      }),
-      armCount,
-    );
-    this.pools.frustumCulled = false;
+    const columns: PoolColumn[] = [];
     let pi = 0;
     let ai = 0;
     for (let r = 0; r < rows; r++) {
@@ -380,9 +350,8 @@ export class RoadScene {
             m.compose(new THREE.Vector3(spec.x + (dir * (reach + 0.2)) / 2, 9.9, -sPos), new THREE.Quaternion(), new THREE.Vector3(reach + 0.2, 1, 1)),
           );
           heads.setMatrixAt(ai, m.makeTranslation(hx, LAMP_HEIGHT, -sPos));
-          // Pool centred a little toward the road from the head.
-          this.pools.setMatrixAt(ai, m.makeTranslation(hx + dir * 1.0, 0.03, -sPos));
-          this.pools.setColorAt(ai, this.poolColor);
+          // Its pool of light centred a little toward the road from the head (the same in every row).
+          if (r === 0) columns.push({ x: hx + dir * 1.0, ours: hx > MEDIAN_NEAR_X - 4 });
           if (hx > MEDIAN_NEAR_X - 4) {
             // Over our carriageway: pair it with the row's other lamp.
             const row = this.lampRows.find((w) => w.s === sPos);
@@ -396,7 +365,15 @@ export class RoadScene {
         }
       }
     }
-    this.strip.add(poles, arms, heads, this.pools);
+    this.strip.add(poles, arms, heads);
+    // Their pools of light: light in the ground's shaders. The rows' world z: the strip only ever moves by whole
+    // STRIP_PERIODs, which LAMP_SPACING divides.
+    this.lampPools = new LampPools(columns, LAMP_SPACING, (((STRIP_BEHIND - poleSpecs[0].offset) % LAMP_SPACING) + LAMP_SPACING) % LAMP_SPACING, {
+      behind: REAL_LIGHT_BEHIND,
+      ahead: REAL_LIGHT_AHEAD,
+      fade: REAL_LIGHT_FADE,
+    });
+    for (const mat of this.groundMaterials) this.lampPools.patch(mat);
 
     // Lamp-head glows: soft sprites that stay a few pixels wide in the distance.
     const fpos = new Float32Array(this.lampHeads.length * 3);
@@ -490,7 +467,7 @@ export class RoadScene {
 
   /**
    * Keep the repeating scenery under the player, and hand the real street lights to
-   * the lamp pairs over our carriageway nearest ahead (one light per pair). Their painted pools fade out as
+   * the lamp pairs over our carriageway nearest ahead (one light per pair). Their pools of light fade out as
    * the real light fades in, so nothing pops.
    */
   update(playerS: number, _playerX: number): void {
@@ -499,10 +476,7 @@ export class RoadScene {
     this.trees.position.z = -Math.floor(playerS / TREE_PERIOD) * TREE_PERIOD;
     this.far.position.z = -playerS;
 
-    for (let i = 0; i < this.lampHeads.length; i++) {
-      this.tmpColor.copy(this.poolColor).multiplyScalar(NIGHT.poolStrength);
-      this.pools.setColorAt(i, this.tmpColor);
-    }
+    this.lampPools.update(playerS, LAMP_COLOR, NIGHT.poolStrength);
     let li = 0;
     for (const row of this.lampRows) {
       const ds = stripS + row.s - playerS;
@@ -515,10 +489,8 @@ export class RoadScene {
       l.position.set(row.x, LAMP_HEIGHT - 0.2, z);
       l.target.position.set(row.x, 0, z);
       l.target.updateMatrixWorld();
-      this.tmpColor.copy(this.poolColor).multiplyScalar((1 - real) * NIGHT.poolStrength);
-      for (const hi of row.heads) this.pools.setColorAt(hi, this.tmpColor);
+      // (Its pools fade out as it comes on: LampPools, the same fade.)
     }
     for (; li < this.realLights.length; li++) this.realLights[li].visible = false;
-    if (this.pools.instanceColor) this.pools.instanceColor.needsUpdate = true;
   }
 }
