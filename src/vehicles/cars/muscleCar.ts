@@ -1,6 +1,7 @@
 import type { CarSpec } from './types';
 import { STREET_RACER } from './streetRacer';
 import { MUSCLE_CAR_TRACKER } from './muscleCarTracker';
+import { MUSCLE_CAR_COLLIDER } from './muscleCarCollider';
 
 /**
  * The muscle car: the hardest pull off the line (big torque - the nose comes up
@@ -13,6 +14,7 @@ export const MUSCLE_CAR: CarSpec = {
   name: '肌肉車',
   color: 0xf2780c, // the concept's orange (docs/art/muscle-car): the dark paint was lost at night
   style: 'muscle',
+  collider: MUSCLE_CAR_COLLIDER, // its model's body up to the hood (and deck), and its cabin
   params: {
     ...STREET_RACER.params,
     // training/cornering.train.ts (launch, powerOn, cornering, turnIn, maneuvers) against the supercar:

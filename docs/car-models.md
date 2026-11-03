@@ -71,6 +71,11 @@ blender -b --factory-startup -P tools/models/<car>.py -- --out public/models/<ca
     - `shade_smooth_by_angle(30°)`，再套 `WEIGHTED_NORMAL`（依面積加權）。不加權的話，生成的細長三角形會把法線拉歪，條紋上出現 X 形亮紋。
     - 每扇窗共用一個法線（`flat_windows`），否則鏡射的左右兩半在中線會有一道亮線。
 11. **輪子**：用腳本自己建的輪子（`build_wheel`），不要用生成的，因為遊戲要能轉動。
+11-1. **碰撞外形**（`collider_pieces`）：兩塊凸多面體，從模型量。
+   - 車身：車底到引擎蓋、全寬、車頭到車尾。行李箱比引擎蓋高的話，頂面做成前低後高的梯形。
+   - 車艙：擋風玻璃底部沿斜面上到車頂，再沿後窗下到後窗底部；寬度從窗台往車頂收窄。
+   - 輸出 `src/vehicles/cars/<car>Collider.ts`（`--collider` 可改路徑），接到 `CarSpec.collider`。碰撞體不帶質量，重量和重心仍由 `CarParams` 決定，所以不影響操控。
+   - 預覽會多出 `collider-*.png`，可以看碰撞外形套在車上的樣子。
 12. **檢查**（腳本會印出來）：穿插面、破邊、燈具和車身有沒有相碰、車身尺寸、三角形數。
 
 ## 5. 比對與驗收

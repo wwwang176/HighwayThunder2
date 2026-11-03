@@ -65,8 +65,8 @@ type WheelState = ChassisWheel;
  */
 export class PlayerCar {
   readonly body: RAPIER.RigidBody;
-  /** The body's collision box (null for ghosts). */
-  readonly collider: RAPIER.Collider | null;
+  /** The body's collision shape: a box, or its spec's convex pieces (none for ghosts). */
+  readonly colliders: RAPIER.Collider[];
   readonly mesh: THREE.Group;
   private readonly lights: VehicleLights;
   private readonly visuals: { steer: THREE.Group; spin: THREE.Group }[] = [];
@@ -110,29 +110,35 @@ export class PlayerCar {
       y: (p.mass / 12) * (p.width * p.width + p.length * p.length),
       z: (p.mass / 12) * (p.width * p.width + 0.8 * 0.8),
     };
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(laneCenter(1), RIDE_Y, 0).setCanSleep(false);
+    // The mass is the body's own (COM at body y + comY), not its colliders' (they weigh nothing): the
+    // collision shape can follow the car's body without changing how it drives.
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(laneCenter(1), RIDE_Y, 0)
+      .setCanSleep(false)
+      .setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 });
     if (ghost) {
       // No collider at all: a ghost stands on its wheel rays only, and with dozens
       // of them stacked on the start line, the rays must not have to test each other.
-      // Same mass properties as the player's collider gives (COM at body y + comY).
-      this.body = physics.world.createRigidBody(
-        bodyDesc.setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 }),
-      );
-      this.collider = null;
+      this.body = physics.world.createRigidBody(bodyDesc);
+      this.colliders = [];
     } else {
       this.body = physics.world.createRigidBody(bodyDesc.setCcdEnabled(true));
-      this.collider = physics.world.createCollider(
-        RAPIER.ColliderDesc.roundCuboid(p.width / 2 - 0.05, 0.3, p.length / 2 - 0.05, 0.05)
-          .setTranslation(0, 0.1, 0)
-          // The collider sits 0.1 m up the body: its mass centre is placed to land at body y + comY.
-          .setMassProperties(p.mass, { x: 0, y: p.comY - 0.1, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
-          .setFriction(0.3)
-          .setRestitution(0.05)
-          .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
-          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-        this.body,
-      );
-      physics.register(this.collider, entity);
+      const shapes = spec.collider?.map((pts) => RAPIER.ColliderDesc.convexHull(new Float32Array(pts))!) ?? [
+        RAPIER.ColliderDesc.roundCuboid(p.width / 2 - 0.05, 0.3, p.length / 2 - 0.05, 0.05).setTranslation(0, 0.1, 0),
+      ];
+      this.colliders = shapes.map((shape) => {
+        const c = physics.world.createCollider(
+          shape
+            .setDensity(0)
+            .setFriction(0.3)
+            .setRestitution(0.05)
+            .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
+            .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+          this.body,
+        );
+        physics.register(c, entity);
+        return c;
+      });
     }
 
     // Wheels: 0 FL, 1 FR, 2 RL, 3 RR.
@@ -338,8 +344,8 @@ export class PlayerCar {
   /** Place the car in a lane, upright, pointing down the road, at the given speed. */
   /** Take the car out of the world for good (another car type takes its place): body, collider, model and lights. */
   dispose(physics: PhysicsWorld): void {
-    if (this.collider) physics.unregister(this.collider);
-    physics.world.removeRigidBody(this.body); // its collider goes with it
+    for (const c of this.colliders) physics.unregister(c);
+    physics.world.removeRigidBody(this.body); // its colliders go with it
     this.mesh.removeFromParent();
   }
 

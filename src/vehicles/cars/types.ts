@@ -17,6 +17,12 @@ export interface CarSpec {
   /** Body shape (src/vehicles/models.ts buildCar). */
   style: CarStyle;
   params: CarParams;
+  /**
+   * Its collision shape as convex pieces, each a flat list of points (x, y, z: body space, m; the nose
+   * toward -z, the ground 0.55 m below; from its model, src/vehicles/cars/<car>Collider.ts). None: a box
+   * of `params.width` x `length`.
+   */
+  collider?: number[][];
   ai: CarPerformance;
 }
 
