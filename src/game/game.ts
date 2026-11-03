@@ -451,9 +451,10 @@ export class Game {
     });
     this.physics.step((a, b, n) => this.onContact(a, b, n));
     this.physics.touches((t) => {
-      // Metal on the grass throws none (the ground is one collider, verges and median too).
-      const ground = (t.a.type === 'static' || t.b.type === 'static') && t.mid.y < 0.15;
-      if (!ground || surfaceGrip(t.mid.x) >= 1) this.sparks.touch(t, dt);
+      // None off the ground (a car's nose dipping onto the road under hard braking threw them): only off the
+      // rails and other vehicles.
+      const ground = (t.a.type === 'static' || t.b.type === 'static') && Math.abs(t.normal.y) > 0.7; // (the rails' face up and down)
+      if (!ground) this.sparks.touch(t, dt);
     });
     this.player.postPhysics();
     this.trafficWorld.afterPhysics();
