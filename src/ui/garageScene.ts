@@ -90,10 +90,11 @@ export class GarageScene {
     addEventListener('resize', () => this.resize());
   }
 
-  show(id: string): void {
+  /** Car `id` in its paint job `livery` (none: its own). */
+  show(id: string, livery?: string): void {
     if (this.car) this.scene.remove(this.car);
     const spec = CARS[id];
-    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, false).root;
+    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, false, livery).root;
     this.car.position.y = PLAYER_H / 2; // on the ground
     this.car.rotation.y = CAR_YAW;
     this.scene.add(this.car);

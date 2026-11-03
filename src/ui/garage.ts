@@ -10,6 +10,7 @@ import {
   Weather,
 } from '../game/carSelection';
 import { DIFFICULTIES } from '../game/difficulty';
+import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
 import { GarageScene } from './garageScene';
 import { installTooltips } from './tooltip';
@@ -121,7 +122,7 @@ export class Garage {
     this.closePop();
     this.el.style.display = '';
     this.draw();
-    this.preview.show(this.sel.player);
+    this.show();
     (document.activeElement as HTMLElement | null)?.blur(); // the button that opened it must not take an Enter
   }
 
@@ -142,17 +143,42 @@ export class Garage {
     this.el.querySelectorAll('.g-back.open').forEach((b) => b.classList.remove('open'));
   }
 
-  /** ← → step through the cars. */
+  /** ↑ ↓ step through the cars. */
   step(d: number): void {
     const i = PICKABLE.indexOf(this.sel.player);
     this.pick(PICKABLE[(i + d + PICKABLE.length) % PICKABLE.length]);
+  }
+
+  /** ← → step through the car's paint jobs. */
+  stepPaint(d: number): void {
+    const jobs = paintJobs(CARS[this.sel.player].style).map((j) => j.name);
+    if (!jobs.length) return;
+    const i = Math.max(0, jobs.indexOf(this.paintOf(this.sel.player) ?? ''));
+    this.paint(jobs[(i + d + jobs.length) % jobs.length]);
   }
 
   private pick(id: string): void {
     if (!PICKABLE.includes(id) || id === this.sel.player) return;
     this.sel = { ...this.sel, player: id };
     this.draw();
-    this.preview.show(id);
+    this.show();
+  }
+
+  private paint(name: string): void {
+    if (name === this.paintOf(this.sel.player)) return;
+    this.sel = { ...this.sel, paint: { ...this.sel.paint, [this.sel.player]: name } };
+    this.draw();
+    this.show();
+  }
+
+  /** The paint job picked for car `id` (none picked: its own, the first). */
+  private paintOf(id: string): string | undefined {
+    return this.sel.paint[id] ?? paintJobs(CARS[id].style)[0]?.name;
+  }
+
+  /** The picked car in its paint, in the scene. */
+  private show(): void {
+    this.preview.show(this.sel.player, this.paintOf(this.sel.player));
   }
 
   private change(sel: CarSelection): void {
@@ -177,11 +203,18 @@ export class Garage {
       (c) => `<button class="g-cls ${c.id === s.player ? 'sel' : ''}" data-id="${c.id}">${icon(c.icon, 'car')}<span class="t">${c.name}</span></button>`,
     ).join('');
     this.el.querySelectorAll<HTMLElement>('.g-cls').forEach((b) => (b.onclick = () => this.pick(b.dataset.id!)));
+    // Under its name, its paint jobs: a swatch each (the stripes across a corner), the picked one ringed.
+    const picked = this.paintOf(s.player);
+    const swatch = (j: PaintJob) =>
+      `<button class="g-paint ${j.name === picked ? 'sel' : ''}" data-paint="${j.name}" ` +
+      `style="--p:${j.paint};--s:${j.stripe ?? j.paint}"></button>`;
     this.q('.g-spec').innerHTML =
       `<h1>${me.name}</h1>` +
+      `<div class="g-paints">${paintJobs(CARS[s.player].style).map(swatch).join('')}</div>` +
       me.stats
         .map((st) => `<div class="g-stat"><span data-tip="${st.tip}" data-tip-place="left" tabindex="0">${icon(st.icon)}</span><span class="v">${st.value}</span><div class="bar"><i style="width:${st.bar * 100}%"></i></div></div>`)
         .join('');
+    this.el.querySelectorAll<HTMLElement>('.g-paint').forEach((b) => (b.onclick = () => this.paint(b.dataset.paint!)));
     // The race at a glance: the rivals by car type (silhouette x how many), difficulty, weather.
     const lineUp = PICKABLE.filter((id) => s.rivals.includes(id))
       .map((id) => `<span class="count" data-tip="${CARS[id].name}">${icon(card(id).icon, 'mini')}×${s.rivals.filter((r) => r === id).length}</span>`)

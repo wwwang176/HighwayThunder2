@@ -165,8 +165,10 @@ export class Game {
     k.onPress('Enter', enter);
     k.onPress('NumpadEnter', enter);
     k.onPress('Escape', () => (g.popOpen ? g.closePop() : g.isOpen ? undefined : this.togglePause()));
-    k.onPress('ArrowLeft', () => g.isOpen && !g.popOpen && g.step(-1));
-    k.onPress('ArrowRight', () => g.isOpen && !g.popOpen && g.step(1));
+    k.onPress('ArrowUp', () => g.isOpen && !g.popOpen && g.step(-1));
+    k.onPress('ArrowDown', () => g.isOpen && !g.popOpen && g.step(1));
+    k.onPress('ArrowLeft', () => g.isOpen && !g.popOpen && g.stepPaint(-1));
+    k.onPress('ArrowRight', () => g.isOpen && !g.popOpen && g.stepPaint(1));
     // Race keys do nothing in the garage.
     k.onPress('KeyR', () => !g.isOpen && this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
@@ -215,13 +217,14 @@ export class Game {
 
   /**
    * Put these cars on the grid: the player's car and the rivals are rebuilt
-   * where their type changed (the tuning panel then tunes the new player car).
+   * where their type changed (the player's, its paint job too; the tuning panel
+   * then tunes the new player car).
    */
   applyCars(cars: CarSelection): void {
-    if (cars.player !== this.cars.player) {
+    if (cars.player !== this.cars.player || cars.paint[cars.player] !== this.cars.paint[this.cars.player]) {
       this.aiActive = false; // the new car starts with its own limiter (the AI's hand-back would restore the old car's)
       this.player.dispose(this.physics);
-      this.player = new PlayerCar(this.physics, this.scene, { spec: specOf(cars.player) });
+      this.player = new PlayerCar(this.physics, this.scene, { spec: specOf(cars.player), livery: cars.paint[cars.player] });
       this.player.surfaceGrip = surfaceGrip;
       const shown = !this.gui._hidden;
       this.gui.destroy();
@@ -238,7 +241,7 @@ export class Game {
       this.rivals.dispose();
       this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), cars.rivals.map(specOf));
     }
-    this.cars = { ...cars, rivals: [...cars.rivals] };
+    this.cars = { ...cars, rivals: [...cars.rivals], paint: { ...cars.paint } };
   }
 
   /** Back to the garage (from the pause or the finish). */

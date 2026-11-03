@@ -54,10 +54,18 @@ export interface CarTemplate {
   spots: WheelSpots | null;
   /** Paint jobs by name, in the file's order (the first is the car's own). */
   liveries: Map<string, THREE.Texture>;
+  /** The same, what they are (their colours: the garage's swatches). */
+  paints: PaintJob[];
 }
 
-interface LiveryEntry {
+/** A paint job: its name, its paint and stripes (none: plain), as CSS colours. */
+export interface PaintJob {
   name: string;
+  paint: string;
+  stripe: string | null;
+}
+
+interface LiveryEntry extends PaintJob {
   file: string;
 }
 
@@ -65,6 +73,11 @@ const templates = new Map<ModelName, CarTemplate>();
 
 export function carTemplate(style: ModelName): CarTemplate | undefined {
   return templates.get(style);
+}
+
+/** A style's paint jobs (none before its file is loaded, or without one). */
+export function paintJobs(style: CarStyle): PaintJob[] {
+  return templates.get(style)?.paints ?? [];
 }
 
 /** One of a style's paint jobs at random (none for a car without them). */
@@ -85,7 +98,7 @@ export async function loadCarModels(base = import.meta.env.BASE_URL): Promise<vo
         const caliper = gltf.scene.getObjectByName('caliper') ?? null;
         caliper?.removeFromParent();
         const spots = wheel && 'r' in wheel.userData ? (wheel.userData as WheelSpots) : null;
-        templates.set(style as ModelName, { body: gltf.scene, wheel, caliper, spots, liveries });
+        templates.set(style as ModelName, { body: gltf.scene, wheel, caliper, spots, ...liveries });
       } catch (e) {
         console.warn(`car model ${file} not loaded, using the built-in shape`, e);
       }
@@ -93,11 +106,11 @@ export async function loadCarModels(base = import.meta.env.BASE_URL): Promise<vo
   );
 }
 
-/** The paint jobs in `dir` (none if it has no liveries.json). */
-async function loadLiveries(dir: string): Promise<Map<string, THREE.Texture>> {
-  const out = new Map<string, THREE.Texture>();
+/** The paint jobs in `dir` (none if it has no liveries.json): their textures by name, and what they are. */
+async function loadLiveries(dir: string): Promise<{ liveries: Map<string, THREE.Texture>; paints: PaintJob[] }> {
+  const liveries = new Map<string, THREE.Texture>();
   const res = await fetch(dir + 'liveries.json');
-  if (!res.ok) return out;
+  if (!res.ok) return { liveries, paints: [] };
   const list = (await res.json()) as LiveryEntry[];
   const loader = new THREE.TextureLoader();
   const textures = await Promise.all(list.map((l) => loader.loadAsync(dir + l.file)));
@@ -105,7 +118,7 @@ async function loadLiveries(dir: string): Promise<Map<string, THREE.Texture>> {
     const t = textures[i];
     t.flipY = false; // glTF's UV convention
     t.colorSpace = THREE.SRGBColorSpace;
-    out.set(l.name, t);
+    liveries.set(l.name, t);
   });
-  return out;
+  return { liveries, paints: list.map(({ name, paint, stripe }) => ({ name, paint, stripe })) };
 }

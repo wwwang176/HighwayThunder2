@@ -124,6 +124,12 @@ button.secondary:hover { color: #fff; border-color: var(--accent); filter: none;
 #garage .g-spec { position: absolute; right: 3vw; top: 17vh; width: 23vw; padding: 2.4vh 1.6vw; background: var(--glass); border: 1px solid var(--line);
   border-radius: 0.8vw; backdrop-filter: blur(8px); }
 #garage .g-spec h1 { margin: 0 0 1.2vh; font: italic 900 2.6vw/1.1 system-ui, "Microsoft JhengHei", sans-serif; }
+/* The car's paint jobs: a swatch each (its stripes across the lower corner), the picked one ringed in the accent. */
+#garage .g-paints { display: flex; flex-wrap: wrap; gap: 0.55vw; margin: 0 0 1.4vh; }
+#garage .g-paint { width: 1.7vw; height: 1.7vw; border-radius: 0.35vw; background: linear-gradient(135deg, var(--p) 62%, var(--s) 62%) !important;
+  outline: 1px solid rgba(255,255,255,0.25) !important; outline-offset: 0; transition: transform 0.15s, outline-color 0.15s; }
+#garage .g-paint:hover { transform: scale(1.12); }
+#garage .g-paint.sel { outline: 2px solid var(--accent) !important; outline-offset: 2px; }
 #garage .g-stat { display: grid; grid-template-columns: 2.2vw 1fr; align-items: center; gap: 0.8vw; margin: 2vh 0; }
 #garage .g-stat > [data-tip] { grid-row: span 2; line-height: 0; cursor: help; outline: none; }
 #garage .g-stat .icon { width: 2vw; height: 2vw; color: var(--accent); }
