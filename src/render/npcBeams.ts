@@ -14,7 +14,7 @@ export interface BeamSpot {
 }
 
 /** Brightness of NPC low beams on the ground (tunable). */
-export const NPC_BEAM = { intensity: 7 };
+export const NPC_BEAM = { intensity: 5.9 };
 /** NPC headlight pair as a light source for tyre smoke (candela, like the player's). */
 const NPC_HEADLIGHT_CD = 900;
 /** How many of the nearest NPCs' headlights light tyre smoke. */

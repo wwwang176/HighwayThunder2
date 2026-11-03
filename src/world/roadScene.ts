@@ -14,8 +14,8 @@ const FOG = 0x05070d;
 export const LAMP_COLOR = 0xffe9d2;
 /** Night lighting levels (mutable: tuned live from the panel). */
 export const NIGHT = {
-  lampIntensity: 250, // candela, real street lights near the player (one per lamp pair; at 1000 the road glared)
-  poolStrength: 0.125, // painted light pools on the road (as bright as the real lights make the road)
+  lampIntensity: 300, // candela, real street lights near the player (one per lamp pair; at 1000 the road glared)
+  poolStrength: 0.15, // painted light pools on the road (as bright as the real lights make the road)
 };
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
 const LAMP_HEIGHT = 9.8;
