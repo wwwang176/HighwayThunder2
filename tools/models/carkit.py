@@ -71,30 +71,41 @@ class Car:
                 as its black trim, told apart by where they are, `glass_y`)
     glass_y     (lo, hi) y (working frame) between which windows are (None: anywhere along it)
     roof_flat   how flat (normal's z) a face above `roof_above` is to be roof, not window
+    glass_bend  degrees a window's faces may turn from its biggest one (a rounder windscreen wants more: its
+                edges left out show as cracks and spikes across the glass)
+    glass_fill  also glass: the faces above `glass_above` as dark as the glass or darker with glass on two sides
+                (creases and smudges across a window), and slivers (under 2 cm across) lying in a window's plane
+                beside it, whatever their colour (else paint-coloured slivers in it)
     frames_above z above which the faces round the side windows (not glass, facing sideways, within `glass_y`)
                 are the roof's colour too: the window frames and pillars (None: as the texture has them)
     tops_above  z above which up-facing faces are the tops its stripes may cross
     roof_above  z above which it is all roof, the stripes' colour through and through, whatever paint the
                 texture smudged onto it, and its up-facing faces never window, whatever grey the texture gave
                 them (None: no such roof)
-    collider    its collision shape's TS export name, in src/vehicles/cars/<collider_file>.ts (kept by hand)
+    collider    its collision shape's TS export name, in src/vehicles/cars/<collider_file>.ts (kept by hand; a
+                traffic car's collider_file None: the game gives it boxes of its own)
     lamps       lamps(body, px, surface) -> lamp objects (head_L/R, tail_L/R, ind_FL/FR/RL/RR)
     mend        mend(body, px): the car's own fixes to its generated body (or None)
     paint_hue   (lo, hi) hue range of its paint on the texture (lo > hi: it wraps past 1, a red)
+    paint_grey  (lo, hi) brightness of its paint on the texture when it is a grey (None: a colour, by hue)
+    plain       (where(face centre, working frame) -> bool, 0xRRGGBB): the light faces (whites, light greys)
+                there in that flat colour, their own `plain` material, not the livery's (a truck's box: its
+                texture shares the cab's white, which takes the livery)
     tail        tail(h, s, v): whether a texel is its tail lights' red (None: saturated red; a red car's
                 paint is red too, so it needs its own)
     """
 
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
-                 roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None):
+                 roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
         self.lamps, self.mend, self.glass_above, self.tops_above = lamps, mend, glass_above, tops_above
         self.glass_v, self.glass_y, self.roof_flat, self.frames_above = glass_v, glass_y, roof_flat, frames_above
         self.roof_above = roof_above
-        self.paint_hue, self.tail = paint_hue, tail
+        self.paint_hue, self.tail, self.paint_grey, self.glass_bend = paint_hue, tail, paint_grey, glass_bend
+        self.glass_fill, self.plain = glass_fill, plain
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -282,13 +293,20 @@ def in_paint_hue(h):
     return (h >= lo) & (h < hi) if lo <= hi else (h >= lo) | (h < hi)
 
 
+def grey_paint(s, v):
+    """Whether a texel (saturation s, brightness v; or arrays of them) is the car's paint when its paint is a
+    grey (Car.paint_grey: its brightness range; a grey has no hue to tell it by)."""
+    lo, hi = CAR.paint_grey or (2, 2)
+    return (s < 0.08) & (v >= lo) & (v <= hi)
+
+
 def colour_class(rgb):
     h, s, v = colorsys.rgb_to_hsv(*rgb)
     if v > 0.75 and s < 0.3:
         return "white"
     if CAR.tail(h, s, v) if CAR.tail else s > 0.6 and v > 0.45 and (h < 0.012 or h > 0.95):
         return "red"
-    if s > 0.45 and v > 0.25 and in_paint_hue(h):
+    if s > 0.45 and v > 0.25 and in_paint_hue(h) or grey_paint(s, v):
         return "paint"
     return "dark" if v < 0.12 else "grey"
 
@@ -312,7 +330,7 @@ def hsv(px):
 def paint_mask(px):
     """The texture's paint pixels (colour_class "paint", vectorised) and every pixel's brightness."""
     hue, s, mx = hsv(px)
-    return (s > 0.45) & (mx > 0.25) & in_paint_hue(hue), mx
+    return (s > 0.45) & (mx > 0.25) & in_paint_hue(hue) | grey_paint(s, mx), mx
 
 
 def paint_uv(px):
@@ -344,6 +362,7 @@ def split_glass(body, px):
     (0.13 to 0.25, colourless; the stripes are blacker, 0.11) above the belt, as one piece facing one way:
     grown from its biggest face over the faces turned less than 12 degrees from it (not the roof's, the
     hood's, the deck's, where the stripes' soft edges can read as that grey).
+    The light faces Car.plain picks out: their own flat `plain` material.
     Returns the faces stripes may cross (up-facing tops: hood, roof, deck, ducktail) and the roof's (above
     Car.roof_above, not glass), as UV triangles."""
     body.data.materials[0].name = "paint"
@@ -368,18 +387,40 @@ def split_glass(body, px):
             a = stack.pop()
             for e in a.edges:
                 for b in e.link_faces:
-                    if b in left and b not in piece and b.normal.angle(seed.normal, 0) < math.radians(12):
+                    if b in left and b not in piece and b.normal.angle(seed.normal, 0) < math.radians(CAR.glass_bend):
                         piece.add(b)
                         stack.append(b)
         left -= piece
         if sum(g.calc_area() for g in piece) > 0.02:
             glass |= piece
+    dark = {f for f in bm.faces if f.calc_center_median().z > CAR.glass_above
+            and (lambda s, v: v < CAR.glass_v[1] and s < 0.15)(*colorsys.rgb_to_hsv(*face_colour(px, f, uv))[1:])}
+    thin = {f for f in bm.faces if f.calc_center_median().z > CAR.glass_above
+            and 2 * f.calc_area() / max(e.calc_length() for e in f.edges) < 0.02}
+    while CAR.glass_fill:
+        # creases across a window, and its darker smudges: glass-grey or darker, glass on two sides; and slivers
+        # along its edge, whatever colour the texture smudged on them (under 2 cm across, in its plane)
+        more = {f for f in dark - glass if sum(1 for e in f.edges for g in e.link_faces if g in glass) >= 2}
+        more |= {f for f in thin - glass
+                 if any(g in glass and g.normal.angle(f.normal, 0) < math.radians(15) for e in f.edges for g in e.link_faces)}
+        if not more:
+            break
+        glass |= more
+    if CAR.plain is not None:
+        body.data.materials.append(material("plain", srgb(CAR.plain[1]), 0.5))
+    plain = 0
     tops, roof = [], []
     for f in bm.faces:
         c = f.calc_center_median()
         if f in glass:
             f.material_index = 1
             continue
+        if CAR.plain is not None and CAR.plain[0](c):
+            _, s, v = colorsys.rgb_to_hsv(*face_colour(px, f, uv))
+            if v > 0.6 and s < 0.1:
+                f.material_index = 2
+                plain += 1
+                continue
         uvs = [l[uv].uv.copy() for l in f.loops]
         tris = [(uvs[0], uvs[i], uvs[i + 1]) for i in range(1, len(uvs) - 1)]
         if f.normal.z > 0.5 and c.z > CAR.tops_above:
@@ -391,7 +432,8 @@ def split_glass(body, px):
             roof += tris  # the window frames and pillars, as the roof
     bm.to_mesh(body.data)
     bm.free()
-    print(f"[{CAR.log}] glass faces: {len(glass)} (of {len(cand)} glass-grey ones up top)")
+    print(f"[{CAR.log}] glass faces: {len(glass)} (of {len(cand)} glass-grey ones up top)"
+          + (f"; plain: {plain}" if CAR.plain is not None else ""))
     return tops, roof
 
 
@@ -523,7 +565,7 @@ def livery_textures(px, tops_roof):
     hue, s, mx = hsv(px)
     allowed = raster(tops, h, w)[..., None]
     roof = raster(roof_tris, h, w)[..., None] if roof_tris else np.zeros((h, w, 1), bool)
-    orange = ((s > 0.3) & in_paint_hue(hue))[..., None]  # (the paint: orange on the muscle car)
+    orange = ((s > 0.3) & in_paint_hue(hue) | grey_paint(s, mx))[..., None]  # (the paint: orange on the muscle car)
     dark = ((~orange[..., 0]) & (mx < 0.3))[..., None]
     t = np.clip((0.45 - mx) / 0.33, 0, 1)[..., None]  # 0 paint .. 1 black
     black = np.full(3, 0.07, np.float32)
@@ -638,9 +680,11 @@ def cell_lamp(name, s, body, cells, mat, back=False, lift=LIFT, others=()):
     return ob
 
 
-def tail_lamps(s, body, min_height=0.0):
+def tail_lamps(s, body, min_height=0.0, most_x=None):
     """Tail lights: plates over the texture's red bar across the tail (its two halves), at least `min_height`
-    tall (a hairline bar would hardly show); rear indicators over its ends. [tail_L, ind_RL, tail_R, ind_RR]"""
+    tall (a hairline bar would hardly show), out to `most_x` at most (where the tail lights wrap round the
+    corner: a plate laid from behind would run into the side); rear indicators over its ends.
+    [tail_L, ind_RL, tail_R, ind_RR]"""
     tree = s.tree
     lamps = []
     red = s.hits(True, "red")
@@ -662,7 +706,7 @@ def tail_lamps(s, body, min_height=0.0):
         mid = (bz0 + bz1) / 2
         bz0, bz1 = mid - min_height / 2, mid + min_height / 2
     pick = lambda q, frac: q[int(frac * (len(q) - 1))]  # noqa: E731
-    bx0, bx1 = max(0.02, pick(xs, 0.03)), pick(xs, 0.97)
+    bx0, bx1 = max(0.02, pick(xs, 0.03)), min(pick(xs, 0.97), most_x or 9)
     print(f"[{CAR.log}] tail bar: |x| {bx0:.2f}..{bx1:.2f}, z {bz0:.2f}..{bz1:.2f} ({len(red)} red hits)")
     seg = (bx1 - bx0) * 0.2
     for side, s in (("L", -1), ("R", 1)):
@@ -783,7 +827,12 @@ def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces)
     cam = bpy.data.objects.new("cam", cam_data)
     bpy.context.collection.objects.link(cam)
     scene.camera = cam
-    target = Vector((0, 0, 0.05))
+    # Set for a car (to 4.6 m long); a longer vehicle (a truck) is seen from as much further off.
+    s = max(1.0, (max(v.co.y for v in body.data.vertices) - min(v.co.y for v in body.data.vertices)) / 4.6)
+    for lo in lights:
+        lo.location *= s
+        lo.data.energy *= s * s
+    target = Vector((0, 0, (0.05 + GROUND) * s - GROUND))
     views = {
         # The concept images' viewpoints (docs/art/<car>), to compare against.
         "front34": Vector((-5.0, 6.6, 2.3)),
@@ -793,12 +842,13 @@ def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces)
         "front": Vector((0, 9, 0.5)),
         "trueside": Vector((-10.5, 0, 0.1)),
     }
+    views = {name: target + (pos - Vector((0, 0, 0.05))) * s for name, pos in views.items()}
     for name, pos in views.items():
         cam.location = pos
         cam.rotation_euler = (target - pos).to_track_quat("-Z", "Y").to_euler()
         cam_data.lens = 35 if name == "top" else 50
         cam_data.type = "ORTHO" if name == "trueside" else "PERSP"  # the true side view can be measured
-        cam_data.ortho_scale = 5.2
+        cam_data.ortho_scale = 5.2 * s
         scene.render.filepath = os.path.join(out_dir, f"{CAR.preview}-{name}.png")
         bpy.ops.render.render(write_still=True)
     cam_data.type = "PERSP"
@@ -896,9 +946,11 @@ def run(car):
           + f" (the generated tyres' radius {max(t[2] for t in car.tyres) * g:.3f})")
     for k, v in spots.items():  # where the wheels go (along the nose: + toward it), for the game (extras)
         wheel[k] = round(v, 4)
-    if not os.path.exists(collider_path):
-        starter_collider(body, collider_path)
-    pieces = read_collider(collider_path)
+    pieces = []  # (traffic: the game gives it boxes of its own)
+    if car.collider_file:
+        if not os.path.exists(collider_path):
+            starter_collider(body, collider_path)
+        pieces = read_collider(collider_path)
 
     tri = lambda o: sum(len(p.vertices) - 2 for p in o.data.polygons)  # noqa: E731
     print(f"[{CAR.log}] triangles: body {tri(body)}, lamps {sum(tri(o) for o in lamps)}, wheel {tri(wheel)}"
