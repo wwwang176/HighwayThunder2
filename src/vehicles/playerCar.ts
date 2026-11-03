@@ -290,7 +290,7 @@ export class PlayerCar {
 
     // Engine power is limited by how fast the driven wheels turn (wheelspin eats power).
     const rearOmega = (this.wheels[2].omega + this.wheels[3].omega) / 2;
-    this.gearbox.update(this.vLong, dt);
+    this.gearbox.update(this.vLong, dt, p);
     // Displayed / audible rpm bounces off the limiter but never far past it.
     this.rpm = Math.min(p.redline * 1.03, this.gearbox.engineRpm(rearOmega, p));
     // Nitro: a harder push, a little past the limiter (on the throttle only).

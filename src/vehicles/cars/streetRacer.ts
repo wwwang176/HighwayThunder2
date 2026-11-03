@@ -40,6 +40,7 @@ const SUPERCAR: CarSpec = {
     steerRise: 6,
     steerFall: 9,
     throttleRise: 20,
+    shiftTime: 0.08, // a dual-clutch: the drive hardly drops
     suspensionRest: 0.3,
     suspensionTravel: 0.2,
     springProgressFrom: 1, // linear springs

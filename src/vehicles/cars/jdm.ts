@@ -19,6 +19,7 @@ export const JDM_CAR: CarSpec = {
   // Tuned at 1200 kg; it drives at 1400, a real tuned sedan's weight, every force as much heavier (withMass): the same.
   params: withMass({
     ...SUPERCAR_TUNE,
+    shiftTime: 0.2, // a quick manual box: a short drop in drive each gear
     // training/cornering.train.ts against the supercar (muscle car): 0-100 4.04 s (4.20 / 4.01), 0-200 10.9 s
     // (9.4 / 8.5), top 245 km/h (300 / 259), full-lock grip 1.55 / 2.38 g at 100 / 200 km/h (1.37 / 2.09),
     // a lane in 0.67 s (0.71), lean 1.9-2.3 deg (3.1-3.7), power on in a turn 2 deg (3). No rollover, also

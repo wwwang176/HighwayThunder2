@@ -19,6 +19,7 @@ export const MUSCLE_CAR: CarSpec = {
   // Tuned at 1450 kg; it drives at 1800, a real muscle car's weight, every force as much heavier (withMass): the same.
   params: withMass({
     ...SUPERCAR_TUNE,
+    shiftTime: 0.35, // an old automatic: a slow, lazy shift, the drive gone a moment each gear
     // training/cornering.train.ts (launch, powerOn, cornering, turnIn, maneuvers) against the supercar:
     // 0-100 4.0 s (4.2), 0-200 8.4 s (9.4), top 259 km/h (300), nose up ~2 deg at launch (0.7),
     // full-lock grip 1.06 / 1.4 g at 100 / 200 km/h (1.4 / 2.1), lean changing lanes 4.3-6 deg (3-4),
@@ -64,7 +65,7 @@ export const MUSCLE_CAR: CarSpec = {
     accel: [
       [0, 7],
       [50, 7],
-      [100, 8.1],
+      [100, 9.1], // (the 1-2 shift's cut lets the spinning rears hook up: was 8.1)
       [150, 6.3],
       [200, 4.3],
       [250, 2.7],

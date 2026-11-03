@@ -134,6 +134,24 @@ describe('Gearbox', () => {
     g.update((GEAR_TOP_KMH[0] / 3.6) * 0.95, 0.05);
     expect(g.gear).toBe(2);
   });
+  it('an upshift cuts the drive for shiftTime, then it comes back; a downshift does not', () => {
+    const q = { ...P, shiftTime: 0.2 };
+    const g = new Gearbox();
+    const omega = (GEAR_TOP_KMH[0] * 0.95) / 3.6 / q.wheelRadius;
+    g.update((GEAR_TOP_KMH[0] / 3.6) * 0.95, 0.01, q);
+    expect(g.gear).toBe(2);
+    expect(g.shifting).toBe(true);
+    expect(g.wheelTorque(1, omega, q)).toBe(0);
+    for (let t = 0; t < 0.19; t += 0.01) g.update((GEAR_TOP_KMH[0] / 3.6) * 0.95, 0.01, q);
+    expect(g.wheelTorque(1, omega, q)).toBe(0);
+    g.update((GEAR_TOP_KMH[0] / 3.6) * 0.95, 0.02, q);
+    expect(g.shifting).toBe(false);
+    expect(g.wheelTorque(1, omega, q)).toBeGreaterThan(0);
+    // Down a gear: no cut.
+    g.update(3, 1, q);
+    expect(g.gear).toBe(1);
+    expect(g.shifting).toBe(false);
+  });
   it('downshifts when slowing and never skips below 1 or above 6', () => {
     const g = new Gearbox();
     for (let i = 0; i < 20; i++) g.update(90, 0.5);

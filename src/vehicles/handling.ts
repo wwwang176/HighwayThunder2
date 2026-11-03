@@ -34,6 +34,7 @@ export interface CarParams {
   steerRise: number; // input ramp (1/s)
   steerFall: number; // input return to centre (1/s)
   throttleRise: number; // pedal travel speed (1/s)
+  shiftTime: number; // s the drive is cut for on an upshift (the gearbox's speed: a dual-clutch's a blink)
   // Suspension (per wheel)
   suspensionRest: number; // m
   suspensionTravel: number; // m
@@ -169,6 +170,13 @@ const TC_STALL_RPM = 3000;
 export class Gearbox {
   gear = 1;
   private cooldown = 0;
+  /** s of an upshift still to go: the drive is cut (CarParams.shiftTime). */
+  private cut = 0;
+
+  /** Mid-upshift: no drive. */
+  get shifting(): boolean {
+    return this.cut > 0;
+  }
 
   /** Overall ratio (engine revs per wheel rev) of a gear. */
   ratio(gear = this.gear, p: CarParams = DEFAULT_CAR): number {
@@ -188,6 +196,7 @@ export class Gearbox {
    * the rev limiter.
    */
   wheelTorque(throttle: number, wheelOmega: number, p: CarParams = DEFAULT_CAR): number {
+    if (this.cut > 0) return 0; // mid-upshift
     const rpm = this.engineRpm(wheelOmega, p);
     if (rpm >= p.redline) return 0;
     const omegaE = rpm * RPM_TO_RAD;
@@ -198,13 +207,16 @@ export class Gearbox {
     return engine * tc * this.ratio(this.gear, p) * p.driveEfficiency * throttle;
   }
 
-  update(roadSpeed: number, dt: number): void {
+  /** A step of `dt` s at `roadSpeed` (m/s): shifts on road speed; an upshift cuts the drive for p.shiftTime. */
+  update(roadSpeed: number, dt: number, p: CarParams = DEFAULT_CAR): void {
+    this.cut = Math.max(0, this.cut - dt);
     this.cooldown -= dt;
     if (this.cooldown > 0) return;
     const v = Math.abs(roadSpeed) * 3.6;
     if (this.gear < GEAR_TOP_KMH.length && v > GEAR_TOP_KMH[this.gear - 1] * SHIFT_UP) {
       this.gear++;
-      this.cooldown = SHIFT_TIME;
+      this.cut = p.shiftTime;
+      this.cooldown = Math.max(SHIFT_TIME, p.shiftTime);
     } else if (this.gear > 1 && v < GEAR_TOP_KMH[this.gear - 2] * SHIFT_DOWN) {
       this.gear--;
       this.cooldown = SHIFT_TIME;
@@ -219,6 +231,7 @@ export class Gearbox {
   reset(): void {
     this.gear = 1;
     this.cooldown = 0;
+    this.cut = 0;
   }
 }
 
