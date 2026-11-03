@@ -1,6 +1,6 @@
 /**
  * Nitro: a tank (0 empty .. 1 full) that fills on its own and with each near miss, burnt while it is used
- * (the player's: Shift held) to double the engine's push. It doesn't fill while in use, nor while asked for on
+ * (the player's: Shift held) to push harder (NITRO.force). It doesn't fill while in use, nor while asked for on
  * empty.
  */
 export const NITRO = {
@@ -11,7 +11,7 @@ export const NITRO = {
   /** What a near miss adds. */
   nearMiss: 0.25,
   /** The engine's push, times. */
-  force: 2,
+  force: 1.5,
   /** The car's top speed (its limiter), times, while it burns (the top gear's still the end of it). */
   topSpeed: 1.08,
   /** The AI's: each burst, seconds; seconds between them; the throttle it fires on. */

@@ -284,7 +284,7 @@ export class PlayerCar {
     this.gearbox.update(this.vLong, dt);
     // Displayed / audible rpm bounces off the limiter but never far past it.
     this.rpm = Math.min(p.redline * 1.03, this.gearbox.engineRpm(rearOmega, p));
-    // Nitro: twice the push, a little past the limiter (on the throttle only).
+    // Nitro: a harder push, a little past the limiter (on the throttle only).
     const boost = this.nitro.update(dt, !!input.nitro && input.throttle > 0);
     const limit = boost ? { ...p, maxSpeed: p.maxSpeed * NITRO.topSpeed } : p;
     const cmd = driveCommand({ ...input, throttle: this.throttle }, this.vLong, limit, this.driveMode);
