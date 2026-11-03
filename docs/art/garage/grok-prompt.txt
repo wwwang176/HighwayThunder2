@@ -1,0 +1,12 @@
+Use only the image_gen tool to make the two images below, then copy each into the current folder with exactly the file name given (keep the format the tool produces; if it is not .png, use that extension instead). Check each image against its description before copying it; if it doesn't match, make it again. Do nothing else: no other tools, no other files.
+
+Subject (both images): the FAR background of a night-time scene for a street-racing video game's garage screen, seen from a highway lay-by on a hill above a city - only what is far away: no road, no parking lines, no street lamp, no guardrail, no cars, no people, nothing in the foreground at all.
+- the sky: deep night blue, a little lighter toward the horizon, a faint band of purple-pink cloud lit by the city, no stars or very few, no moon;
+- the city: a wide low skyline of distant buildings across the whole width, a small cluster of taller towers left of centre with blue and white lights, thousands of warm and white lights, everything strongly out of focus: soft round bokeh discs, like a photo with a fast lens focused on something close;
+- light trails: one or two thin long-exposure lines of red tail lights curving across the middle distance, below the skyline;
+- below the city: a dark, almost black, blurred flat plain filling the lowest part of the image (it will be covered by our own 3D ground).
+- the horizon (the city's base) at about 60 percent of the way down the image; sky above it, the dark plain below.
+Style: cinematic night photograph, shallow depth of field, cool blue and warm orange-amber palette, soft, moody, slightly misty; photographic, not illustrated. No text, logos, signs with letters, or recognisable real buildings or landmarks.
+
+1. garage-sky - 16:9, the whole scene as described.
+2. garage-sky-wide - the same scene wider: 21:9 or the widest the tool allows, the skyline continuing to both sides.

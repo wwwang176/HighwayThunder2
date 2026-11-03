@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import {
   addRival,
   allRandom,
@@ -12,8 +11,7 @@ import {
 } from '../game/carSelection';
 import { DIFFICULTIES } from '../game/difficulty';
 import { CARS } from '../vehicles/cars';
-import { buildCar } from '../vehicles/models';
-import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
+import { GarageScene } from './garageScene';
 import { installTooltips } from './tooltip';
 
 const html = String.raw;
@@ -39,7 +37,7 @@ const KEYS: [string, string][] = [
 ];
 
 /**
- * The garage: the car to race in (a turning 3D model under a street lamp),
+ * The garage: the car to race in (parked on a wet lay-by at night, drawn live: garageScene.ts),
  * its measured stats, the race at a glance (rivals by car type, difficulty,
  * weather) with a pop-up to change it, and the start. No explanatory text:
  * icons, with their meaning on hover / focus (data-tip).
@@ -47,7 +45,7 @@ const KEYS: [string, string][] = [
 export class Garage {
   private readonly el: HTMLElement;
   private sel!: CarSelection;
-  private readonly preview: Preview;
+  private readonly preview: GarageScene;
   private readonly backdrop: HTMLElement;
 
   constructor(
@@ -59,7 +57,6 @@ export class Garage {
     this.el.id = 'garage';
     this.el.style.display = 'none';
     this.el.innerHTML = html`
-      <div class="g-bg" style="background-image:url(${UI}garage-bg.jpg)"></div>
       <canvas class="g-car"></canvas>
       <div class="g-vignette"></div>
       <div class="g-brand">${icon('emblem')}<div class="g-name">HIGHWAY THUNDER 2</div></div>
@@ -100,7 +97,7 @@ export class Garage {
       rows[i].tabIndex = 0;
     });
     installTooltips(this.el);
-    this.preview = new Preview(this.el.querySelector('.g-car')!);
+    this.preview = new GarageScene(this.el.querySelector('.g-car')!);
     this.q('.g-go').onclick = () => this.start();
     this.q('.g-race').onclick = () => this.openPop('race');
     this.q('.g-keys').onclick = () => this.openPop('keys');
@@ -225,80 +222,5 @@ export class Garage {
     this.q('[data-seg="weather"]').innerHTML = WEATHERS.map(
       ([k, ic, name]) => `<button class="${k === s.weather ? 'sel' : ''}" ${k === 'clear' ? '' : 'aria-disabled="true" data-tip="即將推出"'}>${icon(ic)}${name}</button>`,
     ).join('');
-  }
-}
-
-/** The picked car, turning slowly under the lamp: the game's own model in its own small renderer (only while the garage is open). */
-class Preview {
-  private readonly renderer: THREE.WebGLRenderer;
-  private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(22, 1, 0.1, 100);
-  private readonly shadow: THREE.Mesh;
-  private car: THREE.Object3D | null = null;
-  private running = false;
-  private angle = 2.3; // nose (-z) toward the camera, three-quarter
-
-  constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.camera.position.set(0, 1.6, 17.5);
-    this.camera.lookAt(0, 0.55, 0);
-    this.scene.add(new THREE.HemisphereLight(0x6f86c8, 0x1a1208, 0.6));
-    const lamp = new THREE.SpotLight(0xffb36b, 120, 30, 0.7, 0.6, 1.6);
-    lamp.position.set(2.5, 7, 1);
-    this.scene.add(lamp, lamp.target);
-    const rim = new THREE.DirectionalLight(0x6fa8ff, 1.4);
-    rim.position.set(-6, 3, -6);
-    this.scene.add(rim);
-    // A soft contact shadow under the car (a child of it: it turns with it).
-    const c = document.createElement('canvas');
-    c.width = c.height = 128;
-    const g = c.getContext('2d')!;
-    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grad.addColorStop(0, 'rgba(0,0,0,0.85)');
-    grad.addColorStop(0.55, 'rgba(0,0,0,0.5)');
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 128, 128);
-    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 5.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
-    this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.position.y = -PLAYER_H / 2 + 0.01;
-    addEventListener('resize', () => this.resize());
-  }
-
-  show(id: string): void {
-    if (this.car) this.scene.remove(this.car);
-    const spec = CARS[id];
-    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, false).root;
-    this.car.position.y = PLAYER_H / 2; // on the floor
-    this.car.add(this.shadow);
-    this.scene.add(this.car);
-    this.resize();
-    if (!this.running) {
-      this.running = true;
-      let last = performance.now();
-      const loop = (now: number) => {
-        if (!this.running) return;
-        this.angle += ((now - last) / 1000) * 0.25;
-        last = now;
-        this.car!.rotation.y = this.angle;
-        this.renderer.render(this.scene, this.camera);
-        requestAnimationFrame(loop);
-      };
-      requestAnimationFrame(loop);
-    }
-  }
-
-  stop(): void {
-    this.running = false;
-  }
-
-  private resize(): void {
-    this.renderer.setSize(innerWidth, innerHeight, false);
-    this.camera.aspect = innerWidth / innerHeight;
-    this.camera.updateProjectionMatrix();
-    // The car sits low in the middle, on the empty parking spot of the backdrop.
-    this.camera.setViewOffset(innerWidth, innerHeight, 0, -innerHeight * 0.12, innerWidth, innerHeight);
   }
 }
