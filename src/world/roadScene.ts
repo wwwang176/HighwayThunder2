@@ -105,12 +105,97 @@ const TEXTURES = `${import.meta.env.BASE_URL}textures/`;
 /** The asphalt's picture (cracked, worn): over the road's markings, tiled every ASPHALT.tile m along the world. */
 const ASPHALT = { file: 'road-small.jpg', tile: 5, strength: 0.85, mean: 0.168 };
 /** The grass's picture, tiled every GRASS.tile m (dividing the strip's period, so it doesn't jump), darkened. */
-const GRASS = { file: 'grass-small.jpg', tile: 2.5, tint: 0x6f7f62 };
+const GRASS = {
+  file: 'grass-small.jpg',
+  tile: 2.5,
+  tint: 0x6f7f62,
+  /** Its relief's steepness (normalsFrom), and the sizes (m) of its lighter and darker patches (withPatches). */
+  relief: 1.2,
+  patches: [17.3, 5.9] as const,
+};
 
 function grassTexture(): THREE.Texture {
   const t = repeating(GRASS.file);
   t.repeat.set(2000 / GRASS.tile, STRIP_LEN / GRASS.tile);
   return t;
+}
+
+/**
+ * A normal map from a tiling picture's brightness (the bright blades standing out of the dark between them):
+ * its slopes (Sobel, wrapping round, so it tiles too) times `strength`. Flat till the picture is in.
+ */
+function normalsFrom(file: string, strength: number, repeat: THREE.Vector2): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 1;
+  const g = c.getContext('2d', { willReadFrequently: true })!;
+  g.fillStyle = 'rgb(128,128,255)';
+  g.fillRect(0, 0, 1, 1);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.copy(repeat);
+  tex.colorSpace = THREE.NoColorSpace;
+  const img = new Image();
+  img.onload = () => {
+    const w = (c.width = img.width);
+    const h = (c.height = img.height);
+    g.drawImage(img, 0, 0);
+    const src = g.getImageData(0, 0, w, h).data;
+    const lum = (x: number, y: number) => {
+      const i = (((y + h) % h) * w + ((x + w) % w)) * 4;
+      return (0.3 * src[i] + 0.59 * src[i + 1] + 0.11 * src[i + 2]) / 255;
+    };
+    const out = g.createImageData(w, h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const dx = lum(x + 1, y - 1) + 2 * lum(x + 1, y) + lum(x + 1, y + 1) - lum(x - 1, y - 1) - 2 * lum(x - 1, y) - lum(x - 1, y + 1);
+        const dy = lum(x - 1, y + 1) + 2 * lum(x, y + 1) + lum(x + 1, y + 1) - lum(x - 1, y - 1) - 2 * lum(x, y - 1) - lum(x + 1, y - 1);
+        const nx = -dx * strength;
+        const ny = dy * strength; // (the picture's rows run down, the normal map's green up)
+        const k = 1 / Math.hypot(nx, ny, 1);
+        const i = (y * w + x) * 4;
+        out.data[i] = Math.round((nx * k * 0.5 + 0.5) * 255);
+        out.data[i + 1] = Math.round((ny * k * 0.5 + 0.5) * 255);
+        out.data[i + 2] = Math.round((k * 0.5 + 0.5) * 255);
+        out.data[i + 3] = 255;
+      }
+    }
+    g.putImageData(out, 0, 0);
+    tex.needsUpdate = true;
+  };
+  img.src = TEXTURES + file;
+  return tex;
+}
+
+/**
+ * The grass's material, its tiling broken up: patches of it lighter and yellower or darker and greener, some
+ * metres across (value noise by world position, two sizes that the tile doesn't divide), so its repeat every
+ * GRASS.tile m doesn't show as a grid under the lamps.
+ */
+function withPatches(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vGrass;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvGrass = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vGrass;
+float grassHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float grassNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(grassHash(i), grassHash(i + vec2(1.0, 0.0)), u.x), mix(grassHash(i + vec2(0.0, 1.0)), grassHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+float patchy = 0.6 * grassNoise(vGrass / ${GRASS.patches[0].toFixed(1)}) + 0.4 * grassNoise(vGrass / ${GRASS.patches[1].toFixed(1)} + 17.3);
+diffuseColor.rgb *= mix(vec3(0.62, 0.72, 0.62), vec3(1.2, 1.15, 0.9), patchy);`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'grass-patches';
+  return mat;
 }
 
 function repeating(file: string): THREE.Texture {
@@ -218,7 +303,14 @@ export class RoadScene {
 
     const grass = new THREE.Mesh(
       new THREE.PlaneGeometry(2000, STRIP_LEN).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ map: grassTexture(), color: GRASS.tint, roughness: 1 }),
+      withPatches(
+        new THREE.MeshStandardMaterial({
+          map: grassTexture(),
+          normalMap: normalsFrom(GRASS.file, GRASS.relief, new THREE.Vector2(2000 / GRASS.tile, STRIP_LEN / GRASS.tile)),
+          color: GRASS.tint,
+          roughness: 1,
+        }),
+      ),
     );
     grass.position.set(0, -0.02, midZ);
     grass.receiveShadow = true;
