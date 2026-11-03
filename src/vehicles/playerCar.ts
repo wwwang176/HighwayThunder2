@@ -381,7 +381,7 @@ export class PlayerCar {
   /** Its exhaust's flames this frame (`dt` s; 0 paused): a backfire lifting off at high revs, blue on nitro. */
   exhaust(dt: number): void {
     const pops = this.backfire.update(dt, this.throttle, this.rpm / this.params.redline);
-    this.flames?.update(pops, this.nitro.active);
+    this.flames?.update(dt, pops, this.nitro.active);
   }
 
   resetTo(s: number, lane: number, speed: number): void {

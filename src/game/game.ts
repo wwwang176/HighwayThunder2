@@ -375,7 +375,11 @@ export class Game {
       }
       if (steps === MAX_SUBSTEPS) this.accumulator = 0;
     }
-    this.render(dt, this.accumulator / PHYSICS_DT);
+    // The race's time this frame: 0 while paused. Everything that moves with the race (effects, the camera, the
+    // HUD's pop-ups) runs on it, so a pause stills the whole picture; only the menus run on real time.
+    const play = this.flow.phase === 'paused' ? 0 : dt;
+    document.body.classList.toggle('game-paused', this.flow.phase === 'paused'); // (the HUD's CSS animations too)
+    this.render(play, this.accumulator / PHYSICS_DT);
   }
 
   /** Debug: advance the simulation synchronously (independent of rAF throttling). */
@@ -597,7 +601,8 @@ export class Game {
     }
   }
 
-  private render(dt: number, alpha: number): void {
+  /** `play`: the race's time this frame (0 paused: frame()), what everything here moves by. */
+  private render(play: number, alpha: number): void {
     this.flares.begin();
     this.npcBeams.begin();
     this.player.render(alpha, this.flares);
@@ -617,11 +622,10 @@ export class Game {
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
     // After the road has placed this frame's street lights.
-    this.sparks.update(this.flow.phase === 'paused' ? 0 : dt, this.player.body.linvel());
-    const fxDt = this.flow.phase === 'paused' ? 0 : dt;
-    this.player.exhaust(fxDt);
-    for (const r of this.rivals.list) r.car.exhaust(fxDt);
-    this.smoke.update(this.flow.phase === 'paused' ? 0 : dt, [
+    this.sparks.update(play, this.player.body.linvel());
+    this.player.exhaust(play);
+    for (const r of this.rivals.list) r.car.exhaust(play);
+    this.smoke.update(play, [
       ...this.road.activeLights().map(smokeLightFromSpot),
       ...this.player.smokeLights(),
       ...this.npcBeams.smokeLights(),
@@ -632,10 +636,10 @@ export class Game {
     this.lastGear = gear;
     this.grassRumble();
     // Paused, the camera holds still too (its shakes stop where they are, and go on after).
-    this.rig.update(this.flow.phase === 'paused' ? 0 : dt, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
+    this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     this.sound.setEngine(this.player.rpm, this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
-    this.hud.update(dt, {
+    this.hud.update(play, {
       speedKmh: Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6,
       reverse: this.player.driveMode === 'R',
       playerS: this.player.s,

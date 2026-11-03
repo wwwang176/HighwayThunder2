@@ -69,16 +69,16 @@ export class ExhaustFlames {
     return g;
   }
 
-  /** This frame: whether it backfires, whether its nitro burns. */
-  update(backfire: boolean, nitro: boolean): void {
-    this.show(this.backfire, backfire && !nitro);
-    this.show(this.nitro, nitro);
+  /** This frame (`dt` s of the race's time; 0 paused: they hold still): whether it backfires, whether its nitro burns. */
+  update(dt: number, backfire: boolean, nitro: boolean): void {
+    this.show(this.backfire, backfire && !nitro, dt > 0);
+    this.show(this.nitro, nitro, dt > 0);
   }
 
-  private show(groups: THREE.Group[], on: boolean): void {
+  private show(groups: THREE.Group[], on: boolean, flicker: boolean): void {
     for (const g of groups) {
       g.visible = on;
-      if (!on) continue;
+      if (!on || !flicker) continue;
       for (const o of g.children) {
         const s = o as THREE.Sprite;
         const r = s.scale.x;
