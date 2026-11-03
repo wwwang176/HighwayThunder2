@@ -390,28 +390,47 @@ def face_class(px, f, uv):
 
 
 def split_glass(body, px):
-    """The windows (the texture's dark grey above the belt, or its black where the surface leans back like
-    the rear window: the roof's black is its stripes) to their own `glass` material; the rest stays `paint`.
+    """The windows to their own `glass` material; the rest stays `paint`. A window: the texture's dark grey above
+    the belt (or its black where the surface leans back like the rear window: the roof's black is its stripes),
+    as one piece facing one way: grown from its biggest face over the faces turned less than 12 degrees from
+    it (not the roof's, the hood's, the deck's, where the stripes' edges read dark grey).
     Returns the faces stripes may cross (up-facing tops: hood, roof, deck, ducktail) as UV triangles."""
     body.data.materials[0].name = "paint"
     body.data.materials.append(material("glass", srgb(0x161A20), 0.15, 0.3))
     bm = bmesh.new()
     bm.from_mesh(body.data)
     uv = bm.loops.layers.uv.active
-    tops = []
-    glass = 0
+    cand = set()
     for f in bm.faces:
         k = face_class(px, f, uv)
+        if f.calc_center_median().z > 0.8 and (k == "grey" or (k == "dark" and f.normal.y < -0.3)):
+            cand.add(f)
+    glass = set()
+    left = set(cand)
+    while left:  # each window: grown edge to edge from the biggest candidate left, over faces facing its way
+        seed = max(left, key=lambda g: g.calc_area())
+        piece, stack = {seed}, [seed]
+        while stack:
+            a = stack.pop()
+            for e in a.edges:
+                for b in e.link_faces:
+                    if b in left and b not in piece and b.normal.angle(seed.normal, 0) < math.radians(12):
+                        piece.add(b)
+                        stack.append(b)
+        left -= piece
+        if sum(g.calc_area() for g in piece) > 0.02:
+            glass |= piece
+    tops = []
+    for f in bm.faces:
         c = f.calc_center_median()
-        if c.z > 0.8 and (k == "grey" or (k == "dark" and f.normal.y < -0.3)):
+        if f in glass:
             f.material_index = 1
-            glass += 1
         elif f.normal.z > 0.5 and c.z > 0.7:
             uvs = [l[uv].uv.copy() for l in f.loops]
             tops += [(uvs[0], uvs[i], uvs[i + 1]) for i in range(1, len(uvs) - 1)]
     bm.to_mesh(body.data)
     bm.free()
-    print(f"[muscle_car] glass faces: {glass}")
+    print(f"[muscle_car] glass faces: {len(glass)} (of {len(cand)} dark ones up top)")
     return tops
 
 
