@@ -84,7 +84,7 @@ def container(bm):
     for s in (-1, 1):
         corrugated(bm, "y", y0 + p, y1 - p, s * (x - 0.01), z0 + p, z1 - p, s, PAINT)
     corrugated(bm, "x", -x + p, x - p, y1 - 0.01, z0 + p, z1 - p, 1, PAINT)
-    box(bm, -x + p, x - p, y0, y0 + 0.02, z0 + p, z1 - p, PAINT)  # the doors
+    corrugated(bm, "x", -x + p, x - p, y0 + 0.01, z0 + p, z1 - p, -1, PAINT)  # the doors
     box(bm, -x + p, x - p, y0 + 0.02, y1 - 0.02, z1 - 0.03, z1, PAINT)  # the roof
     box(bm, -x, x, y0, y1, z0, z0 + p, PAINT)  # the bottom rails and floor
     box(bm, -x, x, y0, y1, z1 - p, z1 - 0.02, PAINT)  # the top rails
