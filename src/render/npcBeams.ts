@@ -53,9 +53,13 @@ export class NpcBeams {
   private used: Candidate[] = [];
   private n = 0;
 
-  /** Make a ground material receive NPC low beams. */
+  /** Make a ground material receive NPC low beams (on top of any shader changes of its own). */
   patch(mat: THREE.MeshStandardMaterial): void {
-    mat.onBeforeCompile = (shader) => {
+    const own = mat.onBeforeCompile.bind(mat);
+    const ownKey = mat.customProgramCacheKey.bind(mat)();
+    mat.customProgramCacheKey = () => `${ownKey}|npcBeams`;
+    mat.onBeforeCompile = (shader, renderer) => {
+      own(shader, renderer);
       Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vBeamWorld;')

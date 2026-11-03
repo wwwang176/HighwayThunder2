@@ -79,13 +79,7 @@ function roadTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   g.fillStyle = '#55565a';
   g.fillRect(0, 0, xOf(-ROAD_HALF_WIDTH), H);
   g.fillRect(xOf(ROAD_HALF_WIDTH), 0, W - xOf(ROAD_HALF_WIDTH), H);
-  // Speckle.
-  const rnd = seeded(7);
-  for (let i = 0; i < 9000; i++) {
-    const v = 50 + Math.floor(rnd() * 60);
-    g.fillStyle = `rgba(${v},${v},${v + 4},0.5)`;
-    g.fillRect(rnd() * W, rnd() * H, 1.5, 1.5);
-  }
+  // (The asphalt's grain and cracks: its picture over it all, withAsphalt.)
   // Edge lines (yellow on the inner/left edge, white on the right).
   const lw = 0.2 * pxPerM;
   g.fillStyle = '#e8c531';
@@ -107,23 +101,52 @@ function roadTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   return tex;
 }
 
-function grassTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#5f8a3a';
-  g.fillRect(0, 0, 256, 256);
-  const rnd = seeded(3);
-  for (let i = 0; i < 4000; i++) {
-    const v = rnd();
-    g.fillStyle = v < 0.5 ? 'rgba(80,120,45,0.6)' : 'rgba(120,150,70,0.5)';
-    g.fillRect(rnd() * 256, rnd() * 256, 2, 2);
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(2000 / 20, STRIP_LEN / 20);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+const TEXTURES = `${import.meta.env.BASE_URL}textures/`;
+/** The asphalt's picture (cracked, worn): over the road's markings, tiled every ASPHALT.tile m along the world. */
+const ASPHALT = { file: 'road-small.jpg', tile: 5, strength: 0.85 };
+/** The grass's picture, tiled every GRASS.tile m (dividing the strip's period, so it doesn't jump), darkened. */
+const GRASS = { file: 'grass-small.jpg', tile: 2.5, tint: 0x6f7f62 };
+
+function grassTexture(): THREE.Texture {
+  const t = repeating(GRASS.file);
+  t.repeat.set(2000 / GRASS.tile, STRIP_LEN / GRASS.tile);
+  return t;
+}
+
+function repeating(file: string): THREE.Texture {
+  const t = new THREE.TextureLoader().load(TEXTURES + file);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/**
+ * The road's material with the asphalt's picture laid over its markings (the paint worn and cracked with it),
+ * tiled by world position: the markings' texture stays small, the asphalt sharp. Its average brightness 1
+ * (ASPHALT.strength of its contrast), so the markings' colours keep their brightness.
+ */
+function withAsphalt(mat: THREE.MeshStandardMaterial, renderer: THREE.WebGLRenderer): THREE.MeshStandardMaterial {
+  const detail = repeating(ASPHALT.file);
+  detail.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  // The picture's mean (linear), for the brightness 1: sRGB 112 of 255.
+  const mean = new THREE.Color().setRGB(112 / 255, 112 / 255, 112 / 255, THREE.SRGBColorSpace).r;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.asphalt = { value: detail };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vAsphalt;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>\nvAsphalt = (modelMatrix * vec4(transformed, 1.0)).xz / ${ASPHALT.tile.toFixed(1)};`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vAsphalt;\nuniform sampler2D asphalt;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>\ndiffuseColor.rgb *= mix(vec3(1.0), texture2D(asphalt, vAsphalt).rgb / ${mean.toFixed(4)}, ${ASPHALT.strength.toFixed(2)});`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'road-asphalt';
+  return mat;
 }
 
 export class RoadScene {
@@ -174,7 +197,7 @@ export class RoadScene {
 
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(2 * RAIL_D, STRIP_LEN).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ map: roadTexture(renderer), roughness: 0.92 }),
+      withAsphalt(new THREE.MeshStandardMaterial({ map: roadTexture(renderer), roughness: 0.92 }), renderer),
     );
     road.position.set(0, 0.01, midZ);
     road.receiveShadow = true;
@@ -182,7 +205,7 @@ export class RoadScene {
 
     // Oncoming carriageway: same surface mirrored, so its yellow edge line sits
     // next to the median like ours.
-    const roadMat2 = (road.material as THREE.MeshStandardMaterial).clone();
+    const roadMat2 = withAsphalt((road.material as THREE.MeshStandardMaterial).clone(), renderer); // (a clone leaves its shader changes behind)
     roadMat2.side = THREE.DoubleSide;
     const road2 = new THREE.Mesh(road.geometry, roadMat2);
     road2.scale.x = -1;
@@ -193,7 +216,7 @@ export class RoadScene {
 
     const grass = new THREE.Mesh(
       new THREE.PlaneGeometry(2000, STRIP_LEN).rotateX(-Math.PI / 2),
-      new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1 }),
+      new THREE.MeshStandardMaterial({ map: grassTexture(), color: GRASS.tint, roughness: 1 }),
     );
     grass.position.set(0, -0.02, midZ);
     grass.receiveShadow = true;
