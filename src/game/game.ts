@@ -423,6 +423,13 @@ export class Game {
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
         return this.player.speed > 1 ? ROLL_OUT : HOLD; // brake to a stop, never into reverse
+      case 'countdown': {
+        // On the grid the brake is held for the player, whatever else they press: with the throttle that is a
+        // burnout (revving on the line, smoke), let go of at the green. Off the throttle the handbrake (a brake
+        // alone at a standstill selects reverse). The nitro stays full for the start.
+        const keys = this.inputOverride ?? this.keyboard.driving();
+        return keys.throttle > 0 ? { ...keys, brake: 1, nitro: false } : { ...keys, brake: 0, handbrake: true, nitro: false };
+      }
       default:
         return HOLD;
     }
