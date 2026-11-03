@@ -14,7 +14,8 @@ The body comes from tools/models/src/<car>-tripo.glb: Tripo3D's multiview-to-mod
   - splits the windows off as `glass`,
   - repaints its texture once per livery (`Car.liveries`: paint, stripes), flat colours,
   - adds the lamps as separate objects over the texture's lamps (`Car.lamps`; the game switches them),
-  - measures its collision shape,
+  - shows its collision shape over it in the preview (kept by hand in src/vehicles/cars/<car>Collider.ts;
+    a new car gets a box round its body to start from),
   - puts its wheel together: its tyre size on its rim model (wheels.py).
 
 Builds in Blender space (X right, Y forward = nose, Z up), then moves the body down so the origin
@@ -36,6 +37,7 @@ import colorsys
 import json
 import math
 import os
+import re
 import sys
 
 import bmesh
@@ -65,11 +67,17 @@ class Car:
     caliper     its brake calipers' colour (0xRRGGBB; None: none, or the rim has no brake disc to show them)
     liveries    (name, paint, stripes or None) per paint job, the first the car's own
     glass_above z (working frame) above which its texture's glass grey is window
+    glass_v     (lo, hi) brightness of its texture's glass grey (a car whose windows came near black: as dark
+                as its black trim, told apart by where they are, `glass_y`)
+    glass_y     (lo, hi) y (working frame) between which windows are (None: anywhere along it)
+    roof_flat   how flat (normal's z) a face above `roof_above` is to be roof, not window
+    frames_above z above which the faces round the side windows (not glass, facing sideways, within `glass_y`)
+                are the roof's colour too: the window frames and pillars (None: as the texture has them)
     tops_above  z above which up-facing faces are the tops its stripes may cross
     roof_above  z above which it is all roof, the stripes' colour through and through, whatever paint the
                 texture smudged onto it, and its up-facing faces never window, whatever grey the texture gave
                 them (None: no such roof)
-    collider   the generated collider's TS export name (src/vehicles/cars/<collider_file>.ts)
+    collider    its collision shape's TS export name, in src/vehicles/cars/<collider_file>.ts (kept by hand)
     lamps       lamps(body, px, surface) -> lamp objects (head_L/R, tail_L/R, ind_FL/FR/RL/RR)
     mend        mend(body, px): the car's own fixes to its generated body (or None)
     paint_hue   (lo, hi) hue range of its paint on the texture (lo > hi: it wraps past 1, a red)
@@ -79,11 +87,12 @@ class Car:
 
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
-                 roof_above=None, caliper=None):
+                 roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
         self.lamps, self.mend, self.glass_above, self.tops_above = lamps, mend, glass_above, tops_above
+        self.glass_v, self.glass_y, self.roof_flat, self.frames_above = glass_v, glass_y, roof_flat, frames_above
         self.roof_above = roof_above
         self.paint_hue, self.tail = paint_hue, tail
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
@@ -345,9 +354,10 @@ def split_glass(body, px):
     cand = set()
     for f in bm.faces:
         _, s, v = colorsys.rgb_to_hsv(*face_colour(px, f, uv))
-        z = f.calc_center_median().z
-        roof = CAR.roof_above is not None and z > CAR.roof_above and f.normal.z > 0.95
-        if z > CAR.glass_above and 0.13 < v < 0.25 and s < 0.15 and not roof:
+        c = f.calc_center_median()
+        roof = CAR.roof_above is not None and c.z > CAR.roof_above and f.normal.z > CAR.roof_flat
+        along = CAR.glass_y is None or CAR.glass_y[0] <= c.y <= CAR.glass_y[1]
+        if c.z > CAR.glass_above and CAR.glass_v[0] < v < CAR.glass_v[1] and s < 0.15 and along and not roof:
             cand.add(f)
     glass = set()
     left = set(cand)
@@ -376,6 +386,9 @@ def split_glass(body, px):
             tops += tris
         if CAR.roof_above is not None and c.z > CAR.roof_above:
             roof += tris
+        elif (CAR.frames_above is not None and c.z > CAR.frames_above and abs(f.normal.x) > 0.5
+              and (CAR.glass_y is None or CAR.glass_y[0] <= c.y <= CAR.glass_y[1])):
+            roof += tris  # the window frames and pillars, as the roof
     bm.to_mesh(body.data)
     bm.free()
     print(f"[{CAR.log}] glass faces: {len(glass)} (of {len(cand)} glass-grey ones up top)")
@@ -438,47 +451,36 @@ def flat_windows(body):
     me.normals_split_custom_set(normals)
 
 
-def collider_pieces(body):
-    """The car's collision shape, two convex pieces (lists of points, Blender space), measured off the body:
-    - the body: from the underside up to the hood, full width, nose to tail; its top rising to the deck's
-      height at the tail when the deck stands higher than the hood (a trapezoid from the side);
-    - the cabin: from the windscreen's foot up its slope, over the roof, down the rear window to its foot
-      (a trapezoid from the side), narrowing from the windows' width to the roof's."""
-    me = body.data
-    glass = me.materials.find("glass")
-    vs = [v.co for v in me.vertices]
-
-    def pane(facing):
-        return [me.vertices[i].co for p in me.polygons if p.material_index == glass and facing(p.normal) for i in p.vertices]
-
-    front, rear, side = pane(lambda n: n.y > 0.3), pane(lambda n: n.y < -0.3), pane(lambda n: abs(n.x) > 0.5)
-    nose, tail = max(v.y for v in vs), min(v.y for v in vs)
-    under = min(v.z for v in vs)
-    half = max(abs(v.x) for v in vs)
-    screen_foot = max(front, key=lambda v: v.y)
-    window_foot = min(rear, key=lambda v: v.y)
-    hood = max(v.z for v in vs if v.y > screen_foot.y)
-    deck = max(v.z for v in vs if v.y < window_foot.y)
-    lower = [(s * half, y, z) for s in (-1, 1) for y, z in ((nose, under), (nose, hood), (tail, under), (tail, max(deck, hood)))]
-    roof = max(v.z for v in vs)
-    roof_half = max(abs(v.x) for v in vs if v.z > roof - 0.05)
-    sill_half = max(abs(v.x) for v in side)
-    screen_top, window_top = min(front, key=lambda v: v.y).y, max(rear, key=lambda v: v.y).y
-    cabin = [(s * w, y, z) for s in (-1, 1) for w, y, z in (
-        (sill_half, screen_foot.y, screen_foot.z), (roof_half, screen_top, roof),
-        (roof_half, window_top, roof), (sill_half, window_foot.y, window_foot.z))]
-    print(f"[{CAR.log}] collider: body {under + GROUND:.2f}..{hood + GROUND:.2f}/{max(deck, hood) + GROUND:.2f} m up, "
-          f"cabin to {roof + GROUND:.2f} m, {2 * sill_half:.2f} wide at the sills, {2 * roof_half:.2f} at the roof")
-    return [lower, cabin]
+def read_collider(path):
+    """The car's collision shape, kept by hand in the game's src/vehicles/cars/<car>Collider.ts (convex pieces of
+    points, three.js body space: x, y up, z = -nose), as pieces of points in Blender space - to see it over the
+    car in the preview. (Kept by hand, not measured: the model hardly changes, and each point is tuned.)"""
+    pieces, piece = [], None
+    for line in open(path, encoding="utf-8"):
+        code = line.split("//")[0].strip()
+        if code.startswith("[") and not code.startswith("[]"):
+            piece = []
+        nums = [float(n) for n in re.findall(r"-?\d+\.\d+", code)]
+        if piece is not None:
+            piece += nums
+        if code.startswith("]") and piece is not None:
+            pieces.append([(piece[i], -piece[i + 2], piece[i + 1]) for i in range(0, len(piece), 3)])
+            piece = None
+    assert pieces, f"{path}: no collision shape in it"
+    return pieces
 
 
-def write_collider(pieces, path):
-    """The pieces for the game (src/vehicles/cars/<car>Collider.ts): three.js body space, x, y up, z = -nose."""
-    rows = [", ".join(f"{x:.3f}, {z:.3f}, {-y:.3f}" for x, y, z in piece) for piece in pieces]
+def starter_collider(body, path):
+    """A new car's first collision shape: one box round its body, for the hand to shape from."""
+    vs = [v.co for v in body.data.vertices]
+    lo = Vector([min(v[i] for v in vs) for i in range(3)])
+    hi = Vector([max(v[i] for v in vs) for i in range(3)])
+    rows = "".join(f"    {x:.3f}, {z:.3f}, {-y:.3f},\n" for x in (lo.x, hi.x) for y in (lo.y, hi.y) for z in (lo.z, hi.z))
     with open(path, "w") as f:
-        f.write(f"// Generated by tools/models/{CAR.log}.py from the model: its collision shape, convex pieces (x, y, z\n"
-                "// in body space, m; the nose toward -z). Don't edit: re-run the script.\n"
-                f"export const {CAR.collider}: number[][] = [\n" + "".join(f"  [{r}],\n" for r in rows) + "];\n")
+        f.write(f"// {CAR.name}'s collision shape: convex pieces of points (x, y, z in body space, m: x right, y up - the\n"
+                "// ground 0.55 m below -, the nose toward -z). Kept by hand: a box round the body to start from.\n"
+                f"export const {CAR.collider}: number[][] = [\n  [\n{rows}  ],\n];\n")
+    print(f"[{CAR.log}] wrote a starting collision shape (a box) to {path}: shape it by hand")
 
 
 def raster(tris, h, w):
@@ -827,10 +829,11 @@ def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces)
         wire = ob.modifiers.new("w", "WIREFRAME")
         wire.thickness = 0.015
         hulls.append(ob)
-    for name in ("trueside", "front34", "rear34", "front"):
+    for name in ("trueside", "front34", "rear34", "front", "top"):
         cam.location = views[name]
         cam.rotation_euler = (target - views[name]).to_track_quat("-Z", "Y").to_euler()
         cam_data.type = "ORTHO" if name == "trueside" else "PERSP"
+        cam_data.lens = 35 if name == "top" else 50
         scene.render.filepath = os.path.join(out_dir, f"collider-{name}.png")
         bpy.ops.render.render(write_still=True)
     for o in hulls + shown + lights + [floor, cam]:
@@ -848,8 +851,8 @@ def run(car):
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     out = argv[argv.index("--out") + 1] if "--out" in argv else f"public/models/{car.name}.glb"
     prev = argv[argv.index("--preview") + 1] if "--preview" in argv else None
-    collider_out = (argv[argv.index("--collider") + 1] if "--collider" in argv else
-                    os.path.join(HERE, "..", "..", "src", "vehicles", "cars", f"{car.collider_file}.ts"))
+    collider_path = (argv[argv.index("--collider") + 1] if "--collider" in argv else
+                     os.path.join(HERE, "..", "..", "src", "vehicles", "cars", f"{car.collider_file}.ts"))
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     make_materials()
@@ -893,8 +896,9 @@ def run(car):
           + f" (the generated tyres' radius {max(t[2] for t in car.tyres) * g:.3f})")
     for k, v in spots.items():  # where the wheels go (along the nose: + toward it), for the game (extras)
         wheel[k] = round(v, 4)
-    pieces = collider_pieces(body)
-    write_collider(pieces, collider_out)
+    if not os.path.exists(collider_path):
+        starter_collider(body, collider_path)
+    pieces = read_collider(collider_path)
 
     tri = lambda o: sum(len(p.vertices) - 2 for p in o.data.polygons)  # noqa: E731
     print(f"[{CAR.log}] triangles: body {tri(body)}, lamps {sum(tri(o) for o in lamps)}, wheel {tri(wheel)}"

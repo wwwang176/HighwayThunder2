@@ -160,3 +160,15 @@ for o in (spoke(5, [(0.065, HW - 0.072, 0.080), (0.16, HW - 0.052, 0.066), (0.24
           cylinder("brake", HW - 0.165, HW - 0.140, 0.190, M["brake"], 20)):
     faced(o)
 save("bold-5")
+
+# bronze-10 (the JDM car): ten spokes deep in a bronze dish, the lip bronze too; the brake disc behind them.
+bpy.ops.wm.read_factory_settings(use_empty=True)
+M = {"lip": material("wheel_lip", 0x9A7442, 0.3, 0.7), "rim": material("wheel_rim", 0x2E2418, 0.7, 0.3),
+     "spoke": material("wheel_spoke", 0x8A6A3C, 0.35, 0.7), "hub": material("wheel_hub", 0x8A6A3C, 0.35, 0.7),
+     "lug": material("wheel_lug", 0x2A2A2C, 0.4, 0.6), "brake": material("wheel_brake", DISC, 0.3, 0.6)}
+slice_(10, LIP_AND_BARREL, 2, [M["lip"], M["rim"]])
+for o in (spoke(10, [(0.068, HW - 0.085, 0.030), (0.16, HW - 0.060, 0.026), (0.246, HW - 0.016, 0.022)], 0.032, 0, M["spoke"]),
+          hub(0.078, HW - 0.120, HW - 0.075, 0.0085, M),
+          cylinder("brake", HW - 0.170, HW - 0.142, 0.190, M["brake"], 20)):
+    faced(o)
+save("bronze-10")
