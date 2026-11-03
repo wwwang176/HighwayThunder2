@@ -144,7 +144,8 @@ function addLights(
 export const CAR_COLORS = [0xe8e8e8, 0x2b2b2b, 0x8a8f96, 0x1d4e89, 0xb3261e, 0x2e6b3a, 0xd9c7a3, 0x5b5f97, 0xf0b429, 0x6c3b2a];
 export const CONTAINER_COLORS = [0x1f5fa8, 0xb8352a, 0x2f7d4a, 0xd88a1a, 0x6b6b6b, 0x8a2f6e, 0x0f8a8a];
 export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
-// The same colours' paint jobs in the traffic's files (tools/models/sedan.py, truck.py: the truck's cab), in their order.
+// The same colours' paint jobs in the traffic's files (tools/models/sedan.py, truck.py and cab.py: their cabs), in
+// their order. (The trailer's container, trailer.py, is painted the colour itself.)
 export const CAR_LIVERIES = ['white', 'black', 'silver', 'blue', 'red', 'green', 'beige', 'indigo', 'yellow', 'brown'];
 export const TRUCK_LIVERIES = ['white', 'blue', 'green', 'yellow'];
 
@@ -222,14 +223,15 @@ function paintFor(base: THREE.Material, t: CarTemplate, color: number, livery: s
 }
 
 /**
- * A traffic body from its file (carModels.ts), in the paint job `livery`, the
- * file's origin (midway between its axles) `z` along the physics box; no wheels
+ * A traffic body from its file (carModels.ts), in the paint job `livery` (a file
+ * without paint jobs, the trailer's: plain `color`), the file's origin (midway
+ * between its axles; the trailer's, its middle) `z` along the physics box; no wheels
  * (the traffic's are shared). Undefined until the files are loaded (and in the
  * tests): the caller's procedural body then.
  */
-export function buildTrafficBody(name: TrafficModel, h: number, l: number, z: number, livery: string): VehicleModel | undefined {
+export function buildTrafficBody(name: TrafficModel, h: number, l: number, z: number, livery?: string, color = 0): VehicleModel | undefined {
   const t = carTemplate(name);
-  return t && fromTemplate(t, h, l, 0, false, true, livery, z, true);
+  return t && fromTemplate(t, h, l, color, false, true, livery, z, true);
 }
 
 /**

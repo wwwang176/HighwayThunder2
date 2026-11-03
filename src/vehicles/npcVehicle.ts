@@ -29,11 +29,11 @@ import { BRAKE_ON, FlareSpot } from './models';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
 import type { TireParams } from './tireModel';
 
-// Container geometry (see config: total 16.9 m).
-const CAB_L = 6;
+// Container geometry (see config: total 16.94 m).
+const CAB_L = 6.29; // its model's (public/models/cab.glb)
 const TRAILER_L = 12.5;
 const CONTAINER_H = 4.0;
-const HITCH_FROM_CAB_CENTER = 2.0; // fifth wheel, between the cab's rear axles
+const HITCH_FROM_CAB_CENTER = 1.89; // fifth wheel (its model's plate), between the cab's rear axles
 const KINGPIN_FROM_TRAILER_CENTER = TRAILER_L / 2 - 0.6;
 const FIFTH_WHEEL_Y = -CONTAINER_H / 2 + 1.25;
 // Trailer-local z where the wheels / side underride guard begin: like real trailers,
@@ -45,6 +45,12 @@ const TRAILER_TAIL_START = -KINGPIN_FROM_TRAILER_CENTER + 3.0;
 // either side of it, the wheels' x, radius and width (tyres 185/60 R15, 275/80 R22.5).
 const SEDAN = { z: -0.078, axle: 1.224, x: 0.74, r: 0.301, width: 0.18 };
 const BOX_TRUCK = { z: -0.108, axle: 2.158, x: 1.109, r: 0.506, width: 0.26 };
+// The container truck's cab (cab.glb, tyres 295/80 R22.5): its origin midway between its front and last axles,
+// its axles from the box's centre (front, then the two at the back), its cabin's back wall.
+const CAB = { z: 0.271, axles: [-1.76, 1.246, 2.302], x: 1.051, r: 0.522, width: 0.3, cabinBack: -0.36 };
+// Its trailer (trailer.glb: its origin its middle; twin tyres 295/80 R22.5, as one wide wheel between them), its
+// container's top.
+const TRAILER = { x: 0.92, r: 0.522, width: 0.6, top: 3.92 };
 
 const SAG = 0.06; // static suspension compression we design for (m)
 
@@ -206,24 +212,24 @@ function partSpecs(kind: VehicleKind, sp: Agent['spec']): PartSpec[] {
   return [
     {
       w: sp.width, h: CONTAINER_H, l: CAB_L, mass: sp.mass, clearance: 0.9,
-      axles: [-CAB_L / 2 + 1.1, CAB_L / 2 - 1.5, CAB_L / 2 - 0.5], steerAxles: 1, driven: [false, true, true],
-      wheelR: 0.52, wheelW: 0.35, halfTrack: sp.width / 2 - 0.2, rest: 0.35, frictionSlip: 1.6,
+      axles: CAB.axles, steerAxles: 1, driven: [false, true, true],
+      wheelR: CAB.r, wheelW: CAB.width, halfTrack: CAB.x, rest: 0.35, frictionSlip: 1.6,
       extraLoad: { load: KINGPIN_LOAD, z: HITCH_FROM_CAB_CENTER },
-      // Full-height cabin up front; behind it only a low chassis under the fifth wheel,
-      // so the trailer can sit over it without touching - and hit the cabin when it jackknifes.
+      // Full-height cabin up front (its model's, 3.7 m tall); behind it only a low chassis under the fifth
+      // wheel, so the trailer can sit over it without touching - and hit the cabin when it jackknifes.
       boxes: [
-        { y0: 0.9, y1: CONTAINER_H, z0: -CAB_L / 2, z1: -CAB_L / 2 + 2.4 },
+        { y0: 0.9, y1: 3.7, z0: -CAB_L / 2, z1: CAB.cabinBack },
         { y0: 0.3, y1: 1.2, z0: -CAB_L / 2, z1: CAB_L / 2 },
       ],
     },
     {
       w: sp.width, h: CONTAINER_H, l: TRAILER_L, mass: TRAILER_MASS, clearance: 1.1,
       axles: TRAILER_AXLES, steerAxles: 0, driven: [false, false, false],
-      wheelR: 0.5, wheelW: 0.35, halfTrack: sp.width / 2 - 0.2, rest: 0.35, frictionSlip: 1.6,
+      wheelR: TRAILER.r, wheelW: TRAILER.width, halfTrack: TRAILER.x, rest: 0.35, frictionSlip: 1.6,
       kingpinZ: -KINGPIN_FROM_TRAILER_CENTER,
       // Box body above the fifth wheel; wheels / underride guard only behind the tractor.
       boxes: [
-        { y0: 1.3, y1: CONTAINER_H, z0: -TRAILER_L / 2, z1: TRAILER_L / 2 },
+        { y0: 1.3, y1: TRAILER.top, z0: -TRAILER_L / 2, z1: TRAILER_L / 2 },
         { y0: 0.3, y1: 1.1, z0: TRAILER_TAIL_START, z1: TRAILER_L / 2 },
       ],
     },
@@ -259,10 +265,16 @@ export class NpcVehicle {
     let models: VehicleModel[];
     if (agent.kind === 'container') {
       const color = pick(CONTAINER_COLORS, rng);
-      const cabColor = pick(TRUCK_COLORS, rng);
+      const c = pickIndex(TRUCK_COLORS.length, rng);
       models = [
-        model(`cab|${cabColor}`, () => buildContainerCab(sp.width, CONTAINER_H, CAB_L, cabColor, false)),
-        model(`trailer|${color}`, () => buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color, false)),
+        model(`cab|${c}`, () =>
+          buildTrafficBody('cab', CONTAINER_H, CAB_L, CAB.z, TRUCK_LIVERIES[c]) ??
+          buildContainerCab(sp.width, CONTAINER_H, CAB_L, TRUCK_COLORS[c], false),
+        ),
+        model(`trailer|${color}`, () =>
+          buildTrafficBody('trailer', CONTAINER_H, TRAILER_L, 0, undefined, color) ??
+          buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color, false),
+        ),
       ];
     } else if (agent.kind === 'truck') {
       const i = pickIndex(TRUCK_COLORS.length, rng);

@@ -19,10 +19,12 @@ import type { CarStyle } from './cars/types';
  * Beside it, `<file without .glb>/liveries.json`: the paint jobs, each a texture
  * for the `paint` material (the first is the car's own).
  *
- * The traffic's bodies too (`sedan`, `truck`: models.ts buildTrafficBody), their
- * own wheels and lamps from the same file; a truck's box is `plain` (no livery).
+ * The traffic's bodies too (`sedan`, `truck`, the container truck's `cab` and
+ * `trailer`: models.ts buildTrafficBody), their own wheels and lamps from the
+ * same file; a truck's box is `plain` (no livery), what of a body has no paint on
+ * it `trim` (the generated texture).
  */
-export type TrafficModel = 'sedan' | 'truck';
+export type TrafficModel = 'sedan' | 'truck' | 'cab' | 'trailer';
 type ModelName = CarStyle | TrafficModel;
 
 const FILES: Partial<Record<ModelName, string>> = {
@@ -31,6 +33,8 @@ const FILES: Partial<Record<ModelName, string>> = {
   jdm: 'models/jdm.glb',
   sedan: 'models/sedan.glb',
   truck: 'models/truck.glb',
+  cab: 'models/cab.glb',
+  trailer: 'models/trailer.glb',
 };
 
 /** Where a file car's wheels go (model space; nose toward -Z) and their radius. */
