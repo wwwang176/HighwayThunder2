@@ -11,7 +11,7 @@ export const SPARKS = {
   burst: 2,
   burstMax: 50,
   /** Life, s (each one between these). */
-  life: [0.3, 0.7] as const,
+  life: [0.15, 0.35] as const,
   /** Air drag on the bits, 1/s. */
   drag: 1.5,
   /**
@@ -23,6 +23,8 @@ export const SPARKS = {
   spread: 0.18,
   /** Kick off the contact (along its normal), at most, times the sliding speed. */
   kick: 0.12,
+  /** All of the above, times this: how fast they leave the contact (relative to the surfaces' mean motion). */
+  speed: 2,
   /** Of a vertical speed, what a bounce off the road keeps. */
   bounce: 0.35,
 };
@@ -33,7 +35,7 @@ const G = -9.81;
 const STREAK_T = 0.022;
 const STREAK_MIN = 0.08;
 const STREAK_MAX = 1.6;
-const RADIUS = 0.022;
+const RADIUS = 0.011;
 
 /** How fast two surfaces slide over each other: their relative velocity across the normal `n`. */
 export function slideSpeed(va: THREE.Vector3, vb: THREE.Vector3, n: THREE.Vector3): number {
@@ -116,9 +118,14 @@ export class Sparks {
     this.pos[o] = at.x;
     this.pos[o + 1] = Math.max(0.03, at.y);
     this.pos[o + 2] = at.z;
-    this.vel[o] = t.vb.x + (t.va.x - t.vb.x) * u + (Math.random() - 0.5) * 2 * s + t.normal.x * kick;
-    this.vel[o + 1] = t.vb.y + (t.va.y - t.vb.y) * u + Math.random() * s * 0.35 + 0.3 + Math.random() * 1.2;
-    this.vel[o + 2] = t.vb.z + (t.va.z - t.vb.z) * u + (Math.random() - 0.5) * 2 * s + t.normal.z * kick;
+    const vx = t.vb.x + (t.va.x - t.vb.x) * u + (Math.random() - 0.5) * 2 * s + t.normal.x * kick;
+    const vy = t.vb.y + (t.va.y - t.vb.y) * u + Math.random() * s * 0.35 + 0.3 + Math.random() * 1.2;
+    const vz = t.vb.z + (t.va.z - t.vb.z) * u + (Math.random() - 0.5) * 2 * s + t.normal.z * kick;
+    // Off the contact SPARKS.speed times as fast (as seen moving with the two surfaces' mean).
+    const k = SPARKS.speed;
+    this.vel[o] = (t.va.x + t.vb.x) / 2 * (1 - k) + vx * k;
+    this.vel[o + 1] = (t.va.y + t.vb.y) / 2 * (1 - k) + vy * k;
+    this.vel[o + 2] = (t.va.z + t.vb.z) / 2 * (1 - k) + vz * k;
     this.age[i] = 0;
     this.life[i] = SPARKS.life[0] + Math.random() * (SPARKS.life[1] - SPARKS.life[0]);
   }
