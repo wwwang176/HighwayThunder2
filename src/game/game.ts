@@ -109,6 +109,8 @@ export class Game {
   private readonly playerNitroAi = new NitroAi();
   /** The player's gear last frame (a gear going in shakes the camera). */
   private lastGear = 1;
+  /** An upshift under way, from this gear (its shake comes as the new one takes up). */
+  private shiftingFrom: number | null = null;
   /** Overrides keyboard input when set (used by automated checks). */
   inputOverride: HandlingInput | null = null;
   /** Debug: stop the real-time loop from advancing the simulation. */
@@ -571,7 +573,7 @@ export class Game {
   }
 
   /**
-   * A gear going in (up, under throttle): the camera dropped back a little and brought on again, along the car
+   * A gear taking up (up, under throttle; as the shift ends): the camera dropped back a little and brought on again, along the car
    * - the push of the drive taking up. The lower the gear and the more throttle, the harder.
    */
   private gearShake(from: number): void {
@@ -642,9 +644,15 @@ export class Game {
       ...this.npcBeams.smokeLights(),
     ]);
     const lookBack = this.flow.phase === 'racing' && this.keyboard.isDown('KeyC');
+    // An upshift's shake when the new gear takes up (the drive back), not as the old one lets go.
     const gear = this.player.gearbox.gear;
-    if (gear > this.lastGear && this.flow.phase === 'racing') this.gearShake(this.lastGear);
+    if (gear > this.lastGear && this.flow.phase === 'racing') this.shiftingFrom = this.lastGear;
+    else if (gear < this.lastGear) this.shiftingFrom = null;
     this.lastGear = gear;
+    if (this.shiftingFrom !== null && !this.player.gearbox.shifting) {
+      this.gearShake(this.shiftingFrom);
+      this.shiftingFrom = null;
+    }
     this.grassRumble();
     // Paused, the camera holds still too (its shakes stop where they are, and go on after).
     this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
