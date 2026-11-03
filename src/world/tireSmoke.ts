@@ -13,8 +13,8 @@ const MAX_LIGHTS = 16;
 const PUFF_TEXTURE = `${import.meta.env.BASE_URL}fx/smoke.png`;
 /** How fast a puff turns (rad/s, either way, at most): no two alike, none still. */
 const PUFF_SPIN = 0.6;
-/** The fake volume's shade averages under 1 (its far side, its core): this brings a puff back to its light. */
-const SHADE_GAIN = 1.15;
+/** How bright a lit puff is, times its light (the fake volume's shade with it; at 1.15 the smoke glared). */
+const SHADE_GAIN = 0.8;
 
 function puffTexture(): THREE.Texture {
   return new THREE.TextureLoader().load(PUFF_TEXTURE); // (only its alpha is read)
