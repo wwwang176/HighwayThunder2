@@ -1,6 +1,6 @@
 import { formatTime, GameFlow } from '../game/gameState';
 import { ROAD_LENGTH } from '../config';
-import { closestBehind, overtook, progress, shiftLights } from './hudMath';
+import { closestBehind, overtook, progress } from './hudMath';
 
 export interface HudHandlers {
   /** After the finish: the same race again. */
@@ -25,6 +25,9 @@ export interface HudFrame {
   muted: boolean;
   gear: number;
   rpm: number;
+  /** The nitro tank, 0 empty .. 1 full, and whether it is burning. */
+  nitro: number;
+  nitroOn: boolean;
   reverse: boolean;
   /** The trained AI is driving the player's car. */
   aiDriving: boolean;
@@ -56,8 +59,21 @@ const arc = (from: number, to: number, r = R) => {
   return `M${x0.toFixed(1)} ${y0.toFixed(1)} A${r} ${r} 0 ${(SWEEP * (to - from)) / MAX_K > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
 };
 
+// The nitro tank: an arc outside the dial's left, filling upward from its foot.
+const N_R = 108;
+const N_FROM = 145; // degrees (the arc's foot, lower left), filling to N_TO (upper left)
+const N_TO = 215;
+const nitroArc = (f: number) => {
+  const a0 = (N_FROM * Math.PI) / 180;
+  const a1 = ((N_FROM + (N_TO - N_FROM) * Math.max(0.001, Math.min(1, f))) * Math.PI) / 180;
+  const p = (a: number) => `${(100 + N_R * Math.cos(a)).toFixed(1)} ${(100 + N_R * Math.sin(a)).toFixed(1)}`;
+  return `M${p(a0)} A${N_R} ${N_R} 0 0 1 ${p(a1)}`;
+};
+
 function dialSvg(): string {
   let svg = `<circle cx="100" cy="100" r="96" fill="rgba(6,10,20,0.55)" stroke="rgba(255,255,255,0.12)"/>`;
+  svg += `<path d="${nitroArc(1)}" stroke="rgba(255,255,255,0.12)" stroke-width="6" fill="none" stroke-linecap="round"/>`;
+  svg += `<path data-id="nitro" class="nitro" d="${nitroArc(0)}" stroke-width="6" fill="none" stroke-linecap="round"/>`;
   svg += `<path d="${arc(0, MAX_K)}" stroke="rgba(255,255,255,0.12)" stroke-width="7" fill="none" stroke-linecap="round"/>`;
   // The glows: a wide faint copy under the rpm arc and the needle (a drop-shadow filter would be redrawn every frame).
   svg += `<path data-id="rpmHalo" d="${arc(0, 0.01)}" stroke="var(--accent)" stroke-width="15" stroke-opacity="0.22" fill="none" stroke-linecap="round"/>`;
@@ -79,7 +95,7 @@ function dialSvg(): string {
 /**
  * The race HUD: time (top left), the race on one line (every car a dot,
  * top), place and the distance left (top right), near misses (bottom left),
- * the tachometer with shift lights, speed and gear (bottom right), a rival
+ * the tachometer with the nitro tank, speed and gear (bottom right), a rival
  * coming up behind (an arrow on the bottom edge), and moments (overtake, near
  * miss) in the middle. Numbers and icons, no labels. Then the pause and the finish.
  */
@@ -103,8 +119,7 @@ export class Hud {
           <div class="remain">${icon('icon-flag')}<span class="num" data-id="remain">5.00</span> km</div>
         </div>
         <div class="h-combo h-glass">${icon('icon-nearmiss')}<span class="num" data-id="nm">×0</span></div>
-        <div class="h-tacho">
-          <div class="shift" data-id="shift">${['g', 'g', 'a', 'a', 'r'].map((c) => `<i class="${c}"></i>`).join('')}</div>
+        <div class="h-tacho" data-id="tacho">
           <svg viewBox="0 0 200 200">${dialSvg()}</svg>
           <div class="mid"><div class="num speed" data-id="speed">0</div><div class="unit">KM/H</div><div class="num gear" data-id="gear">1</div></div>
         </div>
@@ -215,8 +230,9 @@ export class Hud {
     const [x1, y1] = at(k, 96);
     for (const line of [this.el.needle, this.el.needleHalo])
       Object.entries({ x1: x0, y1: y0, x2: x1, y2: y1 }).forEach(([a, v]) => line.setAttribute(a, v.toFixed(1)));
-    const lit = shiftLights(f.rpm);
-    [...this.el.shift.children].forEach((led, i) => led.classList.toggle('on', i < lit));
+    // The nitro tank (brighter while it burns; a step's change is smaller than a pixel, so set every frame).
+    this.el.nitro.setAttribute('d', nitroArc(f.nitro));
+    this.el.tacho.classList.toggle('nitro-on', f.nitroOn);
     // A rival coming up behind.
     const me = f.racers.find((r) => r.me);
     const behind = me && phase === 'racing' ? closestBehind(me, f.racers.filter((r) => !r.me), BEHIND_RANGE) : null;

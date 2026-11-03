@@ -64,11 +64,9 @@ button.secondary:hover { color: #fff; border-color: var(--accent); filter: none;
 #hud .h-tacho .speed { font-size: 3.3vw; }
 #hud .h-tacho .unit { font-size: 0.75vw; color: #9fb0cc; letter-spacing: 0.15vw; }
 #hud .h-tacho .gear { display: inline-block; margin-top: 0.9vh; padding: 0.2vh 0.7vw; border-radius: 0.4vw; border: 1px solid var(--accent); color: var(--accent); font-size: 1.4vw; }
-#hud .shift { position: absolute; left: 50%; top: -3vh; transform: translateX(-50%); display: flex; gap: 0.35vw; }
-#hud .shift i { width: 0.9vw; height: 0.45vw; border-radius: 0.2vw; background: rgba(255,255,255,0.12); }
-#hud .shift i.on.g { background: #3fe39a; box-shadow: 0 0 0.6vw #3fe39a; }
-#hud .shift i.on.a { background: #ffb300; box-shadow: 0 0 0.6vw #ffb300; }
-#hud .shift i.on.r { background: #ff3b30; box-shadow: 0 0 0.6vw #ff3b30; }
+/* The nitro tank, left of the dial: cyan, brighter while it burns. */
+#hud .h-tacho .nitro { stroke: #34c8ff; stroke-opacity: 0.75; }
+#hud .h-tacho.nitro-on .nitro { stroke: #8fe4ff; stroke-opacity: 1; }
 /* A rival coming up behind: an arrow on the bottom edge, in its colour, on its side. */
 #hud .h-behind { bottom: 1.2vh; transform: translateX(-50%); text-align: center; color: var(--c); }
 #hud .h-behind .chev { width: 0; height: 0; margin: 0 auto; border-left: 1.2vw solid transparent; border-right: 1.2vw solid transparent;

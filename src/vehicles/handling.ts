@@ -72,6 +72,8 @@ export interface DriveInput {
   brake: number; // 0..1
   steer: number; // -1 (left) .. 1 (right)
   handbrake?: boolean;
+  /** Nitro asked for (it burns only on the throttle, while there's some: nitro.ts). */
+  nitro?: boolean;
 }
 
 /** Kept for callers that only deal with pedals and steering. */

@@ -1,15 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { closestBehind, overtook, progress, shiftLights } from '../src/ui/hudMath';
+import { closestBehind, overtook, progress } from '../src/ui/hudMath';
 
 describe('hudMath', () => {
-  it('shift lights: none low in the revs, one more every few hundred rpm, all five at the redline', () => {
-    expect(shiftLights(3000)).toBe(0);
-    expect(shiftLights(5100)).toBe(1);
-    expect(shiftLights(6000)).toBe(3);
-    expect(shiftLights(7000)).toBe(5);
-    expect(shiftLights(9000)).toBe(5);
-  });
-
   it('the rival closest behind within range, with its colour and the side it comes up on', () => {
     const me = { s: 1000, d: 0 };
     const rivals = [
