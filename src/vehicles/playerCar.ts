@@ -8,6 +8,8 @@ import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
 import { AIM_DOWN, createHeadlight } from './headlight';
+import { ExhaustFlames } from '../render/exhaustFlames';
+import { Backfire } from './backfire';
 import { emitFlares } from './npcVehicle';
 import type { LightFlares } from '../render/lightFlares';
 import { TireParams } from './tireModel';
@@ -76,6 +78,8 @@ export class PlayerCar {
   readonly colliders: RAPIER.Collider[];
   readonly mesh: THREE.Group;
   private readonly lights: VehicleLights;
+  private flames: ExhaustFlames | null = null;
+  private readonly backfire = new Backfire();
   private readonly visuals: { steer: THREE.Group; spin: THREE.Group }[] = [];
   readonly chassis: TyreChassis;
   readonly wheels: WheelState[];
@@ -198,6 +202,8 @@ export class PlayerCar {
     }
     this.mesh = model.root;
     this.lights = model.lights;
+    const tips = (model.root.userData.exhausts ?? []) as THREE.Vector3[];
+    if (tips.length) this.flames = new ExhaustFlames(this.mesh, tips);
     for (let i = 0; i < 4; i++) {
       const w = buildWheel(p.wheelRadius, WHEEL_W, spec.style, i % 2 === 0); // even: the left wheels
       this.mesh.add(w.steer);
@@ -368,7 +374,14 @@ export class PlayerCar {
   dispose(physics: PhysicsWorld): void {
     for (const c of this.colliders) physics.unregister(c);
     physics.world.removeRigidBody(this.body); // its colliders go with it
+    this.flames?.dispose();
     this.mesh.removeFromParent();
+  }
+
+  /** Its exhaust's flames this frame (`dt` s; 0 paused): a backfire lifting off at high revs, blue on nitro. */
+  exhaust(dt: number): void {
+    const pops = this.backfire.update(dt, this.throttle, this.rpm / this.params.redline);
+    this.flames?.update(pops, this.nitro.active);
   }
 
   resetTo(s: number, lane: number, speed: number): void {
@@ -379,6 +392,7 @@ export class PlayerCar {
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.steer = 0;
     this.throttle = 0;
+    this.backfire.reset();
     this.gearbox.reset();
     this.driveMode = 'D';
     for (const w of this.wheels) {

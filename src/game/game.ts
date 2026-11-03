@@ -618,6 +618,9 @@ export class Game {
     this.road.update(-p.z, p.x);
     // After the road has placed this frame's street lights.
     this.sparks.update(this.flow.phase === 'paused' ? 0 : dt, this.player.body.linvel());
+    const fxDt = this.flow.phase === 'paused' ? 0 : dt;
+    this.player.exhaust(fxDt);
+    for (const r of this.rivals.list) r.car.exhaust(fxDt);
     this.smoke.update(this.flow.phase === 'paused' ? 0 : dt, [
       ...this.road.activeLights().map(smokeLightFromSpot),
       ...this.player.smokeLights(),
