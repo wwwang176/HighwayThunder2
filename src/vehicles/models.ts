@@ -301,6 +301,11 @@ function fromTemplate(
       (side === 'L' ? lights.left : lights.right).push(ind.mesh);
     }
   }
+  // Its exhaust pipes' tips (root space), where the flames come out (exhaustFlames.ts).
+  const exhausts: THREE.Vector3[] = (root.userData.exhausts = []);
+  body.traverse((o) => {
+    if (/^exhaust_\d+$/.test(o.name)) exhausts.push(o.getWorldPosition(new THREE.Vector3())); // (not its per-material parts)
+  });
   if (withWheels && t.wheel) {
     const s = t.spots ?? MODEL_WHEELS;
     for (const along of [s.front, s.rear]) {

@@ -127,6 +127,7 @@ CAR = kit.Car(
     ],
     collider="MUSCLE_CAR_COLLIDER",
     collider_file="muscleCarCollider",
+    exhaust={"tips": [(-0.5, 0.33), (0.5, 0.33)], "back": 2.26, "rect": (0.17, 0.06)},  # flat, just under the bumper
     lamps=lamps,
     mend=build_apron,
 )

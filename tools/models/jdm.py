@@ -71,6 +71,7 @@ CAR = kit.Car(
     ],
     collider="JDM_COLLIDER",
     collider_file="jdmCollider",
+    exhaust={"tips": [(-0.55, 0.22), (0.55, 0.22)], "back": 2.08, "r": 0.048},  # either side of its diffuser
     lamps=lamps,
     paint_hue=(0.52, 0.68),
     glass_above=0.78,

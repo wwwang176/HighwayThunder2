@@ -74,6 +74,7 @@ CAR = kit.Car(
     ],
     collider="SUPERCAR_COLLIDER",
     collider_file="supercarCollider",
+    exhaust={"tips": [(-0.3, 0.25), (0.3, 0.25)], "back": 2.1, "r": 0.045},  # in its diffuser, either side of the middle
     lamps=lamps,
     mend=fill_roof,
     paint_hue=(0.97, 0.03),

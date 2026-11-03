@@ -30,6 +30,8 @@ Objects in the GLB (the game finds them by name):
                               extras x, front, rear (along the nose, + toward it), r: where the wheels go
   caliper                     (when the car has one) its brake caliper, where it sits on the wheel; it steers
                               with the wheel but doesn't roll (on the left, mirrored: behind the axle on both)
+  exhaust_0, exhaust_1, ...   (when the car has them) its exhaust pipes, each with its origin at its tip (where
+                              the game's flames come out), steel, sooty inside
 Beside it, <out without .glb>/: each livery's texture (<name>.jpg, for `paint`) and liveries.json.
 """
 
@@ -99,11 +101,15 @@ class Car:
                 texture shares the cab's white, which takes the livery)
     tail        tail(h, s, v): whether a texel is its tail lights' red (None: saturated red; a red car's
                 paint is red too, so it needs its own)
+    exhaust     its exhaust pipes (None: none): {"tips": [(x, height above the ground)], "back": how far behind
+                the axles' midpoint the tips are, and "r" (round, their radius) or "rect" (w, h: flat,
+                square-cut)}, in metres on the finished car
     """
 
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
-                 roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False):
+                 roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
+                 exhaust=None):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -112,6 +118,7 @@ class Car:
         self.roof_above = roof_above
         self.paint_hue, self.tail, self.paint_grey, self.glass_bend = paint_hue, tail, paint_grey, glass_bend
         self.glass_fill, self.plain, self.paint_fade, self.trim = glass_fill, plain, paint_fade, trim
+        self.exhaust = exhaust
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -153,6 +160,8 @@ def make_materials():
     MAT["head"] = material("lamp_head", srgb(0xFFD890), 0.2, 0, 1.0)  # warm (the game swaps in its own glow)
     MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 1.2)  # (the game swaps in its own: dim, bright braking)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
+    MAT["steel"] = material("exhaust", srgb(0xA8ACB2), 0.3, 0.9)
+    MAT["soot"] = material("soot", srgb(0x050505), 1.0, 0)
 
 
 # ---------------------------------------------------------------- helpers
@@ -925,6 +934,53 @@ def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces)
 
 # ---------------------------------------------------------------- main
 
+PIPE_L = 0.4  # how far an exhaust pipe reaches in from its tip, under the body
+PIPE_WALL = 0.006
+SOOT_IN = 0.06  # how far in a pipe goes dark
+
+
+def pipe_outline(ex, grow, n=16):
+    """A pipe's cross-section round its middle: (x, z) counter-clockwise seen from behind; round, or a rectangle
+    with rounded corners (4 points each)."""
+    if "rect" in ex:
+        w, h = ex["rect"][0] / 2 + grow, ex["rect"][1] / 2 + grow
+        c = min(w, h) * 0.35
+        pts = []
+        for cx, cz, a0 in ((w - c, -h + c, -90), (w - c, h - c, 0), (-w + c, h - c, 90), (-w + c, -h + c, 180)):
+            pts += [(cx + c * math.cos(math.radians(a0 + 30 * k)), cz + c * math.sin(math.radians(a0 + 30 * k)))
+                    for k in range(4)]
+        return pts
+    r = ex["r"] + grow
+    return [(r * math.cos(2 * math.pi * k / n), r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+
+
+def exhaust_pipes(ex):
+    """The car's exhaust pipes (`Car.exhaust`), in the finished car's frame (the origin GROUND above the ground,
+    the nose +y): a steel tube from each tip in toward the nose, its rim facing back, dark a little way in.
+    Each its own object, its origin at its tip."""
+    outer, inner = pipe_outline(ex, PIPE_WALL), pipe_outline(ex, 0)
+    n = len(outer)
+    verts = ([(x, 0, z) for x, z in outer] + [(x, PIPE_L, z) for x, z in outer]
+             + [(x, 0, z) for x, z in inner] + [(x, PIPE_L, z) for x, z in inner]
+             + [(x, SOOT_IN, z) for x, z in inner])
+    o0, o1, i0, i1, s = 0, n, 2 * n, 3 * n, 4 * n
+    faces, mats = [], []
+    for k in range(n):
+        j = (k + 1) % n
+        faces += [(o0 + k, o1 + k, o1 + j, o0 + j),  # outside
+                  (i0 + k, i0 + j, i1 + j, i1 + k),  # inside
+                  (o0 + k, o0 + j, i0 + j, i0 + k)]  # the rim, facing back
+        mats += [0, 0, 0]
+    faces.append(tuple(s + k for k in range(n)))  # the soot, facing back
+    mats.append(1)
+    out = []
+    for i, (x, h) in enumerate(ex["tips"]):
+        ob = mesh_object(f"exhaust_{i}", verts, faces, ["steel", "soot"], mats)
+        ob.location = (x, -ex["back"], h - GROUND)
+        out.append(ob)
+    return out
+
+
 def run(car):
     """Build `car`: its GLB, liveries and collision shape (paths from the command line, else the game's)."""
     global CAR
@@ -977,6 +1033,7 @@ def run(car):
           + f" (the generated tyres' radius {max(t[2] for t in car.tyres) * g:.3f})")
     for k, v in spots.items():  # where the wheels go (along the nose: + toward it), for the game (extras)
         wheel[k] = round(v, 4)
+    pipes = exhaust_pipes(car.exhaust) if car.exhaust else []
     pieces = []  # (traffic: the game gives it boxes of its own)
     if car.collider_file:
         if not os.path.exists(collider_path):
@@ -1016,7 +1073,7 @@ def run(car):
         f.write("\n")
 
     bpy.ops.object.select_all(action="DESELECT")
-    for o in [body, *lamps, wheel] + ([caliper] if caliper else []):
+    for o in [body, *lamps, wheel, *pipes] + ([caliper] if caliper else []):
         o.select_set(True)
     bpy.ops.export_scene.gltf(
         filepath=os.path.abspath(out),

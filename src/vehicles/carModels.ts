@@ -13,7 +13,8 @@ import type { CarStyle } from './cars/types';
  * origin, axle along X, its rim facing +X (extras: where the wheels go, `x`,
  * `front`, `rear` along the nose, and its radius `r`); maybe a `caliper`, where
  * it sits on that wheel (it steers with the wheel but doesn't roll; mirrored on
- * the left). The body's origin is the centre of the physics box (ground at
+ * the left); maybe exhaust pipes, `exhaust_0`, `exhaust_1`, ..., each with its
+ * origin at its tip (models.ts: root.userData.exhausts). The body's origin is the centre of the physics box (ground at
  * -0.55), its nose toward -Z.
  *
  * Beside it, `<file without .glb>/liveries.json`: the paint jobs, each a texture
