@@ -1,0 +1,16 @@
+Use only the image_gen tool to make the three images below, then copy each into the current folder with exactly the file name given (keep the format the tool produces; if it is not .png, use that extension instead). Make image 1 first; then make images 2 and 3 of THE SAME vehicle, giving image 1 to the tool as the reference image if it can take one. Check each image against the checklist below before copying it - the view, the same render style as image 1 (a shaded 3D render, never a flat 2D illustration or vector drawing), the same cab shape, windscreen angle, headlights, grille, roof fairing, fuel tank, steps, rims and axles in all three, nothing hitched to it; if any differs, make it again. Do nothing else: no other tools, no other files.
+
+Subject (the same vehicle in all three, every detail identical): an ORIGINAL fictional tractor unit ALONE, with NO trailer hitched (a semi-truck's cab, about 6 m long, 2.5 m wide, 3.6 m tall to the top of its roof fairing), everyday background traffic on a night-time highway in a street-racing video game - plain and practical.
+Checklist (all three views):
+- cab: a boxy, tall cab-over cab with a FLAT, nearly VERTICAL front (the windscreen leans back only slightly), dark blue all over (doors, sides, back wall the same blue, no two-tone, no diagonal panels); a large one-piece windscreen; one door each side with a side window; the cab's back wall a plain flat blue panel;
+- front: one square headlight on each side (two in all), set in a black front bumper; between them a plain black grille of horizontal bars; no other lamps;
+- roof: a smooth wedge-shaped roof fairing, the same dark blue, rising toward the back of the cab, its top level with the back wall;
+- side mirrors on black arms; one black step under each door; one black box-shaped fuel tank on each side behind the cab;
+- chassis: black, with three axles: single front wheels, dual wheels on each of the two rear axles; all rims plain dark grey steel;
+- behind the cab: a bare black chassis with the round fifth-wheel coupling plate on top, exposed;
+- rear: two small red tail lights on the chassis' rear end.
+Style (all three the same): a clean shaded 3D render of a low-poly game model, readable simple shapes and flat panels (it is background traffic, many on screen), symmetric, soft studio lighting, plain dark neutral grey background, no scenery, whole vehicle in frame with margin. It must not resemble any real brand or model: no logos, no badges, no brand-like grille or lights, no text, numbers, stickers or company markings anywhere.
+
+1. cab-front34 - three-quarter FRONT view from slightly above (the cab's front and its left side), headlights on.
+2. cab-side - side view with the camera square to the vehicle's left side at mid height (a 3D render, lit like image 1, only the left side visible, no front or back faces), the front pointing left, all six wheels fully visible.
+3. cab-rear34 - three-quarter REAR view from slightly above (the back of the cab, the bare chassis and fifth wheel, and its RIGHT side), tail lights lit; no headlights in view.

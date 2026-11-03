@@ -7,14 +7,17 @@ import {
   buildCar,
   buildContainerCab,
   buildContainerTrailer,
+  buildTrafficBody,
   buildTruck,
   CAR_COLORS,
+  CAR_LIVERIES,
   cloneModel,
   compactModel,
   CONTAINER_COLORS,
   setBrake,
   setIndicators,
   TRUCK_COLORS,
+  TRUCK_LIVERIES,
   VehicleLights,
   VehicleModel,
 } from './models';
@@ -26,16 +29,28 @@ import { BRAKE_ON, FlareSpot } from './models';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
 import type { TireParams } from './tireModel';
 
-// Container geometry (see config: total 16.9 m).
-const CAB_L = 6;
+// Container geometry (see config: total 16.94 m).
+const CAB_L = 6.29; // its model's (public/models/cab.glb)
 const TRAILER_L = 12.5;
 const CONTAINER_H = 4.0;
-const HITCH_FROM_CAB_CENTER = 2.0; // fifth wheel, between the cab's rear axles
+const HITCH_FROM_CAB_CENTER = 1.89; // fifth wheel (its model's plate), between the cab's rear axles
 const KINGPIN_FROM_TRAILER_CENTER = TRAILER_L / 2 - 0.6;
 const FIFTH_WHEEL_Y = -CONTAINER_H / 2 + 1.25;
 // Trailer-local z where the wheels / side underride guard begin: like real trailers,
 // ~3 m behind the kingpin (behind the landing gear), leaving room for the tractor to articulate.
 const TRAILER_TAIL_START = -KINGPIN_FROM_TRAILER_CENTER + 3.0;
+
+// The traffic's models (public/models/sedan.glb, truck.glb), measured off the files: where the file's origin
+// (midway between its axles) sits along the physics box (centred on the body, nose to tail), its axles
+// either side of it, the wheels' x, radius and width (tyres 185/60 R15, 275/80 R22.5).
+const SEDAN = { z: -0.078, axle: 1.224, x: 0.74, r: 0.301, width: 0.18 };
+const BOX_TRUCK = { z: -0.108, axle: 2.158, x: 1.109, r: 0.506, width: 0.26 };
+// The container truck's cab (cab.glb, tyres 295/80 R22.5): its origin midway between its front and last axles,
+// its axles from the box's centre (front, then the two at the back, on twin tyres), its cabin's back wall.
+// (Twins shown a little narrower than they are, 8 cm apart, the gap between them clear.)
+const CAB = { z: 0.271, axles: [-1.76, 1.246, 2.302], x: 1.051, r: 0.522, width: 0.27, twin: { from: 1, x: 0.93, gap: 0.35 }, cabinBack: -0.36 };
+// Its trailer (trailer.glb: its origin its middle; twin tyres 295/80 R22.5), its container's top.
+const TRAILER = { x: 0.92, r: 0.522, width: 0.27, twin: { from: 0, x: 0.922, gap: 0.35 }, top: 3.92 };
 
 const SAG = 0.06; // static suspension compression we design for (m)
 
@@ -89,6 +104,8 @@ interface PartSpec {
   wheelR: number;
   wheelW: number;
   halfTrack: number;
+  /** Twin tyres (each wheelW wide) on the axles from `from` on: their middle's x, the gap between theirs. */
+  twin?: { from: number; x: number; gap: number };
   rest: number;
   frictionSlip: number;
   extraLoad?: { load: number; z: number };
@@ -99,6 +116,10 @@ interface PartSpec {
 
 interface Wheel {
   slot: number;
+  /** Twin tyres: the second one's slot, both shown either side of `shownX`, `gap` apart (-1: one tyre at x). */
+  slot2: number;
+  shownX: number;
+  gap: number;
   staticLoad: number; // N, design load (sets spring rates)
   x: number;
   z: number;
@@ -150,13 +171,18 @@ export function emitFlares(mesh: THREE.Object3D, lights: VehicleLights, flares: 
   }
   for (const ind of [...lights.left, ...lights.right]) {
     if (!ind.visible) continue;
-    FLARE_V.copy(ind.position).applyMatrix4(mesh.matrix);
+    const at = (ind.userData.flare as { x: number; y: number; z: number } | undefined) ?? ind.position; // a file body's lamp: its spot
+    FLARE_V.set(at.x, at.y, at.z).applyMatrix4(mesh.matrix);
     flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.5, 0.04, 0.35);
   }
 }
 
 function pick<T>(arr: T[], rng: () => number): T {
-  return arr[Math.floor(rng() * arr.length) % arr.length];
+  return arr[pickIndex(arr.length, rng)];
+}
+
+function pickIndex(n: number, rng: () => number): number {
+  return Math.floor(rng() * n) % n;
 }
 
 const TRAILER_MASS = 16000;
@@ -169,45 +195,47 @@ const KINGPIN_LOAD = (() => {
 
 function partSpecs(kind: VehicleKind, sp: Agent['spec']): PartSpec[] {
   if (kind === 'car') {
+    const m = SEDAN;
     return [
       {
         w: sp.width, h: sp.height, l: sp.length, mass: sp.mass, clearance: 0.3,
-        axles: [-sp.length * 0.32, sp.length * 0.32], steerAxles: 1, driven: [false, true],
-        wheelR: 0.33, wheelW: 0.26, halfTrack: sp.width / 2 - 0.1, rest: 0.3, frictionSlip: 2.2,
+        axles: [m.z - m.axle, m.z + m.axle], steerAxles: 1, driven: [false, true],
+        wheelR: m.r, wheelW: m.width, halfTrack: m.x, rest: 0.3, frictionSlip: 2.2,
       },
     ];
   }
   if (kind === 'truck') {
-    const l = sp.length;
+    // Body from its box's floor (0.51 m) up; the lower box (0.3 m up) keeps cars from going under it.
+    const m = BOX_TRUCK;
     return [
       {
-        w: sp.width, h: sp.height, l, mass: sp.mass, clearance: 0.8,
-        axles: [-l / 2 + 1.3, l / 2 - 2.2, l / 2 - 1.2], steerAxles: 1, driven: [false, true, true],
-        wheelR: 0.5, wheelW: 0.35, halfTrack: sp.width / 2 - 0.2, rest: 0.35, frictionSlip: 1.6,
+        w: sp.width, h: sp.height, l: sp.length, mass: sp.mass, clearance: 0.5,
+        axles: [m.z - m.axle, m.z + m.axle], steerAxles: 1, driven: [false, true],
+        wheelR: m.r, wheelW: m.width, halfTrack: m.x, rest: 0.35, frictionSlip: 1.6,
       },
     ];
   }
   return [
     {
       w: sp.width, h: CONTAINER_H, l: CAB_L, mass: sp.mass, clearance: 0.9,
-      axles: [-CAB_L / 2 + 1.1, CAB_L / 2 - 1.5, CAB_L / 2 - 0.5], steerAxles: 1, driven: [false, true, true],
-      wheelR: 0.52, wheelW: 0.35, halfTrack: sp.width / 2 - 0.2, rest: 0.35, frictionSlip: 1.6,
+      axles: CAB.axles, steerAxles: 1, driven: [false, true, true],
+      wheelR: CAB.r, wheelW: CAB.width, halfTrack: CAB.x, twin: CAB.twin, rest: 0.35, frictionSlip: 1.6,
       extraLoad: { load: KINGPIN_LOAD, z: HITCH_FROM_CAB_CENTER },
-      // Full-height cabin up front; behind it only a low chassis under the fifth wheel,
-      // so the trailer can sit over it without touching - and hit the cabin when it jackknifes.
+      // Full-height cabin up front (its model's, 3.7 m tall); behind it only a low chassis under the fifth
+      // wheel, so the trailer can sit over it without touching - and hit the cabin when it jackknifes.
       boxes: [
-        { y0: 0.9, y1: CONTAINER_H, z0: -CAB_L / 2, z1: -CAB_L / 2 + 2.4 },
+        { y0: 0.9, y1: 3.7, z0: -CAB_L / 2, z1: CAB.cabinBack },
         { y0: 0.3, y1: 1.2, z0: -CAB_L / 2, z1: CAB_L / 2 },
       ],
     },
     {
       w: sp.width, h: CONTAINER_H, l: TRAILER_L, mass: TRAILER_MASS, clearance: 1.1,
       axles: TRAILER_AXLES, steerAxles: 0, driven: [false, false, false],
-      wheelR: 0.5, wheelW: 0.35, halfTrack: sp.width / 2 - 0.2, rest: 0.35, frictionSlip: 1.6,
+      wheelR: TRAILER.r, wheelW: TRAILER.width, halfTrack: TRAILER.x, twin: TRAILER.twin, rest: 0.35, frictionSlip: 1.6,
       kingpinZ: -KINGPIN_FROM_TRAILER_CENTER,
       // Box body above the fifth wheel; wheels / underride guard only behind the tractor.
       boxes: [
-        { y0: 1.3, y1: CONTAINER_H, z0: -TRAILER_L / 2, z1: TRAILER_L / 2 },
+        { y0: 1.3, y1: TRAILER.top, z0: -TRAILER_L / 2, z1: TRAILER_L / 2 },
         { y0: 0.3, y1: 1.1, z0: TRAILER_TAIL_START, z1: TRAILER_L / 2 },
       ],
     },
@@ -243,17 +271,33 @@ export class NpcVehicle {
     let models: VehicleModel[];
     if (agent.kind === 'container') {
       const color = pick(CONTAINER_COLORS, rng);
-      const cabColor = pick(TRUCK_COLORS, rng);
+      const c = pickIndex(TRUCK_COLORS.length, rng);
       models = [
-        model(`cab|${cabColor}`, () => buildContainerCab(sp.width, CONTAINER_H, CAB_L, cabColor, false)),
-        model(`trailer|${color}`, () => buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color, false)),
+        model(`cab|${c}`, () =>
+          buildTrafficBody('cab', CONTAINER_H, CAB_L, CAB.z, TRUCK_LIVERIES[c]) ??
+          buildContainerCab(sp.width, CONTAINER_H, CAB_L, TRUCK_COLORS[c], false),
+        ),
+        model(`trailer|${color}`, () =>
+          buildTrafficBody('trailer', CONTAINER_H, TRAILER_L, 0, undefined, color) ??
+          buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color, false),
+        ),
       ];
     } else if (agent.kind === 'truck') {
-      const color = pick(TRUCK_COLORS, rng);
-      models = [model(`truck|${color}`, () => buildTruck(sp.width, sp.height, sp.length, color, false))];
+      const i = pickIndex(TRUCK_COLORS.length, rng);
+      models = [
+        model(`truck|${i}`, () =>
+          buildTrafficBody('truck', sp.height, sp.length, BOX_TRUCK.z, TRUCK_LIVERIES[i]) ??
+          buildTruck(sp.width, sp.height, sp.length, TRUCK_COLORS[i], false),
+        ),
+      ];
     } else {
-      const color = pick(CAR_COLORS, rng);
-      models = [model(`car|${color}`, () => buildCar(sp.width, sp.height, sp.length, color, false, false))];
+      const i = pickIndex(CAR_COLORS.length, rng);
+      models = [
+        model(`car|${i}`, () =>
+          buildTrafficBody('sedan', sp.height, sp.length, SEDAN.z, CAR_LIVERIES[i]) ??
+          buildCar(sp.width, sp.height, sp.length, CAR_COLORS[i], false, false),
+        ),
+      ];
     }
     specs.forEach((s, i) => this.parts.push(this.makePart(s, models[i])));
     this.totalMass = specs.reduce((m, s) => m + s.mass, 0);
@@ -324,8 +368,12 @@ export class NpcVehicle {
         vehicle.setWheelMaxSuspensionForce(idx, loads[ai] * 4);
         vehicle.setWheelFrictionSlip(idx, s.frictionSlip);
         vehicle.setWheelSideFrictionStiffness(idx, 1);
+        const twin = s.twin && ai >= s.twin.from ? s.twin : null;
         wheels.push({
           slot: this.wheelPool.alloc(),
+          slot2: twin ? this.wheelPool.alloc() : -1,
+          shownX: side * (twin ? twin.x : s.halfTrack),
+          gap: twin ? twin.gap : 0,
           staticLoad: loads[ai],
           x: side * s.halfTrack,
           z,
@@ -530,9 +578,14 @@ export class NpcVehicle {
         const spin = cw ? cw.spin : p.vehicle!.wheelRotation(i) ?? 0;
         const steer = cw ? -cw.steer : p.vehicle!.wheelSteering(i) ?? 0;
         TMP_E.set(spin, steer, 0, 'YXZ');
-        TMP_M2.compose(TMP_V.set(w.x, w.connY - len, w.z), TMP_Q.setFromEuler(TMP_E), TMP_S.set(w.width, w.r, w.r));
-        TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2);
-        this.wheelPool.set(w.slot, TMP_M);
+        TMP_Q.setFromEuler(TMP_E);
+        TMP_S.set(w.width, w.r, w.r);
+        for (const [slot, dx] of [[w.slot, -w.gap / 2], [w.slot2, w.gap / 2]]) {
+          if (slot < 0) continue;
+          TMP_M2.compose(TMP_V.set(w.shownX + dx, w.connY - len, w.z), TMP_Q, TMP_S);
+          TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2);
+          this.wheelPool.set(slot, TMP_M);
+        }
       });
     }
   }
@@ -561,7 +614,10 @@ export class NpcVehicle {
   dispose(): void {
     if (this.joint) this.physics.world.removeImpulseJoint(this.joint, true);
     for (const p of this.parts) {
-      for (const w of p.wheels) this.wheelPool.release(w.slot);
+      for (const w of p.wheels) {
+        this.wheelPool.release(w.slot);
+        if (w.slot2 >= 0) this.wheelPool.release(w.slot2);
+      }
       if (p.vehicle) this.physics.world.removeVehicleController(p.vehicle);
       for (const c of p.colliders) this.physics.unregister(c);
       this.physics.world.removeRigidBody(p.body);

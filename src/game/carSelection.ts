@@ -43,8 +43,8 @@ const stats = (accel: string, a: number, top: string, t: number, grip: string, g
 
 // training/cornering.train.ts (launch, cornering at 200 km/h).
 export const CAR_CARDS: CarCard[] = [
-  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', stats: stats('0–100 4.2 秒', 0.8, '300 km/h', 1, '2.1 g', 0.75), pickable: true },
-  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', stats: stats('0–100 4.0 秒', 1, '259 km/h', 0.75, '1.4 g', 0.45), pickable: true },
+  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', stats: stats('0–100 3.6 秒', 1, '300 km/h', 1, '2.0 g', 0.75), pickable: true },
+  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', stats: stats('0–100 4.1 秒', 0.9, '259 km/h', 0.75, '1.4 g', 0.45), pickable: true },
   { id: JDM_CAR.id, name: JDM_CAR.name, accent: '#2f9bff', icon: 'icon-jdm', stats: stats('0–100 4.0 秒', 0.75, '245 km/h', 0.6, '2.4 g', 1), pickable: true },
 ];
 

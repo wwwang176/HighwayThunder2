@@ -5,8 +5,8 @@ import type { CarParams } from '../handling';
  * drive it. Adding a car = a new file in this folder, registered in `index.ts`;
  * its `ai` numbers come from `training/measureCar.train.ts`.
  *
- * The AI's room-keeping assumes a car about this size (1.86 x 4.4 m): a much
- * bigger or smaller one needs those constants revisited.
+ * Its size (`params.width`, `length`) is its collider's and what the AI keeps
+ * clear with (SelfState / PlanEgo halfWidth, halfLength).
  */
 export interface CarSpec {
   id: string;
@@ -17,6 +17,12 @@ export interface CarSpec {
   /** Body shape (src/vehicles/models.ts buildCar). */
   style: CarStyle;
   params: CarParams;
+  /**
+   * Its collision shape as convex pieces, each a flat list of points (x, y, z: body space, m; the nose
+   * toward -z, the ground 0.55 m below; from its model, src/vehicles/cars/<car>Collider.ts). None: a box
+   * of `params.width` x `length`.
+   */
+  collider?: number[][];
   ai: CarPerformance;
 }
 

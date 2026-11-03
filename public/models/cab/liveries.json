@@ -1,0 +1,26 @@
+[
+  {
+    "name": "white",
+    "paint": "#f2f2f2",
+    "stripe": null,
+    "file": "white.jpg"
+  },
+  {
+    "name": "blue",
+    "paint": "#2a5aa0",
+    "stripe": null,
+    "file": "blue.jpg"
+  },
+  {
+    "name": "green",
+    "paint": "#2d7a46",
+    "stripe": null,
+    "file": "green.jpg"
+  },
+  {
+    "name": "yellow",
+    "paint": "#d6c13a",
+    "stripe": null,
+    "file": "yellow.jpg"
+  }
+]

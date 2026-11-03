@@ -20,21 +20,29 @@ export interface PlayerCarOptions {
   entity?: Extract<EntityRef, { type: 'player' } | { type: 'rival' }>;
   /** Body colour (default: the spec's). */
   color?: number;
+  /** Paint job, for a car with a model file (carModels.ts; default: its own). */
+  livery?: string;
   /** Real headlights that light the scene (default true; rivals use glowing beams instead). */
   realLights?: boolean;
 }
 
+/** The street racer's size (each car's own: CarParams.width, length; PlayerCar.width, length). */
 export const PLAYER_W = 1.86;
 export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
 
-const WHEEL_R = 0.34;
 const HEADLIGHT_INTENSITY = 900; // candela for both lamps together, brightest part of the beam (decay 1)
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
 const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
+
+/** The mass one wheel carries standing still (kg): half its axle's share (comFwd puts more on the front). */
+export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, front: boolean): number {
+  const frontShare = 0.5 + p.comFwd / p.wheelbase;
+  return (p.mass * (front ? frontShare : 1 - frontShare)) / 2;
+}
 
 /** Road-relative yaw from a Y-only quaternion (yaw = -rotation.y). */
 export function yawOf(q: { x: number; y: number; z: number; w: number }): number {
@@ -63,8 +71,8 @@ type WheelState = ChassisWheel;
  */
 export class PlayerCar {
   readonly body: RAPIER.RigidBody;
-  /** The body's collision box (null for ghosts). */
-  readonly collider: RAPIER.Collider | null;
+  /** The body's collision shape: a box, or its spec's convex pieces (none for ghosts). */
+  readonly colliders: RAPIER.Collider[];
   readonly mesh: THREE.Group;
   private readonly lights: VehicleLights;
   private readonly visuals: { steer: THREE.Group; spin: THREE.Group }[] = [];
@@ -104,33 +112,43 @@ export class PlayerCar {
     const ghost = !opts.entity && scene === null;
     const entity = opts.entity ?? { type: 'player' };
     const inertia = {
-      x: (p.mass / 12) * (0.8 * 0.8 + PLAYER_L * PLAYER_L),
-      y: (p.mass / 12) * (PLAYER_W * PLAYER_W + PLAYER_L * PLAYER_L),
-      z: (p.mass / 12) * (PLAYER_W * PLAYER_W + 0.8 * 0.8),
+      x: (p.mass / 12) * (0.8 * 0.8 + p.length * p.length),
+      y: (p.mass / 12) * (p.width * p.width + p.length * p.length),
+      z: (p.mass / 12) * (p.width * p.width + 0.8 * 0.8),
     };
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic().setTranslation(laneCenter(1), RIDE_Y, 0).setCanSleep(false);
+    // The mass is the body's own (COM at body y + comY, comFwd toward the nose), not its colliders' (they
+    // weigh nothing): the collision shape can follow the car's body without changing how it drives.
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(laneCenter(1), RIDE_Y, 0)
+      .setCanSleep(false)
+      .setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: -p.comFwd }, inertia, { x: 0, y: 0, z: 0, w: 1 });
     if (ghost) {
       // No collider at all: a ghost stands on its wheel rays only, and with dozens
       // of them stacked on the start line, the rays must not have to test each other.
-      // Same mass properties as the player's collider gives (COM at body y + comY).
-      this.body = physics.world.createRigidBody(
-        bodyDesc.setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 }),
-      );
-      this.collider = null;
+      this.body = physics.world.createRigidBody(bodyDesc);
+      this.colliders = [];
     } else {
       this.body = physics.world.createRigidBody(bodyDesc.setCcdEnabled(true));
-      this.collider = physics.world.createCollider(
-        RAPIER.ColliderDesc.roundCuboid(PLAYER_W / 2 - 0.05, 0.3, PLAYER_L / 2 - 0.05, 0.05)
-          .setTranslation(0, 0.1, 0)
-          // The collider sits 0.1 m up the body: its mass centre is placed to land at body y + comY.
-          .setMassProperties(p.mass, { x: 0, y: p.comY - 0.1, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
-          .setFriction(0.3)
-          .setRestitution(0.05)
-          .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
-          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-        this.body,
-      );
-      physics.register(this.collider, entity);
+      const shapes = spec.collider?.map((pts) => RAPIER.ColliderDesc.convexHull(new Float32Array(pts))!) ?? [
+        RAPIER.ColliderDesc.roundCuboid(p.width / 2 - 0.05, 0.3, p.length / 2 - 0.05, 0.05).setTranslation(0, 0.1, 0),
+      ];
+      this.colliders = shapes.map((shape) => {
+        const c = physics.world.createCollider(
+          shape
+            .setDensity(0)
+            // The body slides on what it touches - the road, the rails, other cars - rather than catching and
+            // tripping over (at 0.3, averaged with the road's 0.9, light knocks rolled it), and grounding under
+            // hard braking hardly slows it (at 0.1 it dragged). The tyres grip apart.
+            .setFriction(0.02)
+            .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
+            .setRestitution(0.05)
+            .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
+            .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+          this.body,
+        );
+        physics.register(c, entity);
+        return c;
+      });
     }
 
     // Wheels: 0 FL, 1 FR, 2 RL, 3 RR.
@@ -143,7 +161,9 @@ export class PlayerCar {
     ]) {
       wheels.push(
         makeWheel(
-          { x, z, connY: CONNECTION_Y, r: WHEEL_R, front: z < 0, springK: p.springK, bump: p.damperBump, rebound: p.damperRebound, mEff: (p.mass / 4) * 0.9, gripScale: 1 },
+          // Each spring as stiff as its corner is heavy (springK at a quarter of the weight; set each step,
+          // prePhysics): the car sits level.
+          { x, z, connY: CONNECTION_Y, r: p.wheelRadius, front: z < 0, springK: p.springK, bump: p.damperBump, rebound: p.damperRebound, mEff: wheelLoad(p, z < 0) * 0.9, gripScale: 1 },
           p.suspensionRest - 0.09,
         ),
       );
@@ -160,23 +180,23 @@ export class PlayerCar {
     }
     const realLights = opts.realLights ?? true;
     // Without real lights it shows NPC-style glowing beams instead (rivals: real lights are expensive).
-    const model = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, opts.color ?? spec.color, spec.style, false, !realLights);
+    const model = buildCar(p.width, PLAYER_H, p.length, opts.color ?? spec.color, spec.style, false, !realLights, opts.livery);
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
     // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
     // of a round cone; the two beams overlap ahead and each casts its own shadow.
     for (const side of realLights ? [-1, 1] : []) {
-      const x = side * (PLAYER_W / 2 - 0.4);
+      const x = side * (p.width / 2 - 0.4);
       const hl = createHeadlight(HEADLIGHT_INTENSITY / 2);
-      hl.position.set(x, -0.05, -PLAYER_L / 2 - 0.15);
-      hl.target.position.set(x, -0.05 - Math.tan(AIM_DOWN) * 30, -PLAYER_L / 2 - 30);
+      hl.position.set(x, -0.05, -p.length / 2 - 0.15);
+      hl.target.position.set(x, -0.05 - Math.tan(AIM_DOWN) * 30, -p.length / 2 - 30);
       model.root.add(hl, hl.target);
       this.headlights.push(hl);
     }
     this.mesh = model.root;
     this.lights = model.lights;
     for (let i = 0; i < 4; i++) {
-      const w = buildWheel(WHEEL_R, WHEEL_W);
+      const w = buildWheel(p.wheelRadius, WHEEL_W, spec.style, i % 2 === 0); // even: the left wheels
       this.mesh.add(w.steer);
       this.visuals.push(w);
     }
@@ -187,6 +207,15 @@ export class PlayerCar {
 
   get speed(): number {
     return this.vLong;
+  }
+
+  /** Its body's size (m): its collider, the box others see. */
+  get width(): number {
+    return this.params.width;
+  }
+
+  get length(): number {
+    return this.params.length;
   }
 
   /** Yaw rate (rad/s), positive turning toward +d like `yaw`. */
@@ -217,6 +246,8 @@ export class PlayerCar {
     return {
       rest: p.suspensionRest,
       travel: p.suspensionTravel,
+      progressFrom: p.springProgressFrom,
+      progressMult: p.springProgressMult,
       inertia: p.wheelInertia,
       antiRoll: [
         [0, 1, p.antiRollFront],
@@ -225,6 +256,7 @@ export class PlayerCar {
       rollInfluence: rollInfluenceAt(speed, p),
       tire,
       surfaceGrip: (x: number) => this.surfaceGrip(x),
+      frontBrakeApart: p.frontBrakeApart,
     };
   }
 
@@ -253,23 +285,23 @@ export class PlayerCar {
     this.driveMode = cmd.mode;
     // Forward drive comes from the engine through the current gear (reverse keeps
     // the simple pedal force). The rev limiter bounds wheelspin.
-    if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / WHEEL_R;
+    if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / p.wheelRadius;
     // Stability control also trims power once the car is sliding sideways.
     if (p.escGain > 0 && cmd.engineForce > 0 && bodySlip > 0.15) {
       cmd.engineForce *= Math.max(0, 1 - (bodySlip - 0.15) / 0.2);
     }
-    const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * WHEEL_R;
-    const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * WHEEL_R;
-    const driveTorqueRear = cmd.engineForce * 0.5 * WHEEL_R;
+    const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * p.wheelRadius;
+    const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * p.wheelRadius;
+    const driveTorqueRear = cmd.engineForce * 0.5 * p.wheelRadius;
     setBrake(this.lights, cmd.brake > 0 && Math.abs(this.vLong) > 0.5);
 
     // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,
     // so both rears light up (and hook up) together instead of one-wheel peel.
-    const lsd = Math.max(-1500, Math.min(1500, p.lsd * (this.wheels[2].omega - this.wheels[3].omega)));
+    const lsd = Math.max(-p.lsdMax, Math.min(p.lsdMax, p.lsd * (this.wheels[2].omega - this.wheels[3].omega)));
     this.chassis.setup = this.chassisSetup(this.vLong);
     const grip = aeroGripScale(Math.hypot(this.vLong, this.vLat), p);
     for (const w of this.wheels) {
-      w.springK = p.springK;
+      w.springK = (p.springK * wheelLoad(p, w.front)) / (p.mass / 4); // as stiff as its corner is heavy
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
       w.gripScale = (w.front ? 1 : p.rearGrip) * grip;
@@ -327,8 +359,8 @@ export class PlayerCar {
   /** Place the car in a lane, upright, pointing down the road, at the given speed. */
   /** Take the car out of the world for good (another car type takes its place): body, collider, model and lights. */
   dispose(physics: PhysicsWorld): void {
-    if (this.collider) physics.unregister(this.collider);
-    physics.world.removeRigidBody(this.body); // its collider goes with it
+    for (const c of this.colliders) physics.unregister(c);
+    physics.world.removeRigidBody(this.body); // its colliders go with it
     this.mesh.removeFromParent();
   }
 
@@ -343,8 +375,8 @@ export class PlayerCar {
     this.gearbox.reset();
     this.driveMode = 'D';
     for (const w of this.wheels) {
-      w.omega = speed / WHEEL_R;
-      w.susp = p.suspensionRest - (p.mass * G) / 4 / p.springK;
+      w.omega = speed / p.wheelRadius;
+      w.susp = p.suspensionRest - (p.mass * G) / 4 / p.springK; // the same at every corner (springs as stiff as it is heavy)
       w.sliding = false;
     }
     this.readBack();
@@ -377,8 +409,9 @@ export class PlayerCar {
   footprint(): { s: number; dMin: number; dMax: number; length: number } {
     const c = Math.abs(Math.cos(this.yaw));
     const sn = Math.abs(Math.sin(this.yaw));
-    const halfD = (PLAYER_W / 2) * c + (PLAYER_L / 2) * sn;
-    const halfS = (PLAYER_L / 2) * c + (PLAYER_W / 2) * sn;
+    const { width: w, length: l } = this.params;
+    const halfD = (w / 2) * c + (l / 2) * sn;
+    const halfS = (l / 2) * c + (w / 2) * sn;
     return { s: this.s, dMin: this.d - halfD, dMax: this.d + halfD, length: halfS * 2 };
   }
 }

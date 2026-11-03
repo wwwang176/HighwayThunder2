@@ -1,0 +1,7 @@
+Use only the image_gen tool to make the three images below, then copy each into the current folder with exactly the file name given (keep the format the tool produces; if it is not .png, use that extension instead). Do nothing else: no other tools, no other files.
+
+Subject (the same car in all three): an ORIGINAL fictional mid-engined supercar for a night-time highway street-racing video game. It must not resemble any real brand or model: no logos, no badges, no brand-like grille or lights, no text or numbers anywhere. Character: very low and wide wedge, sharp low nose, cab-forward glasshouse with a steeply raked windscreen, short front overhang, large side air intakes behind the doors, pronounced rear haunches over wide rear wheels, a large fixed rear wing on two uprights, thin angular LED headlight strips, a full-width thin red tail light bar, a dark rear diffuser, low-profile tyres on dark multi-spoke wheels. Paint: bright red (#d62828 family) with the lower body, side intakes, wing and diffuser in gloss black. Style: clean stylised game concept art, readable simple shapes and flat panels (as if it will be built as a low-poly 3D model), symmetric, soft studio lighting, plain dark neutral grey background, no scenery, whole car in frame with margin.
+
+1. super-front34 — three-quarter front view from slightly above, headlights on.
+2. super-side — exact side profile (orthographic-looking, car facing left), wheels fully visible.
+3. super-rear34 — three-quarter rear view from slightly above, tail light bar lit.

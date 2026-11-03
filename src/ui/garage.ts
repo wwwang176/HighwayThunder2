@@ -13,6 +13,7 @@ import {
 import { DIFFICULTIES } from '../game/difficulty';
 import { CARS } from '../vehicles/cars';
 import { buildCar } from '../vehicles/models';
+import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
 import { installTooltips } from './tooltip';
 
 const html = String.raw;
@@ -262,15 +263,15 @@ class Preview {
     g.fillRect(0, 0, 128, 128);
     this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 5.6), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
     this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.position.y = -0.64;
+    this.shadow.position.y = -PLAYER_H / 2 + 0.01;
     addEventListener('resize', () => this.resize());
   }
 
   show(id: string): void {
     if (this.car) this.scene.remove(this.car);
     const spec = CARS[id];
-    this.car = buildCar(1.86, 1.3, 4.4, spec.color, spec.style, true, false).root;
-    this.car.position.y = 0.65;
+    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, false).root;
+    this.car.position.y = PLAYER_H / 2; // on the floor
     this.car.add(this.shadow);
     this.scene.add(this.car);
     this.resize();

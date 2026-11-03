@@ -62,6 +62,9 @@ export interface ChassisSetup {
   sideTrip?: SideTrip; // only for traffic wrecks (spectacular rollovers)
   rest: number; // suspension rest length (m)
   travel: number; // max compression from rest (m)
+  /** Progressive springs (springForce): stiffer from this share of the travel on, `progressMult` x at full travel. */
+  progressFrom?: number;
+  progressMult?: number;
   inertia: number; // wheel + driveline inertia (kg·m²)
   antiRoll: [number, number, number][]; // [left wheel, right wheel, N/m]
   /**
@@ -73,6 +76,20 @@ export interface ChassisSetup {
   rollInfluence?: number;
   tire: TireParams;
   surfaceGrip: (x: number) => number;
+  /** The front tyres brake apart from their cornering grip (tireModel WheelIn.brakeApart). */
+  frontBrakeApart?: boolean;
+}
+
+/**
+ * Spring force (N) at compression `x` (m): `k` N/m up to `from` x `travel`, then stiffening steadily to `mult`
+ * times that at full travel, and on stiffening past it (a bump stop: the body doesn't sink onto the road).
+ * `from` 1 or `mult` 1: linear.
+ */
+export function springForce(k: number, x: number, travel: number, from = 1, mult = 1): number {
+  const x0 = from * travel;
+  if (x <= x0 || mult === 1 || from >= 1) return k * x;
+  const u = x - x0;
+  return k * x + (k * (mult - 1) * u * u) / (2 * (travel - x0));
 }
 
 export function makeWheel(
@@ -133,7 +150,9 @@ export class TyreChassis {
       this.ray.dir = { x: -UP.x, y: -UP.y, z: -UP.z };
       const hit = this.physics.world.castRay(this.ray, s.rest + w.r, true, undefined, WHEEL_RAY_GROUPS, undefined, this.body);
       const prev = w.susp;
+      let x = 0; // compression, past full travel too (the bump stop's)
       if (hit && UP.y > 0.2) {
+        x = s.rest - (hit.timeOfImpact - w.r);
         w.susp = Math.max(s.rest - s.travel, hit.timeOfImpact - w.r);
         w.inContact = true;
       } else {
@@ -142,7 +161,8 @@ export class TyreChassis {
       }
       comp.push(w.inContact ? s.rest - w.susp : 0);
       const compVel = (prev - w.susp) / dt;
-      const f = w.inContact ? w.springK * (s.rest - w.susp) + (compVel > 0 ? w.bump : w.rebound) * compVel : 0;
+      const spring = springForce(w.springK, x, s.travel, s.progressFrom, s.progressMult);
+      const f = w.inContact ? spring + (compVel > 0 ? w.bump : w.rebound) * compVel : 0;
       w.load = Math.max(0, f);
     }
     // Anti-roll bars move load from the lightly to the heavily compressed side.
@@ -183,6 +203,7 @@ export class TyreChassis {
         mEff: w.mEff,
         tire: s.tire,
         muScale: s.surfaceGrip(CONTACT.x) * w.gripScale * trip,
+        brakeApart: w.front && s.frontBrakeApart,
       });
       w.omega = res.omega;
       w.spin -= res.omega * dt;

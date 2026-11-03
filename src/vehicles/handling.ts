@@ -10,6 +10,7 @@ import { STREET_RACER } from './cars/streetRacer';
 export interface CarParams {
   mass: number; // kg
   comY: number; // m, centre of mass height relative to the body's centre (which rides 0.55 m up); lower = harder to roll
+  comFwd: number; // m, centre of mass ahead of the axles' midpoint: the front tyres carry 0.5 + comFwd / wheelbase of the weight
   power: number; // W, engine peak power
   maxDriveForce: number; // N at the rear axle when reversing / pedal-mapping limit
   engineTorque: number; // N·m, engine peak torque
@@ -17,11 +18,14 @@ export interface CarParams {
   idleRpm: number; // rpm
   driveEfficiency: number; // driveline efficiency
   wheelRadius: number; // m
+  width: number; // m, the body (collider, the box others see and the AI keeps clear with)
+  length: number; // m
   maxSpeed: number; // m/s, rev limiter (wheel surface speed)
   reverseMax: number; // m/s
   reverseForce: number; // N
   brakeForceMax: number; // N, all four brakes at full pedal (enough to lock)
   brakeFrontBias: number; // share of brake torque on the front axle
+  frontBrakeApart: boolean; // arcade: the front tyres' braking takes none of their cornering grip (it steers under a hard brake, even locked)
   dragK: number; // aero drag F = dragK * v^2
   downforceK: number; // aero downforce F = downforceK * v^2
   wheelbase: number; // m
@@ -33,6 +37,8 @@ export interface CarParams {
   // Suspension (per wheel)
   suspensionRest: number; // m
   suspensionTravel: number; // m
+  springProgressFrom: number; // share of the travel from which the springs stiffen (1: linear springs)
+  springProgressMult: number; // how many times stiffer they are at full travel (and stiffer still past it: a bump stop)
   springK: number; // N/m
   damperBump: number; // N·s/m
   damperRebound: number; // N·s/m
@@ -51,6 +57,7 @@ export interface CarParams {
   rollRefKmh: number; // km/h up to which rollInfluence is as set (less past it: rollInfluenceAt)
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
+  lsdMax: number; // N·m, the most it moves
   counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
   steerSlowdownSpeed: number; // m/s; turn-in rate is halved at this speed (Infinity = never slower)
   escGain: number; // stability control: N·m of yaw correction per rad/s of yaw-rate error (0 = off)
@@ -269,20 +276,25 @@ const FOLLOW_FADE_HI = 8; // m/s
 /**
  * Front wheel angle for a -1..1 (smoothed) steering input (rad, + = right).
  *
- * While the driver steers, the wheels do exactly what the input says, relative
- * to the car's nose, up to the speed-derived grip-limit range - no automatic
- * correction. With hands off, the wheels swing toward the direction the car is
- * travelling (caster self-alignment) by `counterSteer`; a partly pressed key
- * blends between the two.
+ * Steering into the slide (or with no slide), the wheels do exactly what the
+ * input says, relative to the car's nose, up to the speed-derived grip-limit
+ * range - no automatic correction. With hands off, the wheels swing toward the
+ * direction the car is travelling (caster self-alignment) by `counterSteer`.
+ * Counter-steering (the key toward where it is travelling), they line up with
+ * the direction of travel fully and the input goes on top - so catching a
+ * slide always turns them further than letting go (at speed the input's range
+ * is smaller than a slide's angle: it used to correct less than hands off).
+ * A partly pressed key blends.
  * @param vLat sideways speed of the car's centre, + = to its right
  */
 export function steerAngle(input: number, vLong: number, vLat: number, p: CarParams): number {
   if (vLong <= 0) return input * p.maxSteer;
   const driver = input * steerRange(vLong, p);
   const fade = Math.min(1, Math.max(0, (vLong - FOLLOW_FADE_LO) / (FOLLOW_FADE_HI - FOLLOW_FADE_LO)));
-  const trail = Math.atan2(vLat, vLong) * p.counterSteer * fade;
+  const slide = Math.atan2(vLat, vLong) * fade;
   const handsOff = 1 - Math.min(1, Math.abs(input));
-  const a = driver + trail * handsOff;
+  const counter = input * slide > 0 ? Math.min(1, Math.abs(input)) : 0;
+  const a = driver + slide * (p.counterSteer * handsOff + counter);
   return Math.max(-p.maxSteer, Math.min(p.maxSteer, a));
 }
 

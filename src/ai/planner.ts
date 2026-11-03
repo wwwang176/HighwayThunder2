@@ -139,8 +139,9 @@ export const PLANNER = {
   steerClear: true,
 };
 
-const HALF_LENGTH = 2.2;
-const HALF_WIDTH = 0.93;
+/** Half the planned car's length and width (m): `plan` sets them from its ego (default: the street racer's). */
+let egoHalfL = 2.2;
+let egoHalfW = 0.93;
 /** A car merging into the held lane this close (m, beyond touching) waits for it in the game. */
 const MERGE_YIELD = 5;
 /** m around a step's positions beyond which nothing can touch: half our length, margins and a closing speed's worth. */
@@ -160,7 +161,7 @@ class Grid {
   ) {
     this.cell = LANE_WIDTH / perLane;
     const room = shoulders ? RAIL_D - 0.3 : ROAD_HALF_WIDTH;
-    this.edge = Math.floor((room - HALF_WIDTH - laneCenter(LANE_COUNT - 1)) / this.cell);
+    this.edge = Math.floor((room - egoHalfW - laneCenter(LANE_COUNT - 1)) / this.cell);
     this.first = laneCenter(0) - this.edge * this.cell;
     this.cells = perLane * (LANE_COUNT - 1) + 1 + 2 * this.edge;
   }
@@ -177,7 +178,7 @@ class Grid {
 }
 const grids = new Map<string, Grid>();
 function gridFor(shoulders: boolean, perLane: number): Grid {
-  const k = `${shoulders}/${perLane}`;
+  const k = `${shoulders}/${perLane}/${egoHalfW}`; // the edge cells leave room for the car's width
   let g = grids.get(k);
   if (!g) grids.set(k, (g = new Grid(shoulders, perLane)));
   return g;
@@ -242,6 +243,9 @@ export interface PlanEgo {
   accel?: AccelTable;
   /** Its cornering grip, sideways m/s² at full steering (default: the street racer's): PLANNER.latGrip. */
   latAccel?: AccelTable;
+  /** Half its body's width and length (m; default: the street racer's, 0.93 x 2.2). */
+  halfWidth?: number;
+  halfLength?: number;
 }
 
 interface Node {
@@ -275,12 +279,14 @@ export const PLAN_STATS = { normal: 0, relaxed: 0, fallback: 0 };
  * for the nearest lane centre braking hard - never frozen between two lanes.
  */
 export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null = null): Plan {
+  egoHalfW = ego.halfWidth ?? 0.93;
+  egoHalfL = ego.halfLength ?? 2.2;
   // Only what can matter within the horizon.
   const reachAhead = ego.s + Math.max(ego.v, ego.speedCap) * PLANNER.horizon + 50;
   // Street racing does not look back: what is wholly behind (its nose behind our tail) brakes for us,
   // so it is left out of the whole plan - not predicted to drive on into us. (Plans come every 0.25 s:
   // one that does get alongside is in the next.)
-  const behind = (t: TrafficBox) => t.s + t.length / 2 < ego.s - HALF_LENGTH;
+  const behind = (t: TrafficBox) => t.s + t.length / 2 < ego.s - egoHalfL;
   const boxes = traffic.filter((t) => t.s < reachAhead && t.s > ego.s - 150 && (PLANNER.lookBehind || !behind(t)));
   const merging = new Set<number>();
   for (const t of boxes) if (t.phantom && t.id !== undefined) merging.add(t.id);
@@ -317,16 +323,16 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
   const dt = P.step;
   const grid = gridFor(P.useShoulders, P.cellsPerLane);
   // Relaxed: what is wholly behind the car does not count (what is alongside still does).
-  if (relaxed) boxes = boxes.filter((t) => t.s + t.length / 2 > ego.s - HALF_LENGTH);
+  if (relaxed) boxes = boxes.filter((t) => t.s + t.length / 2 > ego.s - egoHalfL);
   const margin = relaxed ? 0 : 1;
   // Alongside within the side room: how far into the car's own width it reaches now (signed: - on its left).
   const tight = new Map<TrafficBox, number>();
   if (relaxed) {
     const room = P.sideMargin + swingFor(P.maxLateral, grid.cell, dt) + 0.01;
     for (const t of boxes)
-      if (Math.abs(t.s - ego.s) < HALF_LENGTH + t.length / 2 && t.dMax > ego.d - HALF_WIDTH - room && t.dMin < ego.d + HALF_WIDTH + room) {
+      if (Math.abs(t.s - ego.s) < egoHalfL + t.length / 2 && t.dMax > ego.d - egoHalfW - room && t.dMin < ego.d + egoHalfW + room) {
         const left = t.dMin + t.dMax < 2 * ego.d;
-        const overlap = left ? t.dMax - (ego.d - HALF_WIDTH) : ego.d + HALF_WIDTH - t.dMin;
+        const overlap = left ? t.dMax - (ego.d - egoHalfW) : ego.d + egoHalfW - t.dMin;
         const beside = t.dMax < ego.d || t.dMin > ego.d; // rubbing a side, not dead ahead or behind (that is a crash)
         const into = beside && overlap > 0 ? overlap + 0.02 : 0;
         tight.set(t, left ? -into : into);
@@ -357,7 +363,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
     });
     // ...and by lateral position: each cell lists the boxes that can touch a car there (with every margin).
     const byCell: TrafficBox[][] = Array.from({ length: grid.cells }, () => []);
-    const reachSide = HALF_WIDTH + P.sideMargin + swingFor(P.maxLateral, grid.cell, dt) + ON_CELL;
+    const reachSide = egoHalfW + P.sideMargin + swingFor(P.maxLateral, grid.cell, dt) + ON_CELL;
     for (const t of near) {
       const c0 = Math.max(0, grid.nearest(t.dMin - reachSide) - 1);
       const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + reachSide) + 1);
@@ -517,9 +523,9 @@ function collides(
   // of the body is - so it can cut through a gap barely its own length between a car ahead and one in the next
   // lane, nose first (lined up with the lanes it would need room for the whole car at once).
   const slope = P.turnedBody && sideways ? (d1 - n.d) / (dt * Math.max(5, (n.v + v1) / 2)) : 0;
-  const pieces = Math.min(5, Math.max(1, Math.ceil((Math.abs(slope) * 2 * HALF_LENGTH) / 0.1)));
-  const halfL = HALF_LENGTH / pieces;
-  const halfW = HALF_WIDTH + halfL * Math.abs(slope);
+  const pieces = Math.min(5, Math.max(1, Math.ceil((Math.abs(slope) * 2 * egoHalfL) / 0.1)));
+  const halfL = egoHalfL / pieces;
+  const halfW = egoHalfW + halfL * Math.abs(slope);
   // Swerving away sideways, it closes the overlap at this speed (m/s).
   const awaySpeed = (Math.max(1, Math.abs(move)) * grid.cell) / dt;
   for (const t of boxes) {
@@ -527,9 +533,9 @@ function collides(
     // Already inside the side room: no side room, and no closer than it reaches into ours now (- on our left).
     const into = tight.get(t);
     const side = into === undefined ? 1 : 0;
-    const reach = halfL + HALF_WIDTH * Math.abs(slope) + t.length / 2; // a turned body's corners poke ahead (and back) of its piece
+    const reach = halfL + egoHalfW * Math.abs(slope) + t.length / 2; // a turned body's corners poke ahead (and back) of its piece
     for (let j = 0; j < pieces; j++) {
-      const along = -HALF_LENGTH + (2 * j + 1) * halfL; // this piece's centre, from ours
+      const along = -egoHalfL + (2 * j + 1) * halfL; // this piece's centre, from ours
       const off = along * slope; // ...and how far it is over sideways
       // Centre positions where this piece is level with it (with the side room).
       const lo = t.dMin - halfW - off - (P.sideMargin + (heading > 0 ? swing : 0)) * side + Math.max(0, into ?? 0);
@@ -545,7 +551,7 @@ function collides(
       const r1 = t.s + t.v * (t0 + u1 * dt) - (sAt(n.s, n.v, accel, dt, u1) + along);
       if (inLane && r0 < 0 && r1 < 0 && t.dMin < n.d && t.dMax > n.d) continue; // behind us in our lane: it brakes for us (traffic, and racers are drivers too)
       // Merging in alongside or from behind: it waits for us (in the game). Merging in ahead: let it in.
-      if (inLane && t.id !== undefined && merging.has(t.id) && r0 < HALF_LENGTH && r0 > -(reach + MERGE_YIELD)) continue;
+      if (inLane && t.id !== undefined && merging.has(t.id) && r0 < egoHalfL && r0 > -(reach + MERGE_YIELD)) continue;
       if (Math.sign(r0) !== Math.sign(r1)) return true; // passed through it
       let rEarly: number | null = null;
       if (sideways && t.dMax > d1 + off - halfW && t.dMin < d1 + off + halfW) {

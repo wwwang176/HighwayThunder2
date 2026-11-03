@@ -31,6 +31,8 @@ export interface RunResult {
   contacts?: number;
   /** Times put back on the road after a crash (TrainingSimOptions.resetOnCrash). */
   resets?: number;
+  /** Each crash: off the road or into traffic, whether it was sliding (body slip past 10°) in the second before, at what speed. */
+  crashLog?: { offRoad: boolean; sliding: boolean; kmh: number }[];
 }
 
 /**
@@ -49,6 +51,7 @@ export const LEFT_LIMIT = MEDIAN_NEAR_X - 2;
 /** Furthest right: the outer edge of the right shoulder (the guardrail). */
 export const RIGHT_LIMIT = RAIL_D;
 
+// The street racer's body (the default; a car's own: CarParams.width, length).
 const CAR_W = 1.86;
 const CAR_L = 4.4;
 
@@ -71,8 +74,8 @@ export function carCorners(s: number, d: number, yaw: number, w = CAR_W, l = CAR
  * other's, overlapping less along the road than across - rather than side-on.
  * Taken as the contact starts, that is the way the two push on each other.
  */
-export function endOn(s: number, d: number, yaw: number, t: TrafficBox): boolean {
-  const cs = carCorners(s, d, yaw);
+export function endOn(s: number, d: number, yaw: number, t: TrafficBox, w = CAR_W, l = CAR_L): boolean {
+  const cs = carCorners(s, d, yaw, w, l);
   const sMin = Math.min(...cs.map((c) => c.s));
   const sMax = Math.max(...cs.map((c) => c.s));
   const dMin = Math.min(...cs.map((c) => c.d));
@@ -83,8 +86,8 @@ export function endOn(s: number, d: number, yaw: number, t: TrafficBox): boolean
 }
 
 /** Any corner past the right shoulder, or more than 2 m onto the median grass. */
-export function isOffRoad(s: number, d: number, yaw: number): boolean {
-  return carCorners(s, d, yaw).some((c) => c.d > RIGHT_LIMIT || c.d < LEFT_LIMIT);
+export function isOffRoad(s: number, d: number, yaw: number, w = CAR_W, l = CAR_L): boolean {
+  return carCorners(s, d, yaw, w, l).some((c) => c.d > RIGHT_LIMIT || c.d < LEFT_LIMIT);
 }
 
 /**
@@ -102,9 +105,18 @@ export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficB
 }
 
 /** What `hitsTraffic` would count as hit, one entry per vehicle or wreck touched. */
-export function touching(s: number, d: number, yaw: number, traffic: TrafficBox[], ownLane: number | null = null, out: TrafficBox[] = []): TrafficBox[] {
+export function touching(
+  s: number,
+  d: number,
+  yaw: number,
+  traffic: TrafficBox[],
+  ownLane: number | null = null,
+  out: TrafficBox[] = [],
+  w = CAR_W,
+  l = CAR_L,
+): TrafficBox[] {
   out.length = 0;
-  const cs = carCorners(s, d, yaw);
+  const cs = carCorners(s, d, yaw, w, l);
   let sMin = Infinity;
   let sMax = -Infinity;
   let dMin = Infinity;

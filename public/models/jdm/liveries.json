@@ -1,0 +1,38 @@
+[
+  {
+    "name": "blue",
+    "paint": "#3a8dde",
+    "stripe": "#141414",
+    "file": "blue.jpg"
+  },
+  {
+    "name": "white",
+    "paint": "#ededed",
+    "stripe": "#141414",
+    "file": "white.jpg"
+  },
+  {
+    "name": "black",
+    "paint": "#1a1a1c",
+    "stripe": "#141414",
+    "file": "black.jpg"
+  },
+  {
+    "name": "silver",
+    "paint": "#b8bcc2",
+    "stripe": "#141414",
+    "file": "silver.jpg"
+  },
+  {
+    "name": "red",
+    "paint": "#c8202a",
+    "stripe": "#141414",
+    "file": "red.jpg"
+  },
+  {
+    "name": "yellow",
+    "paint": "#f2c21b",
+    "stripe": "#141414",
+    "file": "yellow.jpg"
+  }
+]

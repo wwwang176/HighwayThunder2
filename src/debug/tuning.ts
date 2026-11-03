@@ -19,7 +19,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   d.add(car, 'throttleRise', 1, 30, 0.5).name('油門踩下速度');
   d.add(car, 'brakeForceMax', 5_000, 40_000, 500).name('煞車力 N');
   d.add(car, 'brakeFrontBias', 0.3, 0.9, 0.01).name('前輪煞車比例');
-  d.add(car, 'dragK', 0, 2, 0.01).name('風阻係數');
+  d.add(car, 'frontBrakeApart').name('重踩煞車前輪仍可轉向');  d.add(car, 'dragK', 0, 2, 0.01).name('風阻係數');
   d.add(car, 'downforceK', 0, 2, 0.01).name('下壓力係數');
   d.add(car, 'maxSteer', 0.1, 0.8, 0.01).name('前輪最大轉角');
   d.add(car, 'steerRise', 1, 20, 0.5).name('轉向上升速度');
@@ -29,6 +29,8 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   const s = gui.addFolder('懸吊 / 輪胎');
   s.add(car, 'suspensionRest', 0.1, 0.6, 0.01).name('懸吊長度');
   s.add(car, 'suspensionTravel', 0.05, 0.4, 0.01).name('懸吊行程');
+  s.add(car, 'springProgressFrom', 0.3, 1, 0.01).name('彈簧從行程幾成開始變硬（1 = 線性）');
+  s.add(car, 'springProgressMult', 1, 10, 0.1).name('行程到底時硬幾倍');
   s.add(car, 'springK', 10_000, 120_000, 1_000).name('彈簧 N/m');
   s.add(car, 'damperBump', 500, 12_000, 100).name('壓縮阻尼');
   s.add(car, 'damperRebound', 500, 12_000, 100).name('回彈阻尼');

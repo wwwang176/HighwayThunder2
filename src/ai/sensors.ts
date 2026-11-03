@@ -14,6 +14,11 @@ export interface SelfState {
   speedCap: number;
   /** Where the steering is now (-1..1, PlayerCar.wheel). */
   wheel?: number;
+  /** m/s the driven (rear) wheels' surface turns faster than the car goes: wheelspin. */
+  rearSpin?: number;
+  /** Half its body's width and length (m; default the street racer's, 0.93 x 2.2). */
+  halfWidth?: number;
+  halfLength?: number;
 }
 
 /** A vehicle (or wreck) on our carriageway as an axis-aligned box in road coordinates. */
@@ -47,7 +52,7 @@ const RADAR_AHEAD = 300;
 const RADAR_BEHIND = 50;
 const CLOSING_SCALE = 50;
 const SPEED_SCALE = 83.3;
-const HALF_LENGTH = 2.2; // the AI car (same body as the player's)
+const HALF_LENGTH = 2.2; // the AI car's, unless its SelfState says (the street racer's)
 const HALF_WIDTH = 0.93;
 
 const clamp = (x: number, lo = -1, hi = 1) => Math.min(hi, Math.max(lo, x));
@@ -83,11 +88,13 @@ const behindV = new Float32Array(LANE_COUNT);
  *  [29] how far the lane controller still has to take it: (target lane centre - d) / lane width
  */
 export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Float32Array(SENSOR_COUNT), targetLane = laneAt(self.d)): Float32Array {
+  const halfL = self.halfLength ?? HALF_LENGTH;
+  const halfW = self.halfWidth ?? HALF_WIDTH;
   aheadGap.fill(Infinity);
   behindGap.fill(Infinity);
   for (const t of traffic) {
     const ahead = t.s > self.s;
-    const gap = ahead ? t.s - t.length / 2 - (self.s + HALF_LENGTH) : self.s - HALF_LENGTH - (t.s + t.length / 2);
+    const gap = ahead ? t.s - t.length / 2 - (self.s + halfL) : self.s - halfL - (t.s + t.length / 2);
     if (gap > (ahead ? RADAR_AHEAD : RADAR_BEHIND)) continue;
     for (const lane of lanesSeen(t)) {
       if (ahead) {
@@ -125,8 +132,8 @@ export function readSensors(self: SelfState, traffic: TrafficBox[], out = new Fl
   out[o + 2] = clamp(self.yaw / 0.5);
   out[o + 3] = clamp(self.yawRate / 2);
   out[o + 4] = clamp((self.d - laneCenter(own)) / (LANE_WIDTH / 2));
-  out[o + 5] = clamp((RIGHT_LIMIT - (self.d + HALF_WIDTH)) / 10);
-  out[o + 6] = clamp((self.d - HALF_WIDTH - LEFT_LIMIT) / 10);
+  out[o + 5] = clamp((RIGHT_LIMIT - (self.d + halfW)) / 10);
+  out[o + 6] = clamp((self.d - halfW - LEFT_LIMIT) / 10);
   out[o + 7] = clamp(self.speedCap / SPEED_SCALE);
   out[o + 8] = clamp(self.d / RAIL_D);
   out[o + 9] = clamp((laneCenter(targetLane) - self.d) / LANE_WIDTH);

@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { BEAM_LAMP_H } from './headlight';
 import type { BeamSpot } from '../render/npcBeams';
 import type { CarStyle } from './cars/types';
+import { carTemplate, type CarTemplate, type TrafficModel, type WheelSpots } from './carModels';
 
 /**
  * Procedural low-poly vehicles. Every model's origin is the center of its
@@ -143,12 +144,29 @@ function addLights(
 export const CAR_COLORS = [0xe8e8e8, 0x2b2b2b, 0x8a8f96, 0x1d4e89, 0xb3261e, 0x2e6b3a, 0xd9c7a3, 0x5b5f97, 0xf0b429, 0x6c3b2a];
 export const CONTAINER_COLORS = [0x1f5fa8, 0xb8352a, 0x2f7d4a, 0xd88a1a, 0x6b6b6b, 0x8a2f6e, 0x0f8a8a];
 export const TRUCK_COLORS = [0xf2f2f2, 0x2a5aa0, 0x2d7a46, 0xd6c13a];
+// The same colours' paint jobs in the traffic's files (tools/models/sedan.py, truck.py and cab.py: their cabs), in
+// their order. (The trailer's container, trailer.py, is painted the colour itself.)
+export const CAR_LIVERIES = ['white', 'black', 'silver', 'blue', 'red', 'green', 'beige', 'indigo', 'yellow', 'brown'];
+export const TRUCK_LIVERIES = ['white', 'blue', 'green', 'yellow'];
 
 /**
  * Generic sedan (`style` false) or a racer's body: `true` / 'super' the low
- * supercar with a wing, 'muscle' a long-hooded muscle car.
+ * supercar with a wing, 'muscle' a long-hooded muscle car. A style with a file
+ * (carModels.ts) wears one of its paint jobs, `livery` (its own by default),
+ * rather than `color`.
  */
-export function buildCar(w: number, h: number, l: number, color: number, style: CarStyle | boolean = false, withWheels = true, beam = true): VehicleModel {
+export function buildCar(
+  w: number,
+  h: number,
+  l: number,
+  color: number,
+  style: CarStyle | boolean = false,
+  withWheels = true,
+  beam = true,
+  livery?: string,
+): VehicleModel {
+  const made = typeof style === 'string' ? carTemplate(style) : undefined;
+  if (made) return fromTemplate(made, h, l, color, withWheels, beam, livery);
   if (style === 'muscle') return buildMuscleCar(w, h, l, color, withWheels, beam);
   if (style === 'jdm') return buildJdmCar(w, h, l, color, withWheels, beam);
   const sporty = style !== false;
@@ -173,6 +191,150 @@ export function buildCar(w: number, h: number, l: number, color: number, style: 
   if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.33);
   addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
   return { root, lights };
+}
+
+// A body from a file (carModels.ts) stands on the ground at this depth below its origin.
+const MODEL_GROUND = 0.55;
+// Where a file car's wheels go when it brings its own (the garage) and the file doesn't say: the player car's.
+const MODEL_WHEELS: WheelSpots = { x: 0.8, front: 1.3, rear: -1.3, r: 0.34 };
+
+const paintCache = new Map<string, THREE.Material>();
+/**
+ * The inside of a file body's shell (its paint's back faces: seen up the wheel wells, which are open above),
+ * near black like the underside.
+ */
+const SHELL_INSIDE = new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.9, side: THREE.BackSide });
+/** The paint (its front faces): one of the file's paint jobs (`livery`, or its own), or for a file without them `color`. */
+function paintFor(base: THREE.Material, t: CarTemplate, color: number, livery: string | undefined): THREE.Material {
+  const name = livery !== undefined && t.liveries.has(livery) ? livery : t.liveries.keys().next().value;
+  const key = `${base.uuid}|${name ?? color}`;
+  let m = paintCache.get(key);
+  if (!m) {
+    const p = base.clone() as THREE.MeshStandardMaterial;
+    p.side = THREE.FrontSide;
+    if (name !== undefined) {
+      p.map = t.liveries.get(name)!;
+      p.color.setHex(0xffffff);
+    } else p.color.setHex(color);
+    m = p;
+    paintCache.set(key, m);
+  }
+  return m;
+}
+
+/**
+ * A traffic body from its file (carModels.ts), in the paint job `livery` (a file
+ * without paint jobs, the trailer's: plain `color`), the file's origin (midway
+ * between its axles; the trailer's, its middle) `z` along the physics box; no wheels
+ * (the traffic's are shared). Undefined until the files are loaded (and in the
+ * tests): the caller's procedural body then.
+ */
+export function buildTrafficBody(name: TrafficModel, h: number, l: number, z: number, livery?: string, color = 0): VehicleModel | undefined {
+  const t = carTemplate(name);
+  return t && fromTemplate(t, h, l, color, false, true, livery, z, true);
+}
+
+/**
+ * A car body made in Blender: painted (its paint job `livery`, its own by
+ * default; or `color`), its named lamps wired up like addLights' (glow
+ * materials, indicators off, brake lights, flare spots - none on a light bar
+ * unless `barFlares` -, the NPC-style beam). Its origin `z` along the box.
+ */
+function fromTemplate(
+  t: CarTemplate,
+  h: number,
+  l: number,
+  color: number,
+  withWheels: boolean,
+  beam: boolean,
+  livery?: string,
+  z = 0,
+  barFlares = false,
+): VehicleModel {
+  const root = new THREE.Group();
+  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const g = -h / 2;
+  const body = t.body.clone(true);
+  body.position.set(0, g + MODEL_GROUND, z);
+  root.add(body);
+  const painted: THREE.Mesh[] = [];
+  body.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mat = m.material as THREE.Material;
+    if (mat.name === 'paint') {
+      m.material = paintFor(mat, t, color, livery);
+      painted.push(m);
+    }
+    m.castShadow = mat.name !== 'glass';
+  });
+  for (const m of painted) m.add(new THREE.Mesh(m.geometry, SHELL_INSIDE)); // its back faces, dark
+  root.updateMatrixWorld(true);
+  const flares: FlareSpot[] = (root.userData.flares = []);
+  const lamp = (name: string, mat: THREE.Material) => {
+    const m = body.getObjectByName(name) as THREE.Mesh | undefined;
+    if (!m) return undefined;
+    m.material = mat;
+    m.castShadow = false;
+    return { mesh: m, box: new THREE.Box3().setFromObject(m) };
+  };
+  const c = new THREE.Vector3();
+  for (const side of ['L', 'R'] as const) {
+    const head = lamp(`head_${side}`, HEADLIGHT);
+    if (head) {
+      head.box.getCenter(c);
+      flares.push({ x: c.x, y: c.y, z: head.box.min.z - 0.1, kind: 'head' });
+      if (beam) root.userData.beam = { frontZ: -l / 2, groundY: g, k: (c.y - g) / BEAM_LAMP_H } satisfies BeamSpot;
+    }
+    const tail = lamp(`tail_${side}`, BRAKE_DIM);
+    if (tail) {
+      tail.box.getCenter(c);
+      if (barFlares || !tail.mesh.userData.bar) flares.push({ x: c.x, y: c.y, z: tail.box.max.z + 0.1, kind: 'tail' });
+      lights.brake.push(tail.mesh);
+    }
+    for (const end of ['F', 'R']) {
+      const ind = lamp(`ind_${end}${side}`, INDICATOR);
+      if (!ind) continue;
+      ind.box.getCenter(c);
+      ind.mesh.userData.flare = { x: c.x, y: c.y, z: c.z }; // its glow (model space: the mesh itself sits at the file's origin)
+      ind.mesh.visible = false;
+      (side === 'L' ? lights.left : lights.right).push(ind.mesh);
+    }
+  }
+  if (withWheels && t.wheel) {
+    const s = t.spots ?? MODEL_WHEELS;
+    for (const along of [s.front, s.rear]) {
+      for (const x of [-s.x, s.x]) {
+        const w = templateWheel(t, s.r, x < 0);
+        w.position.set(x, g + s.r, -along); // the nose is -z
+        root.add(w);
+        const c = templateCaliper(t, s.r, x < 0);
+        if (c) {
+          c.position.copy(w.position);
+          root.add(c);
+        }
+      }
+    }
+  }
+  return { root, lights };
+}
+
+/** The file's wheel at radius `r`, its rim facing out (left wheels turned round). */
+function templateWheel(t: CarTemplate, r: number, left: boolean): THREE.Object3D {
+  const w = t.wheel!.clone(true);
+  w.scale.setScalar(r / (t.spots ?? MODEL_WHEELS).r);
+  w.rotation.set(0, left ? Math.PI : 0, 0);
+  w.traverse((o) => void ((o as THREE.Mesh).isMesh && (o.castShadow = true)));
+  return w;
+}
+
+/** The file's brake caliper for a wheel at radius `r` (none if it has none): mirrored on the left, so behind the axle on both sides. */
+function templateCaliper(t: CarTemplate, r: number, left: boolean): THREE.Object3D | null {
+  if (!t.caliper) return null;
+  const c = t.caliper.clone(true);
+  const k = r / (t.spots ?? MODEL_WHEELS).r;
+  c.scale.set(left ? -k : k, k, k);
+  return c;
 }
 
 /** Muscle car: a tall slab of a body, long hood with a scoop, small cabin set back, twin stripes, a ducktail. (The nose is -z.) */
@@ -283,12 +445,20 @@ export function buildContainerTrailer(w: number, h: number, trailerL: number, co
 
 /**
  * A single wheel for the player car: `steer` turns about Y, `spin` (child) rolls
- * about the axle. Spokes make the rotation visible.
+ * about the axle. Spokes make the rotation visible. (A file's brake caliper
+ * steers but doesn't roll.)
  */
-export function buildWheel(r: number, width: number): { steer: THREE.Group; spin: THREE.Group } {
+export function buildWheel(r: number, width: number, style?: CarStyle, left = false): { steer: THREE.Group; spin: THREE.Group } {
   const steer = new THREE.Group();
   const spin = new THREE.Group();
   steer.add(spin);
+  const fromFile = style ? carTemplate(style) : undefined;
+  if (fromFile?.wheel) {
+    spin.add(templateWheel(fromFile, r, left));
+    const c = templateCaliper(fromFile, r, left);
+    if (c) steer.add(c);
+    return { steer, spin };
+  }
   const tire = new THREE.Mesh(wheelGeo, TIRE);
   tire.scale.set(width, r, r);
   tire.castShadow = true;

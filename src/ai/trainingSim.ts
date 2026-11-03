@@ -6,7 +6,7 @@ import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
 import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
-import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
+import { PlayerCar } from '../vehicles/playerCar';
 import { WheelInstances } from '../vehicles/wheelInstances';
 import type { Brain } from './brain';
 import { AiDriver, Driver, selfStateOf } from './driver';
@@ -19,7 +19,6 @@ import type { CarSpec } from '../vehicles/cars';
 import { aiTopSpeed } from './aiTopSpeed';
 
 const START_LANE = 1;
-const CAR_HALF_W = PLAYER_W / 2;
 /** Settled in a lane: this close to its centre (m) and moving across slower than SETTLED_SIDEWAYS (m/s). */
 const HOLDING_LANE_TOLERANCE = 0.5;
 const SETTLED_SIDEWAYS = 1;
@@ -39,7 +38,12 @@ export interface Ghost {
   lane: number;
   /** Vehicles it is touching now (id → since when). */
   touching: Map<number, number>;
+  /** Last time its body slipped past SLIDING (for RunResult.crashLog). */
+  slidAt: number;
 }
+
+/** Body slip angle (rad) that counts as sliding: cornering hard and changing lanes it stays near 6°. */
+const SLIDING = (10 * Math.PI) / 180;
 
 /**
  * The lane whose traffic from behind would brake for this car in the game: the
@@ -62,7 +66,7 @@ export function ownLane(d: number, vD: number): number | null {
  */
 export function judgeContacts(
   touched: TrafficBox[],
-  car: { s: number; d: number; yaw: number; vS: number; vD: number },
+  car: { s: number; d: number; yaw: number; vS: number; vD: number; w?: number; l?: number },
   time: number,
   open: Map<number, number>,
 ): 'crash' | number {
@@ -73,7 +77,7 @@ export function judgeContacts(
     now.add(id);
     const since = open.get(id);
     if (since === undefined) {
-      const closing = endOn(car.s, car.d, car.yaw, t) ? car.vS - t.v : car.vD;
+      const closing = endOn(car.s, car.d, car.yaw, t, car.w, car.l) ? car.vS - t.v : car.vD;
       if (Math.abs(closing) > FITNESS.lightContactSpeed) return 'crash';
       open.set(id, time);
       started++;
@@ -152,6 +156,7 @@ export class TrainingSim {
         laneChanges: 0,
         lane: START_LANE,
         touching: new Map(),
+        slidAt: -Infinity,
       });
     }
     this.traffic.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, (f) => this.occupants(f));
@@ -208,7 +213,7 @@ export class TrainingSim {
       if (!g.alive) continue;
       const c = g.car;
       const s = frame.fromWorld(c.d, -c.s).s;
-      for (const lane of lanesOccupied(c.d - CAR_HALF_W, c.d + CAR_HALF_W)) out.push({ s, lane, length: PLAYER_L, v: Math.max(0, c.speed) });
+      for (const lane of lanesOccupied(c.d - c.width / 2, c.d + c.width / 2)) out.push({ s, lane, length: c.length, v: Math.max(0, c.speed) });
     }
     return out;
   }
@@ -221,7 +226,7 @@ export class TrainingSim {
       const t = g.car.body.translation();
       const v = g.car.body.linvel();
       const f = OUR_FRAME.forwardWorld(g.car.yaw);
-      out.push({ ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: PLAYER_W, l: PLAYER_L, vx: v.x, vz: v.z }), id: -1000 - i, isPlayer: true });
+      out.push({ ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: g.car.width, l: g.car.length, vx: v.x, vz: v.z }), id: -1000 - i, isPlayer: true });
     });
     return out;
   }
@@ -242,7 +247,13 @@ export class TrainingSim {
       this.retire(g);
       return;
     }
-    const contact = isOffRoad(c.s, c.d, c.yaw) ? 'crash' : judgeContacts(touching(c.s, c.d, c.yaw, this.boxes, own, this.touched), { s: c.s, d: c.d, yaw: c.yaw, vS, vD }, this.time, g.touching);
+    const [w, l] = [c.width, c.length];
+    if (Math.abs(Math.atan2(c.vLat, Math.max(1, Math.abs(c.vLong)))) > SLIDING) g.slidAt = this.time;
+    const offRoad = isOffRoad(c.s, c.d, c.yaw, w, l);
+    const contact = offRoad
+      ? 'crash'
+      : judgeContacts(touching(c.s, c.d, c.yaw, this.boxes, own, this.touched, w, l), { s: c.s, d: c.d, yaw: c.yaw, vS, vD, w, l }, this.time, g.touching);
+    if (contact === 'crash') (g.result.crashLog ??= []).push({ offRoad, sliding: this.time - g.slidAt < 1, kmh: Math.hypot(vS, vD) * 3.6 });
     if (contact === 'crash' && this.resetOnCrash !== null) {
       // As a rival in the game: put back on the road nearby at a reset speed, and race on.
       const spot = computeResetSpot(c.s, c.d, this.boxes.filter((b) => !b.phantom), this.resetOnCrash);

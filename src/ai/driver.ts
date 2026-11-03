@@ -36,7 +36,19 @@ export interface Driver {
 
 /** The AI car's state as the sensors expect it. */
 export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
-  return { s: car.s, d: car.d, yaw: car.yaw, vLong: car.vLong, vLat: car.vLat, yawRate: car.yawRate, speedCap, wheel: car.wheel };
+  return {
+    s: car.s,
+    d: car.d,
+    yaw: car.yaw,
+    vLong: car.vLong,
+    vLat: car.vLat,
+    yawRate: car.yawRate,
+    speedCap,
+    wheel: car.wheel,
+    rearSpin: ((car.wheels[2].omega + car.wheels[3].omega) / 2) * car.params.wheelRadius - car.vLong,
+    halfWidth: car.width / 2,
+    halfLength: car.length / 2,
+  };
 }
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -56,7 +68,7 @@ const CRUISE: Omit<IdmParams, 'v0'> = { T: 0.1, s0: 1.5, a: 4, b: 6 };
 /** m/s² of slowing the car gets without the brake (coasting); braking covers the rest up to this much more. */
 const COAST_DECEL = 1;
 const FULL_BRAKE_DECEL = 9;
-const HALF_LENGTH = 2.2;
+const HALF_LENGTH = 2.2; // the car's, unless its SelfState says (the street racer's)
 const HALF_WIDTH = 0.93;
 
 /**
@@ -69,7 +81,7 @@ export function cruisePedals(target: number, self: SelfState, traffic: TrafficBo
   let vLead = 0;
   for (const t of traffic) {
     if (t.s <= self.s || t.dMax < dLo || t.dMin > dHi) continue;
-    const g = t.s - t.length / 2 - (self.s + HALF_LENGTH);
+    const g = t.s - t.length / 2 - (self.s + (self.halfLength ?? HALF_LENGTH));
     if (gap === null || g < gap) {
       gap = g;
       vLead = t.v;
@@ -137,7 +149,8 @@ export class AiDriver implements Driver {
     const target = Math.min(self.speedCap, (MAX_TARGET_SPEED * (o[1] + 1)) / 2);
     // Watch ahead across where the car is and where it is going (the whole lane change path).
     const goal = laneCenter(lanes.targetLane);
-    const { throttle, brake } = cruisePedals(target, self, traffic, Math.min(self.d, goal) - HALF_WIDTH, Math.max(self.d, goal) + HALF_WIDTH);
+    const halfW = self.halfWidth ?? HALF_WIDTH;
+    const { throttle, brake } = cruisePedals(target, self, traffic, Math.min(self.d, goal) - halfW, Math.max(self.d, goal) + halfW);
     return { steer, throttle, brake };
   }
 }

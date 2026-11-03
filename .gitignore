@@ -3,3 +3,5 @@ dist/
 .superpowers/
 *.log
 training/out/
+__pycache__/
+*.blend1

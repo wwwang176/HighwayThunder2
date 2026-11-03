@@ -57,11 +57,12 @@ export interface VehicleSpec {
 }
 
 export const VEHICLE_SPECS: Record<VehicleKind, VehicleSpec> = {
+  // Car and truck: their models' bodies (public/models/sedan.glb, truck.glb), mirrors left out.
   car: {
     kind: 'car',
-    length: 4.5,
-    width: 1.85,
-    height: 1.45,
+    length: 4.11,
+    width: 1.72,
+    height: 1.38,
     mass: 1300,
     speedRange: [95 * KMH, 125 * KMH],
     laneChangeTime: 2.0,
@@ -71,9 +72,9 @@ export const VEHICLE_SPECS: Record<VehicleKind, VehicleSpec> = {
   },
   truck: {
     kind: 'truck',
-    length: 8.5,
-    width: 2.4,
-    height: 3.3,
+    length: 7.46,
+    width: 2.5, // (its tyres; its cab 2.44)
+    height: 3.37,
     mass: 9000,
     speedRange: [80 * KMH, 92 * KMH],
     laneChangeTime: 3.5,
@@ -83,16 +84,16 @@ export const VEHICLE_SPECS: Record<VehicleKind, VehicleSpec> = {
   },
   container: {
     kind: 'container',
-    length: 16.9, // cab 6 + trailer 12.5 - 1.6 overlap at the fifth wheel
+    length: 16.94, // cab 6.29 + trailer 12.5 - 1.85 overlap at the fifth wheel (their models')
     width: 2.5,
-    height: 4.0,
+    height: 3.92, // the container's top
     mass: 8000,
     speedRange: [75 * KMH, 88 * KMH],
     laneChangeTime: 4.5,
     allowedLanes: [2, 3],
     idm: { T: 1.9, s0: 3.5, a: 0.7, b: 1.8 },
     politenessRange: [0.4, 0.7],
-    cabLength: 6,
+    cabLength: 6.29,
     trailerLength: 12.5,
     trailerMass: 16000,
   },
