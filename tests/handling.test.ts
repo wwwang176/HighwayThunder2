@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -38,6 +38,24 @@ describe('driveCommand', () => {
       expect(c.brake).toBe(1);
       expect(c.mode).toBe('D');
     }
+  });
+  it('D, (nearly) stopped, both keys: a burnout - the engine drives, the brakes (the front ones: playerCar) hold it', () => {
+    const both = { throttle: 1, brake: 1, steer: 0 };
+    for (const v of [0, BURNOUT_SPEED - 0.1]) {
+      const c = driveCommand(both, v, P, 'D');
+      expect(c.burnout).toBe(true);
+      expect(c.engineForce).toBeGreaterThan(0);
+      expect(c.brake).toBe(1);
+      expect(c.mode).toBe('D');
+    }
+  });
+  it('both keys while moving faster, or in R: no burnout, a brake as before', () => {
+    const both = { throttle: 1, brake: 1, steer: 0 };
+    const moving = driveCommand(both, BURNOUT_SPEED + 1, P, 'D');
+    expect(moving.burnout).toBeFalsy();
+    expect(moving.engineForce).toBe(0);
+    expect(moving.brake).toBe(1);
+    expect(driveCommand(both, 0, P, 'R').burnout).toBeFalsy();
   });
   it('D: throttle while rolling backwards (e.g. after a spin) brakes, stays in D', () => {
     const c = driveCommand(T, -15, P, 'D');

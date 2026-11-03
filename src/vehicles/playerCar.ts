@@ -37,6 +37,8 @@ export const PLAYER_L = 4.4;
 const HEADLIGHT_INTENSITY = 900; // candela for both lamps together, brightest part of the beam (decay 1)
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
+/** The rear tyres' grip in a burnout, times: the front brakes alone hold the car. */
+const BURNOUT_REAR_GRIP = 0.6;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
 const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
@@ -304,9 +306,10 @@ export class PlayerCar {
       cmd.engineForce *= Math.max(0, 1 - (bodySlip - 0.15) / 0.2);
     }
     const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * p.wheelRadius;
-    const brakeTorqueRear = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * p.wheelRadius;
+    // A burnout (both keys, stopped): the front brakes hold it, the driven rear wheels spin free of theirs.
+    const brakeTorqueRear = cmd.burnout ? 0 : (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * p.wheelRadius;
     const driveTorqueRear = cmd.engineForce * 0.5 * p.wheelRadius;
-    setBrake(this.lights, cmd.brake > 0 && Math.abs(this.vLong) > 0.5);
+    setBrake(this.lights, cmd.brake > 0 && (Math.abs(this.vLong) > 0.5 || !!cmd.burnout));
 
     // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,
     // so both rears light up (and hook up) together instead of one-wheel peel.
@@ -317,7 +320,8 @@ export class PlayerCar {
       w.springK = (p.springK * wheelLoad(p, w.front)) / (p.mass / 4); // as stiff as its corner is heavy
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
-      w.gripScale = (w.front ? 1 : p.rearGrip) * grip;
+      // In a burnout the spinning rear tyres push less (arcade): the front brakes hold every car, even a tail-heavy one.
+      w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1)) * grip;
     }
     this.chassis.step(
       dt,

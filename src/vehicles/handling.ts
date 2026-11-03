@@ -82,22 +82,25 @@ export type HandlingInput = DriveInput;
 export type DriveMode = 'D' | 'R';
 
 const STOPPED = 0.5; // m/s
+/** Both keys held in D below this speed (m/s): a burnout (driveCommand). */
+export const BURNOUT_SPEED = 4;
 
 /**
  * Pedal mapping with an explicit D / R selector. R is engaged only when the
  * car is (nearly) stopped and the back key is pressed; D again only when
  * stopped and the throttle key is pressed. Otherwise the key that opposes the
  * car's motion or the selected direction is a brake (so after a spin, throttle
- * in D first brakes the backwards slide).
+ * in D first brakes the backwards slide). Both keys in D (nearly) stopped: a burnout - the engine drives and
+ * the brakes hold the car (the caller brakes only the front wheels, the driven rear ones spin).
  * @param vForward speed along the car's nose (m/s, negative when moving backwards)
- * @returns engine force (N, + = forward), brake pedal 0..1 and the selected mode
+ * @returns engine force (N, + = forward), brake pedal 0..1, the selected mode, and whether it is a burnout
  */
 export function driveCommand(
   input: DriveInput,
   vForward: number,
   p: CarParams,
   mode: DriveMode = 'D',
-): { engineForce: number; brake: number; mode: DriveMode } {
+): { engineForce: number; brake: number; mode: DriveMode; burnout?: boolean } {
   if (input.handbrake) return { engineForce: 0, brake: 1, mode };
   let m = mode;
   if (Math.abs(vForward) < STOPPED) {
@@ -105,6 +108,9 @@ export function driveCommand(
     else if (input.throttle > 0 && input.brake === 0) m = 'D';
   }
   if (m === 'D') {
+    if (input.brake > 0 && input.throttle > 0 && Math.abs(vForward) < BURNOUT_SPEED) {
+      return { engineForce: p.maxDriveForce * input.throttle, brake: input.brake, mode: m, burnout: true };
+    }
     if (input.brake > 0) return { engineForce: 0, brake: input.brake, mode: m };
     if (input.throttle > 0) {
       if (vForward < -STOPPED) return { engineForce: 0, brake: input.throttle, mode: m };
