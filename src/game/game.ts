@@ -451,10 +451,11 @@ export class Game {
     });
     this.physics.step((a, b, n) => this.onContact(a, b, n));
     this.physics.touches((t) => {
-      // None off the ground (a car's nose dipping onto the road under hard braking threw them): only off the
-      // rails and other vehicles.
+      // None off a car's underside on the ground (its nose dipping onto the road under hard braking threw them);
+      // its roof or side on it (rolled over), yes.
       const ground = (t.a.type === 'static' || t.b.type === 'static') && Math.abs(t.normal.y) > 0.7; // (a rail's side: across)
-      if (!ground) this.sparks.touch(t, dt);
+      const upright = t.upA.y + t.upB.y > 0.7; // (the static one's: 0)
+      if (!(ground && upright)) this.sparks.touch(t, dt);
     });
     this.player.postPhysics();
     this.trafficWorld.afterPhysics();

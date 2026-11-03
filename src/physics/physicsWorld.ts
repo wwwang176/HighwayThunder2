@@ -34,6 +34,9 @@ export interface Touch {
   mid: THREE.Vector3;
   va: THREE.Vector3;
   vb: THREE.Vector3;
+  /** Which way is up for each body (world; a fixed thing's, 0): a car's roof side. */
+  upA: THREE.Vector3;
+  upB: THREE.Vector3;
   fresh: boolean;
 }
 
@@ -45,6 +48,18 @@ function velocityAt(body: RAPIER.RigidBody | null, p: THREE.Vector3, out: THREE.
   }
   const v = body.velocityAtPoint(p);
   out.set(v.x, v.y, v.z);
+}
+
+const Q = new THREE.Quaternion();
+
+/** Which way is up for a body (none, or a fixed thing: 0). */
+function upOf(body: RAPIER.RigidBody | null, out: THREE.Vector3): void {
+  if (!body || body.isFixed()) {
+    out.set(0, 0, 0);
+    return;
+  }
+  const r = body.rotation();
+  out.set(0, 1, 0).applyQuaternion(Q.set(r.x, r.y, r.z, r.w));
 }
 
 export const ROAD_START_S = -300;
@@ -65,6 +80,8 @@ export class PhysicsWorld {
     mid: new THREE.Vector3(),
     va: new THREE.Vector3(),
     vb: new THREE.Vector3(),
+    upA: new THREE.Vector3(),
+    upB: new THREE.Vector3(),
     fresh: false,
   };
 
@@ -176,6 +193,8 @@ export class PhysicsWorld {
       mid.multiplyScalar(1 / t.count);
       velocityAt(c1.parent(), mid, t.va);
       velocityAt(c2.parent(), mid, t.vb);
+      upOf(c1.parent(), t.upA);
+      upOf(c2.parent(), t.upB);
       t.a = a;
       t.b = b;
       t.fresh = p.fresh;
