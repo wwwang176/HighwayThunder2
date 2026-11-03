@@ -9,8 +9,8 @@ import { trackerFile } from '../src/ai/aiTopSpeed';
 import type { Brain } from '../src/ai/brain';
 import { selfStateOf } from '../src/ai/driver';
 import { DEFAULT_EVO, nextGeneration } from '../src/ai/evolution';
-import { baseSteer, netSteer, quietTracker, trackerFrom } from '../src/ai/netTracker';
-import { lateralTurn, Plan, PLANNER } from '../src/ai/planner';
+import { baseSteer, netDrive, quietTracker, trackerFrom } from '../src/ai/netTracker';
+import { lateralTurn, maxAccel, Plan, PLANNER } from '../src/ai/planner';
 import { planPedals } from '../src/ai/plannerDriver';
 import { mulberry32, Rng } from '../src/ai/rng';
 import { openGround } from './openGround';
@@ -42,10 +42,15 @@ interface Scenario {
   v: number;
   /** [time, lateral target] */
   targets: [number, number][];
+  /** [time, target speed] (m/s): it speeds up flat out and slows, changing lanes as it goes - as in a race. */
+  speeds: [number, number][];
 }
 
+/** How much progress counts against wheel tracking: taking the throttle back must not just slow it down. */
+const PROGRESS = 0.01; // cost per metre
+
 function scenario(rng: Rng): Scenario {
-  const v = (60 + rng() * (TOP_KMH - 60)) * KMH;
+  const v = (40 + rng() * (TOP_KMH - 40)) * KMH;
   const targets: [number, number][] = [];
   const lo = laneCenter(0);
   const hi = laneCenter(LANE_COUNT - 1);
@@ -54,7 +59,9 @@ function scenario(rng: Rng): Scenario {
     const d = rng() < 0.6 ? laneCenter(Math.floor(rng() * LANE_COUNT)) : lo + Math.round((rng() * (hi - lo)) / (LANE_WIDTH / 8)) * (LANE_WIDTH / 8);
     targets.push([t, d]);
   }
-  return { v, targets };
+  const speeds: [number, number][] = [[0, (60 + rng() * (TOP_KMH - 60)) * KMH]];
+  for (let t = 2 + rng() * 2; t < SCENARIO_S; t += 2 + rng() * 2) speeds.push([t, (50 + rng() * (TOP_KMH - 50)) * KMH]);
+  return { v, targets, speeds };
 }
 
 const targetAt = (sc: Scenario, t: number) => {
@@ -63,12 +70,18 @@ const targetAt = (sc: Scenario, t: number) => {
   return d;
 };
 
+const speedAt = (sc: Scenario, t: number) => {
+  let v = sc.speeds[0][1];
+  for (const [at, x] of sc.speeds) if (at <= t) v = x;
+  return v;
+};
+
 /**
  * A plan from (s, d, vD) at speed v toward lateral `target` the way the planner moves: whole cells
  * a step, the change in sideways move each step within what the car's grip allows (`lateralTurn`),
  * as fast as it can while still able to stop on the target.
  */
-export function movePlan(s: number, d: number, vD: number, v: number, target: number): Plan {
+export function movePlan(s: number, d: number, vD: number, v: number, target: number, vTarget = v): Plan {
   const dt = PLANNER.step;
   const cell = LANE_WIDTH / PLANNER.cellsPerLane;
   const turn = Math.min(lateralTurn(v, dt, cell, SPEC.ai.latAccel), 6);
@@ -84,7 +97,14 @@ export function movePlan(s: number, d: number, vD: number, v: number, target: nu
     return sum;
   };
   const points = [{ t: 0, s, d, v }];
+  let speed = v;
+  let along = s;
   for (let k = 1; k <= Math.round(3 / dt); k++) {
+    // Toward the target speed: flat out up, the planner's soft brake down.
+    const dv = vTarget - speed;
+    const was = speed;
+    speed += dv > 0 ? Math.min(dv, maxAccel(speed, SPEC.ai.accel) * dt) : Math.max(dv, -PLANNER.softBrake * dt);
+    along += ((was + speed) / 2) * dt;
     const rest = goal - c;
     let best = NaN;
     for (let m = Math.ceil(lat - turn - 0.01); m <= Math.floor(lat + turn + 0.01); m++) {
@@ -98,7 +118,7 @@ export function movePlan(s: number, d: number, vD: number, v: number, target: nu
     if (Number.isNaN(best)) best = rest >= 0 ? Math.max(-maxLat, Math.ceil(lat - turn - 0.01)) : Math.min(maxLat, Math.floor(lat + turn + 0.01));
     c += best;
     lat = best;
-    points.push({ t: k * dt, s: s + v * k * dt, d: first + c * cell, v });
+    points.push({ t: k * dt, s: along, d: first + c * cell, v: speed });
   }
   return { points };
 }
@@ -138,12 +158,17 @@ function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepErrors = 
         const self = selfStateOf(r.car, cap);
         if (!r.plan || t - r.madeAt >= 0.25 - 1e-9) {
           const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
-          r.plan = movePlan(self.s, self.d, vD, sc.v, targetAt(sc, t));
+          r.plan = movePlan(self.s, self.d, vD, Math.max(5, self.vLong), targetAt(sc, t), speedAt(sc, t));
           r.madeAt = t;
         }
         const age = t - r.madeAt;
-        const steer = r.brain ? netSteer(r.brain, r.plan, age, self, r.car.params) : baseSteer(r.plan, age, self, r.car.params);
-        const pedals = planPedals(r.plan, age, self.vLong);
+        const pedals = planPedals(r.plan, age, self.vLong, SPEC.ai.accel);
+        let steer: number;
+        if (r.brain) {
+          const net = netDrive(r.brain, r.plan, age, self, r.car.params, pedals.throttle);
+          steer = net.steer;
+          pedals.throttle = net.throttle;
+        } else steer = baseSteer(r.plan, age, self, r.car.params);
         r.car.prePhysics({ steer, ...pedals }, PHYSICS_DT);
         r.cost += CHATTER * Math.abs(steer - r.lastSteer);
         r.lastSteer = steer;
@@ -168,6 +193,7 @@ function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepErrors = 
         }
       }
     }
+    for (const r of runs) r.cost -= PROGRESS * r.car.s; // the way it got
   }
   physics.free();
   return { cost: runs.map((r) => r.cost / scenarios.length), errs: runs.map((r) => r.errs) };

@@ -2,7 +2,7 @@ import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import type { Brain } from './brain';
-import { baseSteer, netSteer, trackerFrom } from './netTracker';
+import { baseSteer, netDrive, trackerFrom } from './netTracker';
 import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
@@ -176,8 +176,14 @@ export class PlannerDriver implements Driver {
     // Aims trackerLead s ahead on the plan (shorter than the lane controller's preview: that one leads on purpose;
     // here it ran the car 0.7 m ahead of the plan's sideways moves, into what the plan was still waiting to clear).
     const aim = planAt(this.plan, age + PLANNER.trackerLead);
-    const steer = DRIVER_TUNING.netTracker && this.tracker ? netSteer(this.tracker, this.plan, age, self, p) : baseSteer(this.plan, age, self, p);
     const pedals = planPedals(this.plan, age, self.vLong, this.accelTable());
+    // The car type's network steers, and takes back some of the throttle (wheelspin, a sliding tail).
+    let steer: number;
+    if (DRIVER_TUNING.netTracker && this.tracker) {
+      const net = netDrive(this.tracker, this.plan, age, self, p, pedals.throttle);
+      steer = net.steer;
+      pedals.throttle = net.throttle;
+    } else steer = baseSteer(this.plan, age, self, p);
     // Sideways rate the plan has now, or (`steerClear`) where the steering already aims, if more: it is on its way out.
     const now = planAt(this.plan, age).dRate;
     const brake = emergencyBrake(self, traffic, PLANNER.steerClear && Math.abs(aim.dRate) > Math.abs(now) ? aim.dRate : now);

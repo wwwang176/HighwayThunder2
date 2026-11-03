@@ -16,8 +16,11 @@ import type { SelfState } from './sensors';
 
 /** s ahead on the plan it sees where the plan is and how fast it moves sideways. */
 export const TRACKER_LOOK = [0, 0.15, 0.3, 0.5];
-export const TRACKER_INPUTS = 2 * TRACKER_LOOK.length + 7;
-export const TRACKER_LAYERS = [TRACKER_INPUTS, 12, 12, 1];
+export const TRACKER_INPUTS = 2 * TRACKER_LOOK.length + 9;
+/** Outputs: a steering correction, and how much of the plan's throttle to take back (0..1: none..all). */
+export const TRACKER_LAYERS = [TRACKER_INPUTS, 12, 12, 2];
+/** The layout before the throttle: steering only, without the wheelspin and throttle inputs. */
+const STEER_ONLY_LAYERS = [TRACKER_INPUTS - 2, 12, 12, 1];
 
 const clamp = (x: number, m = 3) => Math.max(-m, Math.min(m, x));
 
@@ -28,7 +31,7 @@ export function baseSteer(plan: Plan, age: number, self: SelfState, p: CarParams
 }
 
 /** The network's inputs, each scaled to about -1..1. */
-export function trackerInputs(plan: Plan, age: number, self: SelfState, base: number, out = new Float32Array(TRACKER_INPUTS)): Float32Array {
+export function trackerInputs(plan: Plan, age: number, self: SelfState, base: number, throttle: number, out = new Float32Array(TRACKER_INPUTS)): Float32Array {
   let k = 0;
   for (const look of TRACKER_LOOK) {
     const at = planAt(plan, age + look);
@@ -42,17 +45,24 @@ export function trackerInputs(plan: Plan, age: number, self: SelfState, base: nu
   out[k++] = self.vLong / 80;
   out[k++] = self.wheel ?? 0;
   out[k++] = base;
+  out[k++] = clamp((self.rearSpin ?? 0) / 5); // m/s the driven wheels spin faster than the car goes
+  out[k++] = throttle; // what the plan asks of the pedal
   return out;
 }
 
 const inputs = new Float32Array(TRACKER_INPUTS);
-const output = new Float32Array(1);
+const output = new Float32Array(2);
 
-/** Steering (-1..1) along `plan`, `age` s after it was made. */
-export function netSteer(b: Brain, plan: Plan, age: number, self: SelfState, p: CarParams): number {
+/** Steering (-1..1) along `plan`, `age` s after it was made, and the plan's `throttle` with some taken back. */
+export function netDrive(b: Brain, plan: Plan, age: number, self: SelfState, p: CarParams, throttle: number): { steer: number; throttle: number } {
   const base = baseSteer(plan, age, self, p);
-  forward(b, trackerInputs(plan, age, self, base, inputs), output);
-  return Math.max(-1, Math.min(1, base + output[0]));
+  forward(b, trackerInputs(plan, age, self, base, throttle, inputs), output);
+  return { steer: Math.max(-1, Math.min(1, base + output[0])), throttle: throttle * Math.max(0, Math.min(1, 1 + output[1])) };
+}
+
+/** Steering (-1..1) along `plan` (the throttle left as the plan has it). */
+export function netSteer(b: Brain, plan: Plan, age: number, self: SelfState, p: CarParams): number {
+  return netDrive(b, plan, age, self, p, 0).steer;
 }
 
 /** Random weights but an output layer of zeros: steers exactly as the plain tracker until trained. */
@@ -63,8 +73,23 @@ export function quietTracker(rng: Rng): Brain {
   return b;
 }
 
-/** A car type's trained tracker (CarPerformance.tracker), or null if it has none for this layout. */
+/**
+ * A car type's trained tracker (CarPerformance.tracker), or null if it has none for this layout. One trained
+ * for steering only comes in as is: the new inputs weigh nothing and it takes no throttle back.
+ */
 export function trackerFrom(weights: number[] | undefined): Brain | null {
-  if (!weights || weights.length !== weightCount(TRACKER_LAYERS)) return null;
-  return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(weights) };
+  if (!weights) return null;
+  if (weights.length === weightCount(TRACKER_LAYERS)) return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(weights) };
+  if (weights.length !== weightCount(STEER_ONLY_LAYERS)) return null;
+  const [nIn, h1, h2] = STEER_ONLY_LAYERS;
+  const out: number[] = [];
+  let k = 0;
+  for (let o = 0; o < h1; o++) {
+    out.push(...weights.slice(k, k + nIn), 0, 0, weights[k + nIn]); // the two new inputs, then the bias
+    k += nIn + 1;
+  }
+  out.push(...weights.slice(k, k + (h1 + 1) * h2));
+  k += (h1 + 1) * h2;
+  out.push(...weights.slice(k, k + h2 + 1), ...new Array(h2 + 1).fill(0)); // the steering row; the throttle's quiet
+  return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(out) };
 }

@@ -45,6 +45,7 @@ export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
     yawRate: car.yawRate,
     speedCap,
     wheel: car.wheel,
+    rearSpin: ((car.wheels[2].omega + car.wheels[3].omega) / 2) * car.params.wheelRadius - car.vLong,
     halfWidth: car.width / 2,
     halfLength: car.length / 2,
   };

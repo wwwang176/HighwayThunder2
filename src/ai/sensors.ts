@@ -14,6 +14,8 @@ export interface SelfState {
   speedCap: number;
   /** Where the steering is now (-1..1, PlayerCar.wheel). */
   wheel?: number;
+  /** m/s the driven (rear) wheels' surface turns faster than the car goes: wheelspin. */
+  rearSpin?: number;
   /** Half its body's width and length (m; default the street racer's, 0.93 x 2.2). */
   halfWidth?: number;
   halfLength?: number;
