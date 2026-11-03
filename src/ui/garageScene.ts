@@ -6,7 +6,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { CARS } from '../vehicles/cars';
-import { buildCar } from '../vehicles/models';
+import { buildCar, type FlareSpot } from '../vehicles/models';
 import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
 
 const SKY = `${import.meta.env.BASE_URL}ui/garage-sky.jpg`;
@@ -99,6 +99,7 @@ export class GarageScene {
     this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, false, livery).root;
     this.car.position.y = PLAYER_H / 2; // on the ground
     this.car.rotation.y = CAR_YAW;
+    this.headlights(this.car);
     this.scene.add(this.car);
     this.resize();
     if (!this.running) {
@@ -117,6 +118,21 @@ export class GarageScene {
 
   stop(): void {
     this.running = false;
+  }
+
+  /**
+   * Its headlights on the ground ahead: one spot between its headlamps (one light, not two: every light costs
+   * every pixel), aimed at the ground 4 m ahead (in the picture: the car's nose points off its left), wide, its
+   * pool mirrored in the wet too. A child of the car.
+   */
+  private headlights(car: THREE.Object3D): void {
+    const heads = ((car.userData.flares ?? []) as FlareSpot[]).filter((f) => f.kind === 'head');
+    if (!heads.length) return;
+    const at = heads.reduce((s, f) => s.add(new THREE.Vector3(f.x, f.y, f.z)), new THREE.Vector3()).divideScalar(heads.length);
+    const beam = new THREE.SpotLight(0xfff0d8, 110, 25, 0.75, 0.7, 1.5);
+    beam.position.copy(at);
+    beam.target.position.set(at.x, -PLAYER_H / 2, at.z - 4); // the nose is -z
+    car.add(beam, beam.target);
   }
 
   private frame(): void {
