@@ -169,12 +169,19 @@ describe('steering range from speed (grip-limit turn + peak slip angle)', () => 
       prev = r;
     }
   });
-  it('while steering: exactly the input, relative to the nose (no automatic correction)', () => {
+  it('steering into the slide: exactly the input, relative to the nose (no automatic correction)', () => {
     const v = 40;
     const slide = v * Math.tan(0.4);
-    expect(steerAngle(1, v, slide, P)).toBeCloseTo(steerRange(v, P));
     expect(steerAngle(-1, v, slide, P)).toBeCloseTo(-steerRange(v, P));
     expect(steerAngle(1, v, -slide, P)).toBeCloseTo(steerRange(v, P));
+  });
+  it('counter-steering: the input on top of the wheels lined up with the direction of travel (more than hands off)', () => {
+    const v = 40;
+    const beta = 0.15;
+    const slide = v * Math.tan(beta);
+    expect(steerAngle(1, v, slide, P)).toBeCloseTo(Math.min(P.maxSteer, steerRange(v, P) + beta));
+    expect(steerAngle(-1, v, -slide, P)).toBeCloseTo(-Math.min(P.maxSteer, steerRange(v, P) + beta));
+    expect(steerAngle(0.1, v, slide, P)).toBeGreaterThan(steerAngle(0, v, slide, P));
   });
   it('hands off: the wheels trail the direction of travel at counterSteer strength', () => {
     const v = 40;
@@ -182,11 +189,11 @@ describe('steering range from speed (grip-limit turn + peak slip angle)', () => 
     expect(steerAngle(0, v, v * Math.tan(beta), P)).toBeCloseTo(beta * P.counterSteer);
     expect(steerAngle(0, v, 0, P)).toBe(0);
   });
-  it('a partly pressed key blends input and trailing', () => {
+  it('a partly pressed key blends input and trailing (counter-steering: toward lining up fully)', () => {
     const v = 40;
     const beta = 0.2;
-    const a = steerAngle(0.5, v, v * Math.tan(beta), P);
-    expect(a).toBeCloseTo(0.5 * steerRange(v, P) + 0.5 * beta * P.counterSteer);
+    expect(steerAngle(0.5, v, v * Math.tan(beta), P)).toBeCloseTo(0.5 * steerRange(v, P) + beta * (0.5 * P.counterSteer + 0.5));
+    expect(steerAngle(-0.5, v, v * Math.tan(beta), P)).toBeCloseTo(-0.5 * steerRange(v, P) + 0.5 * beta * P.counterSteer);
   });
   it('driving at 250 km/h: full input just past the peak slip angle', () => {
     expect(steerAngle(1, 250 / 3.6, 0, P)).toBeCloseTo(steerRange(250 / 3.6, P));

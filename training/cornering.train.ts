@@ -284,6 +284,46 @@ it('powerOn', async () => {
   process.stdout.write(`${CAR_SPEC.id} power on in a turn: ${row.join(' | ')}\n`);
 });
 
+/**
+ * Steering under a hard brake: full brake and full steering together from a steady speed, for 1 s - how far
+ * the direction of travel turned, how far sideways it got (dodging), the speed left, the body's largest slip
+ * angle (SPUN past 20°). With the front tyres braking apart from their grip (frontBrakeApart) or not.
+ *   npx vitest run --config training/vitest.config.ts training/cornering.train.ts -t brakeSteer
+ */
+it('brakeSteer', async () => {
+  await RAPIER.init();
+  const variants: Record<string, Record<string, number | boolean>> = process.env.BRAKE_JSON
+    ? JSON.parse(process.env.BRAKE_JSON)
+    : { apart: { frontBrakeApart: true }, circle: { frontBrakeApart: false } };
+  const out: string[] = [];
+  for (const [name, change] of Object.entries(variants)) {
+    const row: string[] = [];
+    for (const kmh of speeds([120, 200, 280])) {
+      const physics = openGround();
+      physics.timestep = PHYSICS_DT;
+      const car = new PlayerCar(physics, null, { spec: { ...CAR_SPEC, params: { ...CAR_SPEC.params, ...change } } });
+      car.resetTo(0, 1, kmh * KMH);
+      const course = () => car.yaw + Math.atan2(car.vLat, Math.max(1, car.vLong));
+      const d0 = car.d;
+      let slipMax = 0;
+      for (let i = 0; i < Math.round(1 / PHYSICS_DT); i++) {
+        car.prePhysics({ throttle: 0, brake: 1, steer: 1 }, PHYSICS_DT);
+        physics.step(() => {});
+        car.postPhysics();
+        slipMax = Math.max(slipMax, Math.abs(Math.atan2(car.vLat, Math.max(1, Math.abs(car.vLong)))));
+      }
+      const v = Math.hypot(car.vLong, car.vLat) / KMH;
+      row.push(
+        `${kmh}: turned ${(Math.abs(course()) * 57.3).toFixed(0)}°, sideways ${Math.abs(car.d - d0).toFixed(1)} m, ` +
+          `${v.toFixed(0)} km/h left, slip ${(slipMax * 57.3).toFixed(0)}°${slipMax > 0.35 ? ' SPUN' : ''}`,
+      );
+      physics.free();
+    }
+    out.push(`${name.padEnd(8)} ${row.join(' | ')}`);
+  }
+  process.stdout.write(out.join('\n') + '\n');
+});
+
 /** Speeds (km/h) to test at: KMHS=100,150,200 or the test's own. */
 function speeds(own: number[]): number[] {
   return process.env.KMHS ? process.env.KMHS.split(',').map(Number) : own;

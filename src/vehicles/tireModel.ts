@@ -41,6 +41,11 @@ export interface WheelIn {
   mEff: number; // mass this wheel carries (for the lateral no-overshoot cap)
   tire: TireParams;
   muScale?: number; // surface grip multiplier (grass < 1)
+  /**
+   * Braking and cornering each get the whole grip, not one friction circle (an arcade front tyre: under a
+   * hard brake it still steers, even locked and skidding).
+   */
+  brakeApart?: boolean;
 }
 
 export interface WheelOut {
@@ -119,7 +124,9 @@ export function solveWheel(w: WheelIn): WheelOut {
   const longSlip = Math.abs(w.omega * R - w.vx);
   const wasSliding = longSlip > t.regripSpeed;
   const limit = (wasSliding ? kineticMu(longSlip, t) : t.muPeak) * mu * w.Fz;
-  const req = Math.hypot(FxReq, FyReq);
+  // Braking apart: only the braking (or drive) force against the limit; the cornering force stays as the
+  // slip-angle curve gives it (never above the peak grip).
+  const req = w.brakeApart ? Math.abs(FxReq) : Math.hypot(FxReq, FyReq);
 
   if (req <= limit) {
     return { Fx: FxReq, Fy: FyReq, omega: omegaRoll, sliding: false, slip: Math.abs(w.vy) };
@@ -129,7 +136,7 @@ export function solveWheel(w: WheelIn): WheelOut {
   const kinetic = kineticMu(longSlip, t) * mu * w.Fz;
   const scale = Math.min(1, kinetic / req);
   const Fx = FxReq * scale;
-  const Fy = FyReq * scale;
+  const Fy = w.brakeApart ? FyReq : FyReq * scale;
   let omega = w.omega + ((w.driveTorque - Fx * R) / I) * dt;
   omega = applyBrake(omega, w.brakeTorque, I, dt);
   // A spinning or locked wheel that comes back to rolling speed must not

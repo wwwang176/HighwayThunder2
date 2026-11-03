@@ -10,6 +10,7 @@ export const STREET_RACER: CarSpec = {
   params: {
     mass: 1300,
     comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h
+    comFwd: 0, // mid-engined: half the weight on each axle
     power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
     maxDriveForce: 14_250,
     engineTorque: 600,
@@ -23,7 +24,10 @@ export const STREET_RACER: CarSpec = {
     reverseMax: 8,
     reverseForce: 4_000,
     brakeForceMax: 26_000,
-    brakeFrontBias: 0.75,
+    // Hard braking and steering (training/cornering.train.ts brakeSteer): at 0.75 the rears locked and it spun
+    // below ~150 km/h; at 0.82 the tail steps out 7-9°. More to the front brakes a little less in all.
+    brakeFrontBias: 0.82,
+    frontBrakeApart: true,
     dragK: 0.4,
     downforceK: 0.4, // the real part (presses the springs); most of the aero grip is aeroGrip
     wheelbase: 2.6,
@@ -34,6 +38,8 @@ export const STREET_RACER: CarSpec = {
     throttleRise: 20,
     suspensionRest: 0.3,
     suspensionTravel: 0.2,
+    springProgressFrom: 1, // linear springs
+    springProgressMult: 1,
     springK: 35_000,
     damperBump: 3_000,
     damperRebound: 4_500,

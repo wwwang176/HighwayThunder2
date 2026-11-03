@@ -29,9 +29,11 @@ it('planner', async () => {
   await RAPIER.init();
   const out: string[] = [];
   const all = { lateralMoving: [] as number[], lateralHolding: [] as number[], along: [] as number[], speedAtOverride: [] as number[], nowMoving: [] as number[], nowHolding: [] as number[] };
-  // CAR=muscle-car: that car type, with its own tables and steering network.
-  const spec = CARS[process.env.CAR ?? 'street-racer'];
-  if (!spec) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
+  // CAR=muscle-car: that car type, with its own tables and steering network (CAR_JSON='{"rearGrip":1.35}':
+  // its params changed, as in training/cornering.train.ts).
+  const base = CARS[process.env.CAR ?? 'street-racer'];
+  if (!base) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
+  const spec = { ...base, params: { ...base.params, ...JSON.parse(process.env.CAR_JSON ?? '{}') } };
   for (const seed of (process.env.EVAL_SEEDS ?? '7001,7002,7003,7004,7005').split(',').map(Number)) {
     const driver = new PlannerDriver();
     driver.accel = spec.ai.accel;

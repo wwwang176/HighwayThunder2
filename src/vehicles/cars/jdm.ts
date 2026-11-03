@@ -25,6 +25,7 @@ export const JDM_CAR: CarSpec = {
     engineTorque: 450,
     maxDriveForce: 11_000,
     maxSpeed: 68, // ~245 km/h
+    brakeFrontBias: 0.88, // braking and steering hard the tail barely moves (3-4°): the most precise of the three
     dragK: 0.45,
     steerRise: 8,
     springK: 45_000,

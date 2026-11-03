@@ -129,3 +129,20 @@ describe('solveWheel', () => {
     }
   });
 });
+
+describe('front tyres braking apart (brakeApart)', () => {
+  // Locked under a hard brake at 50 m/s, the tyre slipping sideways at the cornering force's peak angle.
+  const locked = (brakeApart: boolean) =>
+    solveWheel(base({ vx: 50, vy: 50 * Math.tan(DEFAULT_TIRE.slipAnglePeak), omega: 0, brakeTorque: 20_000, brakeApart }));
+
+  it('keeps the whole cornering grip while locked and skidding (the brake takes none of it)', () => {
+    const r = locked(true);
+    expect(r.sliding).toBe(true); // still a skid: marks and smoke
+    expect(Math.abs(r.Fy)).toBeCloseTo(DEFAULT_TIRE.muPeak * Fz, 0);
+    expect(Math.abs(r.Fx)).toBeCloseTo(kineticMu(50, DEFAULT_TIRE) * Fz, 0);
+  });
+
+  it('shares one friction circle otherwise: a locked tyre hardly corners', () => {
+    expect(Math.abs(locked(false).Fy)).toBeLessThan(0.5 * DEFAULT_TIRE.muPeak * Fz);
+  });
+});

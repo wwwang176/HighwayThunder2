@@ -38,6 +38,12 @@ const CONNECTION_Y = 0; // suspension hard points, chassis space
 const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
 
+/** The mass one wheel carries standing still (kg): half its axle's share (comFwd puts more on the front). */
+export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, front: boolean): number {
+  const frontShare = 0.5 + p.comFwd / p.wheelbase;
+  return (p.mass * (front ? frontShare : 1 - frontShare)) / 2;
+}
+
 /** Road-relative yaw from a Y-only quaternion (yaw = -rotation.y). */
 export function yawOf(q: { x: number; y: number; z: number; w: number }): number {
   return -2 * Math.atan2(q.y, q.w);
@@ -110,12 +116,12 @@ export class PlayerCar {
       y: (p.mass / 12) * (p.width * p.width + p.length * p.length),
       z: (p.mass / 12) * (p.width * p.width + 0.8 * 0.8),
     };
-    // The mass is the body's own (COM at body y + comY), not its colliders' (they weigh nothing): the
-    // collision shape can follow the car's body without changing how it drives.
+    // The mass is the body's own (COM at body y + comY, comFwd toward the nose), not its colliders' (they
+    // weigh nothing): the collision shape can follow the car's body without changing how it drives.
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(laneCenter(1), RIDE_Y, 0)
       .setCanSleep(false)
-      .setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 });
+      .setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: -p.comFwd }, inertia, { x: 0, y: 0, z: 0, w: 1 });
     if (ghost) {
       // No collider at all: a ghost stands on its wheel rays only, and with dozens
       // of them stacked on the start line, the rays must not have to test each other.
@@ -130,7 +136,10 @@ export class PlayerCar {
         const c = physics.world.createCollider(
           shape
             .setDensity(0)
-            .setFriction(0.3)
+            // The body slides on what it touches - the road, the rails, other cars - rather than catching and
+            // tripping over (at 0.3, averaged with the road's 0.9, light knocks rolled it). The tyres grip apart.
+            .setFriction(0.1)
+            .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
             .setRestitution(0.05)
             .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
             .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
@@ -151,7 +160,9 @@ export class PlayerCar {
     ]) {
       wheels.push(
         makeWheel(
-          { x, z, connY: CONNECTION_Y, r: p.wheelRadius, front: z < 0, springK: p.springK, bump: p.damperBump, rebound: p.damperRebound, mEff: (p.mass / 4) * 0.9, gripScale: 1 },
+          // Each spring as stiff as its corner is heavy (springK at a quarter of the weight; set each step,
+          // prePhysics): the car sits level.
+          { x, z, connY: CONNECTION_Y, r: p.wheelRadius, front: z < 0, springK: p.springK, bump: p.damperBump, rebound: p.damperRebound, mEff: wheelLoad(p, z < 0) * 0.9, gripScale: 1 },
           p.suspensionRest - 0.09,
         ),
       );
@@ -234,6 +245,8 @@ export class PlayerCar {
     return {
       rest: p.suspensionRest,
       travel: p.suspensionTravel,
+      progressFrom: p.springProgressFrom,
+      progressMult: p.springProgressMult,
       inertia: p.wheelInertia,
       antiRoll: [
         [0, 1, p.antiRollFront],
@@ -242,6 +255,7 @@ export class PlayerCar {
       rollInfluence: rollInfluenceAt(speed, p),
       tire,
       surfaceGrip: (x: number) => this.surfaceGrip(x),
+      frontBrakeApart: p.frontBrakeApart,
     };
   }
 
@@ -286,7 +300,7 @@ export class PlayerCar {
     this.chassis.setup = this.chassisSetup(this.vLong);
     const grip = aeroGripScale(Math.hypot(this.vLong, this.vLat), p);
     for (const w of this.wheels) {
-      w.springK = p.springK;
+      w.springK = (p.springK * wheelLoad(p, w.front)) / (p.mass / 4); // as stiff as its corner is heavy
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
       w.gripScale = (w.front ? 1 : p.rearGrip) * grip;
@@ -361,7 +375,7 @@ export class PlayerCar {
     this.driveMode = 'D';
     for (const w of this.wheels) {
       w.omega = speed / p.wheelRadius;
-      w.susp = p.suspensionRest - (p.mass * G) / 4 / p.springK;
+      w.susp = p.suspensionRest - (p.mass * G) / 4 / p.springK; // the same at every corner (springs as stiff as it is heavy)
       w.sliding = false;
     }
     this.readBack();
