@@ -40,18 +40,24 @@ export function npcDriveForces(accel: number, v: number, mass: number, dt: numbe
 
 /**
  * Static load (N) on ONE wheel of each axle, for a body with its center of mass at
- * z = 0. The front support is the first axle, or a kingpin at `frontSupportZ`
+ * z = comZ. The front support is the first axle, or a kingpin at `frontSupportZ`
  * (trailers); the remaining axles share the rear load equally. An extra point load
  * (e.g. a trailer on the fifth wheel) can be added.
  */
-export function wheelLoads(mass: number, axleZ: number[], extra?: { load: number; z: number }, frontSupportZ?: number): number[] {
+export function wheelLoads(
+  mass: number,
+  axleZ: number[],
+  extra?: { load: number; z: number },
+  frontSupportZ?: number,
+  comZ = 0,
+): number[] {
   const W = mass * G;
   const rear = frontSupportZ === undefined ? axleZ.slice(1) : axleZ;
   const zf = frontSupportZ ?? axleZ[0];
   const zr = rear.reduce((a, b) => a + b, 0) / rear.length;
   const span = zr - zf;
   // Moments about the front support.
-  let rearLoad = (W * (0 - zf)) / span;
+  let rearLoad = (W * (comZ - zf)) / span;
   let frontLoad = W - rearLoad;
   if (extra) {
     const r = (extra.load * (extra.z - zf)) / span;
