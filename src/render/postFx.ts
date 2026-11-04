@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
+import { ToneMapFxaaPass } from './toneMapFxaaPass';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
@@ -22,12 +22,13 @@ export const POST = {
 
 /**
  * The race's picture through a bloom, as the garage's: the scene into an HDR target, its lights glowing, tone
- * mapped, then its edges smoothed (POST.antialias; the canvas has none of its own).
+ * mapped, its edges smoothed (POST.antialias; the canvas has none of its own: FXAA tone maps as it smooths).
  */
 export class PostFx {
   private readonly composer: EffectComposer;
   private readonly bloom: UnrealBloomPass;
-  private readonly fxaa = new FXAAPass();
+  private readonly output = new OutputPass();
+  private readonly fxaa = new ToneMapFxaaPass(); // (tone maps too: the OutputPass off with it)
   private readonly smaa = new SMAAPass();
   private samples = 0;
   /** Drawn after the bloom, so never glowing (its fog the scene's). */
@@ -47,8 +48,8 @@ export class PostFx {
     const late = new RenderPass(this.unbloomed, camera);
     late.clear = false;
     this.composer.addPass(late);
-    this.composer.addPass(new OutputPass());
-    // (After the tone mapping: they work on the picture as it will be seen.)
+    this.composer.addPass(this.output);
+    // (FXAA tone maps as it reads; SMAA after the tone mapping: on the picture as it will be seen.)
     this.composer.addPass(this.fxaa);
     this.composer.addPass(this.smaa);
   }
@@ -69,6 +70,7 @@ export class PostFx {
     }
     this.unbloomed.fog = this.scene.fog;
     this.fxaa.enabled = POST.antialias === 'fxaa';
+    this.output.enabled = !this.fxaa.enabled;
     this.smaa.enabled = POST.antialias === 'smaa';
     this.bloom.enabled = POST.bloom;
     this.bloom.strength = POST.strength;
