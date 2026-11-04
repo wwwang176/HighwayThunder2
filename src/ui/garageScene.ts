@@ -273,7 +273,7 @@ export class GarageScene {
       tabs.setMatrixAt(i, at.makeTranslation(RAIL_X - 0.04, 0.66, z));
     }
     this.scene.add(posts, tabs);
-    const slope = 0.07; // (rising 1 m: the city behind it shows, low)
+    const slope = 0.143; // (rising 2 m: the city behind it shows, low)
     const geo = new THREE.PlaneGeometry(14, len).rotateX(-Math.PI / 2).rotateZ(slope); // rising away from the rail
     const bank = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x12160d, roughness: 1 }));
     bank.position.set(RAIL_X + 0.4 + 7 * Math.cos(slope), 7 * Math.sin(slope), 8 - len / 2);
