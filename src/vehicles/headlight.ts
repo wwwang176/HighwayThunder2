@@ -191,12 +191,14 @@ export function installLowBeamShader(): void {
 		if ( ${isLamp} ) directLight.color *= ht2LowBeam( spotLight.position, spotLight.direction, geometryPosition );
 		#ifdef HT2_GROUND
 		// The ground (npcBeams' materials): a rival's lamp lights it as the traffic's pair does, its shadow on it.
-		if ( ${isRival} && directLight.visible ) {
+		// (Its reach the ground beam's own, softly faded, not the spot's narrower cone: that cut it off hard by the nose.)
+		if ( ${isRival} ) {
 			vec3 ht2Up = ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz;
 			vec3 ht2Axis = - spotLight.direction;
 			vec3 ht2Right = normalize( cross( ht2Axis, ht2Up ) );
 			float ht2NL = max( dot( geometryNormal, directLight.direction ), 0.05 ); // (RE_Direct puts it back)
 			directLight.color = ht2GroundTint * ht2GroundBeam( spotLight.position, ht2Axis, ht2Right, ht2Up, geometryPosition ) / ht2NL;
+			directLight.visible = directLight.color != vec3( 0.0 );
 		}
 		#endif`,
   );
