@@ -46,7 +46,7 @@ import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
-import { RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
+import { RaceView, RIVAL_COLORS, RIVAL_LIGHTS, RIVAL_TUNING, Rivals } from './rivals';
 import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
@@ -215,7 +215,7 @@ export class Game {
     for (const t of flameTextures()) this.renderer.initTexture(t);
     this.render(0, 1); // (everything placed: the camera, the cars)
     const ahead = new THREE.Matrix4().makeTranslation(0, 0, -15).premultiply(this.player.mesh.matrix);
-    this.bodies.begin(this.camera, this.player.headlights);
+    this.bodies.begin(this.camera, this.shadowLights());
     for (const m of allTrafficModels()) for (const lamps of PREWARM_LAMPS) this.bodies.add(m.key, m.template, ahead, lamps);
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);
@@ -408,7 +408,8 @@ export class Game {
       this.aiDriver.tracker = trackerFrom(spec.ai.tracker);
     }
     const rivals = raceRivals(cars, Math.random); // (at random: drawn afresh each race, the same race again too)
-    if (rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {
+    const relit = this.rivals.realLights !== RIVAL_LIGHTS.real; // (their headlights switched: built again)
+    if (relit || rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {
       this.rivals.dispose();
       this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), rivals.map(specOf));
     }
@@ -732,6 +733,12 @@ export class Game {
    * across by the camera's turning (as a 1/60 s exposure would smear it). Paused, it holds as it was (the
    * picture stays); none at the title.
    */
+  /** The lights casting shadows this frame: the player's headlights, and the rivals' while theirs cast (RIVAL_LIGHTS). */
+  private shadowLights(): THREE.SpotLight[] {
+    const rivals = this.rivals.headlights(); // (their shadows set on or off here)
+    return RIVAL_LIGHTS.shadows ? [...this.player.headlights, ...rivals] : this.player.headlights;
+  }
+
   private speedBlur(play: number): void {
     this.camera.getWorldDirection(BLUR_V);
     const yaw = Math.atan2(BLUR_V.x, BLUR_V.z);
@@ -827,7 +834,7 @@ export class Game {
       for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
     }
     this.rivals.render(alpha, this.flares);
-    for (const r of this.rivals.list) this.npcBeams.add(r.car.mesh, pp.x, pp.z);
+    for (const r of this.rivals.list) if (!r.car.headlights.length) this.npcBeams.add(r.car.mesh, pp.x, pp.z); // (real lights light the road themselves)
     this.flares.end();
     this.npcBeams.end();
     const planned = this.aiDriver as { plan?: Plan | null; planAge?: number } | null;
@@ -861,7 +868,7 @@ export class Game {
     else this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     this.speedBlur(play);
     // The traffic's bodies, those in this frame's view (the camera placed).
-    this.bodies.begin(this.camera, this.player.headlights); // (the only lights casting shadows)
+    this.bodies.begin(this.camera, this.shadowLights()); // (the lights casting shadows)
     for (const npc of this.npcs.values()) npc.addBodies(this.bodies);
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);

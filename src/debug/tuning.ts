@@ -7,7 +7,7 @@ import { NPC_BEAM } from '../render/npcBeams';
 import { POST } from '../render/postFx';
 import { PLANNER } from '../ai/planner';
 import { DRIVER_TUNING } from '../ai/plannerDriver';
-import { RIVAL_TUNING } from '../game/rivals';
+import { RIVAL_LIGHTS, RIVAL_TUNING } from '../game/rivals';
 import { HUD_SHAKE, RESET_HINT } from '../ui/hudMath';
 import { CONTACT_TUNING } from '../game/contact';
 
@@ -120,6 +120,9 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'hardBrake', 4, 12, 0.5).name('規劃最大煞車 m/s²');
   a.add(PLANNER, 'brakeCost', 0, 10, 0.1).name('不愛煞車（每減 1 m/s 扣 m）');
   a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');
+  const rl = gui.addFolder('對手車燈');
+  rl.add(RIVAL_LIGHTS, 'real').name('真的車燈（下一場生效）');
+  rl.add(RIVAL_LIGHTS, 'shadows').name('車燈陰影');
   const r = gui.addFolder('電腦對手（橡皮筋）');
   r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
   r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');
