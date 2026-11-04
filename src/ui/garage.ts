@@ -133,11 +133,10 @@ export class Garage {
     this.preview.stop();
   }
 
-  /** Start with what is picked (the start button, or Enter). */
+  /** Start with what is picked (the start button, or Enter): the game closes this once its fade has covered it. */
   start(): void {
-    const sel = this.sel;
-    this.close();
-    this.onStart(sel);
+    this.closePop();
+    this.onStart(this.sel);
   }
 
   closePop(): void {

@@ -45,6 +45,9 @@ const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
 /** A wheel has no lamps. */
 const NO_LIGHTS: VehicleLights = { left: [], right: [], brake: [] };
+const SHOW_FWD = new THREE.Vector3();
+const SHOW_UP = new THREE.Vector3(0, 1, 0);
+const SHOW_TURN = new THREE.Quaternion();
 
 /** The mass one wheel carries standing still (kg): half its axle's share (comFwd puts more on the front). */
 export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, front: boolean): number {
@@ -87,6 +90,15 @@ export class PlayerCar {
   private held = false;
   private readonly backfire = new Backfire();
   private readonly visuals: ReturnType<typeof buildWheel>[] = [];
+  /**
+   * For show (the race's intro, game/intro): drawn this far ahead of where it is (m; behind: < 0), its wheels
+   * rolled to it, `showSide` to its right and turned `showYaw` (rad, to the right); and the engine's rpm and
+   * throttle as heard and seen at the exhaust (null: its own).
+   */
+  showOffset = 0;
+  showSide = 0;
+  showYaw = 0;
+  showRev: { rpm: number; throttle: number } | null = null;
   readonly chassis: TyreChassis;
   readonly wheels: WheelState[];
   params: CarParams;
@@ -388,8 +400,17 @@ export class PlayerCar {
 
   /** Its exhaust's flames this frame (`dt` s; 0 paused): a backfire lifting off at high revs, blue on nitro. */
   exhaust(dt: number): void {
-    const pops = this.backfire.update(dt, this.throttle, this.rpm / this.params.redline);
+    const pops = this.backfire.update(dt, this.shownThrottle, this.shownRpm / this.params.redline);
     this.flames?.update(dt, pops, this.nitro.active);
+  }
+
+  /** The engine as heard and seen at the exhaust: its own, or a blip put on for show (`showRev`). */
+  get shownRpm(): number {
+    return this.showRev?.rpm ?? this.rpm;
+  }
+
+  get shownThrottle(): number {
+    return this.showRev?.throttle ?? this.throttle;
   }
 
   /**
@@ -429,10 +450,16 @@ export class PlayerCar {
     this.snapInterpolation();
   }
 
-  /** Interpolated chassis pose and current wheel poses for rendering. */
+  /** Interpolated chassis pose and current wheel poses for rendering (`showOffset` ahead, its wheels rolled to it). */
   render(alpha: number, flares?: LightFlares): void {
     this.mesh.position.lerpVectors(this.prevPos, this.currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
+    if (this.showOffset !== 0 || this.showSide !== 0) {
+      this.mesh.position.addScaledVector(SHOW_FWD.set(0, 0, -1).applyQuaternion(this.mesh.quaternion), this.showOffset);
+      this.mesh.position.addScaledVector(SHOW_FWD.set(1, 0, 0).applyQuaternion(this.mesh.quaternion), this.showSide);
+      this.mesh.quaternion.premultiply(SHOW_TURN.setFromAxisAngle(SHOW_UP, -this.showYaw));
+    }
+    const roll = this.showOffset / this.params.wheelRadius;
     if (flares) {
       this.mesh.updateMatrix();
       emitFlares(this.mesh, this.lights, flares);
@@ -441,7 +468,7 @@ export class PlayerCar {
       const v = this.visuals[i];
       v.steer.position.set(w.x, CONNECTION_Y - w.susp, w.z);
       v.steer.rotation.y = -w.steer;
-      v.spin.rotation.x = w.spin;
+      v.spin.rotation.x = w.spin + roll;
     });
   }
 

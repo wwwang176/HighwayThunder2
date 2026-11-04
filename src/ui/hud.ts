@@ -185,11 +185,18 @@ export class Hud {
     const flow = this.flow;
     const phase = flow.phase;
     if (phase !== this.lastPhase) {
+      const from = this.lastPhase;
       this.lastPhase = phase;
-      this.show('hud', phase !== 'title');
+      this.show('hud', phase !== 'title' && phase !== 'intro'); // (not over the intro's shots)
       this.show('pause', phase === 'paused');
       this.show('finish', phase === 'finished');
       if (phase === 'countdown') this.lastPlace = null;
+      if (phase === 'countdown' && from === 'intro') {
+        // Coming in as the intro hands over (the class again: the animation from its start).
+        this.el.hud.classList.remove('enter');
+        void this.el.hud.offsetWidth;
+        this.el.hud.classList.add('enter');
+      }
       if (phase === 'finished') {
         this.el.finishTime.textContent = formatTime(flow.finishTime ?? 0);
         const place = f.racers.length > 1 ? `第 ${f.place} 名（共 ${f.racers.length} 台） · ` : '';

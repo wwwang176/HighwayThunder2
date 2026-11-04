@@ -195,3 +195,16 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-keys-list { width: 30vw; display: grid; grid-template-columns: 1fr; gap: 1.2vh; }
 #garage .g-key { display: grid; grid-template-columns: 11vw 1fr; align-items: center; font-size: 1vw; color: #cfd8e8; }
 #garage .g-key kbd { justify-self: start; }
+/* The race's intro (src/ui/introOverlay.ts): the fade to black and back, the letterbox bars, the skip hint. */
+#ui .intro-fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 50; }
+#ui .intro-fade.on { opacity: 1; }
+#ui .intro-bars > div { position: absolute; left: 0; right: 0; height: 9vh; background: #000; transition: transform 0.6s ease; z-index: 40; }
+#ui .intro-bars .top { top: 0; transform: translateY(-100%); }
+#ui .intro-bars .bottom { bottom: 0; transform: translateY(100%); }
+#ui .intro-bars.on .top, #ui .intro-bars.on .bottom { transform: none; }
+#ui .intro-hint { position: absolute; right: 3vw; bottom: 3vh; z-index: 41; color: rgba(255, 255, 255, 0.55);
+  font: 0.95vw system-ui, "Microsoft JhengHei", sans-serif; letter-spacing: 0.1vw; opacity: 0; transition: opacity 0.4s; }
+#ui .intro-hint.on { opacity: 1; transition-delay: 0.8s; }
+/* The HUD coming in as the countdown starts (Hud.update: the intro over). */
+@keyframes hud-in { from { opacity: 0; translate: 0 1.2vh; } to { opacity: 1; translate: 0 0; } } /* (translate: their own transforms stay) */
+#hud.enter > * { animation: hud-in 0.6s ease-out both; }

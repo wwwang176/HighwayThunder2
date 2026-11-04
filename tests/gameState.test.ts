@@ -12,11 +12,32 @@ function runTo(g: GameFlow, seconds: number, s = 0) {
   for (let i = 0; i < n; i++) g.update(0.01, s);
 }
 
+/** A race started and its intro over (the countdown on). */
+function startRace(g: GameFlow) {
+  g.start();
+  g.beginCountdown();
+}
+
 describe('GameFlow', () => {
+  it('a race starts with its intro: no countdown, no race time, till the intro hands over', () => {
+    const g = new GameFlow(memStorage());
+    g.start();
+    expect(g.phase).toBe('intro');
+    runTo(g, 10);
+    expect(g.phase).toBe('intro');
+    expect(g.raceTime).toBe(0);
+    g.togglePause(); // (no pause in the intro: a key skips it)
+    expect(g.phase).toBe('intro');
+    g.beginCountdown();
+    expect(g.phase).toBe('countdown');
+    g.beginCountdown(); // (only from the intro)
+    expect(g.countdown).toBe(3);
+  });
+
   it('starts at title, countdown does not accumulate race time', () => {
     const g = new GameFlow(memStorage());
     expect(g.phase).toBe('title');
-    g.start();
+    startRace(g);
     expect(g.phase).toBe('countdown');
     runTo(g, 2.5);
     expect(g.raceTime).toBe(0);
@@ -31,7 +52,7 @@ describe('GameFlow', () => {
     const st = memStorage({ [BEST_TIME_KEY]: '100' });
     const g = new GameFlow(st);
     expect(g.best).toBe(100);
-    g.start();
+    startRace(g);
     runTo(g, 3.05);
     runTo(g, 50, ROAD_LENGTH / 2);
     g.update(0.01, ROAD_LENGTH);
@@ -41,7 +62,7 @@ describe('GameFlow', () => {
     expect(Number(st.m.get(BEST_TIME_KEY))).toBeCloseTo(g.finishTime!, 5);
 
     const g2 = new GameFlow(st);
-    g2.start();
+    startRace(g2);
     runTo(g2, 3.05);
     runTo(g2, 80, ROAD_LENGTH / 2);
     g2.update(0.01, ROAD_LENGTH + 1);
@@ -51,7 +72,7 @@ describe('GameFlow', () => {
 
   it('after finish, updates, pause and start do not change finish time', () => {
     const g = new GameFlow(memStorage());
-    g.start();
+    startRace(g);
     runTo(g, 3.05);
     g.update(0.01, ROAD_LENGTH);
     const ft = g.finishTime;
@@ -64,7 +85,7 @@ describe('GameFlow', () => {
 
   it('pause stops the clock', () => {
     const g = new GameFlow(memStorage());
-    g.start();
+    startRace(g);
     runTo(g, 4);
     g.togglePause();
     expect(g.phase).toBe('paused');
@@ -77,7 +98,7 @@ describe('GameFlow', () => {
 
   it('reset only after GO and with 3s cooldown', () => {
     const g = new GameFlow(memStorage());
-    g.start();
+    startRace(g);
     expect(g.canReset()).toBe(false);
     runTo(g, 3.05);
     expect(g.canReset()).toBe(true);

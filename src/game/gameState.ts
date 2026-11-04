@@ -1,6 +1,7 @@
 import { BEST_TIME_KEY, COUNTDOWN_SECONDS, RESET_COOLDOWN, ROAD_LENGTH } from '../config';
 
-export type Phase = 'title' | 'countdown' | 'racing' | 'paused' | 'finished';
+/** `intro`: the cars on the grid, the camera showing them round (game/intro), before the countdown. */
+export type Phase = 'title' | 'intro' | 'countdown' | 'racing' | 'paused' | 'finished';
 
 type KV = Pick<Storage, 'getItem' | 'setItem'>;
 
@@ -20,16 +21,23 @@ export class GameFlow {
     this.best = Number.isFinite(raw) && raw > 0 ? raw : null;
   }
 
-  /** Start (or restart) a race. Valid from title or finished. */
+  /** Start (or restart) a race: its intro first (beginCountdown ends it). Valid from title or finished. */
   start(): void {
     if (this.phase !== 'title' && this.phase !== 'finished') return;
-    this.phase = 'countdown';
+    this.phase = 'intro';
     this.countdown = COUNTDOWN_SECONDS;
     this.raceTime = 0;
     this.finishTime = null;
     this.nearMisses = 0;
     this.resetCooldown = 0;
     this.isBest = false;
+  }
+
+  /** The intro over (or skipped): the countdown starts. Only from the intro. */
+  beginCountdown(): void {
+    if (this.phase !== 'intro') return;
+    this.phase = 'countdown';
+    this.countdown = COUNTDOWN_SECONDS;
   }
 
   toTitle(): void {

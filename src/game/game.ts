@@ -35,6 +35,8 @@ import { aiTopSpeed } from '../ai/aiTopSpeed';
 import { CAR_CARDS, CarSelection, defaultSelection, loadSelection, saveSelection } from './carSelection';
 import { applyDifficulty } from './difficulty';
 import { Garage } from '../ui/garage';
+import { IntroOverlay } from '../ui/introOverlay';
+import { Intro, INTRO_KINDS } from './intro';
 
 /** A car type by id (the supercar for an id no longer known). */
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
@@ -63,6 +65,9 @@ const PLAYER_OBSTACLE_ID = -1;
 const BLUR_V = new THREE.Vector3();
 /** How fast the race's time runs, by phase (frame()): stopped in a pause, slow motion past the finish line. */
 const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0, finished: 0.1 };
+/** A race's start: the garage faded to black, then the race faded in on its intro (ms). */
+const START_FADE_OUT = 350;
+const START_FADE_IN = 700;
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -128,6 +133,11 @@ export class Game {
   private readonly blurSweep = new THREE.Vector2();
   private blurAmount = 0;
   private camYaw: number | null = null;
+  /** The race's intro: the last one (its kind not picked twice running), whether it is on; a race starting (the fade). */
+  private intro: Intro | null = null;
+  private introOn = false;
+  private starting = false;
+  private overlay!: IntroOverlay;
   /** Overrides keyboard input when set (used by automated checks). */
   inputOverride: HandlingInput | null = null;
   /** Debug: stop the real-time loop from advancing the simulation. */
@@ -170,8 +180,12 @@ export class Game {
       saveSelection(localStorage, cars);
       this.startRace(cars);
     });
+    this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
+    // Any key or click skips the intro.
+    addEventListener('keydown', () => this.flow.phase === 'intro' && this.endIntro());
+    addEventListener('pointerdown', () => this.flow.phase === 'intro' && this.endIntro());
     this.resize();
     addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
@@ -261,24 +275,54 @@ export class Game {
     this.garage.open(loadSelection(localStorage));
   }
 
-  /** Start a race as picked (`cars`: the cars, difficulty and weather), else on the grid as it is. Only from the title or the finish. */
+  /**
+   * Start a race as picked (`cars`: the cars, difficulty and weather), else on the grid as it is. Only from the
+   * title or the finish. A fade to black (the race set up behind it, prewarm's stall unseen), then back on its
+   * intro.
+   */
   startRace(cars?: CarSelection): void {
-    if (!picksCars(this.flow.phase)) return;
-    this.garage.close();
-    this.sound.init();
-    // Every race starts with the player driving (I hands the car to the AI again), on the car's own limiter.
-    if (this.aiActive) {
-      this.aiActive = false;
-      this.player.params.maxSpeed = this.humanMaxSpeed;
-    }
-    if (cars) {
-      this.applyCars(cars);
-      this.rivalCapKmh = applyDifficulty(cars.difficulty, RIVAL_TUNING);
-    }
-    this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
-    this.resetWorld();
-    this.prewarm();
-    this.flow.start();
+    if (!picksCars(this.flow.phase) || this.starting) return;
+    this.starting = true;
+    this.sound.init(); // (in the click or key itself: the browser lets the sound start only there)
+    this.overlay.toBlack(START_FADE_OUT, () => {
+      this.starting = false;
+      this.garage.close();
+      // Every race starts with the player driving (I hands the car to the AI again), on the car's own limiter.
+      if (this.aiActive) {
+        this.aiActive = false;
+        this.player.params.maxSpeed = this.humanMaxSpeed;
+      }
+      if (cars) {
+        this.applyCars(cars);
+        this.rivalCapKmh = applyDifficulty(cars.difficulty, RIVAL_TUNING);
+      }
+      this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
+      this.resetWorld();
+      this.prewarm();
+      this.flow.start();
+      this.beginIntro();
+      this.overlay.fromBlack(START_FADE_IN);
+    });
+  }
+
+  /** The race's intro: one of its shot lists, not the last one's. */
+  private beginIntro(): void {
+    const kinds = INTRO_KINDS.filter((k) => k !== this.intro?.kind);
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    this.intro = new Intro(kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car.mesh), chase: this.rig.params });
+    this.introOn = true;
+    this.overlay.show(true);
+  }
+
+  /** The intro over (or skipped, a key): the chase camera from where it ended, the countdown. */
+  private endIntro(): void {
+    if (!this.introOn) return;
+    this.introOn = false;
+    this.intro?.end();
+    this.flow.beginCountdown();
+    this.rig.snap();
+    this.camYaw = null; // (the camera's jump no turn for the speed blur)
+    this.overlay.show(false);
   }
 
   /**
@@ -312,6 +356,11 @@ export class Game {
 
   /** Back to the garage (from the pause or the finish). */
   toTitle(): void {
+    if (this.introOn) {
+      this.introOn = false;
+      this.intro?.end();
+      this.overlay.show(false);
+    }
     this.flow.toTitle();
     this.sound.suspend(false);
     this.resetWorld();
@@ -513,7 +562,7 @@ export class Game {
     // obstacles to both), then drive the NPC bodies along the planned paths.
     this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
 
-    this.player.holdInPlace(this.flow.phase === 'countdown'); // (on the grid a burnout goes nowhere)
+    this.player.holdInPlace(this.flow.phase === 'countdown' || this.flow.phase === 'intro'); // (on the grid a burnout goes nowhere)
     this.player.prePhysics(input, dt);
     // How the racers were moving going into the step: a contact is judged on that, not on the bounce.
     const before = this.player.body.linvel();
@@ -624,7 +673,7 @@ export class Game {
     const yaw = Math.atan2(BLUR_V.x, BLUR_V.z);
     if (play > 0) {
       const v = this.player.body.linvel();
-      const center = this.flow.phase === 'title' ? null : motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
+      const center = this.flow.phase === 'title' || this.flow.phase === 'intro' ? null : motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
       if (center) this.blurCenter.copy(center);
       this.blurAmount = center
         ? blurAmount(Math.abs(this.player.speed) * 3.6, this.player.nitro.active, { from: POST.blurFrom, full: POST.blurFull, strength: POST.blurStrength, nitro: POST.blurNitro })
@@ -633,7 +682,7 @@ export class Game {
       const turned = this.camYaw === null ? 0 : Math.atan2(Math.sin(yaw - this.camYaw), Math.cos(yaw - this.camYaw));
       const rate = Math.min(3, Math.abs(turned) / play);
       const hFov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * this.camera.aspect);
-      this.blurSweep.set(this.flow.phase === 'title' ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
+      this.blurSweep.set(this.flow.phase === 'title' || this.flow.phase === 'intro' ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
     }
     this.camYaw = yaw;
     this.post.motion(this.blurCenter, this.blurAmount, this.blurSweep);
@@ -698,6 +747,8 @@ export class Game {
 
   /** `play`: the race's time this frame (0 paused: frame()), what everything here moves by. */
   private render(play: number, alpha: number): void {
+    // The intro's show for this frame (the car drawn arriving, its engine blipped); over, the countdown.
+    if (this.introOn && this.intro!.step(play)) this.endIntro();
     this.flares.begin();
     this.npcBeams.begin();
     this.player.render(alpha, this.flares);
@@ -735,8 +786,10 @@ export class Game {
       this.shiftingFrom = null;
     }
     this.grassRumble();
-    // Paused, the camera holds still too (its shakes stop where they are, and go on after).
-    this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
+    // Paused, the camera holds still too (its shakes stop where they are, and go on after). The intro's shots
+    // instead while it is on.
+    if (this.introOn) this.intro!.placeCamera();
+    else this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     this.speedBlur(play);
     // The traffic's bodies, those in this frame's view (the camera placed).
     this.bodies.begin(this.camera, this.player.headlights); // (the only lights casting shadows)
@@ -744,8 +797,9 @@ export class Game {
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);
     this.bodies.end();
-    // (Mid-upshift the engine is let go of: it sounds off the throttle.)
-    this.sound.setEngine(this.player.rpm, this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
+    // (Mid-upshift the engine is let go of: it sounds off the throttle. The intro's blip, as it is put on.)
+    const rev = this.player.showRev;
+    this.sound.setEngine(this.player.shownRpm, rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     this.hud.update(play, {
       speedKmh: Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6,
