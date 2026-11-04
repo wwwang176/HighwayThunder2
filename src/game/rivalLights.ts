@@ -71,6 +71,9 @@ export class RivalLightPool {
     FRUSTUM.setFromProjectionMatrix(VP.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     const ranked = cars
       .map((car) => {
+        // Its body where it is drawn this frame (its world matrix is otherwise last frame's, till the render: at
+        // speed the lamps then sat a metre or more back inside the car, its own body shadowing their beams).
+        car.mesh.updateMatrixWorld();
         F.set(0, 0, -1).transformDirection(car.mesh.matrixWorld);
         P.set(0, 0, -car.length / 2).applyMatrix4(car.mesh.matrixWorld).addScaledVector(F, BEAM_AHEAD);
         const d = P.distanceTo(cam);
