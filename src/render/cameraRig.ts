@@ -8,7 +8,13 @@ export interface CameraParams {
   fovMin: number;
   fovMax: number;
   yawTau: number; // seconds for the camera heading to catch up with the car
+  /** The bob up and down at speed (m; from standstill to BOB_FULL m/s), and how fast it goes then (noise steps a second). */
+  bob: number;
+  bobHz: number;
 }
+
+/** The speed the bob is full at (m/s, 200 km/h). */
+const BOB_FULL = 55;
 
 export const DEFAULT_CAMERA: CameraParams = {
   distance: 5.6, // close behind (was 6.8)
@@ -18,6 +24,8 @@ export const DEFAULT_CAMERA: CameraParams = {
   fovMin: 62,
   fovMax: 84,
   yawTau: 0.18,
+  bob: 0.008, // slight: the body riding the road's unevenness
+  bobHz: 3,
 };
 
 export function wrapAngle(a: number): number {
@@ -115,6 +123,9 @@ export class CameraRig {
     const cam = this.camera;
     cam.position.set(carPos.x - fx * p.distance, carPos.y + p.height, carPos.z - fz * p.distance);
 
+    // A slight bob, more and quicker the faster (it moves by `dt`: held while paused).
+    const k = Math.min(1, Math.abs(vForward) / BOB_FULL);
+    this.shakes.bob(p.bob * k, p.bobHz * (0.4 + 0.6 * k));
     this.shakes.update(dt);
     const o = this.shakes.offset();
     cam.position.x += o.x;

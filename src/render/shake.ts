@@ -77,6 +77,9 @@ export class ShakeManager {
   private rumbleSwing = 0;
   private rumbleFrequency = 0;
   private rumblePhase = 0; // its noise steps so far (summed: a changing frequency doesn't jump)
+  private bobSwing = 0;
+  private bobFrequency = 0;
+  private bobPhase = 0;
 
   /**
    * A steady shake, set every frame (0: none): mostly up and down, a little across - rough ground under the
@@ -85,6 +88,15 @@ export class ShakeManager {
   rumble(swing: number, frequency: number): void {
     this.rumbleSwing = swing;
     this.rumbleFrequency = frequency;
+  }
+
+  /**
+   * A steady bob, set every frame (0: none): up and down only, smooth noise - the body riding the road's small
+   * unevenness. Beside the rumble and the shakes, not giving way to them (it's slight).
+   */
+  bob(swing: number, frequency: number): void {
+    this.bobSwing = swing;
+    this.bobFrequency = frequency;
   }
 
   /** What is left of the shake going (its swing now at most), m. */
@@ -116,6 +128,7 @@ export class ShakeManager {
   update(dt: number): void {
     this.clock += dt;
     this.rumblePhase += dt * this.rumbleFrequency;
+    this.bobPhase += dt * this.bobFrequency;
     if (!this.shake) return;
     this.t += dt;
     if (this.t >= this.shake.seconds) this.shake = null;
@@ -146,6 +159,7 @@ export class ShakeManager {
       o.y += a * noise(4, this.rumblePhase);
       o.z += a * RUMBLE_SURGE * noise(6, this.rumblePhase / 2);
     }
+    if (this.bobSwing > 0) o.y += this.bobSwing * noise(8, this.bobPhase);
     return o;
   }
 

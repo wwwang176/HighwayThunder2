@@ -73,4 +73,25 @@ describe('camera shake', () => {
     }
     expect(along).toBeGreaterThan(across);
   });
+
+  it('the bob: up and down only, within its swing, held while paused (its phase moves by the race time); none at 0', () => {
+    const s = new ShakeManager();
+    s.bob(0.005, 3);
+    let most = 0;
+    for (let i = 0; i < 120; i++) {
+      s.update(1 / 60);
+      const o = s.offset();
+      expect(o.x).toBe(0);
+      expect(o.z).toBe(0);
+      expect(s.roll()).toBe(0);
+      most = Math.max(most, Math.abs(o.y));
+    }
+    expect(most).toBeGreaterThan(0.002);
+    expect(most).toBeLessThanOrEqual(0.005);
+    const held = s.offset().y;
+    s.update(0);
+    expect(s.offset().y).toBe(held);
+    s.bob(0, 3);
+    expect(s.offset().y).toBe(0);
+  });
 });
