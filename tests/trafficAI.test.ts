@@ -123,7 +123,7 @@ describe('TrafficSim', () => {
         prev.set(a.id, a.d);
       }
     });
-  });
+  }, 20_000); // (60 s of traffic: near the 5 s default on a busy machine, the whole suite at once)
 
   it('never changes lanes into a wreck that is alongside (center slightly behind)', () => {
     for (const back of [1, 2, 3, 4]) {

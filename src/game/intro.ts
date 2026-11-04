@@ -44,6 +44,12 @@ const ARRIVE_BACK_LATER = [0.3, 0.8] as const;
  */
 const ARRIVE_PLAYER_STOP = 3.7;
 
+/** How hard an arriving car is braking `t` s in (m/s²): its speed shed evenly over ARRIVE_BRAKE s, then none. */
+function arrivalBraking(speed: number, stop: number, t: number): number {
+  const left = stop - t;
+  return left > 0 && left <= ARRIVE_BRAKE ? speed / ARRIVE_BRAKE : 0;
+}
+
 /** Where an arriving car is drawn (m ahead of its place: < 0) `t` s in, at `speed` till it brakes to a stop at `stop` s. */
 function arriving(speed: number, stop: number, t: number): number {
   const left = Math.max(0, stop - t);
@@ -51,6 +57,13 @@ function arriving(speed: number, stop: number, t: number): number {
 }
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
+
+/**
+ * Every intro's last shot (round into the chase camera's place) is this long (s); the countdown starts this far
+ * into it, the camera still settling (the intros' shots before it 4.5 s: the countdown at 6 s each).
+ */
+const LAST_SHOT = 2.0;
+const COUNTDOWN_INTO = 1.5;
 
 /** A blip: up to this share of the redline, held this long, then let go (the rpm falls back over BLIP_FALL s). */
 const BLIP_RPM = 0.8;
@@ -129,9 +142,20 @@ export class Intro {
     return this.shots.reduce((a, s) => a + s.seconds, 0);
   }
 
+  /** When the countdown starts (s): COUNTDOWN_INTO the last shot, the camera still coming round into place. */
+  get countdownAt(): number {
+    return this.seconds - LAST_SHOT + COUNTDOWN_INTO;
+  }
+
+  /** Whether the countdown is due (the intro's time past countdownAt). */
+  get countdownDue(): boolean {
+    return this.elapsed >= this.countdownAt - 1e-6;
+  }
+
   /** `dt` s on: the car's show for this frame. Whether the intro is over. */
   step(dt: number): boolean {
     this.t += dt;
+    this.elapsed += dt;
     while (this.shot < this.shots.length && this.t >= this.shots[this.shot].seconds) {
       this.t -= this.shots[this.shot].seconds;
       this.shot++;
@@ -141,7 +165,6 @@ export class Intro {
     const s = this.shots[Math.min(this.shot, this.shots.length - 1)];
     const car = this.scene.player;
     if (this.kind === 'arrival') {
-      this.elapsed += dt;
       car.showOffset = arriving(this.playerArrival.speed, this.playerArrival.stop, this.elapsed);
       this.scene.rivals.forEach((r, i) => (r.showOffset = arriving(this.arrivals[i].speed, this.arrivals[i].stop, this.elapsed)));
     }
@@ -150,6 +173,19 @@ export class Intro {
     car.showRev = this.blipAt === null ? null : this.rev(this.blipAt);
     if (done) this.end();
     return done;
+  }
+
+  /**
+   * The arriving cars' braking now (m/s² each; none but in the arrival): for their bodies to take its load on
+   * their own springs (PlayerCar.brakeLoad, before each physics step) - drawn arriving, held on the grid.
+   */
+  braking(): [PlayerCar, number][] {
+    if (this.kind !== 'arrival') return [];
+    const t = this.elapsed;
+    return [
+      [this.scene.player, arrivalBraking(this.playerArrival.speed, this.playerArrival.stop, t)],
+      ...this.scene.rivals.map((r, i) => [r, arrivalBraking(this.arrivals[i].speed, this.arrivals[i].stop, t)] as [PlayerCar, number]),
+    ];
   }
 
   /** The camera where this frame's shot has it. */
@@ -234,7 +270,7 @@ export class Intro {
           ease: linear, // (still moving at the cut)
         },
         {
-          seconds: 1.5,
+          seconds: LAST_SHOT,
           from: { pos: [wheel[0] - 1.15, 0.45, wheel[2] - 0.8], look: [wheel[0] + 0.2, r + 0.1, wheel[2]], fov: 34 },
           to: chase,
           ease: easeOut, // (in moving, settling where the chase camera starts)
@@ -258,7 +294,7 @@ export class Intro {
           ease: linear, // (still moving at the cut)
         },
         {
-          seconds: 2.0,
+          seconds: 1.9,
           from: { pos: [rightX, 0.7, front], look: [rightX - 2.5, 0.6, 0], fov: 44 },
           to: { pos: [left, 0.7, front], look: [left + 2.5, 0.6, 0], fov: 44 },
           ease: linear, // (still moving at the cut)
@@ -271,7 +307,7 @@ export class Intro {
           blip: 0.15,
         },
         {
-          seconds: 1.4,
+          seconds: LAST_SHOT,
           from: { ...hero, pos: [2.6, 0.8, 5.5] },
           to: chase,
           ease: easeOut, // (in moving, settling where the chase camera starts)
@@ -291,7 +327,7 @@ export class Intro {
         ease: linear, // (still moving at the cut)
       },
       {
-        seconds: 1.4,
+        seconds: 1.3,
         from: { pos: [tip[0] + 0.9, tip[1] + 0.18, tip[2] - 1.6], look: [...tip], fov: 30 },
         to: { pos: [tip[0] + 0.75, tip[1] + 0.15, tip[2] - 1.35], look: [...tip], fov: 28 },
         ease: linear, // (still moving at the cut)
@@ -305,13 +341,13 @@ export class Intro {
         ease: linear, // (still moving at the cut)
       },
       {
-        seconds: 1.1,
+        seconds: 1.0,
         from: tail,
         to: { ...tail, pos: [-1.0, 0.42, -p.length / 2 - 2.0] },
         ease: linear, // (still moving at the cut)
       },
       {
-        seconds: 1.3,
+        seconds: LAST_SHOT,
         from: { ...tail, pos: [-1.0, 0.42, -p.length / 2 - 2.0] },
         to: chase,
         ease: easeOut, // (in moving, settling where the chase camera starts)

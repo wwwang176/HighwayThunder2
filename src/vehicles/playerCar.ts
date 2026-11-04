@@ -46,6 +46,8 @@ const G = 9.81;
 /** A wheel has no lamps. */
 const NO_LIGHTS: VehicleLights = { left: [], right: [], brake: [] };
 const SHOW_FWD = new THREE.Vector3();
+const LOAD_AXIS = new THREE.Vector3();
+const LOAD_Q = new THREE.Quaternion();
 
 /** The mass one wheel carries standing still (kg): half its axle's share (comFwd puts more on the front). */
 export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, front: boolean): number {
@@ -397,6 +399,21 @@ export class PlayerCar {
   exhaust(dt: number): void {
     const pops = this.backfire.update(dt, this.shownThrottle, this.shownRpm / this.params.redline);
     this.flames?.update(dt, pops, this.nitro.active);
+  }
+
+  /**
+   * A braking load for show (call before each physics step): what braking at `decel` m/s² does to the body -
+   * the grip at the road behind its centre of mass pitching it nose down (mass x decel x the centre's height) - as
+   * a torque on its own springs, while it stands held (the intro's cars, drawn arriving: they dive and come back
+   * on their own suspension, as tuned).
+   */
+  brakeLoad(decel: number, dt: number): void {
+    if (decel <= 0) return;
+    const q = this.body.rotation();
+    LOAD_AXIS.set(1, 0, 0).applyQuaternion(LOAD_Q.set(q.x, q.y, q.z, q.w)); // its right: nose down is about it, negative
+    const height = this.body.translation().y + this.params.comY;
+    const impulse = -this.params.mass * decel * height * dt;
+    this.body.applyTorqueImpulse({ x: LOAD_AXIS.x * impulse, y: LOAD_AXIS.y * impulse, z: LOAD_AXIS.z * impulse }, true);
   }
 
   /** The engine as heard and seen at the exhaust: its own, or a blip put on for show (`showRev`). */

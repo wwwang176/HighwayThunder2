@@ -184,8 +184,8 @@ export class Game {
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
     // Any key or click skips the intro.
-    addEventListener('keydown', () => this.flow.phase === 'intro' && this.endIntro());
-    addEventListener('pointerdown', () => this.flow.phase === 'intro' && this.endIntro());
+    addEventListener('keydown', () => this.skipIntro());
+    addEventListener('pointerdown', () => this.skipIntro());
     this.resize();
     addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
@@ -314,15 +314,26 @@ export class Game {
     this.overlay.show(true);
   }
 
-  /** The intro over (or skipped, a key): the chase camera from where it ended, the countdown. */
-  private endIntro(): void {
+  /** The countdown on (the intro's last shot still coming round into place): its bars away, the HUD in. */
+  private startCountdown(): void {
+    this.flow.beginCountdown();
+    this.overlay.show(false);
+  }
+
+  /** The intro over (or skipped): the chase camera from where it ended. */
+  private finishIntro(): void {
     if (!this.introOn) return;
     this.introOn = false;
     this.intro?.end();
-    this.flow.beginCountdown();
     this.rig.snap();
     this.camYaw = null; // (the camera's jump no turn for the speed blur)
-    this.overlay.show(false);
+  }
+
+  /** A key or a click in the intro: straight to the countdown, the chase camera. */
+  private skipIntro(): void {
+    if (this.flow.phase !== 'intro') return;
+    this.startCountdown();
+    this.finishIntro();
   }
 
   /**
@@ -571,6 +582,8 @@ export class Game {
       const v = r.car.body.linvel();
       this.racerVelBefore[i + 1] = { x: v.x, z: v.z };
     });
+    // The intro's arriving cars, drawn braking: the load on their bodies (held on the grid), on their own springs.
+    if (this.introOn) for (const [car, decel] of this.intro!.braking()) car.brakeLoad(decel, dt);
     this.physics.step((a, b, n) => this.onContact(a, b, n));
     this.physics.touches((t) => {
       // None off a car's underside on the ground (its nose dipping onto the road under hard braking threw them);
@@ -747,8 +760,13 @@ export class Game {
 
   /** `play`: the race's time this frame (0 paused: frame()), what everything here moves by. */
   private render(play: number, alpha: number): void {
-    // The intro's show for this frame (the car drawn arriving, its engine blipped); over, the countdown.
-    if (this.introOn && this.intro!.step(play)) this.endIntro();
+    // The intro's show for this frame (the cars drawn arriving, the engine blipped); the countdown in its last
+    // shot, the chase camera after it.
+    if (this.introOn) {
+      const over = this.intro!.step(play);
+      if (this.flow.phase === 'intro' && this.intro!.countdownDue) this.startCountdown();
+      if (over) this.finishIntro();
+    }
     this.flares.begin();
     this.npcBeams.begin();
     this.player.render(alpha, this.flares);
