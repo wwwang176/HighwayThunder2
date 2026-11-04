@@ -67,18 +67,18 @@ describe('nextIntro', () => {
 });
 
 describe('Intro', () => {
-  it('every intro: the countdown at 6 s, 1.5 s into its last shot (2 s), the camera settled at 6.5', () => {
+  it('every intro: the countdown at 5.5 s, 1 s into its last shot (2 s), the camera settled at 6.5', () => {
     const car = new PlayerCar(PhysicsWorld.createSync(), null);
     for (const kind of INTRO_KINDS) {
       const intro = new Intro(kind, { camera: new THREE.PerspectiveCamera(), player: car, rivals: [], chase: DEFAULT_CAMERA });
       expect(intro.seconds, kind).toBeCloseTo(6.5);
-      expect(intro.countdownAt, kind).toBeCloseTo(6);
+      expect(intro.countdownAt, kind).toBeCloseTo(5.5);
       let due = 0;
       for (let t = 0; t < 7 && !intro.countdownDue; t += 0.01) {
         intro.step(0.01);
         due = t + 0.01;
       }
-      expect(due, kind).toBeCloseTo(6, 1);
+      expect(due, kind).toBeCloseTo(5.5, 1);
     }
   });
 });

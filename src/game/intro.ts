@@ -91,10 +91,10 @@ const linear = (t: number) => t;
 
 /**
  * Every intro's last shot (round into the chase camera's place) is this long (s); the countdown starts this far
- * into it, the camera still settling (the intros' shots before it 4.5 s: the countdown at 6 s each).
+ * into it, the camera still settling (the intros' shots before it 4.5 s: the countdown at 5.5 s each).
  */
 const LAST_SHOT = 2.0;
-const COUNTDOWN_INTO = 1.5;
+const COUNTDOWN_INTO = 1.0;
 
 /** A blip: up to this share of the redline, held this long, then let go (the rpm falls back over BLIP_FALL s). */
 const BLIP_RPM = 0.8;
