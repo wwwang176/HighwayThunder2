@@ -37,6 +37,13 @@ export function lowBeamPattern(u: number, v: number): number {
 /** Every headlight's decay, and no other spot light's (the street lamps': 1.6): the lit shaders know a headlight by it. */
 export const HEADLIGHT_DECAY = 1.0;
 
+/**
+ * The real headlights' brightness (the player's and the rivals'; the tuning panel's, applied each frame), candela
+ * for a car's two lamps together. 216 lights the road 8 m ahead as the traffic's painted beams do (NPC_BEAM): theirs
+ * 5.9 x 0.39 there, a real pair I x 0.98 x 1/8 m x 0.7/8 m = I x 0.0107 (it was 900: four times theirs).
+ */
+export const HEADLIGHTS = { pair: 216 };
+
 const g = (x: number) => x.toFixed(6);
 /**
  * lowBeamPattern in GLSL, toward `p` from a spot light at `lightPos` whose uniform `direction` points back at it

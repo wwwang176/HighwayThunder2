@@ -6,6 +6,7 @@ import { PlanPath } from '../render/planPath';
 import { POST, PostFx } from '../render/postFx';
 import { blurAmount, motionCenter } from '../render/speedBlur';
 import { flameTextures } from '../render/exhaustFlames';
+import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
@@ -736,6 +737,9 @@ export class Game {
   /** The lights whose shadows show this frame: the player's headlights, and the near rivals' (theirs set here: RIVAL_LIGHTS). */
   private shadowLights(): THREE.SpotLight[] {
     const p = this.player.mesh.position;
+    // Every real headlight at the one brightness (HEADLIGHTS: the tuning panel's).
+    for (const l of this.player.headlights) l.intensity = HEADLIGHTS.pair / 2;
+    for (const r of this.rivals.list) for (const l of r.car.headlights) l.intensity = HEADLIGHTS.pair / 2;
     return [...this.player.headlights, ...this.rivals.headlights(p.x, p.z)];
   }
 

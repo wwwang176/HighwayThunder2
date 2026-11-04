@@ -4,6 +4,7 @@ import type { CameraParams } from '../render/cameraRig';
 import { WRECK_TRIP } from '../vehicles/npcVehicle';
 import { NIGHT } from '../world/roadScene';
 import { NPC_BEAM } from '../render/npcBeams';
+import { HEADLIGHTS } from '../vehicles/headlight';
 import { POST } from '../render/postFx';
 import { PLANNER } from '../ai/planner';
 import { DRIVER_TUNING } from '../ai/plannerDriver';
@@ -125,6 +126,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   rl.add(RIVAL_LIGHTS, 'slots', 0, 8, 2).name('有陰影的燈（名額）');
   rl.add(RIVAL_LIGHTS, 'range', 0, 100, 5).name('幾 m 內有陰影');
   rl.add(RIVAL_LIGHTS, 'fade', 1, 50, 1).name('超出後幾 m 淡出');
+  rl.add(HEADLIGHTS, 'pair', 0, 1200, 10).name('車燈亮度 cd（玩家與對手；216 ≈ 路人車）');
   const r = gui.addFolder('電腦對手（橡皮筋）');
   r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
   r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');

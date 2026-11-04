@@ -7,7 +7,7 @@ import { CarSpec, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
-import { AIM_DOWN, createHeadlight } from './headlight';
+import { AIM_DOWN, createHeadlight, HEADLIGHTS } from './headlight';
 import { ExhaustFlames } from '../render/exhaustFlames';
 import { Backfire } from './backfire';
 import { emitFlares } from './npcVehicle';
@@ -35,7 +35,6 @@ export const PLAYER_W = 1.86;
 export const PLAYER_H = 1.1;
 export const PLAYER_L = 4.4;
 
-const HEADLIGHT_INTENSITY = 900; // candela for both lamps together, brightest part of the beam (decay 1)
 const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 /** The rear tyres' grip in a burnout, times: the front brakes alone hold the car. */
@@ -209,7 +208,7 @@ export class PlayerCar {
     // of a round cone; the two beams overlap ahead and each casts its own shadow.
     for (const side of realLights ? [-1, 1] : []) {
       const x = side * (p.width / 2 - 0.4);
-      const hl = createHeadlight(HEADLIGHT_INTENSITY / 2);
+      const hl = createHeadlight(HEADLIGHTS.pair / 2);
       hl.position.set(x, -0.05, -p.length / 2 - 0.15);
       hl.target.position.set(x, -0.05 - Math.tan(AIM_DOWN) * 30, -p.length / 2 - 30);
       model.root.add(hl, hl.target);
