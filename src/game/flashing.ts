@@ -5,13 +5,13 @@
  */
 export const FLASH = {
   /** A car ahead within this (m, along the road)... */
-  ahead: 50,
+  ahead: 30,
   /** ...this near its lane's middle to its own (m, across)... */
   lane: 1.8,
   /** ...this much slower (m/s: 40 km/h)... */
   closing: 40 / 3.6,
-  /** ...and reached within this (s) at that (40 km/h faster: within 28 m; the closer, only right behind it). */
-  within: 2.5,
+  /** ...and reached within this (s) at that (40 km/h faster: within 17 m; right behind it, not from far off). */
+  within: 1.5,
   /** How many flashes, each this long on (s), with this much off between. */
   flashes: 2,
   on: 0.12,
