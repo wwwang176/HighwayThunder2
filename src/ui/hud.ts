@@ -121,7 +121,7 @@ const setAttrs = (e: Element, attrs: Record<string, string>) => Object.entries(a
  * line (every car on it, the distance left under its end), the place in a hexagon (top right), the tachometer -
  * a ring of rpm blocks, the speed in it, the gear, the nitro (bottom right) - a rival coming up behind (an arrow
  * on the bottom edge), R when the car is stuck or rolled over, and moments (overtake, near miss) in the middle.
- * Then the pause and the finish, on a veil.
+ * Then the pause and the finish, over the race as it stands (no veil: the race seen whole behind them).
  */
 export class Hud {
   private el: Record<string, HTMLElement> = {};
@@ -159,7 +159,6 @@ export class Hud {
         <div class="h-badges"><span data-id="ai" class="h-ai cut">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
       </div>
       <div id="toast" class="toast" data-id="toast"></div>
-      <div id="veil" class="veil"></div>
       <div id="pause" class="center bracketed">
         <span class="brk tr"></span><span class="brk bl"></span>
         <div class="menu panel cut">
@@ -197,7 +196,7 @@ export class Hud {
           </div>
         </div>
       </div>`;
-    for (const id of ['countdown', 'hud', 'veil', 'pause', 'finish']) this.el[id] = root.querySelector(`#${id}`)!;
+    for (const id of ['countdown', 'hud', 'pause', 'finish']) this.el[id] = root.querySelector(`#${id}`)!;
     root.querySelectorAll<HTMLElement>('[data-id]').forEach((e) => (this.el[e.dataset.id!] = e));
     this.blocks = [...root.querySelectorAll<SVGPolygonElement>('[data-block]')];
     this.nitroBlocks = [...root.querySelectorAll<SVGPolygonElement>('[data-nitro]')];
@@ -241,7 +240,7 @@ export class Hud {
   /** Nothing of the race on screen (the garage is open: update() is not called until the next race). */
   hide(): void {
     this.lastPhase = '';
-    for (const id of ['countdown', 'hud', 'veil', 'pause', 'finish']) this.show(id, false);
+    for (const id of ['countdown', 'hud', 'pause', 'finish']) this.show(id, false);
     this.el.toast.classList.remove('show');
     this.toastTimer = 0;
   }
@@ -278,7 +277,6 @@ export class Hud {
       const from = this.lastPhase;
       this.lastPhase = phase;
       this.show('hud', phase !== 'title' && phase !== 'intro'); // (not over the intro's shots)
-      this.show('veil', phase === 'paused' || phase === 'finished');
       this.show('pause', phase === 'paused');
       this.show('finish', phase === 'finished');
       if (phase === 'countdown') this.lastPlace = null;
