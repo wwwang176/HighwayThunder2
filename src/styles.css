@@ -208,3 +208,23 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 /* The HUD coming in as the countdown starts (Hud.update: the intro over). */
 @keyframes hud-in { from { opacity: 0; translate: 0 1.2vh; } to { opacity: 1; translate: 0 0; } } /* (translate: their own transforms stay) */
 #hud.enter > * { animation: hud-in 0.6s ease-out both; }
+/* The title (src/ui/garage.ts, #garage.title): the game's name and its start on the left, the car on the right
+   (garageScene's picture shifted), none of the garage's controls; entering, the car slides to the middle and the
+   controls come in after it. */
+#garage .g-brand, #garage .g-keys, #garage .g-classes, #garage .g-spec, #garage .g-bottom { transition: opacity 0.5s ease 0.45s; }
+#garage.title .g-brand, #garage.title .g-keys, #garage.title .g-classes, #garage.title .g-spec, #garage.title .g-bottom {
+  opacity: 0; pointer-events: none; transition: none; }
+#garage .g-title-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.6s;
+  background: linear-gradient(90deg, rgba(2, 4, 10, 0.85), rgba(2, 4, 10, 0.55) 35%, transparent 55%); }
+#garage.title .g-title-shade { opacity: 1; }
+#garage .g-title { position: absolute; left: 7vw; top: 50%; translate: 0 -50%; display: flex; flex-direction: column; align-items: flex-start;
+  gap: 6vh; opacity: 0; pointer-events: none; transition: opacity 0.35s; }
+#garage.title .g-title { opacity: 1; pointer-events: auto; }
+#garage .g-title-name { display: flex; align-items: center; gap: 1.6vw; }
+#garage .g-title-name .icon { width: 7vw; height: 7vw; color: var(--accent); filter: drop-shadow(0 0 1.2vw var(--accent)); }
+#garage .g-title-name h1 { margin: 0; font: italic 900 4.6vw/1 system-ui, sans-serif; letter-spacing: 0.3vw;
+  text-shadow: 0 0.4vh 2vw rgba(0, 0, 0, 0.6); }
+#garage .g-start { width: 18vw; height: 9vh; border-radius: 0.7vw; background: var(--accent); color: #fff;
+  font: italic 900 1.9vw/1 system-ui, "Microsoft JhengHei", sans-serif; letter-spacing: 0.3vw; box-shadow: 0 0 2.4vw -0.4vw var(--accent);
+  transition: transform 0.15s; }
+#garage .g-start:hover { transform: scale(1.04); }

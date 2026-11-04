@@ -42,13 +42,15 @@ const KEYS: [string, string][] = [
  * The garage: the car to race in (parked on a wet lay-by at night, drawn live: garageScene.ts),
  * its measured stats, the race at a glance (rivals by car type, difficulty,
  * weather) with a pop-up to change it, and the start. No explanatory text:
- * icons, with their meaning on hover / focus (data-tip).
+ * icons, with their meaning on hover / focus (data-tip). The game opens on its title: the same scene, the car
+ * on the right, the game's name and a start on the left, none of the garage's controls (enter() brings them).
  */
 export class Garage {
   private readonly el: HTMLElement;
   private sel!: CarSelection;
   private readonly preview: GarageScene;
   private readonly backdrop: HTMLElement;
+  private titleOn = false;
 
   constructor(
     root: HTMLElement,
@@ -61,6 +63,11 @@ export class Garage {
     this.el.innerHTML = html`
       <canvas class="g-car"></canvas>
       <div class="g-vignette"></div>
+      <div class="g-title-shade"></div>
+      <div class="g-title">
+        <div class="g-title-name">${icon('emblem')}<h1>HIGHWAY<br>THUNDER 2</h1></div>
+        <button class="g-start">開始遊戲</button>
+      </div>
       <div class="g-brand">${icon('emblem')}<div class="g-name">HIGHWAY THUNDER 2</div></div>
       <button class="g-keys" data-tip="操作說明" data-tip-place="left">${icon('icon-keys')}</button>
       <div class="g-classes"></div>
@@ -101,6 +108,7 @@ export class Garage {
     installTooltips(this.el);
     this.preview = new GarageScene(this.el.querySelector('.g-car')!);
     this.q('.g-go').onclick = () => this.start();
+    this.q('.g-start').onclick = () => this.enter();
     this.q('.g-race').onclick = () => this.openPop('race');
     this.q('.g-keys').onclick = () => this.openPop('keys');
     this.el.querySelectorAll<HTMLElement>('.g-close, .g-done').forEach((b) => (b.onclick = () => this.closePop()));
@@ -118,13 +126,31 @@ export class Garage {
     return !!this.el.querySelector('.g-back.open');
   }
 
-  open(sel: CarSelection): void {
+  /** Open on `sel`: at the title (the game's name and its start on the left, the car on the right) or in it. */
+  open(sel: CarSelection, title = false): void {
     this.sel = sel;
     this.closePop();
     this.el.style.display = '';
+    this.titleOn = title;
+    this.el.classList.toggle('title', title);
+    this.preview.slide(title, false);
     this.draw();
     this.show();
     (document.activeElement as HTMLElement | null)?.blur(); // the button that opened it must not take an Enter
+  }
+
+  /** At the title (the garage's own controls not yet shown). */
+  get onTitle(): boolean {
+    return this.titleOn;
+  }
+
+  /** From the title into the garage (its start button, or Enter): the car sliding to the middle, the controls in. */
+  enter(): void {
+    if (!this.titleOn) return;
+    this.titleOn = false;
+    this.el.classList.remove('title');
+    this.preview.slide(false, true);
+    (document.activeElement as HTMLElement | null)?.blur();
   }
 
   close(): void {

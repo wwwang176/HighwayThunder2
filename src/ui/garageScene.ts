@@ -25,6 +25,9 @@ const LAMP = { x: 4.6, z: 1.5, h: 6.6, arm: 1.5 };
 const RAIL_X = 5.6;
 const FAR = 140; // the backdrop's distance (a curved strip round the car); the ground 2 FAR across
 const PUDDLES = 28; // the wet patches' picture, times across the ground (each 10 m)
+/** The title: the picture shifted this share of the screen's width right (the car on the right half), sliding back to the garage's over SLIDE_SECONDS. */
+const TITLE_SHIFT = 0.2; // (0.25: the car's tail off the right edge)
+const SLIDE_SECONDS = 0.9;
 
 /**
  * The garage's scene: the picked car parked on a wet lay-by at night, under a sodium lamp, the city's lights
@@ -44,6 +47,11 @@ export class GarageScene {
   private car: THREE.Object3D | null = null;
   private running = false;
   private t = 0;
+  /** The picture's shift toward the right half (0: the car in the middle, 1: the title's), and its slide. */
+  private shift = 0;
+  private slideFrom = 0;
+  private slideTo = 0;
+  private slideT = 1;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -115,8 +123,10 @@ export class GarageScene {
       let last = performance.now();
       const loop = (now: number) => {
         if (!this.running) return;
-        this.t += Math.min(0.1, (now - last) / 1000);
+        const dt = Math.min(0.1, (now - last) / 1000);
+        this.t += dt;
         last = now;
+        this.slideOn(dt);
         this.frame();
         requestAnimationFrame(loop);
       };
@@ -126,6 +136,31 @@ export class GarageScene {
 
   stop(): void {
     this.running = false;
+  }
+
+  /**
+   * The car on the right half of the screen (`right`: the title, its left half the game's name), or in the middle
+   * (the garage); sliding there over SLIDE_SECONDS, or at once.
+   */
+  slide(right: boolean, animate: boolean): void {
+    const to = right ? 1 : 0;
+    if (!animate) {
+      this.shift = this.slideTo = to;
+      this.slideT = 1;
+      this.placeView();
+      return;
+    }
+    this.slideFrom = this.shift;
+    this.slideTo = to;
+    this.slideT = 0;
+  }
+
+  private slideOn(dt: number): void {
+    if (this.slideT >= 1) return;
+    this.slideT = Math.min(1, this.slideT + dt / SLIDE_SECONDS);
+    const k = this.slideT * this.slideT * (3 - 2 * this.slideT);
+    this.shift = this.slideFrom + (this.slideTo - this.slideFrom) * k;
+    this.placeView();
   }
 
   private frame(): void {
@@ -143,8 +178,14 @@ export class GarageScene {
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    // The car low in the middle, under the stats panel's height.
-    this.camera.setViewOffset(w, h, 0, -h * 0.1, w, h);
+    this.placeView();
+  }
+
+  /** The car low in the middle (under the stats panel's height), or `shift` of the way to the right half's middle. */
+  private placeView(): void {
+    const w = innerWidth;
+    const h = innerHeight;
+    this.camera.setViewOffset(w, h, -w * TITLE_SHIFT * this.shift, -h * 0.1, w, h);
   }
 
   /** The asphalt, lit, its wet patches smoother; over it the scene mirrored (Reflector), smeared down the screen and patchy. */

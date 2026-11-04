@@ -196,7 +196,7 @@ export class Game {
       if (document.hidden && (this.flow.phase === 'racing' || this.flow.phase === 'countdown')) this.togglePause();
     });
     this.resetWorld();
-    this.openGarage();
+    this.openGarage(true); // (the game opens on its title)
     this.prewarm();
   }
 
@@ -238,20 +238,24 @@ export class Game {
   private bindKeys(): void {
     const k = this.keyboard;
     const g = this.garage;
-    // Enter: in the garage, into the race (not while a pop-up is open, nor on a focused button: Enter presses that one);
-    // after the finish, the same race again.
+    // Enter: at the title, into the garage; in the garage, into the race (not while a pop-up is open, nor on a
+    // focused button: Enter presses that one); after the finish, the same race again.
     const enter = () => {
       if (g.isOpen) {
-        if (!g.popOpen && !(document.activeElement instanceof HTMLButtonElement)) g.start();
+        if (g.popOpen || document.activeElement instanceof HTMLButtonElement) return;
+        if (g.onTitle) g.enter();
+        else g.start();
       } else if (this.flow.phase === 'finished') this.startRace(this.cars); // the race just run, saved or not
     };
     k.onPress('Enter', enter);
     k.onPress('NumpadEnter', enter);
     k.onPress('Escape', () => (g.popOpen ? g.closePop() : g.isOpen ? undefined : this.togglePause()));
-    k.onPress('ArrowUp', () => g.isOpen && !g.popOpen && g.step(-1));
-    k.onPress('ArrowDown', () => g.isOpen && !g.popOpen && g.step(1));
-    k.onPress('ArrowLeft', () => g.isOpen && !g.popOpen && g.stepPaint(-1));
-    k.onPress('ArrowRight', () => g.isOpen && !g.popOpen && g.stepPaint(1));
+    // ↑ ↓ the car, ← → its paint: in the garage (not at the title: its picks are not shown there).
+    const picking = () => g.isOpen && !g.popOpen && !g.onTitle;
+    k.onPress('ArrowUp', () => picking() && g.step(-1));
+    k.onPress('ArrowDown', () => picking() && g.step(1));
+    k.onPress('ArrowLeft', () => picking() && g.stepPaint(-1));
+    k.onPress('ArrowRight', () => picking() && g.stepPaint(1));
     // Race keys do nothing in the garage.
     k.onPress('KeyR', () => !g.isOpen && this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
@@ -269,14 +273,14 @@ export class Game {
 
   // --- flow -----------------------------------------------------------------
 
-  /** The garage, with the race picked last time (only before a race: at the title or after the finish). */
-  openGarage(): void {
+  /** The garage, with the race picked last time (only before a race: at the title or after the finish); `title`: on the game's title. */
+  openGarage(title = false): void {
     if (!picksCars(this.flow.phase)) return;
     // The world (and its render, which drives the engine and tyre sounds) stops: no engine left running in the garage.
     this.sound.setEngine(0, 0, false);
     this.sound.setSkid(0);
     this.hud.hide();
-    this.garage.open(loadSelection(localStorage));
+    this.garage.open(loadSelection(localStorage), title);
   }
 
   /**
