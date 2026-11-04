@@ -11,6 +11,8 @@ export class GameFlow {
   raceTime = 0;
   finishTime: number | null = null;
   nearMisses = 0;
+  /** The race's top speed so far (km/h: noteSpeed). */
+  topSpeed = 0;
   resetCooldown = 0;
   best: number | null;
   isBest = false;
@@ -29,6 +31,7 @@ export class GameFlow {
     this.raceTime = 0;
     this.finishTime = null;
     this.nearMisses = 0;
+    this.topSpeed = 0;
     this.resetCooldown = 0;
     this.isBest = false;
   }
@@ -85,6 +88,11 @@ export class GameFlow {
 
   markReset(): void {
     this.resetCooldown = RESET_COOLDOWN;
+  }
+
+  /** The player's speed this frame (km/h): the top speed, while racing. */
+  noteSpeed(kmh: number): void {
+    if (this.phase === 'racing') this.topSpeed = Math.max(this.topSpeed, kmh);
   }
 
   addNearMiss(): void {

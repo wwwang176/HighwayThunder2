@@ -1,6 +1,6 @@
 import { formatTime, GameFlow } from '../game/gameState';
 import { ROAD_LENGTH } from '../config';
-import { closestBehind, overtook, progress } from './hudMath';
+import { closestBehind, overtook, progress, ResetHint } from './hudMath';
 
 export interface HudHandlers {
   /** After the finish: the same race again. */
@@ -22,6 +22,8 @@ export interface HudFrame {
   speedKmh: number;
   playerS: number;
   resetCooldown: number;
+  /** The player's car's up axis, its world y (1 upright, 0 on its side, -1 on its roof): the R hint. */
+  upY: number;
   muted: boolean;
   gear: number;
   rpm: number;
@@ -42,62 +44,81 @@ const UI = `${import.meta.env.BASE_URL}ui/`;
 const icon = (name: string, cls = '') => `<span class="icon ${cls}" style="--src:url(${UI}${name}.png)"></span>`;
 /** A rival this close behind (m, bumper to bumper) shows as an arrow on the screen's bottom edge. */
 const BEHIND_RANGE = 30;
+/** A time, its thousandths small: 0:20<small>.225</small>. */
+const timeHtml = (sec: number) => formatTime(sec).replace(/\.(\d+)$/, '<small>.$1</small>');
 
-// The tachometer: a 240-degree arc, 0-8 x1000 rpm, red from 7.
-const R = 88;
+// The tachometer: a 240-degree ring from 150 degrees, 0-8 x1000 rpm, red from 7, in a 200-unit box.
 const START = 150;
 const SWEEP = 240;
 const MAX_K = 8;
 const RED_K = 7;
-const at = (k: number, r = R): [number, number] => {
-  const a = ((START + (SWEEP * Math.min(MAX_K, Math.max(0, k))) / MAX_K) * Math.PI) / 180;
-  return [100 + r * Math.cos(a), 100 + r * Math.sin(a)];
+const ang = (k: number) => START + (SWEEP * k) / MAX_K;
+const P = (a: number, r: number): [number, number] => {
+  const t = (a * Math.PI) / 180;
+  return [100 + r * Math.cos(t), 100 + r * Math.sin(t)];
 };
-const arc = (from: number, to: number, r = R) => {
-  const [x0, y0] = at(from, r);
-  const [x1, y1] = at(to, r);
-  return `M${x0.toFixed(1)} ${y0.toFixed(1)} A${r} ${r} 0 ${(SWEEP * (to - from)) / MAX_K > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+const pts = (corners: [number, number][]) => corners.map(([a, r]) => P(a, r).map((v) => v.toFixed(2)).join(' ')).join(' ');
+const arcD = (a0: number, a1: number, r: number) =>
+  `M${P(a0, r).map((v) => v.toFixed(2)).join(' ')} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${P(a1, r).map((v) => v.toFixed(2)).join(' ')}`;
+/** The rpm blocks: 32 slanted ones from the inner radius out, longer toward the redline; the lit one in front longer still. */
+const BLOCKS = 32;
+const B_IN = 78;
+const B_SLANT = 3.6;
+const blockPts = (i: number, lead: boolean) => {
+  const a0 = ang((i * MAX_K) / BLOCKS) + (i % 4 === 0 ? 1.4 : 0.6); // (a wider gap at every 1000)
+  const a1 = ang(((i + 1) * MAX_K) / BLOCKS) - 0.6;
+  const h = 8 + (7 * i) / (BLOCKS - 1) + (lead ? 5 : 0);
+  return pts([[a0, B_IN], [a0 + B_SLANT, B_IN + h], [a1 + B_SLANT, B_IN + h], [a1, B_IN]]);
+};
+const blockRed = (i: number) => (i * MAX_K) / BLOCKS >= RED_K;
+/** How a block looks: lit (the one in front white), unlit (all but clear, outlined); red past the redline. */
+const BLOCK_LOOK = {
+  lead: { fill: '#fff', stroke: 'rgba(255,255,255,0.4)', 'stroke-width': '2.5' },
+  lit: { fill: '#c9d3e3', stroke: 'none', 'stroke-width': '0' },
+  litRed: { fill: '#ff3b30', stroke: 'rgba(255,59,48,0.5)', 'stroke-width': '2.5' },
+  off: { fill: 'rgba(255,255,255,0.05)', stroke: 'rgba(255,255,255,0.2)', 'stroke-width': '0.5' },
+  offRed: { fill: 'rgba(255,59,48,0.16)', stroke: 'rgba(255,59,48,0.42)', 'stroke-width': '0.5' },
+};
+/** The nitro: 10 cyan blocks outside the ring's 0-2.5 part, filling upward from its foot. */
+const N_BLOCKS = 10;
+const N_FROM = 152;
+const N_TO = 214;
+const nitroPts = (i: number) => {
+  const b0 = N_FROM + (i * (N_TO - N_FROM)) / N_BLOCKS + 0.8;
+  const b1 = N_FROM + ((i + 1) * (N_TO - N_FROM)) / N_BLOCKS - 0.8;
+  return pts([[b0, 100], [b0 + 1.6, 107], [b1 + 1.6, 107], [b1, 100]]);
+};
+const NITRO_LOOK = {
+  on: { fill: '#2fd6ff', stroke: 'none' },
+  burn: { fill: '#8fe4ff', stroke: 'rgba(143,228,255,0.5)' },
+  off: { fill: 'rgba(47,214,255,0.1)', stroke: 'rgba(47,214,255,0.35)' },
 };
 
-// The nitro tank: an arc outside the dial's left, filling upward from its foot.
-const N_R = 108;
-const N_FROM = 145; // degrees (the arc's foot, lower left), filling to N_TO (upper left)
-const N_TO = 215;
-const nitroArc = (f: number) => {
-  const a0 = (N_FROM * Math.PI) / 180;
-  const a1 = ((N_FROM + (N_TO - N_FROM) * Math.max(0.001, Math.min(1, f))) * Math.PI) / 180;
-  const p = (a: number) => `${(100 + N_R * Math.cos(a)).toFixed(1)} ${(100 + N_R * Math.sin(a)).toFixed(1)}`;
-  return `M${p(a0)} A${N_R} ${N_R} 0 0 1 ${p(a1)}`;
-};
-
-function dialSvg(): string {
-  let svg = `<circle cx="100" cy="100" r="96" fill="rgba(6,10,20,0.55)" stroke="rgba(255,255,255,0.12)"/>`;
-  svg += `<path d="${nitroArc(1)}" stroke="rgba(255,255,255,0.12)" stroke-width="6" fill="none" stroke-linecap="round"/>`;
-  svg += `<path data-id="nitro" class="nitro" d="${nitroArc(0)}" stroke-width="6" fill="none" stroke-linecap="round"/>`;
-  svg += `<path d="${arc(0, MAX_K)}" stroke="rgba(255,255,255,0.12)" stroke-width="7" fill="none" stroke-linecap="round"/>`;
-  // The glows: a wide faint copy under the rpm arc and the needle (a drop-shadow filter would be redrawn every frame).
-  svg += `<path data-id="rpmHalo" d="${arc(0, 0.01)}" stroke="var(--accent)" stroke-width="15" stroke-opacity="0.22" fill="none" stroke-linecap="round"/>`;
-  svg += `<path data-id="rpmArc" d="${arc(0, 0.01)}" stroke="var(--accent)" stroke-width="7" fill="none" stroke-linecap="round"/>`;
-  svg += `<path d="${arc(RED_K, MAX_K)}" stroke="#ff3b30" stroke-width="7" fill="none"/>`;
+function tachoSvg(): string {
+  let s = `<path d="${arcD(ang(0) - 3, ang(MAX_K) + 3, 85.5)}" stroke="rgba(0,0,0,0.62)" stroke-width="24" fill="none"/>`; // (the ring's dark band)
+  for (let i = 0; i < BLOCKS; i++) s += `<polygon data-block="${i}" points="${blockPts(i, false)}"/>`;
   for (let k = 0; k <= MAX_K; k++) {
-    const [x0, y0] = at(k, 76);
-    const [x1, y1] = at(k, 70);
-    const [tx, ty] = at(k, 60);
-    svg += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#cfd8e8" stroke-width="2"/>`;
-    svg += `<text x="${tx}" y="${ty + 4}" fill="#9fb0cc" font-size="11" text-anchor="middle" font-style="italic">${k}</text>`;
+    const [x, y] = P(ang(k) + 1, 67);
+    s += `<text x="${x.toFixed(1)}" y="${(y + 4.6).toFixed(1)}" text-anchor="middle" font-family="Bahnschrift, Segoe UI, sans-serif" font-style="italic" font-size="12" font-weight="600" fill="${k >= RED_K ? '#ff3b30' : 'rgba(255,255,255,0.8)'}" stroke="rgba(0,0,0,0.6)" stroke-width="2.4" paint-order="stroke">${k}</text>`;
   }
-  // The needle: a short pointer across the ring, clear of the speed in the middle.
-  svg += `<line data-id="needleHalo" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="10" stroke-opacity="0.25" stroke-linecap="round"/>`;
-  svg += `<line data-id="needle" x1="0" y1="0" x2="0" y2="0" stroke="#fff" stroke-width="4" stroke-linecap="round"/>`;
-  return svg;
+  s += `<path d="${arcD(N_FROM - 2, N_TO + 2, 103.5)}" stroke="rgba(0,0,0,0.55)" stroke-width="10" fill="none"/>`;
+  for (let i = 0; i < N_BLOCKS; i++) s += `<polygon data-nitro="${i}" points="${nitroPts(i)}" stroke-width="0.5"/>`;
+  for (const e of [ang(0) - 3, ang(MAX_K) + 3]) {
+    const [x0, y0] = P(e, 74);
+    const [x1, y1] = P(e, 99);
+    s += `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="rgba(255,255,255,0.35)" stroke-width="0.8"/>`;
+  }
+  return s;
 }
 
+const setAttrs = (e: Element, attrs: Record<string, string>) => Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+
 /**
- * The race HUD: time (top left), the race on one line (every car a dot,
- * top), place and the distance left (top right), near misses (bottom left),
- * the tachometer with the nitro tank, speed and gear (bottom right), a rival
- * coming up behind (an arrow on the bottom edge), and moments (overtake, near
- * miss) in the middle. Numbers and icons, no labels. Then the pause and the finish.
+ * The race HUD, no panels, the numbers floating on the view (docs/ui-design.md): time (top left), the race on one
+ * line (every car on it, the distance left under its end), the place in a hexagon (top right), the tachometer -
+ * a ring of rpm blocks, the speed in it, the gear, the nitro (bottom right) - a rival coming up behind (an arrow
+ * on the bottom edge), R when the car is stuck or rolled over, and moments (overtake, near miss) in the middle.
+ * Then the pause and the finish, on a veil.
  */
 export class Hud {
   private el: Record<string, HTMLElement> = {};
@@ -105,54 +126,118 @@ export class Hud {
   private toastTimer = 0;
   private lastPlace: number | null = null;
   private dots: HTMLElement[] = [];
+  private readonly blocks: SVGPolygonElement[];
+  private readonly nitroBlocks: SVGPolygonElement[];
+  /** What the tachometer shows (redrawn only when it changes). */
+  private shown = { lead: -2, over: false, nitro: -1, burn: false };
+  private readonly resetHint = new ResetHint();
 
   constructor(private root: HTMLElement, private flow: GameFlow, handlers: HudHandlers) {
     root.innerHTML = html`
       <div id="countdown" class="countdown"></div>
       <div id="hud">
-        <div class="h-time h-glass"><span class="num" data-id="time">0:00.000</span></div>
-        <div class="h-track h-glass"><div class="line" data-id="line"><div class="done" data-id="done"></div>${[0, 1, 2, 3, 4, 5]
-          .map((k) => `<div class="tick" style="left:${k * 20}%"></div>`)
-          .join('')}${icon('icon-flag', 'flag')}</div></div>
-        <div class="h-place h-glass">
-          <div class="num pos" data-id="placeBox"><span data-id="place">1</span><small data-id="of">/6</small></div>
-          <div class="remain">${icon('icon-flag')}<span class="num" data-id="remain">5.00</span> km</div>
+        <div class="h-time float"><div class="lbl dash">Time</div><div class="num lean v" data-id="time">0:00<small>.000</small></div></div>
+        <div class="h-track float"><div class="line" data-id="line"><div class="done" data-id="done"></div>${[1, 2, 3, 4]
+          .map((k) => `<i class="tick" style="left:${k * 20}%"></i>`)
+          .join('')}${icon('icon-flag', 'flag')}</div><div class="remain num"><span data-id="remain">5.00</span><small>KM</small></div></div>
+        <div class="h-place float" data-id="placeBox">
+          <div class="hexo hex"><div class="hexi hex"><span class="p num" data-id="place">1</span></div></div>
+          <div><span class="of num" data-id="of">/6</span><span class="lbl">Position</span></div>
         </div>
-        <div class="h-combo h-glass">${icon('icon-nearmiss')}<span class="num" data-id="nm">×0</span></div>
         <div class="h-tacho" data-id="tacho">
-          <svg viewBox="0 0 200 200">${dialSvg()}</svg>
-          <div class="mid"><div class="num speed" data-id="speed">0</div><div class="unit">KM/H</div><div class="num gear" data-id="gear">1</div></div>
+          <div class="pool"></div>
+          <svg viewBox="0 0 200 200">${tachoSvg()}</svg>
+          <div class="mid float"><div class="num lean speed" data-id="speed">0</div><span class="unit lbl">km/h</span></div>
+          <div class="gear hex"><b class="hex" data-id="gear">1</b></div>
+          <span class="n2o lbl">N2O</span>
         </div>
-        <div class="h-behind" data-id="behind"><div class="d num" data-id="behindGap"></div><div class="chev"></div></div>
-        <div class="h-reset" data-id="reset"><kbd>R</kbd></div>
-        <div class="h-badges"><span data-id="ai" class="h-ai">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
+        <div class="h-behind float" data-id="behind"><div class="d num" data-id="behindGap"></div><div class="chev"></div></div>
+        <div class="h-reset" data-id="reset"><kbd>R</kbd><span class="float">回到賽道</span></div>
+        <div class="h-badges"><span data-id="ai" class="h-ai cut">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
       </div>
       <div id="toast" class="toast" data-id="toast"></div>
-      <div id="pause" class="panel center">
-        <h2>暫停</h2>
-        <button data-id="resumeBtn">繼續 <small>Esc</small></button>
-        <button data-id="pauseTitleBtn" class="secondary">回車庫</button>
+      <div id="veil" class="veil"></div>
+      <div id="pause" class="center bracketed">
+        <span class="brk tr"></span><span class="brk bl"></span>
+        <div class="menu panel cut">
+          <div class="lbl dash">Paused</div>
+          <h2>暫停</h2>
+          <div class="status">
+            <div><span class="lbl">Time</span><b class="num" data-id="pTime"></b></div>
+            <div data-id="pPlaceBox"><span class="lbl">Position</span><b class="num" data-id="pPlace"></b></div>
+            <div><span class="lbl">To go</span><b class="num" data-id="pRemain"></b></div>
+          </div>
+          <button class="opt" data-id="resumeBtn"><span class="no">01</span><span>繼續</span><kbd>Esc</kbd></button>
+          <button class="opt" data-id="pauseTitleBtn"><span class="no">02</span><span>回車庫</span></button>
+        </div>
       </div>
-      <div id="finish" class="panel center">
-        <h2>抵達終點！</h2>
-        <div class="big" data-id="finishTime"></div>
-        <div class="stats" data-id="finishStats"></div>
-        <button data-id="againBtn">再一場 <small>Enter</small></button>
-        <button data-id="finishTitleBtn" class="secondary">回車庫</button>
+      <div id="finish" class="center bracketed">
+        <span class="brk tr"></span><span class="brk bl"></span>
+        <div class="result panel cut">
+          <div class="lbl dash">Race complete</div>
+          <h2>抵達終點！</h2>
+          <div class="main" data-id="fMain">
+            <div class="place" data-id="fPlaceBox"><div class="hexo hex"><div class="hexi hex"><span class="p num" data-id="fPlace"></span></div></div><span class="lbl">Position</span></div>
+            <div class="time">
+              <span class="lbl">Finish time</span><span class="lbl best" data-id="fBest">New best</span>
+              <div class="num lean v" data-id="finishTime"></div>
+              <div class="rows">
+                <div><span class="lbl">Near miss</span><b class="num" data-id="fNear"></b></div>
+                <div><span class="lbl">Top speed</span><b class="num" data-id="fTop"></b></div>
+                <div><span class="lbl">Distance</span><b class="num">${(ROAD_LENGTH / 1000).toFixed(2)}<small>km</small></b></div>
+              </div>
+            </div>
+          </div>
+          <div class="btns">
+            <button class="opt" data-id="againBtn"><span>再一場</span></button>
+            <button class="opt" data-id="finishTitleBtn"><span>回車庫</span><kbd>Esc</kbd></button>
+          </div>
+        </div>
       </div>`;
-    for (const id of ['countdown', 'hud', 'pause', 'finish']) this.el[id] = root.querySelector(`#${id}`)!;
+    for (const id of ['countdown', 'hud', 'veil', 'pause', 'finish']) this.el[id] = root.querySelector(`#${id}`)!;
     root.querySelectorAll<HTMLElement>('[data-id]').forEach((e) => (this.el[e.dataset.id!] = e));
+    this.blocks = [...root.querySelectorAll<SVGPolygonElement>('[data-block]')];
+    this.nitroBlocks = [...root.querySelectorAll<SVGPolygonElement>('[data-nitro]')];
     this.el.againBtn.onclick = () => handlers.onAgain();
     this.el.resumeBtn.onclick = () => handlers.onResume();
     this.el.pauseTitleBtn.onclick = () => handlers.onTitle();
     this.el.finishTitleBtn.onclick = () => handlers.onTitle();
+    // The pointer moves the menus' cursor too; a click leaves no focus behind (Enter is the cursor's, not a clicked button's).
+    for (const id of ['resumeBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn'])
+      this.el[id].addEventListener('pointerenter', () => this.menu.includes(this.el[id]) && this.point(this.menu.indexOf(this.el[id])));
+    root.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
     this.hide();
+  }
+
+  /** The open menu's options (the pause's or the finish's; none: no menu), the cursor on one: filled (.sel). */
+  private menu: HTMLElement[] = [];
+  private cursor = 0;
+
+  private openMenu(options: HTMLElement[]): void {
+    this.menu = options;
+    this.point(0);
+  }
+
+  private point(i: number): void {
+    this.cursor = i;
+    this.menu.forEach((b, k) => b.classList.toggle('sel', k === i));
+  }
+
+  /** The arrows on the pause or the finish: the cursor to the next option (round). */
+  menuMove(d: number): void {
+    const n = this.menu.length;
+    if (n) this.point((this.cursor + d + n) % n);
+  }
+
+  /** Enter on the pause or the finish: the option under the cursor. */
+  menuPick(): void {
+    this.menu[this.cursor]?.click();
   }
 
   /** Nothing of the race on screen (the garage is open: update() is not called until the next race). */
   hide(): void {
     this.lastPhase = '';
-    for (const id of ['countdown', 'hud', 'pause', 'finish']) this.show(id, false);
+    for (const id of ['countdown', 'hud', 'veil', 'pause', 'finish']) this.show(id, false);
     this.el.toast.classList.remove('show');
     this.toastTimer = 0;
   }
@@ -184,10 +269,12 @@ export class Hud {
   update(dt: number, f: HudFrame): void {
     const flow = this.flow;
     const phase = flow.phase;
+    const many = f.racers.length > 1;
     if (phase !== this.lastPhase) {
       const from = this.lastPhase;
       this.lastPhase = phase;
       this.show('hud', phase !== 'title' && phase !== 'intro'); // (not over the intro's shots)
+      this.show('veil', phase === 'paused' || phase === 'finished');
       this.show('pause', phase === 'paused');
       this.show('finish', phase === 'finished');
       if (phase === 'countdown') this.lastPlace = null;
@@ -197,10 +284,23 @@ export class Hud {
         void this.el.hud.offsetWidth;
         this.el.hud.classList.add('enter');
       }
+      this.menu = [];
+      if (phase === 'paused') this.openMenu([this.el.resumeBtn, this.el.pauseTitleBtn]);
+      if (phase === 'finished') this.openMenu([this.el.againBtn, this.el.finishTitleBtn]);
+      if (phase === 'paused') {
+        this.el.pTime.innerHTML = timeHtml(flow.raceTime);
+        this.el.pPlaceBox.style.display = many ? '' : 'none';
+        this.el.pPlace.innerHTML = `${f.place}<small>/${f.racers.length}</small>`;
+        this.el.pRemain.innerHTML = `${(Math.max(0, ROAD_LENGTH - f.playerS) / 1000).toFixed(2)}<small>km</small>`;
+      }
       if (phase === 'finished') {
-        this.el.finishTime.textContent = formatTime(flow.finishTime ?? 0);
-        const place = f.racers.length > 1 ? `第 ${f.place} 名（共 ${f.racers.length} 台） · ` : '';
-        this.el.finishStats.textContent = `${place}險過 ${flow.nearMisses} 次`;
+        this.el.finishTime.innerHTML = timeHtml(flow.finishTime ?? 0);
+        this.el.fBest.style.display = flow.isBest ? '' : 'none';
+        this.el.fPlaceBox.style.display = many ? '' : 'none';
+        this.el.fMain.classList.toggle('solo', !many);
+        this.el.fPlace.innerHTML = `${f.place}<small>/${f.racers.length}</small>`;
+        this.el.fNear.textContent = `×${flow.nearMisses}`;
+        this.el.fTop.innerHTML = `${Math.round(flow.topSpeed)}<small>km/h</small>`;
       }
     }
 
@@ -213,10 +313,9 @@ export class Hud {
       cd.style.display = 'none';
     }
 
-    this.el.time.textContent = formatTime(phase === 'finished' ? (flow.finishTime ?? 0) : flow.raceTime);
+    this.el.time.innerHTML = timeHtml(phase === 'finished' ? (flow.finishTime ?? 0) : flow.raceTime);
     this.el.remain.textContent = (Math.max(0, ROAD_LENGTH - f.playerS) / 1000).toFixed(2);
     // Place, and an overtake (racing only: the grid shuffles at the start).
-    const many = f.racers.length > 1;
     this.el.placeBox.style.display = many ? '' : 'none';
     this.el.place.textContent = String(f.place);
     this.el.of.textContent = `/${f.racers.length}`;
@@ -225,21 +324,7 @@ export class Hud {
       this.lastPlace = f.place;
     }
     this.drawTrack(f);
-    this.el.nm.textContent = `×${flow.nearMisses}`;
-    // The tachometer.
-    this.el.speed.textContent = String(Math.max(0, Math.round(f.speedKmh)));
-    this.el.gear.textContent = f.reverse ? 'R' : String(f.gear);
-    const k = f.rpm / 1000;
-    const d = arc(0, Math.max(0.01, Math.min(MAX_K, k)));
-    this.el.rpmArc.setAttribute('d', d);
-    this.el.rpmHalo.setAttribute('d', d);
-    const [x0, y0] = at(k, 66);
-    const [x1, y1] = at(k, 96);
-    for (const line of [this.el.needle, this.el.needleHalo])
-      Object.entries({ x1: x0, y1: y0, x2: x1, y2: y1 }).forEach(([a, v]) => line.setAttribute(a, v.toFixed(1)));
-    // The nitro tank (brighter while it burns; a step's change is smaller than a pixel, so set every frame).
-    this.el.nitro.setAttribute('d', nitroArc(f.nitro));
-    this.el.tacho.classList.toggle('nitro-on', f.nitroOn);
+    this.drawTacho(f);
     // A rival coming up behind.
     const me = f.racers.find((r) => r.me);
     const behind = me && phase === 'racing' ? closestBehind(me, f.racers.filter((r) => !r.me), BEHIND_RANGE) : null;
@@ -249,7 +334,10 @@ export class Hud {
       this.el.behind.style.left = `${50 + behind.side * 12}%`;
       this.el.behindGap.textContent = `${Math.round(behind.gap)} m`;
     }
-    this.el.reset.style.display = phase === 'racing' ? '' : 'none';
+    // R: only once the car is stuck or rolled over (dt is the race's step: paused, the timers hold).
+    const hint = phase === 'racing' && this.resetHint.update(dt, f.speedKmh, f.upY);
+    if (phase !== 'racing' && phase !== 'paused') this.resetHint.clear();
+    this.el.reset.classList.toggle('on', hint);
     this.el.reset.classList.toggle('ready', f.resetCooldown <= 0);
     this.el.mute.style.display = f.muted ? '' : 'none';
     this.el.ai.style.display = f.aiDriving ? '' : 'none';
@@ -260,7 +348,37 @@ export class Hud {
     }
   }
 
-  /** Every car a dot on the race line (the player's the big white one), the player's part of it filled. */
+  /** The speed and gear every frame; the rpm ring and the nitro only when what they show changes. */
+  private drawTacho(f: HudFrame): void {
+    this.el.speed.textContent = String(Math.max(0, Math.round(f.speedKmh)));
+    this.el.gear.textContent = f.reverse ? 'R' : String(f.gear);
+    const k = Math.max(0, Math.min(MAX_K, f.rpm / 1000));
+    const lead = Math.min(BLOCKS, Math.ceil((k * BLOCKS) / MAX_K)) - 1; // (the block the engine is in now; -1: none)
+    const over = k >= RED_K;
+    const s = this.shown;
+    if (lead !== s.lead) {
+      const was = s.lead;
+      this.blocks.forEach((b, i) => {
+        const red = blockRed(i);
+        const look = i === lead ? (red ? BLOCK_LOOK.litRed : BLOCK_LOOK.lead) : i < lead ? (red ? BLOCK_LOOK.litRed : BLOCK_LOOK.lit) : red ? BLOCK_LOOK.offRed : BLOCK_LOOK.off;
+        setAttrs(b, look);
+        if (i === lead || i === was) b.setAttribute('points', blockPts(i, i === lead));
+      });
+      s.lead = lead;
+    }
+    if (over !== s.over) {
+      this.el.tacho.classList.toggle('over', over);
+      s.over = over;
+    }
+    const n = Math.round(Math.max(0, Math.min(1, f.nitro)) * N_BLOCKS);
+    if (n !== s.nitro || f.nitroOn !== s.burn) {
+      this.nitroBlocks.forEach((b, i) => setAttrs(b, i < n ? (f.nitroOn ? NITRO_LOOK.burn : NITRO_LOOK.on) : NITRO_LOOK.off));
+      s.nitro = n;
+      s.burn = f.nitroOn;
+    }
+  }
+
+  /** Every car on the race line (a diamond in its colour; the player the white mark above), the player's part filled. */
   private drawTrack(f: HudFrame): void {
     while (this.dots.length < f.racers.length) {
       const d = document.createElement('div');

@@ -8,6 +8,7 @@ import { POST } from '../render/postFx';
 import { PLANNER } from '../ai/planner';
 import { DRIVER_TUNING } from '../ai/plannerDriver';
 import { RIVAL_TUNING } from '../game/rivals';
+import { RESET_HINT } from '../ui/hudMath';
 import { CONTACT_TUNING } from '../game/contact';
 
 /** Developer tuning panel, toggled with the ` key. Hidden by default. */
@@ -131,6 +132,11 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   r.add(RIVAL_TUNING, 'teleportAhead', 200, 2000, 50).name('領先幾 m 拉回玩家前方');
   r.add(RIVAL_TUNING, 'placeAhead', 30, 300, 10).name('拉回到玩家前方幾 m（玩家車速）');
   r.add(RIVAL_TUNING, 'resetClear', 0, 500, 10).name('卡住／打轉離玩家幾 m 外才重置');
+  const h = gui.addFolder('R 重置提示');
+  h.add(RESET_HINT, 'stoppedKmh', 0, 30, 1).name('低於幾 km/h 算停住');
+  h.add(RESET_HINT, 'stoppedSeconds', 0, 10, 0.5).name('停住幾秒後出現');
+  h.add(RESET_HINT, 'flippedUpY', -1, 1, 0.05).name('車頂朝上低於多少算翻車（1 正、0 側、-1 倒）');
+  h.add(RESET_HINT, 'flippedSeconds', 0, 5, 0.25).name('翻車幾秒後出現');
   const k = gui.addFolder('碰撞');
   k.add(CONTACT_TUNING, 'npcWreckSpeed', 0, 30, 0.5).name('撞進 NPC 多快才失控（m/s，只算撞擊方向，側擦不算超車速度）');
   gui.hide();

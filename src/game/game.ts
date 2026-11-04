@@ -32,7 +32,7 @@ import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PlannerDriver } from '../ai/plannerDriver';
 import { trackerFrom } from '../ai/netTracker';
 import { aiTopSpeed } from '../ai/aiTopSpeed';
-import { CAR_CARDS, CarSelection, defaultSelection, loadSelection, saveSelection } from './carSelection';
+import { CAR_CARDS, CarSelection, defaultSelection, loadSelection, MAX_RIVALS, raceRivals, saveSelection } from './carSelection';
 import { applyDifficulty } from './difficulty';
 import { Garage } from '../ui/garage';
 import { IntroOverlay } from '../ui/introOverlay';
@@ -85,8 +85,10 @@ export class Game {
   readonly road: RoadScene;
   /** The player's car (rebuilt when another car type is picked: applyCars). */
   player: PlayerCar;
-  /** The cars on the grid now. */
+  /** The race picked (the cars on the grid now: the player's, and the rivals' as `rivalCars`). */
   private cars: CarSelection = defaultSelection();
+  /** The rivals' cars on the grid now (their mode's pick: raceRivals). */
+  private rivalCars: string[] = [...this.cars.rivals];
   readonly flow = new GameFlow(localStorage);
   readonly sound = new Sound();
   readonly hud: Hud;
@@ -168,12 +170,12 @@ export class Game {
     this.player.surfaceGrip = surfaceGrip;
     this.bodies = new BodyInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
-    this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.cars.rivals.map(specOf));
+    this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.rivalCars.map(specOf));
     this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
-    this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
+    this.stats.dom.style.cssText = 'position:fixed;left:3.1vw;top:8.4vw;z-index:20;opacity:0.85;cursor:pointer'; // (under the HUD's time)
     document.body.appendChild(this.stats.dom);
     this.hud = new Hud(uiRoot, this.flow, {
       onAgain: () => this.startRace(this.cars),
@@ -238,24 +240,46 @@ export class Game {
   private bindKeys(): void {
     const k = this.keyboard;
     const g = this.garage;
-    // Enter: at the title, into the garage; in the garage, into the race (not while a pop-up is open, nor on a
-    // focused button: Enter presses that one); after the finish, the same race again.
+    // Every screen works from the keyboard alone (docs/ui-design.md). Enter: at the title, into the garage; in the
+    // garage (the race setup open or not), into the race (not while the controls pop-up is open); on the pause and
+    // the finish, the option under the menu's cursor. A button the Tab key is on takes the Enter itself.
+    const menu = () => !g.isOpen && (this.flow.phase === 'paused' || this.flow.phase === 'finished');
     const enter = () => {
+      if (document.activeElement instanceof HTMLButtonElement) return;
       if (g.isOpen) {
-        if (g.popOpen || document.activeElement instanceof HTMLButtonElement) return;
+        if (g.keysOpen) return;
         if (g.onTitle) g.enter();
         else g.start();
-      } else if (this.flow.phase === 'finished') this.startRace(this.cars); // the race just run, saved or not
+      } else if (menu()) this.hud.menuPick();
     };
     k.onPress('Enter', enter);
     k.onPress('NumpadEnter', enter);
-    k.onPress('Escape', () => (g.popOpen ? g.closePop() : g.isOpen ? undefined : this.togglePause()));
-    // ↑ ↓ the car, ← → its paint: in the garage (not at the title: its picks are not shown there).
+    // Esc: closes what is over the garage; races, pauses and resumes; after the finish, back to the garage.
+    k.onPress('Escape', () => {
+      if (g.isOpen) return g.popOpen && g.closePop();
+      if (this.flow.phase === 'finished') return this.toTitle();
+      this.togglePause();
+    });
+    // ↑ ↓ the car, ← → its paint, E the race setup, H the controls: in the garage (not at the title: its picks are
+    // not shown there). The setup open, the arrows walk its rows and change them, 0-5 set how many rivals. On the
+    // pause and the finish, the arrows move the menu's cursor.
     const picking = () => g.isOpen && !g.popOpen && !g.onTitle;
-    k.onPress('ArrowUp', () => picking() && g.step(-1));
-    k.onPress('ArrowDown', () => picking() && g.step(1));
-    k.onPress('ArrowLeft', () => picking() && g.stepPaint(-1));
-    k.onPress('ArrowRight', () => picking() && g.stepPaint(1));
+    const setup = () => g.isOpen && g.setupOpen;
+    const arrow = (dy: number, dx: number) => {
+      if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
+      if (picking()) return dy ? g.step(dy) : g.stepPaint(dx);
+      if (menu()) this.hud.menuMove(dy || dx);
+    };
+    k.onPress('KeyH', () => g.isOpen && !g.onTitle && !g.setupOpen && g.toggleKeys());
+    k.onPress('ArrowUp', () => arrow(-1, 0));
+    k.onPress('ArrowDown', () => arrow(1, 0));
+    k.onPress('ArrowLeft', () => arrow(0, -1));
+    k.onPress('ArrowRight', () => arrow(0, 1));
+    k.onPress('KeyE', () => picking() && g.openSetup());
+    for (let n = 0; n <= MAX_RIVALS; n++) {
+      k.onPress(`Digit${n}`, () => setup() && g.setupCount(n));
+      k.onPress(`Numpad${n}`, () => setup() && g.setupCount(n));
+    }
     // Race keys do nothing in the garage.
     k.onPress('KeyR', () => !g.isOpen && this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
@@ -376,10 +400,12 @@ export class Game {
       this.aiDriver.latAccel = spec.ai.latAccel;
       this.aiDriver.tracker = trackerFrom(spec.ai.tracker);
     }
-    if (cars.rivals.length !== this.cars.rivals.length || cars.rivals.some((id, i) => id !== this.cars.rivals[i])) {
+    const rivals = raceRivals(cars, Math.random); // (at random: drawn afresh each race, the same race again too)
+    if (rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {
       this.rivals.dispose();
-      this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), cars.rivals.map(specOf));
+      this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), rivals.map(specOf));
     }
+    this.rivalCars = rivals;
     this.cars = { ...cars, rivals: [...cars.rivals], paint: { ...cars.paint } };
   }
 
@@ -837,11 +863,15 @@ export class Game {
     const rev = this.player.showRev;
     this.sound.setEngine(this.player.shownRpm, rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
+    const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
+    this.flow.noteSpeed(speedKmh);
+    const q = this.player.body.rotation();
     this.hud.update(play, {
-      speedKmh: Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6,
+      speedKmh,
       reverse: this.player.driveMode === 'R',
       playerS: this.player.s,
       resetCooldown: this.flow.resetCooldown,
+      upY: 1 - 2 * (q.x * q.x + q.z * q.z), // (the car's up axis, its world y)
       muted: this.sound.muted,
       gear: this.player.gearbox.gear,
       rpm: this.player.rpm,
