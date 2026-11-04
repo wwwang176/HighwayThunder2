@@ -124,8 +124,6 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');
   const rl = gui.addFolder('對手車燈');
   rl.add(RIVAL_LIGHTS, 'real').name('真的車燈（關：全部畫在路面）');
-  rl.add(RIVAL_LIGHTS, 'pairRange', 0, 150, 5).name('光照點離鏡頭幾 m 內：兩盞');
-  rl.add(RIVAL_LIGHTS, 'singleRange', 0, 400, 10).name('幾 m 內：一盞（之外畫在路面）');
   rl.add(RIVAL_LIGHTS, 'shadowRange', 0, 100, 5).name('幾 m 內有陰影');
   rl.add(RIVAL_LIGHTS, 'fade', 1, 50, 1).name('超出後幾 m 淡出');
   rl.add(HEADLIGHTS, 'pair', 0, 1200, 10).name('車燈亮度 cd（玩家與對手；216 ≈ 路人車）');

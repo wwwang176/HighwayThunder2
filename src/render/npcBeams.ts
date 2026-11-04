@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AIM_DOWN, BEAM_GROUND_L, BEAM_GROUND_W, BEAM_LAMP_H, HALF_ANGLE, lowBeamGroundTexture, PENUMBRA } from '../vehicles/headlight';
+import { AIM_DOWN, BEAM_LAMP_H, HALF_ANGLE, HEADLIGHTS, PENUMBRA } from '../vehicles/headlight';
 import type { SmokeLight } from '../world/tireSmoke';
 
 /** How many NPC low beams light the ground at once (the nearest ones). */
@@ -9,45 +9,40 @@ export const MAX_BEAMS = 32;
 export interface BeamSpot {
   frontZ: number;
   groundY: number;
-  /** Lamp height / BEAM_LAMP_H: the pattern on the ground scales with it. */
+  /** Lamp height / BEAM_LAMP_H. */
   k: number;
 }
 
-/** Brightness of NPC low beams on the ground (tunable). */
+/** Brightness of NPC low beams on the ground (tunable): the ground beam's 1 (headlight's groundBeam). */
 export const NPC_BEAM = { intensity: 5.9 };
-/** NPC headlight pair as a light source for tyre smoke (candela, like the player's). */
-const NPC_HEADLIGHT_CD = 900;
 /** How many of the nearest NPCs' headlights light tyre smoke. */
 const SMOKE_BEAMS = 8;
 
+/** A beam: its pair's middle, aimed along `a`, `r` toward its right lamp (world), and how near it is to the camera. */
 interface Candidate {
-  x: number;
-  y: number; // lamp height (world)
-  z: number;
-  fx: number;
-  fz: number;
-  k: number;
-  pitch: number;
+  c: THREE.Vector3;
+  a: THREE.Vector3;
+  r: THREE.Vector3;
   dist2: number;
 }
 
-const V = new THREE.Vector3();
-const D = new THREE.Vector3();
+const BODY_AXIS = new THREE.Vector3(0, -Math.sin(AIM_DOWN), -Math.cos(AIM_DOWN)); // (a car's lamps, aimed a little down)
+const BODY_RIGHT = new THREE.Vector3(1, 0, 0);
 
 /**
- * NPC headlights as light in the ground materials' shaders rather than decals
- * painted over them: each beam's irradiance comes from the same low-beam ground
- * pattern as the player's real lights, is multiplied by the surface's albedo
- * (lane lines and asphalt texture stay visible) and summed before tone mapping
- * (overlapping beams roll off instead of adding up to flat white).
+ * NPC headlights as light in the ground materials' shaders rather than real lights: each beam's irradiance worked
+ * out from its car's whole pose (headlight's groundBeam: leaning, on its side, on its roof, it lights the ground as
+ * it would), multiplied by the surface's albedo (lane lines and asphalt texture stay visible) and summed before tone
+ * mapping (overlapping beams roll off instead of adding up to flat white). The ground materials also take a rival's
+ * real lamp as this beam (HT2_GROUND: headlight's installLowBeamShader), shadowed.
  */
 export class NpcBeams {
   private readonly uniforms = {
-    beamTex: { value: lowBeamGroundTexture() },
-    beamPos: { value: Array.from({ length: MAX_BEAMS }, () => new THREE.Vector4()) },
-    beamDir: { value: Array.from({ length: MAX_BEAMS }, () => new THREE.Vector2()) },
+    beamC: { value: Array.from({ length: MAX_BEAMS }, () => new THREE.Vector3()) },
+    beamA: { value: Array.from({ length: MAX_BEAMS }, () => new THREE.Vector3()) },
+    beamR: { value: Array.from({ length: MAX_BEAMS }, () => new THREE.Vector3()) },
     beamCount: { value: 0 },
-    beamColor: { value: new THREE.Color() },
+    ht2GroundTint: { value: new THREE.Color() },
   };
   private cands: Candidate[] = [];
   private used: Candidate[] = [];
@@ -67,41 +62,33 @@ export class NpcBeams {
           '#include <project_vertex>',
           '#include <project_vertex>\nvBeamWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
         );
-      shader.fragmentShader = shader.fragmentShader
+      shader.fragmentShader = `#define HT2_GROUND\n${shader.fragmentShader}`
         .replace(
           '#include <common>',
           `#include <common>
 varying vec3 vBeamWorld;
-uniform sampler2D beamTex;
-uniform vec4 beamPos[${MAX_BEAMS}]; // lamp front x, z; height scale k; pitch (nose down > 0)
-uniform vec2 beamDir[${MAX_BEAMS}]; // heading on the ground (unit x, z)
+uniform vec3 beamC[${MAX_BEAMS}];
+uniform vec3 beamA[${MAX_BEAMS}];
+uniform vec3 beamR[${MAX_BEAMS}];
 uniform int beamCount;
-uniform vec3 beamColor;
-vec3 npcBeamIrradiance(vec2 p) {
-  vec3 e = vec3(0.0);
-  for (int i = 0; i < ${MAX_BEAMS}; i++) {
-    if (i >= beamCount) break;
-    vec4 b = beamPos[i];
-    vec2 f = beamDir[i];
-    vec2 rel = (p - b.xy) / b.z;
-    float d = dot(rel, f);
-    float x = dot(rel, vec2(-f.y, f.x));
-    if (d <= 0.01 || d > ${BEAM_GROUND_L.toFixed(1)} * 1.5 || abs(x) > ${(BEAM_GROUND_W / 2).toFixed(1)} * 1.5) continue;
-    // Undo the body pitch: light reaching depression angle a left the lamp at a - pitch.
-    float a0 = atan(${BEAM_LAMP_H.toFixed(3)} / d) - b.w;
-    if (a0 <= 0.001) continue;
-    float d0 = ${BEAM_LAMP_H.toFixed(3)} / tan(a0);
-    vec2 uv = vec2(x * d0 / d / ${BEAM_GROUND_W.toFixed(1)} + 0.5, d0 / ${BEAM_GROUND_L.toFixed(1)});
-    if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) continue;
-    e += texture2D(beamTex, uv).rgb / b.z; // a pattern k times larger is k times dimmer
+uniform vec3 ht2GroundTint;`,
+        )
+        .replace(
+          '#include <lights_pars_begin>',
+          `#include <lights_pars_begin>
+vec3 npcBeamIrradiance( vec3 p ) {
+  float e = 0.0;
+  for ( int i = 0; i < ${MAX_BEAMS}; i ++ ) {
+    if ( i >= beamCount ) break;
+    e += ht2GroundBeam( beamC[ i ], beamA[ i ], beamR[ i ], vec3( 0.0, 1.0, 0.0 ), p );
   }
-  return e * beamColor;
+  return e * ht2GroundTint;
 }`,
         )
         .replace(
           '#include <lights_fragment_end>',
           `#include <lights_fragment_end>
-reflectedLight.directDiffuse += BRDF_Lambert(diffuseColor.rgb) * npcBeamIrradiance(vBeamWorld.xz);`,
+reflectedLight.directDiffuse += BRDF_Lambert( diffuseColor.rgb ) * npcBeamIrradiance( vBeamWorld );`,
         );
     };
     mat.needsUpdate = true;
@@ -115,25 +102,15 @@ reflectedLight.directDiffuse += BRDF_Lambert(diffuseColor.rgb) * npcBeamIrradian
   add(root: THREE.Object3D, camX: number, camZ: number): void {
     const spot = root.userData.beam as BeamSpot | undefined;
     if (!spot) return;
-    D.set(0, 1, 0).applyQuaternion(root.quaternion);
-    if (D.y < 0.7) return; // rolled or flipped: lights point anywhere but the road
-    V.set(0, spot.groundY, spot.frontZ).applyMatrix4(root.matrix);
-    D.set(0, 0, -1).applyQuaternion(root.quaternion);
-    const h = Math.hypot(D.x, D.z);
-    if (h < 1e-3) return;
     let c = this.cands[this.n];
-    if (!c) c = this.cands[this.n] = { x: 0, y: 0, z: 0, fx: 0, fz: 0, k: 1, pitch: 0, dist2: 0 };
+    if (!c) c = this.cands[this.n] = { c: new THREE.Vector3(), a: new THREE.Vector3(), r: new THREE.Vector3(), dist2: 0 };
     this.n++;
-    c.x = V.x;
-    c.y = V.y + spot.k * BEAM_LAMP_H;
-    c.z = V.z;
-    c.fx = D.x / h;
-    c.fz = D.z / h;
-    c.k = spot.k;
-    c.pitch = -Math.asin(THREE.MathUtils.clamp(D.y, -1, 1));
+    c.c.set(0, spot.groundY + spot.k * BEAM_LAMP_H, spot.frontZ).applyMatrix4(root.matrix);
+    c.a.copy(BODY_AXIS).applyQuaternion(root.quaternion);
+    c.r.copy(BODY_RIGHT).applyQuaternion(root.quaternion);
     // Rank by distance to the beam's middle, so beams pointing at the camera win ties.
-    const mx = c.x + c.fx * 20 - camX;
-    const mz = c.z + c.fz * 20 - camZ;
+    const mx = c.c.x + c.a.x * 20 - camX;
+    const mz = c.c.z + c.a.z * 20 - camZ;
     c.dist2 = mx * mx + mz * mz;
   }
 
@@ -142,36 +119,30 @@ reflectedLight.directDiffuse += BRDF_Lambert(diffuseColor.rgb) * npcBeamIrradian
     const count = Math.min(MAX_BEAMS, used.length);
     const u = this.uniforms;
     for (let i = 0; i < count; i++) {
-      const c = used[i];
-      u.beamPos.value[i].set(c.x, c.z, c.k, c.pitch);
-      u.beamDir.value[i].set(c.fx, c.fz);
+      u.beamC.value[i].copy(used[i].c);
+      u.beamA.value[i].copy(used[i].a);
+      u.beamR.value[i].copy(used[i].r);
     }
     u.beamCount.value = count;
-    u.beamColor.value.set(0xfff4e6).multiplyScalar(NPC_BEAM.intensity);
+    u.ht2GroundTint.value.set(0xfff4e6).multiplyScalar(NPC_BEAM.intensity);
   }
 
   /**
-   * The nearest NPCs' headlights as light sources for tyre smoke (call after
-   * end()): one low-beam spot per vehicle, aimed like the player's lamps and
-   * tilted with the body's pitch, so smoke in front of a car turns white.
+   * The nearest NPCs' headlights as light sources for tyre smoke (call after end()): one low-beam spot per
+   * vehicle, aimed as its body aims it, so smoke in front of a car turns white.
    */
   smokeLights(): SmokeLight[] {
     const cosOuter = Math.cos(HALF_ANGLE);
     const cosInner = Math.cos(HALF_ANGLE * (1 - PENUMBRA));
-    return this.used.slice(0, SMOKE_BEAMS).map((c) => {
-      const down = AIM_DOWN + c.pitch;
-      const dir = new THREE.Vector3(c.fx * Math.cos(down), -Math.sin(down), c.fz * Math.cos(down));
-      const right = new THREE.Vector3().crossVectors(dir, THREE.Object3D.DEFAULT_UP).normalize();
-      return {
-        pos: new THREE.Vector3(c.x, c.y, c.z),
-        color: new THREE.Color(0xfff4e6).multiplyScalar(NPC_HEADLIGHT_CD),
-        decay: 1,
-        distance: 120,
-        dir,
-        cosOuter,
-        cosInner,
-        cookie: { right, up: new THREE.Vector3().crossVectors(right, dir) },
-      };
-    });
+    return this.used.slice(0, SMOKE_BEAMS).map((c) => ({
+      pos: c.c.clone(),
+      color: new THREE.Color(0xfff4e6).multiplyScalar(HEADLIGHTS.pair),
+      decay: 1,
+      distance: 120,
+      dir: c.a.clone(),
+      cosOuter,
+      cosInner,
+      cookie: { right: c.r.clone(), up: new THREE.Vector3().crossVectors(c.r, c.a) },
+    }));
   }
 }
