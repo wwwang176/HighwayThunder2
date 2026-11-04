@@ -9,13 +9,14 @@ describe('flashing the high beam', () => {
   it('at a car close ahead in its lane, much slower and about to be reached', () => {
     expect(wantsToFlash(me, [{ s: 25, d: 0.5, v: 180 * KMH }])).toBe(true); // (70 km/h slower, 1.3 s off)
     expect(wantsToFlash(me, [{ s: 15, d: 0, v: 205 * KMH }])).toBe(true); // (45 km/h slower, 1.2 s off)
+    expect(wantsToFlash(me, [{ s: 7, d: 0, v: 225 * KMH }])).toBe(true); // (25 km/h slower, 1 s off)
   });
 
   it('not at one in another lane, behind, far, barely slower, or reached only in a while', () => {
     expect(wantsToFlash(me, [{ s: 25, d: 3.75, v: 180 * KMH }])).toBe(false); // (the next lane)
     expect(wantsToFlash(me, [{ s: -20, d: 0, v: 100 * KMH }])).toBe(false); // (behind)
     expect(wantsToFlash(me, [{ s: 35, d: 0, v: 100 * KMH }])).toBe(false); // (150 km/h slower, but 35 m off)
-    expect(wantsToFlash(me, [{ s: 10, d: 0, v: 230 * KMH }])).toBe(false); // (20 km/h slower)
+    expect(wantsToFlash(me, [{ s: 5, d: 0, v: 235 * KMH }])).toBe(false); // (15 km/h slower)
     expect(wantsToFlash(me, [{ s: 25, d: 0, v: 205 * KMH }])).toBe(false); // (45 km/h slower, 2 s off)
   });
 

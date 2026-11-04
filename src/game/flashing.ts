@@ -8,9 +8,9 @@ export const FLASH = {
   ahead: 30,
   /** ...this near its lane's middle to its own (m, across)... */
   lane: 1.8,
-  /** ...this much slower (m/s: 40 km/h)... */
-  closing: 40 / 3.6,
-  /** ...and reached within this (s) at that (40 km/h faster: within 17 m; right behind it, not from far off). */
+  /** ...this much slower (m/s: 20 km/h)... */
+  closing: 20 / 3.6,
+  /** ...and reached within this (s) at that (20 km/h faster: within 8 m, 40: 17 m; right behind it, not from far off). */
   within: 1.5,
   /** How many flashes, each this long on (s), with this much off between. */
   flashes: 2,
