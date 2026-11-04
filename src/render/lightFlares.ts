@@ -5,14 +5,23 @@ import * as THREE from 'three';
  * Each sprite has a size in metres but never shrinks below a few pixels, so
  * distant lights stay visible and steady instead of shimmering in and out the
  * way sub-pixel geometry does. Additive; occluded by the depth buffer.
+ * `aimed`: each flare has a direction its lamp shines in (`aim`, world; none:
+ * all round) and fades seen from off it (flareFacing).
  */
-export function makeFlareMaterial(minPx = 3): THREE.ShaderMaterial {
+export function makeFlareMaterial(minPx = 3, aimed = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
-    uniforms: { scale: { value: 600 }, minPx: { value: minPx }, opacity: { value: 1 } },
+    defines: aimed ? { AIMED: '' } : {},
+    uniforms: {
+      scale: { value: 600 },
+      minPx: { value: minPx },
+      opacity: { value: 1 },
+      aimFull: { value: Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.full)) },
+      aimGone: { value: Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.gone)) },
+    },
     vertexShader: `
       attribute vec3 color;
       attribute float size;
@@ -21,6 +30,11 @@ export function makeFlareMaterial(minPx = 3): THREE.ShaderMaterial {
       uniform float opacity;
       varying vec3 vColor;
       varying float vAlpha;
+      #ifdef AIMED
+      attribute vec3 aim;
+      uniform float aimFull;
+      uniform float aimGone;
+      #endif
       void main() {
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float px = size * scale / max(-mv.z, 0.1);
@@ -28,6 +42,13 @@ export function makeFlareMaterial(minPx = 3): THREE.ShaderMaterial {
         // Far lights shrink to a steady dot that dims a little with distance.
         vAlpha = px < minPx ? mix(0.55, 1.0, px / minPx) : 1.0;
         vAlpha *= clamp(1.0 - (-mv.z) / 1400.0, 0.0, 1.0) * opacity;
+        #ifdef AIMED
+        // (flareFacing; the points are in world space)
+        if (dot(aim, aim) > 0.25) {
+          vec3 toCam = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
+          vAlpha *= smoothstep(aimGone, aimFull, dot(aim, toCam));
+        }
+        #endif
         vColor = color;
         gl_Position = projectionMatrix * mv;
       }`,
@@ -52,22 +73,39 @@ export function updateFlareScale(mat: THREE.ShaderMaterial, camera: THREE.Perspe
 /** The vehicles' flares (tunable): how strongly they glow (1: full, lower: see-through). */
 export const VEHICLE_FLARE = { opacity: 0.6 };
 
-/** A dynamic batch of flares rebuilt every frame (moving vehicles). */
+/**
+ * A lamp's glow seen from off its axis (tunable, degrees): full within `full` of straight ahead of it, fading out
+ * to none at `gone` (a lamp's reflector throws its light forward: from beside it, little; from behind, none).
+ */
+export const FLARE_AIM = { full: 55, gone: 95 };
+
+/** How much of a lamp's glow shows from a direction `cos` (the cosine of its angle off the lamp's axis). */
+export function flareFacing(cos: number): number {
+  const full = Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.full));
+  const gone = Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.gone));
+  const t = Math.min(1, Math.max(0, (cos - gone) / (full - gone)));
+  return t * t * (3 - 2 * t);
+}
+
+/** A dynamic batch of flares rebuilt every frame (moving vehicles), each aimed as its lamp. */
 export class LightFlares {
-  readonly material = makeFlareMaterial(3);
+  readonly material = makeFlareMaterial(3, true);
   private readonly geo = new THREE.BufferGeometry();
   private readonly pos: Float32Array;
   private readonly col: Float32Array;
   private readonly size: Float32Array;
+  private readonly aim: Float32Array;
   private n = 0;
 
   constructor(scene: THREE.Scene, private capacity = 2000) {
     this.pos = new Float32Array(capacity * 3);
     this.col = new Float32Array(capacity * 3);
     this.size = new Float32Array(capacity);
+    this.aim = new Float32Array(capacity * 3);
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('aim', new THREE.BufferAttribute(this.aim, 3).setUsage(THREE.DynamicDrawUsage));
     const pts = new THREE.Points(this.geo, this.material);
     pts.frustumCulled = false;
     pts.renderOrder = 3;
@@ -78,9 +116,13 @@ export class LightFlares {
     this.n = 0;
   }
 
-  add(x: number, y: number, z: number, r: number, g: number, b: number, sizeM: number): void {
+  /** A flare; `aim`, the way its lamp shines (world, unit; none: all round). */
+  add(x: number, y: number, z: number, r: number, g: number, b: number, sizeM: number, aim?: THREE.Vector3): void {
     if (this.n >= this.capacity) return;
     const i = this.n++;
+    this.aim[i * 3] = aim ? aim.x : 0;
+    this.aim[i * 3 + 1] = aim ? aim.y : 0;
+    this.aim[i * 3 + 2] = aim ? aim.z : 0;
     this.pos[i * 3] = x;
     this.pos[i * 3 + 1] = y;
     this.pos[i * 3 + 2] = z;
@@ -92,7 +134,10 @@ export class LightFlares {
 
   end(): void {
     this.geo.setDrawRange(0, this.n);
-    this.material.uniforms.opacity.value = VEHICLE_FLARE.opacity;
-    for (const name of ['position', 'color', 'size']) (this.geo.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
+    const u = this.material.uniforms;
+    u.opacity.value = VEHICLE_FLARE.opacity;
+    u.aimFull.value = Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.full));
+    u.aimGone.value = Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.gone));
+    for (const name of ['position', 'color', 'size', 'aim']) (this.geo.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
   }
 }

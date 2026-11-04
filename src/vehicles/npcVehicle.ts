@@ -179,17 +179,21 @@ function model(key: string, build: () => VehicleModel): VehicleModel & { ref: Tr
 }
 
 const FLARE_V = new THREE.Vector3();
+const AHEAD = new THREE.Vector3();
+const BEHIND = new THREE.Vector3();
 
-/** Head/tail light glows (+ blinking indicators) for one vehicle body. */
+/** Head/tail light glows (+ blinking indicators, all round) for one vehicle body, aimed as its lamps. */
 export function emitFlares(mesh: THREE.Object3D, lights: VehicleLights, flares: LightFlares): void {
   const spots = mesh.userData.flares as FlareSpot[] | undefined;
   if (spots) {
     const braking = lights.brake.length > 0 && lights.brake[0].material === BRAKE_ON;
+    AHEAD.set(0, 0, -1).transformDirection(mesh.matrix); // (the nose is -z)
+    BEHIND.copy(AHEAD).negate();
     for (const f of spots) {
       FLARE_V.set(f.x, f.y, f.z).applyMatrix4(mesh.matrix);
-      if (f.kind === 'head') flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.95, 0.85, 0.55);
-      else if (braking) flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.07, 0.05, 0.5);
-      else flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 0.55, 0.02, 0.02, 0.32);
+      if (f.kind === 'head') flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.95, 0.85, 0.55, AHEAD);
+      else if (braking) flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.07, 0.05, 0.5, BEHIND);
+      else flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 0.55, 0.02, 0.02, 0.32, BEHIND);
     }
   }
   for (const ind of [...lights.left, ...lights.right]) {
