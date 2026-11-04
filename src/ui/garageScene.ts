@@ -28,6 +28,8 @@ const PUDDLES = 28; // the wet patches' picture, times across the ground (each 1
 /** The title: the picture shifted this share of the screen's width right (the car on the right half), sliding back to the garage's over SLIDE_SECONDS. */
 const TITLE_SHIFT = 0.2; // (0.25: the car's tail off the right edge)
 const SLIDE_SECONDS = 0.9;
+/** The picture's shifts (x TITLE_SHIFT of the screen's width; slide()): the title's, the garage's, with the race setup's drawer open. */
+export const VIEW = { title: 1, garage: 0, setup: -0.7 };
 
 /**
  * The garage's scene: the picked car parked on a wet lay-by at night, under a sodium lamp, the city's lights
@@ -47,7 +49,7 @@ export class GarageScene {
   private car: THREE.Object3D | null = null;
   private running = false;
   private t = 0;
-  /** The picture's shift toward the right half (0: the car in the middle, 1: the title's), and its slide. */
+  /** The picture's shift (a VIEW: 1 the title's, 0 the car in the middle, negative to the left), and its slide. */
   private shift = 0;
   private slideFrom = 0;
   private slideTo = 0;
@@ -139,11 +141,10 @@ export class GarageScene {
   }
 
   /**
-   * The car on the right half of the screen (`right`: the title, its left half the game's name), or in the middle
-   * (the garage); sliding there over SLIDE_SECONDS, or at once.
+   * Where the car is on the screen (a VIEW: on the right half at the title, in the middle in the garage, to the
+   * left with the race setup open on the right); sliding there over SLIDE_SECONDS, or at once.
    */
-  slide(right: boolean, animate: boolean): void {
-    const to = right ? 1 : 0;
+  slide(to: number, animate: boolean): void {
     if (!animate) {
       this.shift = this.slideTo = to;
       this.slideT = 1;

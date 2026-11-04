@@ -11,13 +11,16 @@ export interface Difficulty {
   maxBoost: number;
   /** Far ahead, it slows to this x the player's speed (RIVAL_TUNING.waitSpeed; over 1: it does not wait). */
   waitSpeed: number;
+  /** maxBoost and waitSpeed in words, for the race setup: a rival behind the player, one ahead. */
+  behind: string;
+  ahead: string;
 }
 
 export const DIFFICULTIES: Difficulty[] = [
-  { name: '簡單', speedCapKmh: 240, maxBoost: 0.1, waitSpeed: 0.8 },
-  { name: '普通', speedCapKmh: 300, maxBoost: 0.25, waitSpeed: 0.9 },
-  { name: '困難', speedCapKmh: 300, maxBoost: 0.4, waitSpeed: 1 },
-  { name: '極限', speedCapKmh: 300, maxBoost: 0.6, waitSpeed: 1.1 },
+  { name: '簡單', speedCapKmh: 240, maxBoost: 0.1, waitSpeed: 0.8, behind: '落後時稍微追趕', ahead: '領先時放慢等你' },
+  { name: '普通', speedCapKmh: 300, maxBoost: 0.25, waitSpeed: 0.9, behind: '落後時加速追趕', ahead: '領先時稍微等你' },
+  { name: '困難', speedCapKmh: 300, maxBoost: 0.4, waitSpeed: 1, behind: '落後時強力追趕', ahead: '領先時不等你' },
+  { name: '極限', speedCapKmh: 300, maxBoost: 0.6, waitSpeed: 1.1, behind: '落後時全力追趕', ahead: '領先時繼續拉開' },
 ];
 
 /**
