@@ -24,6 +24,7 @@ const CAR_YAW = Math.PI - 0.9;
 const LAMP = { x: 4.6, z: 1.5, h: 6.6, arm: 1.5 };
 const RAIL_X = 5.6;
 const FAR = 140; // the backdrop's distance (a curved strip round the car); the ground 2 FAR across
+const CITY_DIP = 1.8; // degrees: the backdrop's city this far under the camera's eye level
 const PUDDLES = 28; // the wet patches' picture, times across the ground (each 10 m)
 /** The title: the picture shifted this share of the screen's width right (the car on the right half), sliding back to the garage's over SLIDE_SECONDS. */
 const TITLE_SHIFT = 0.2; // (0.25: the car's tail off the right edge)
@@ -272,8 +273,8 @@ export class GarageScene {
       tabs.setMatrixAt(i, at.makeTranslation(RAIL_X - 0.04, 0.66, z));
     }
     this.scene.add(posts, tabs);
-    const slope = 0.22;
-    const geo = new THREE.PlaneGeometry(14, len).rotateX(-Math.PI / 2).rotateZ(slope); // rising away from the rail, 3 m
+    const slope = 0.07; // (rising 1 m: the city behind it shows, low)
+    const geo = new THREE.PlaneGeometry(14, len).rotateX(-Math.PI / 2).rotateZ(slope); // rising away from the rail
     const bank = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x12160d, roughness: 1 }));
     bank.position.set(RAIL_X + 0.4 + 7 * Math.cos(slope), 7 * Math.sin(slope), 8 - len / 2);
     this.scene.add(bank);
@@ -288,8 +289,8 @@ export class GarageScene {
     const height = width / (21 / 9);
     const geo = new THREE.CylinderGeometry(FAR, FAR, height, 48, 1, true, Math.PI - arc / 2, arc);
     const strip = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, fog: false }));
-    // The city's foot (70% down the picture) at the camera's eye level.
-    strip.position.y = CAM.h + height * (0.7 - 0.5);
+    // The city's foot (70% down the picture) a little under the camera's eye level (at it, the city sat high above the car).
+    strip.position.y = CAM.h - FAR * Math.tan((CITY_DIP * Math.PI) / 180) + height * (0.7 - 0.5);
     strip.scale.x = -1; // seen from inside: the picture the right way round
     // Centred on where the camera looks on average (from CAM.base, at the car: toward CAM.base + π), not straight
     // down -z: the swing's one end, and the view shifted for the title or the race setup, ran past its edge.
