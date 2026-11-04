@@ -5,9 +5,11 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { CARS } from '../vehicles/cars';
 import { buildCar } from '../vehicles/models';
+import { emitFlares } from '../vehicles/npcVehicle';
 import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
 
 const SKY = `${import.meta.env.BASE_URL}ui/garage-sky.jpg`;
@@ -47,6 +49,8 @@ export class GarageScene {
   private readonly bokeh: BokehPass;
   private readonly shadow: THREE.Mesh;
   private readonly beams = new NpcBeams();
+  /** The car's lamps' glows, as in the race. */
+  private readonly flares = new LightFlares(this.scene, 16);
   private car: THREE.Object3D | null = null;
   private running = false;
   private t = 0;
@@ -110,10 +114,14 @@ export class GarageScene {
   show(id: string, livery?: string): void {
     if (this.car) this.scene.remove(this.car);
     const spec = CARS[id];
-    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, true, livery).root;
+    const built = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, true, livery);
+    this.car = built.root;
     this.car.position.y = PLAYER_H / 2; // on the ground
     this.car.rotation.y = CAR_YAW;
     this.car.updateMatrix();
+    this.flares.begin();
+    emitFlares(this.car, built.lights, this.flares);
+    this.flares.end();
     // Its low beam on the ground ahead, as the race's NPCs' (no real light: one by the nose, seen from in front,
     // glared off the wet asphalt right under the camera).
     this.beams.begin();
@@ -180,6 +188,7 @@ export class GarageScene {
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    updateFlareScale(this.flares.material, this.camera, h);
     this.placeView();
   }
 

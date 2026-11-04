@@ -38,6 +38,21 @@ const FILES: Partial<Record<ModelName, string>> = {
   trailer: 'models/trailer.glb',
 };
 
+/**
+ * Where each file's headlight glows (its flare sprite, render/lightFlares): the left lamp's, in the file's space
+ * (nose toward -Z; the right lamp's mirrored), just ahead of the lamp's face. Measured off the files' head_L meshes -
+ * UPDATE THESE WHEN A MODEL'S HEADLIGHTS MOVE OR CHANGE SHAPE (a file not listed: its lamp's box, which a strip
+ * swept back across the nose, the supercar's, leaves floating ahead of it).
+ */
+const HEAD_GLOW: Partial<Record<ModelName, [number, number, number]>> = {
+  super: [-0.694, -0.05, -2.011], // (the swept strip's middle)
+  muscle: [-0.607, 0.101, -2.119],
+  jdm: [-0.6, -0.012, -2.025],
+  sedan: [-0.527, 0.074, -2.025],
+  truck: [-0.884, 0.504, -3.665],
+  cab: [-0.896, 0.294, -3.441],
+};
+
 /** Where a file car's wheels go (model space; nose toward -Z) and their radius. */
 export interface WheelSpots {
   x: number;
@@ -53,6 +68,8 @@ export interface CarTemplate {
   /** On the wheel, not rolling with it. */
   caliper: THREE.Object3D | null;
   spots: WheelSpots | null;
+  /** Its left headlight's glow (file space: HEAD_GLOW), if listed. */
+  headGlow: THREE.Vector3 | null;
   /** Paint jobs by name, in the file's order (the first is the car's own). */
   liveries: Map<string, THREE.Texture>;
   /** The same, what they are (their colours: the garage's swatches). */
@@ -106,7 +123,9 @@ export async function loadCarModels(base = import.meta.env.BASE_URL): Promise<vo
         const caliper = gltf.scene.getObjectByName('caliper') ?? null;
         caliper?.removeFromParent();
         const spots = wheel && 'r' in wheel.userData ? (wheel.userData as WheelSpots) : null;
-        templates.set(style as ModelName, { body: gltf.scene, wheel, caliper, spots, ...liveries });
+        const glow = HEAD_GLOW[style as ModelName];
+        const headGlow = glow ? new THREE.Vector3(...glow) : null;
+        templates.set(style as ModelName, { body: gltf.scene, wheel, caliper, spots, headGlow, ...liveries });
       } catch (e) {
         console.warn(`car model ${file} not loaded, using the built-in shape`, e);
       }

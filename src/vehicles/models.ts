@@ -279,11 +279,16 @@ function fromTemplate(
     return { mesh: m, box: new THREE.Box3().setFromObject(m) };
   };
   const c = new THREE.Vector3();
+  const glow = new THREE.Vector3();
   for (const side of ['L', 'R'] as const) {
     const head = lamp(`head_${side}`, HEADLIGHT);
     if (head) {
       head.box.getCenter(c);
-      flares.push({ x: c.x, y: c.y, z: head.box.min.z - 0.1, kind: 'head' });
+      // Its glow: where the file's listed (carModels' HEAD_GLOW; the lamp sits at the file's origin), else just
+      // ahead of its box.
+      if (t.headGlow) glow.copy(t.headGlow).setX(side === 'L' ? t.headGlow.x : -t.headGlow.x).applyMatrix4(head.mesh.matrixWorld);
+      else glow.set(c.x, c.y, head.box.min.z - 0.1);
+      flares.push({ x: glow.x, y: glow.y, z: glow.z, kind: 'head' });
       if (beam) root.userData.beam = { frontZ: -l / 2, groundY: g, k: (c.y - g) / BEAM_LAMP_H } satisfies BeamSpot;
     }
     const tail = lamp(`tail_${side}`, BRAKE_DIM);
