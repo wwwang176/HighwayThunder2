@@ -167,7 +167,7 @@ export class Hud {
             <div data-id="pPlaceBox"><span class="lbl">Position</span><b class="num" data-id="pPlace"></b></div>
             <div><span class="lbl">To go</span><b class="num" data-id="pRemain"></b></div>
           </div>
-          <button class="opt sel" data-id="resumeBtn"><span class="no">01</span><span>繼續</span><kbd>Esc</kbd></button>
+          <button class="opt" data-id="resumeBtn"><span class="no">01</span><span>繼續</span><kbd>Esc</kbd></button>
           <button class="opt" data-id="pauseTitleBtn"><span class="no">02</span><span>回車庫</span></button>
         </div>
       </div>
@@ -189,8 +189,8 @@ export class Hud {
             </div>
           </div>
           <div class="btns">
-            <button class="opt sel" data-id="againBtn"><span>再一場</span><kbd>Enter</kbd></button>
-            <button class="opt" data-id="finishTitleBtn"><span>回車庫</span></button>
+            <button class="opt" data-id="againBtn"><span>再一場</span></button>
+            <button class="opt" data-id="finishTitleBtn"><span>回車庫</span><kbd>Esc</kbd></button>
           </div>
         </div>
       </div>`;
@@ -202,7 +202,36 @@ export class Hud {
     this.el.resumeBtn.onclick = () => handlers.onResume();
     this.el.pauseTitleBtn.onclick = () => handlers.onTitle();
     this.el.finishTitleBtn.onclick = () => handlers.onTitle();
+    // The pointer moves the menus' cursor too; a click leaves no focus behind (Enter is the cursor's, not a clicked button's).
+    for (const id of ['resumeBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn'])
+      this.el[id].addEventListener('pointerenter', () => this.menu.includes(this.el[id]) && this.point(this.menu.indexOf(this.el[id])));
+    root.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
     this.hide();
+  }
+
+  /** The open menu's options (the pause's or the finish's; none: no menu), the cursor on one: filled (.sel). */
+  private menu: HTMLElement[] = [];
+  private cursor = 0;
+
+  private openMenu(options: HTMLElement[]): void {
+    this.menu = options;
+    this.point(0);
+  }
+
+  private point(i: number): void {
+    this.cursor = i;
+    this.menu.forEach((b, k) => b.classList.toggle('sel', k === i));
+  }
+
+  /** The arrows on the pause or the finish: the cursor to the next option (round). */
+  menuMove(d: number): void {
+    const n = this.menu.length;
+    if (n) this.point((this.cursor + d + n) % n);
+  }
+
+  /** Enter on the pause or the finish: the option under the cursor. */
+  menuPick(): void {
+    this.menu[this.cursor]?.click();
   }
 
   /** Nothing of the race on screen (the garage is open: update() is not called until the next race). */
@@ -255,6 +284,9 @@ export class Hud {
         void this.el.hud.offsetWidth;
         this.el.hud.classList.add('enter');
       }
+      this.menu = [];
+      if (phase === 'paused') this.openMenu([this.el.resumeBtn, this.el.pauseTitleBtn]);
+      if (phase === 'finished') this.openMenu([this.el.againBtn, this.el.finishTitleBtn]);
       if (phase === 'paused') {
         this.el.pTime.innerHTML = timeHtml(flow.raceTime);
         this.el.pPlaceBox.style.display = many ? '' : 'none';

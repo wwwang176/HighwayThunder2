@@ -240,26 +240,37 @@ export class Game {
   private bindKeys(): void {
     const k = this.keyboard;
     const g = this.garage;
-    // Enter: at the title, into the garage; in the garage (the race setup open or not), into the race (not while
-    // the controls pop-up is open, nor on a focused button: Enter presses that one); after the finish, the same race again.
+    // Every screen works from the keyboard alone (docs/ui-design.md). Enter: at the title, into the garage; in the
+    // garage (the race setup open or not), into the race (not while the controls pop-up is open); on the pause and
+    // the finish, the option under the menu's cursor. A button the Tab key is on takes the Enter itself.
+    const menu = () => !g.isOpen && (this.flow.phase === 'paused' || this.flow.phase === 'finished');
     const enter = () => {
+      if (document.activeElement instanceof HTMLButtonElement) return;
       if (g.isOpen) {
-        if (g.keysOpen || document.activeElement instanceof HTMLButtonElement) return;
+        if (g.keysOpen) return;
         if (g.onTitle) g.enter();
         else g.start();
-      } else if (this.flow.phase === 'finished') this.startRace(this.cars); // the race just run, saved or not
+      } else if (menu()) this.hud.menuPick();
     };
     k.onPress('Enter', enter);
     k.onPress('NumpadEnter', enter);
-    k.onPress('Escape', () => (g.popOpen ? g.closePop() : g.isOpen ? undefined : this.togglePause()));
-    // ↑ ↓ the car, ← → its paint, E the race setup: in the garage (not at the title: its picks are not shown there).
-    // The setup open, the arrows walk its rows and change them, 0-5 set how many rivals.
+    // Esc: closes what is over the garage; races, pauses and resumes; after the finish, back to the garage.
+    k.onPress('Escape', () => {
+      if (g.isOpen) return g.popOpen && g.closePop();
+      if (this.flow.phase === 'finished') return this.toTitle();
+      this.togglePause();
+    });
+    // ↑ ↓ the car, ← → its paint, E the race setup, H the controls: in the garage (not at the title: its picks are
+    // not shown there). The setup open, the arrows walk its rows and change them, 0-5 set how many rivals. On the
+    // pause and the finish, the arrows move the menu's cursor.
     const picking = () => g.isOpen && !g.popOpen && !g.onTitle;
     const setup = () => g.isOpen && g.setupOpen;
     const arrow = (dy: number, dx: number) => {
       if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
       if (picking()) return dy ? g.step(dy) : g.stepPaint(dx);
+      if (menu()) this.hud.menuMove(dy || dx);
     };
+    k.onPress('KeyH', () => g.isOpen && !g.onTitle && !g.setupOpen && g.toggleKeys());
     k.onPress('ArrowUp', () => arrow(-1, 0));
     k.onPress('ArrowDown', () => arrow(1, 0));
     k.onPress('ArrowLeft', () => arrow(0, -1));

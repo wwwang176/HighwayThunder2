@@ -13,6 +13,8 @@ const card = (id: string) => CAR_CARDS.find((c) => c.id === id) ?? CAR_CARDS[0];
 const two = (n: number) => String(n).padStart(2, '0');
 /** A "?" in place of an explanation: its text on hover or focus (a line per row of `lines`). */
 const help = (...lines: string[]) => `<span class="help cut" tabindex="0" data-tip="${lines.join('\n')}">?</span>`;
+/** The "?" of a race setup row: it opens by itself while the keys are on that row (Garage.drawSetup). */
+const rowHelp = (row: string, ...lines: string[]) => help(...lines).replace('<span ', `<span data-row="${row}" `);
 /** A call to action's inside (docs/ui-design.md .cta): its offset outline, its fill, the words, Enter, the chevrons. */
 const CTA = (text: string) =>
   `<span class="ghost"></span><span class="fill"></span><span class="txt">${text}<kbd>Enter</kbd><span class="chev"><b>›</b><b>›</b><b>›</b></span></span>`;
@@ -27,6 +29,8 @@ const WEATHERS: [Weather, string, string][] = [
   ['rain', 'icon-night-rain', '雨夜'],
   ['fog', 'icon-night-fog', '霧夜'],
 ];
+/** The weathers out so far (the rest shown, "coming soon"). */
+const OPEN_WEATHERS: Weather[] = ['clear'];
 /** Keys and what they do (the controls pop-up). */
 const KEYS: [string, string][] = [
   ['W / ↑', '油門'],
@@ -38,6 +42,9 @@ const KEYS: [string, string][] = [
   ['I', 'AI 接手駕駛'],
   ['Esc', '暫停'],
   ['M', '靜音'],
+  ['↑ ↓  ← →', '車庫：換車、換烤漆；選單：移動游標'],
+  ['E', '車庫：比賽設定'],
+  ['H', '車庫：操作說明'],
 ];
 /** The race setup's drawer no smaller than this (its zoom, to fit a short screen); below it, its compact layout, then its scroll. */
 const SETUP_MIN_ZOOM = 0.75;
@@ -56,6 +63,8 @@ export class Garage {
   private titleOn = false;
   /** The race setup's row the keys are on (rowKeys()). */
   private row = 0;
+  /** The race setup worked by the keys (last): the row's "?" opens by itself; by the pointer, only on hover. */
+  private keyed = false;
 
   constructor(
     root: HTMLElement,
@@ -75,7 +84,7 @@ export class Garage {
         <button class="cta g-start">${CTA('開始遊戲')}</button>
       </div>
       <div class="g-brand">${icon('emblem')}<div class="g-name">HIGHWAY THUNDER 2</div><div class="rule"></div></div>
-      <button class="g-keys panel cut" data-tip="操作說明" data-tip-place="left">${icon('icon-keys')}</button>
+      <button class="g-keys panel cut" data-tip="操作說明（H）" data-tip-place="left">${icon('icon-keys')}</button>
       <div class="g-id float"><div class="pool"></div><div class="tagrow"><span class="lbl tag"></span><span class="lbl pos"></span></div><h1></h1><div class="bar-top"></div><div class="g-stats"></div></div>
       <div class="g-left">
         <div class="g-head"><span class="lbl float">Select class</span><span><kbd>↑</kbd><kbd>↓</kbd></span></div>
@@ -117,6 +126,9 @@ export class Garage {
     this.q('.g-close').onclick = () => this.closePop();
     this.q('.g-back').onclick = (e) => e.target === e.currentTarget && this.closePop();
     addEventListener('resize', () => this.setupOpen && this.fitSetup());
+    this.q('.g-setup').addEventListener('pointerdown', () => (this.keyed = false));
+    // A click leaves no focus behind: Enter is the garage's (start), not the clicked button's again.
+    this.el.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
   }
 
   get isOpen(): boolean {
@@ -180,6 +192,7 @@ export class Garage {
   closePop(): void {
     this.q('.g-back').classList.remove('open');
     if (this.setupOpen) {
+      if (this.q('.g-setup').contains(document.activeElement)) (document.activeElement as HTMLElement).blur(); // (its tip with it)
       this.el.classList.remove('setup');
       this.preview.slide(VIEW.garage, true);
     }
@@ -202,6 +215,13 @@ export class Garage {
     this.q('.g-back').classList.add('open');
   }
 
+  /** H in the garage: the controls pop-up, or closed again. */
+  toggleKeys(): void {
+    if (this.titleOn) return;
+    if (this.keysOpen) this.closePop();
+    else this.openKeys();
+  }
+
   /** ↑ ↓ step through the cars. */
   step(d: number): void {
     const i = PICKABLE.indexOf(this.sel.player);
@@ -216,24 +236,30 @@ export class Garage {
     this.paint(jobs[(i + d + jobs.length) % jobs.length]);
   }
 
-  /** The race setup's rows the keys walk: how many rivals, how their cars are picked, each rival (custom only), the difficulty. */
+  /** The race setup's rows the keys walk: how many rivals, how their cars are picked, each rival (custom only), the difficulty, the weather. */
   private rowKeys(): string[] {
     const each = this.sel.rivalMode === 'custom' ? this.sel.rivals.map((_, i) => `rival${i}`) : [];
-    return ['count', 'mode', ...each, 'difficulty'];
+    return ['count', 'mode', ...each, 'difficulty', 'weather'];
   }
 
   /** ↑ ↓ in the race setup: the row above or below. */
   setupMove(d: number): void {
     const n = this.rowKeys().length;
+    this.keyed = true;
     this.row = Math.max(0, Math.min(n - 1, this.row + d));
     this.draw();
   }
 
-  /** ← → in the race setup: the row's value down or up (how many, the rival's car, the difficulty). */
+  /** ← → in the race setup: the row's value down or up (how many, the mode, the rival's car, the difficulty, the weather). */
   setupAdjust(d: number): void {
     const s = this.sel;
     const key = this.rowKeys()[this.row];
-    if (key === 'count') this.change(setRivalCount(s, s.rivals.length + d));
+    this.keyed = true;
+    if (key === 'weather') {
+      const open = WEATHERS.filter(([k]) => OPEN_WEATHERS.includes(k)).map(([k]) => k); // (the ones out so far)
+      const k = open.indexOf(s.weather);
+      this.change({ ...s, weather: open[Math.max(0, Math.min(open.length - 1, k + d))] });
+    } else if (key === 'count') this.change(setRivalCount(s, s.rivals.length + d));
     else if (key === 'mode') {
       const k = MODES.findIndex(([m]) => m === s.rivalMode);
       this.change({ ...s, rivalMode: MODES[Math.max(0, Math.min(MODES.length - 1, k + d))][0] });
@@ -247,6 +273,7 @@ export class Garage {
 
   /** 0-5 in the race setup: that many rivals. */
   setupCount(n: number): void {
+    this.keyed = true;
     this.change(setRivalCount(this.sel, n));
   }
 
@@ -350,7 +377,7 @@ export class Garage {
       <div class="s-sec">
         ${head('Rivals', '對手', this.lineUp())}
         <div class="s-sub ${focus('count')}"><span class="lbl">數量</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) => `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`).join('')}</div></div>
-        <div class="s-sub ${focus('mode')}"><span class="lbl">車種</span><div class="s-modes">${MODES.map(([m, ic, name]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${name}</span></button>`).join('')}</div>${help('全部隨機：每場比賽重新抽選對手的車種', '全部同我的車：對手開你的車，你換車他們也跟著換', '自由指定：逐台指定對手的車種')}</div>
+        <div class="s-sub ${focus('mode')}"><span class="lbl">車種</span><div class="s-modes">${MODES.map(([m, ic, name]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${name}</span></button>`).join('')}</div>${rowHelp('mode', '全部隨機：每場比賽重新抽選對手的車種', '全部同我的車：對手開你的車，你換車他們也跟著換', '自由指定：逐台指定對手的車種')}</div>
         ${custom ? `<div class="mx-head"><span></span>${PICKABLE.map((id) => `<div>${id === s.player ? '<span class="you cut">YOU</span>' : ''}<span>${card(id).name}</span></div>`).join('')}<span></span></div>` : ''}
         ${(custom ? s.rivals : [])
           .map(
@@ -362,14 +389,14 @@ export class Garage {
           .join('')}
       </div>
       <div class="s-sec">
-        ${head('Difficulty', '難度', help(...DIFFICULTIES.map((x) => `${x.name}：${x.hint}`)))}
+        ${head('Difficulty', '難度', rowHelp('difficulty', ...DIFFICULTIES.map((x) => `${x.name}：${x.hint}`)))}
         <div class="s-diff-row ${focus('difficulty')}">${DIFFICULTIES.map((x, i) => `<button class="s-btn ${i === s.difficulty ? 'sel' : ''}" data-d="${i}"><span>${x.name}</span></button>`).join('')}</div>
       </div>
       <div class="s-sec">
         ${head('Weather', '天氣')}
-        <div class="s-weather">${WEATHERS.map(([k, ic, name]) =>
-          k === 'clear'
-            ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}">${icon(ic)}<span>${name}</span></button>`
+        <div class="s-weather ${focus('weather')}">${WEATHERS.map(([k, ic, name]) =>
+          OPEN_WEATHERS.includes(k)
+            ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}" data-w="${k}">${icon(ic)}<span>${name}</span></button>`
             : `<button class="s-btn soon" aria-disabled="true" data-tip="即將推出">${icon(ic)}<span>${name}</span></button>`,
         ).join('')}</div>
       </div>`;
@@ -378,7 +405,12 @@ export class Garage {
     all('[data-mode]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, rivalMode: b.dataset.mode as RivalMode })));
     all('[data-car]').forEach((b) => (b.onclick = () => this.change(setRival(this.sel, Number(b.dataset.i), b.dataset.car!))));
     all('[data-d]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, difficulty: Number(b.dataset.d) })));
+    all('[data-w]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, weather: b.dataset.w as Weather })));
     body.scrollTop = scrolled;
+    // Worked by the keys: the row's "?" open (focused: its tip shows), any other let go.
+    const rowTip = this.keyed ? body.querySelector<HTMLElement>(`.help[data-row="${rows[this.row]}"]`) : null;
+    if (rowTip) rowTip.focus({ preventScroll: true });
+    else if ((document.activeElement as HTMLElement | null)?.classList.contains('help')) (document.activeElement as HTMLElement).blur();
     body.querySelector('.focus')?.scrollIntoView({ block: 'nearest' }); // (the keys' row in view, when it scrolls)
   }
 
