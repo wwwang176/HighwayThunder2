@@ -11,8 +11,8 @@ const TREE_PERIOD = 400;
 // Night: near-black sky, distance fading into deep blue-black.
 const SKY = 0x03050b;
 const FOG = 0x05070d;
-// Street lights: neutral white, ~4700 K.
-export const LAMP_COLOR = 0xffe9d2;
+// Street lights: warm white, ~3400 K (a touch cooler than the city glow ahead; at ~4700 K they looked cold beside it).
+export const LAMP_COLOR = 0xffc285;
 /** Night lighting levels (mutable: tuned live from the panel). */
 export const NIGHT = {
   lampIntensity: 300, // candela, real street lights near the player (one per lamp pair; at 1000 the road glared)
