@@ -36,7 +36,7 @@ import { CAR_CARDS, CarSelection, defaultSelection, loadSelection, saveSelection
 import { applyDifficulty } from './difficulty';
 import { Garage } from '../ui/garage';
 import { IntroOverlay } from '../ui/introOverlay';
-import { Intro, INTRO_KINDS } from './intro';
+import { Intro, nextIntro, type IntroBag } from './intro';
 
 /** A car type by id (the supercar for an id no longer known). */
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
@@ -70,6 +70,8 @@ const START_FADE_OUT = 350;
 const START_FADE_IN = 700;
 /** The race's world run this long (s) behind the black before its intro: the cars settled on their springs. */
 const SETTLE_SECONDS = 0.6;
+/** The intros' round left (game/intro IntroBag), kept between visits. */
+const INTRO_BAG_KEY = 'ht2.introBag';
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -135,7 +137,7 @@ export class Game {
   private readonly blurSweep = new THREE.Vector2();
   private blurAmount = 0;
   private camYaw: number | null = null;
-  /** The race's intro: the last one (its kind not picked twice running), whether it is on; a race starting (the fade). */
+  /** The race's intro, whether it is on; a race starting (the fade). */
   private intro: Intro | null = null;
   private introOn = false;
   private starting = false;
@@ -310,11 +312,18 @@ export class Game {
     });
   }
 
-  /** The race's intro: one of its shot lists, not the last one's. */
+  /** The race's intro: the next of its shuffled round (none twice in a row, all three in any three races). */
   private beginIntro(): void {
-    const kinds = INTRO_KINDS.filter((k) => k !== this.intro?.kind);
-    const kind = kinds[Math.floor(Math.random() * kinds.length)];
-    this.intro = new Intro(kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car), chase: this.rig.params });
+    // From the shuffled round kept between visits (game/intro nextIntro: all three in any three races running).
+    let bag: IntroBag = { left: [], last: null };
+    try {
+      bag = { ...bag, ...JSON.parse(localStorage.getItem(INTRO_BAG_KEY) ?? '{}') };
+    } catch {
+      // (unreadable: a fresh round)
+    }
+    const next = nextIntro(bag);
+    localStorage.setItem(INTRO_BAG_KEY, JSON.stringify(next.bag));
+    this.intro = new Intro(next.kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car), chase: this.rig.params });
     this.introOn = true;
     this.overlay.show(true);
   }

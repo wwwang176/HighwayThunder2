@@ -7,6 +7,31 @@ import type { PlayerCar } from '../vehicles/playerCar';
 export type IntroKind = 'arrival' | 'grid' | 'details';
 export const INTRO_KINDS: IntroKind[] = ['arrival', 'grid', 'details'];
 
+/** The intros left in this round (shuffled), and the last one shown (the next round never starts with it). */
+export interface IntroBag {
+  left: IntroKind[];
+  last: IntroKind | null;
+}
+
+/**
+ * The next race's intro: from a shuffled round of all of them, a new round once one is used up (its first not
+ * the one just shown) - every one seen in any three races running, none twice in a row. A bag with something
+ * unknown in it (read back from an older game) starts a fresh round.
+ */
+export function nextIntro(bag: IntroBag, rng: () => number = Math.random): { kind: IntroKind; bag: IntroBag } {
+  let left = bag.left.every((k) => INTRO_KINDS.includes(k)) ? [...bag.left] : [];
+  if (left.length === 0) {
+    left = [...INTRO_KINDS];
+    for (let i = left.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [left[i], left[j]] = [left[j], left[i]];
+    }
+    if (left[0] === bag.last) left.push(left.shift()!);
+  }
+  const [kind, ...rest] = left;
+  return { kind, bag: { left: rest, last: kind } };
+}
+
 /** A camera pose in the grid's frame: x right, y up from the ground, z ahead (the player's car on the origin). */
 interface Pose {
   pos: [number, number, number];

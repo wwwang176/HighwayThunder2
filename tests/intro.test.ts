@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Intro, INTRO_KINDS } from '../src/game/intro';
+import { Intro, INTRO_KINDS, nextIntro, type IntroBag, type IntroKind } from '../src/game/intro';
 import { PHYSICS_DT } from '../src/config';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { DEFAULT_CAMERA } from '../src/render/cameraRig';
@@ -40,6 +40,29 @@ describe('a car held on the grid, put under a braking load (the intro\'s arrival
     run(2.5, 0);
     expect(Math.abs(nose() - level)).toBeLessThan(0.002); // back level
     physics.free();
+  });
+});
+
+describe('nextIntro', () => {
+  it('all three in a shuffled round before any again, never the same twice running, round after round', () => {
+    let seed = 7;
+    const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    let bag: IntroBag = { left: [], last: null };
+    const picks: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      const next = nextIntro(bag, rng);
+      picks.push(next.kind);
+      bag = next.bag;
+    }
+    for (let i = 0; i < 60; i += 3) expect(new Set(picks.slice(i, i + 3)).size).toBe(3); // each round all three
+    for (let i = 1; i < 60; i++) expect(picks[i]).not.toBe(picks[i - 1]); // across rounds too
+    expect(new Set(picks.slice(0, 30).map((_, i) => picks.slice(i * 3, i * 3 + 3).join())).size).toBeGreaterThan(1); // shuffled
+  });
+
+  it('a bag read back with junk in it starts a fresh round', () => {
+    const next = nextIntro({ left: ['nope' as IntroKind], last: 'grid' }, () => 0.5);
+    expect(INTRO_KINDS).toContain(next.kind);
+    expect(next.kind).not.toBe('grid');
   });
 });
 
