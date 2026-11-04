@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { AIM_DOWN, BEAM_LAMP_H, createHeadlight, groundBeam, HALF_ANGLE, HEADLIGHT_DECAY, lowBeamPattern, PENUMBRA } from '../src/vehicles/headlight';
+import { AIM_DOWN, BEAM_LAMP_H, createHeadlight, groundBeam, HALF_ANGLE, HEADLIGHT_DECAY, HIGH_BEAM_DECAY, lowBeamPattern, PENUMBRA, RIVAL_DECAY } from '../src/vehicles/headlight';
 
 /** The traffic's beam as its painted texture had it (a level pair BEAM_LAMP_H up, `x` right, `z` ahead of it). */
 function paintedBeam(x: number, z: number): number {
@@ -77,6 +77,12 @@ describe('headlights', () => {
     const side = pair(Math.PI / 2); // (on its left side: its right lamp up)
     expect(groundBeam(side.center, side.axis, side.right, UP, { x: 2, y: 0, z: -10 })).toBeGreaterThan(0.05);
     expect(groundBeam(side.center, side.axis, side.right, UP, { x: -2, y: 0, z: -10 })).toBe(0);
+  });
+
+  it('the high beam is told apart by its decay: no low-beam cut-off, not a rival\'s ground beam', () => {
+    expect(Math.abs(HIGH_BEAM_DECAY - HEADLIGHT_DECAY)).toBeGreaterThan(0.01); // (the shaders' headlight range)
+    expect(Math.abs(HIGH_BEAM_DECAY - RIVAL_DECAY)).toBeGreaterThan(1e-4);
+    expect(Math.abs(RIVAL_DECAY - HEADLIGHT_DECAY)).toBeLessThan(0.01); // (a rival's: a low beam on what it lights)
   });
 
   it('a headlight is told by its decay, and takes no texture of its own but its shadow map', () => {

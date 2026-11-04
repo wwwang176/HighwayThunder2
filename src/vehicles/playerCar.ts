@@ -7,7 +7,7 @@ import { CarSpec, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
-import { AIM_DOWN, createHeadlight, HEADLIGHTS } from './headlight';
+import { AIM_DOWN, createHeadlight, HEADLIGHT_DECAY, HEADLIGHTS, HIGH_BEAM_DECAY } from './headlight';
 import { ExhaustFlames } from '../render/exhaustFlames';
 import { Backfire } from './backfire';
 import { emitFlares } from './npcVehicle';
@@ -210,10 +210,10 @@ export class PlayerCar {
       const x = side * (p.width / 2 - 0.4);
       const hl = createHeadlight(HEADLIGHTS.pair / 2);
       hl.position.set(x, -0.05, -p.length / 2 - 0.15);
-      hl.target.position.set(x, -0.05 - Math.tan(AIM_DOWN) * 30, -p.length / 2 - 30);
       model.root.add(hl, hl.target);
       this.headlights.push(hl);
     }
+    this.setHighBeam(false);
     this.mesh = model.root;
     this.lights = model.lights;
     const tips = (model.root.userData.exhausts ?? []) as THREE.Vector3[];
@@ -484,6 +484,20 @@ export class PlayerCar {
     if (!this.visuals.some((v) => v.file)) return;
     this.mesh.updateMatrixWorld(true);
     for (const v of this.visuals) if (v.file) bodies.add(v.file.key, v.file.wheel, v.file.wheel.matrixWorld, NO_LIGHTS);
+  }
+
+  /** The high beam on (X): its lamps plain spots aimed level, brighter (HEADLIGHTS.high: the game sets their brightness). */
+  highBeam = false;
+
+  /** The low beam (aimed a little down, its cut-off) or the high beam (level, no cut-off). */
+  setHighBeam(on: boolean): void {
+    this.highBeam = on;
+    const p = this.params;
+    for (const hl of this.headlights) {
+      const x = hl.position.x;
+      hl.decay = on ? HIGH_BEAM_DECAY : HEADLIGHT_DECAY;
+      hl.target.position.set(x, -0.05 - (on ? 0 : Math.tan(AIM_DOWN) * 30), -p.length / 2 - 30);
+    }
   }
 
   /** The headlights as seen by tyre smoke (call after render). Tail and brake lamps don't light it. */

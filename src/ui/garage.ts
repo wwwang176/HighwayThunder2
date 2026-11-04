@@ -45,6 +45,7 @@ const KEYS: [string, Key][] = [
   ['C', 'keys.look'],
   ['R', 'keys.reset'],
   ['I', 'keys.ai'],
+  ['X', 'keys.highBeam'],
   ['Esc', 'keys.pause'],
   ['M', 'keys.mute'],
   ['↑ ↓  ← →', 'keys.menus'],

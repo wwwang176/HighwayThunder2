@@ -44,7 +44,15 @@ export const HEADLIGHT_DECAY = 1.0;
  * for a car's two lamps together. 216 lights the road 8 m ahead as the traffic's painted beams do (NPC_BEAM): theirs
  * 5.9 x 0.39 there, a real pair I x 0.98 x 1/8 m x 0.7/8 m = I x 0.0107 (it was 900: four times theirs).
  */
-export const HEADLIGHTS = { pair: 216 };
+export const HEADLIGHTS = { pair: 216, high: 2 };
+// (`high`: the high beam's brightness, times the low beam's.)
+
+/**
+ * The high beam (the player's, X): a plain spot light, aimed level - no low-beam cut-off (its decay out of the
+ * lit shaders' headlight range: installLowBeamShader leaves it round). Told apart by decay alone (a uniform): the
+ * switch recompiles nothing.
+ */
+export const HIGH_BEAM_DECAY = 1.05;
 
 /**
  * A rival's lamp (one per car, both its lamps' light: game/rivalLights): shaped as a low beam on what it lights,

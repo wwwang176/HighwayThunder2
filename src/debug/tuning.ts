@@ -127,6 +127,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   rl.add(RIVAL_LIGHTS, 'shadowRange', 0, 100, 5).name('幾 m 內有陰影');
   rl.add(RIVAL_LIGHTS, 'fade', 1, 50, 1).name('超出後幾 m 淡出');
   rl.add(HEADLIGHTS, 'pair', 0, 1200, 10).name('車燈亮度 cd（玩家與對手；216 ≈ 路人車）');
+  rl.add(HEADLIGHTS, 'high', 1, 5, 0.1).name('遠光燈亮度（近光的倍數，X 切換）');
   const r = gui.addFolder('電腦對手（橡皮筋）');
   r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
   r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');
