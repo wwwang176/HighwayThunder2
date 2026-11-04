@@ -89,6 +89,8 @@ export class CameraRig {
   private reversing = false;
   private readonly shakes = new ShakeManager();
   private initialized = false;
+  /** The camera's shake this frame in the view's terms (m across and up, its tilt in rad): the HUD shakes with it. */
+  shaken = { right: 0, up: 0, roll: 0 };
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -105,6 +107,7 @@ export class CameraRig {
   snap(): void {
     this.initialized = false;
     this.shakes.stop();
+    this.shaken = { right: 0, up: 0, roll: 0 };
   }
 
   update(
@@ -144,7 +147,10 @@ export class CameraRig {
     cam.position.z += o.z;
 
     cam.lookAt(carPos.x + fx * p.lookAhead, carPos.y + 0.9, carPos.z + fz * p.lookAhead);
-    cam.rotateZ(this.shakes.roll()); // the shake's tilt: a sideways move alone is hardly seen
+    const roll = this.shakes.roll();
+    cam.rotateZ(roll); // the shake's tilt: a sideways move alone is hardly seen
+    // The shake in the view's terms, for the HUD (across: along the view's right, (-fz, 0, fx)).
+    this.shaken = { right: o.x * -fz + o.z * fx, up: o.y, roll };
 
     const speed = Math.abs(vForward);
     const fov = p.fovMin + (p.fovMax - p.fovMin) * Math.min(1, speed / maxSpeed) ** 1.5;
