@@ -122,7 +122,9 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');
   const rl = gui.addFolder('對手車燈');
   rl.add(RIVAL_LIGHTS, 'real').name('真的車燈（下一場生效）');
-  rl.add(RIVAL_LIGHTS, 'shadows').name('車燈陰影');
+  rl.add(RIVAL_LIGHTS, 'slots', 0, 8, 2).name('有陰影的燈（名額）');
+  rl.add(RIVAL_LIGHTS, 'range', 0, 100, 5).name('幾 m 內有陰影');
+  rl.add(RIVAL_LIGHTS, 'fade', 1, 50, 1).name('超出後幾 m 淡出');
   const r = gui.addFolder('電腦對手（橡皮筋）');
   r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
   r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');

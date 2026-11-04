@@ -18,18 +18,21 @@ import { trackerFrom } from '../ai/netTracker';
 import { aiTopSpeed } from '../ai/aiTopSpeed';
 
 /**
+ * The rivals' headlights (the tuning panel's): real lights, as the player's (two spot lights each, shaped as low
+ * beams in the shaders, lighting everything: the cars, the rails, the player's car from behind), or the traffic's
+ * beams painted on the road only (render/npcBeams: next to free). `real` takes effect on the next race (the cars
+ * are rebuilt).
+ * Shadows only near the player: `slots` lamps cast them (each one's shadow map takes one of a shader's 16
+ * textures on an Iris Xe: all ten, the shaders fail - black), given to the nearest rivals' lamps; within `range` m
+ * of the player at full strength, fading out over `fade` m past it (none: its map not even drawn). Their number
+ * stays the same (another number recompiles every shader: a hitch).
+ */
+export const RIVAL_LIGHTS = { real: true, slots: 4, range: 30, fade: 15 };
+
+/**
  * Rival racers' settings (mutable: the tuning panel). Gaps are "rival minus
  * player" along the road, in metres.
  */
-/**
- * The rivals' headlights (the tuning panel's): real lights, as the player's (two spot lights each, lighting
- * everything: the cars, the rails, the player's car from behind), or the traffic's beams painted on the road only
- * (render/npcBeams: next to free). `real` takes effect on the next race (the cars are rebuilt); `shadows` at once.
- * Without shadows they have no low-beam cookie either (a round cone): a shader takes 16 textures at most (Iris Xe),
- * and each lamp's shadow map and cookie take one each - all ten rival lamps with both, the shaders fail (black).
- */
-export const RIVAL_LIGHTS = { real: true, shadows: false };
-
 export const RIVAL_TUNING = {
   count: 5,
   /** Behind by more than this, grip and engine start getting boosted... */
@@ -180,16 +183,29 @@ export class Rivals {
   /** Built with real headlights (RIVAL_LIGHTS.real then): the game rebuilds them when that changes. */
   readonly realLights = RIVAL_LIGHTS.real;
 
-  /** Their real headlights (none with RIVAL_LIGHTS.real off), shadows per RIVAL_LIGHTS.shadows (set here, each frame). */
-  headlights(): THREE.SpotLight[] {
-    const all: THREE.SpotLight[] = [];
-    for (const r of this.list) for (const l of r.car.headlights) {
-      l.userData.cookie ??= l.map; // (kept, to put back)
-      l.castShadow = RIVAL_LIGHTS.shadows;
-      l.map = l.castShadow ? l.userData.cookie : null; // (a cookie takes a texture of its own, shadow or not)
-      all.push(l);
+  /**
+   * Their real headlights' shadows this frame (set here; none with RIVAL_LIGHTS.real off): RIVAL_LIGHTS.slots of
+   * the lamps cast them, the nearest rivals' to (`x`, `z`) (the player), each faded by its rival's distance - out
+   * of range, its shadow none and its map not drawn. The lamps whose shadows show.
+   */
+  headlights(x: number, z: number): THREE.SpotLight[] {
+    const L = RIVAL_LIGHTS;
+    const near = this.list
+      .filter((r) => r.car.headlights.length)
+      .map((r) => ({ r, d: Math.hypot(r.car.mesh.position.x - x, r.car.mesh.position.z - z) }))
+      .sort((a, b) => a.d - b.d);
+    const showing: THREE.SpotLight[] = [];
+    let slots = L.slots;
+    for (const { r, d } of near) {
+      const k = Math.max(0, Math.min(1, (L.range + L.fade - d) / L.fade)); // (1 in range, 0 past the fade)
+      for (const l of r.car.headlights) {
+        l.castShadow = slots-- > 0; // (always `slots` of them: the shaders' count steady)
+        l.shadow.intensity = l.castShadow ? k : 0;
+        l.shadow.autoUpdate = l.castShadow && k > 0; // (a shadow not showing: its map not drawn)
+        if (l.castShadow && k > 0) showing.push(l);
+      }
     }
-    return all;
+    return showing;
   }
 
   /** `specs`: each rival's car type, one rival each (up to the start grid's size). */

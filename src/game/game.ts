@@ -733,10 +733,10 @@ export class Game {
    * across by the camera's turning (as a 1/60 s exposure would smear it). Paused, it holds as it was (the
    * picture stays); none at the title.
    */
-  /** The lights casting shadows this frame: the player's headlights, and the rivals' while theirs cast (RIVAL_LIGHTS). */
+  /** The lights whose shadows show this frame: the player's headlights, and the near rivals' (theirs set here: RIVAL_LIGHTS). */
   private shadowLights(): THREE.SpotLight[] {
-    const rivals = this.rivals.headlights(); // (their shadows set on or off here)
-    return RIVAL_LIGHTS.shadows ? [...this.player.headlights, ...rivals] : this.player.headlights;
+    const p = this.player.mesh.position;
+    return [...this.player.headlights, ...this.rivals.headlights(p.x, p.z)];
   }
 
   private speedBlur(play: number): void {

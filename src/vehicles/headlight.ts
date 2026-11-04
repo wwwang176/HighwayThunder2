@@ -34,7 +34,55 @@ export function lowBeamPattern(u: number, v: number): number {
   return edge * spread * fall;
 }
 
-/** The pattern as the spot light's cookie. Canvas top = up in the light's view, left = car's left. */
+/** Every headlight's decay, and no other spot light's (the street lamps': 1.6): the lit shaders know a headlight by it. */
+export const HEADLIGHT_DECAY = 1.0;
+
+const g = (x: number) => x.toFixed(6);
+/**
+ * lowBeamPattern in GLSL, toward `p` from a spot light at `lightPos` whose uniform `direction` points back at it
+ * (three.js's), all in view space: (u, v) its tangents along the lamp's right and up (level: square to the world's
+ * up), as the cookie was projected.
+ */
+export const LOW_BEAM_GLSL = /* glsl */ `
+float ht2LowBeam( vec3 lightPos, vec3 towardLight, vec3 p ) {
+  vec3 axis = - towardLight;
+  vec3 right = normalize( cross( axis, ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz ) );
+  vec3 up = cross( right, axis );
+  vec3 d = p - lightPos;
+  float along = dot( d, axis );
+  if ( along <= 1e-4 ) return 0.0;
+  float u = dot( d, right ) / along;
+  float v = dot( d, up ) / along;
+  float cut = u > 0.0 ? ${g(CUT_V)} + min( u * ${g(KINK)}, ${g(KINK_RISE)} ) : ${g(CUT_V)};
+  float below = cut - v;
+  float edge = clamp( below / ${g(EDGE)}, 0.0, 1.0 );
+  float su = ( u - 0.073 ) / ${g(SPREAD)};
+  float sb = ( below - 0.058 ) / ${g(FALL)};
+  return edge * exp( - su * su ) * ( 0.3 + 0.7 * exp( - sb * sb ) );
+}`;
+
+const SPOT_INFO = 'getSpotLightInfo( spotLight, geometryPosition, directLight );';
+
+/**
+ * The low beam in every lit material: a headlight (a spot light of HEADLIGHT_DECAY) is shaped by lowBeamPattern
+ * worked out in the shader, not by a cookie texture - a shader takes 16 textures at most (an Iris Xe), and a cookie
+ * took one per lamp (three.js projects it only for lamps casting shadows, whose shadow map takes another). Patches
+ * three's shader chunks once, before anything is drawn; throws if they changed (a three.js update) rather than
+ * lighting round on the quiet.
+ */
+export function installLowBeamShader(): void {
+  const C = THREE.ShaderChunk as Record<string, string>;
+  if (C.lights_pars_begin.includes('ht2LowBeam')) return;
+  if (!C.lights_fragment_begin.includes(SPOT_INFO)) throw new Error('installLowBeamShader: three.js spot light code changed');
+  C.lights_pars_begin += LOW_BEAM_GLSL;
+  C.lights_fragment_begin = C.lights_fragment_begin.replace(
+    SPOT_INFO,
+    `${SPOT_INFO}\n\t\tif ( abs( spotLight.decay - ${HEADLIGHT_DECAY.toFixed(4)} ) < 1e-4 ) directLight.color *= ht2LowBeam( spotLight.position, spotLight.direction, geometryPosition );`,
+  );
+}
+installLowBeamShader(); // (on import: before any lit material is compiled)
+
+/** The pattern as a texture (the tyre smoke's shader takes it: tireSmoke). Canvas top = up in the light's view, left = car's left. */
 export function lowBeamCookie(size = 256): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = size;
@@ -57,13 +105,12 @@ export function lowBeamCookie(size = 256): THREE.CanvasTexture {
 }
 
 /**
- * One low-beam headlamp: a spot light with the low-beam cookie (the player has two).
- * (Three.js only applies light cookies to shadow-casting lights, so it casts
- * shadows too - the car ahead throws a shadow into your beam.)
+ * One low-beam headlamp: a spot light shaped as a low beam in the shaders (its decay HEADLIGHT_DECAY:
+ * installLowBeamShader), casting shadows - the car ahead throws a shadow into your beam (a rival's lamp casts
+ * them only near the player: Rivals.headlights).
  */
 export function createHeadlight(intensity: number): THREE.SpotLight {
-  const l = new THREE.SpotLight(0xfff4e6, intensity, 120, HALF_ANGLE, PENUMBRA, 1.0);
-  l.map = lowBeamCookie();
+  const l = new THREE.SpotLight(0xfff4e6, intensity, 120, HALF_ANGLE, PENUMBRA, HEADLIGHT_DECAY);
   l.castShadow = true;
   l.shadow.mapSize.set(1024, 1024);
   l.shadow.camera.near = 0.3;
