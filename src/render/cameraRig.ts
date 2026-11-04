@@ -24,7 +24,7 @@ export const DEFAULT_CAMERA: CameraParams = {
   fovMin: 62,
   fovMax: 84,
   yawTau: 0.18,
-  bob: 0.008, // slight: the body riding the road's unevenness
+  bob: 0.016, // slight: the body riding the road's unevenness
   bobHz: 3,
 };
 
