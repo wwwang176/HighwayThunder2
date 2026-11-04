@@ -57,7 +57,8 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   c.add(camera, 'fovMax', 50, 110, 1).name('FOV 最大');
   c.add(camera, 'yawTau', 0.02, 1, 0.01).name('轉向跟隨延遲 s');
   c.add(camera, 'bob', 0, 0.05, 0.0005).name('路面上下震動 m');
-  c.add(camera, 'bobFullKmh', 1, 200, 1).name('路面震動：幾 km/h 達到最大');
+  c.add(camera, 'bobFrom', 0, 1, 0.01).name('路面震動：最高速的幾成開始');
+  c.add(camera, 'bobFull', 0, 1, 0.01).name('路面震動：最高速的幾成最大');
   c.add(camera, 'bobHz', 0, 20, 0.5).name('路面震動頻率：起始');
   c.add(camera, 'bobHzPerKmh', 0, 0.5, 0.01).name('路面震動頻率：每 km/h 增加');
   c.add(camera, 'bobHzMax', 1, 40, 1).name('路面震動頻率：上限');

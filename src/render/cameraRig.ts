@@ -8,9 +8,13 @@ export interface CameraParams {
   fovMin: number;
   fovMax: number;
   yawTau: number; // seconds for the camera heading to catch up with the car
-  /** The road's shake up and down (m, full from bobFullKmh); how quick (noise steps a second) at 0 km/h, its rise per km/h, its most. */
+  /**
+   * The road's shake up and down (m): none up to `bobFrom` of the car's top speed, rising evenly to all of it at
+   * `bobFull`; how quick (noise steps a second) at 0 km/h, its rise per km/h, its most.
+   */
   bob: number;
-  bobFullKmh: number;
+  bobFrom: number;
+  bobFull: number;
   bobHz: number;
   bobHzPerKmh: number;
   bobHzMax: number;
@@ -26,7 +30,8 @@ export const DEFAULT_CAMERA: CameraParams = {
   yawTau: 0.18,
   // The road's small unevenness: half the grass's shake (2.16 cm, Game.grassRumble), as quick.
   bob: 0.0108,
-  bobFullKmh: 40,
+  bobFrom: 1 / 5,
+  bobFull: 2 / 3,
   bobHz: 4,
   bobHzPerKmh: 0.12,
   bobHzMax: 25,
@@ -127,9 +132,11 @@ export class CameraRig {
     const cam = this.camera;
     cam.position.set(carPos.x - fx * p.distance, carPos.y + p.height, carPos.z - fz * p.distance);
 
-    // The road's shake up and down (it moves by `dt`: held while paused).
+    // The road's shake up and down, by the share of the car's top speed (it moves by `dt`: held while paused).
     const kmh = Math.abs(vForward) * 3.6;
-    this.shakes.bob(p.bob * Math.min(1, kmh / p.bobFullKmh), Math.min(p.bobHzMax, p.bobHz + kmh * p.bobHzPerKmh));
+    const share = Math.abs(vForward) / maxSpeed;
+    const k = THREE.MathUtils.clamp((share - p.bobFrom) / (p.bobFull - p.bobFrom), 0, 1);
+    this.shakes.bob(p.bob * k, Math.min(p.bobHzMax, p.bobHz + kmh * p.bobHzPerKmh));
     this.shakes.update(dt);
     const o = this.shakes.offset();
     cam.position.x += o.x;
