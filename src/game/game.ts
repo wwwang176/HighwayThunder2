@@ -911,7 +911,6 @@ export class Game {
       nitro: this.player.nitro.level,
       nitroOn: this.player.nitro.active,
       aiDriving: this.aiActive && this.flow.phase === 'racing',
-      highBeam: this.player.highBeam,
       place: this.rivals.rank(this.player.s, this.flow.finishTime),
       shake: this.rig.shaken,
       racers: [

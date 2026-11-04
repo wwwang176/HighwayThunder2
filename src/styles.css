@@ -135,8 +135,6 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #hud .h-badges { right: 3.1vw; top: 8.6vw; display: flex; align-items: center; gap: 0.5vw; }
 #hud .h-ai { padding: 0.36vw 0.6vw; --c: 0.36vw; background: var(--accent); font: 700 0.73vw/1 var(--f-num); letter-spacing: 0.1vw; }
 #hud .h-mute { font-size: 1.3vw; opacity: 0.8; }
-/* The high beam on: a blue tag (the dashboard's high-beam blue), small caps. */
-#hud .h-high { padding: 0.36vw 0.6vw; --c: 0.36vw; background: #1f6bff; font: 700 0.63vw/1 var(--f-num); letter-spacing: 0.12vw; text-transform: uppercase; }
 /* A rival coming up behind: an arrow on the bottom edge, in its colour, on its side. */
 #hud .h-behind { bottom: 1.2vh; transform: translateX(-50%); text-align: center; color: var(--c); }
 #hud .h-behind .chev { width: 0; height: 0; margin: 0 auto; border-left: 1.2vw solid transparent; border-right: 1.2vw solid transparent;

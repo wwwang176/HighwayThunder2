@@ -34,8 +34,6 @@ export interface HudFrame {
   reverse: boolean;
   /** The trained AI is driving the player's car. */
   aiDriving: boolean;
-  /** The player's high beam on (X). */
-  highBeam: boolean;
   /** The player's place among `racers` cars (no rivals: not shown). */
   place: number;
   /** Every car in the race (the player's included). */
@@ -158,7 +156,7 @@ export class Hud {
         </div>
         <div class="h-behind float" data-id="behind"><div class="d num" data-id="behindGap"></div><div class="chev"></div></div>
         <div class="h-reset" data-id="reset"><kbd>R</kbd>${tx('hud.reset', 'span', 'float')}</div>
-        <div class="h-badges"><span data-id="high" class="h-high cut">High beam</span><span data-id="ai" class="h-ai cut">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
+        <div class="h-badges"><span data-id="ai" class="h-ai cut">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
       </div>
       <div id="toast" class="toast" data-id="toast"></div>
       <div id="pause" class="center bracketed">
@@ -348,7 +346,6 @@ export class Hud {
     this.el.reset.classList.toggle('ready', f.resetCooldown <= 0);
     this.el.mute.style.display = f.muted ? '' : 'none';
     this.el.ai.style.display = f.aiDriving ? '' : 'none';
-    this.el.high.style.display = f.highBeam ? '' : 'none';
 
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;
