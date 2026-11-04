@@ -56,8 +56,11 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   c.add(camera, 'fovMin', 40, 90, 1).name('FOV 最小');
   c.add(camera, 'fovMax', 50, 110, 1).name('FOV 最大');
   c.add(camera, 'yawTau', 0.02, 1, 0.01).name('轉向跟隨延遲 s');
-  c.add(camera, 'bob', 0, 0.05, 0.001).name('行駛上下晃動 m（時速 200 時）');
-  c.add(camera, 'bobHz', 0.5, 10, 0.1).name('行駛上下晃動頻率');
+  c.add(camera, 'bob', 0, 0.05, 0.0005).name('路面上下震動 m');
+  c.add(camera, 'bobFullKmh', 1, 200, 1).name('路面震動：幾 km/h 達到最大');
+  c.add(camera, 'bobHz', 0, 20, 0.5).name('路面震動頻率：起始');
+  c.add(camera, 'bobHzPerKmh', 0, 0.5, 0.01).name('路面震動頻率：每 km/h 增加');
+  c.add(camera, 'bobHzMax', 1, 40, 1).name('路面震動頻率：上限');
   const n = gui.addFolder('夜晚燈光');
   n.add(NIGHT, 'lampIntensity', 0, 3000, 10).name('路燈亮度（近處真實光源）');
   n.add(NIGHT, 'poolStrength', 0, 2, 0.05).name('路燈光區亮度（遠處）');

@@ -8,13 +8,13 @@ export interface CameraParams {
   fovMin: number;
   fovMax: number;
   yawTau: number; // seconds for the camera heading to catch up with the car
-  /** The bob up and down at speed (m; from standstill to BOB_FULL m/s), and how fast it goes then (noise steps a second). */
+  /** The road's shake up and down (m, full from bobFullKmh); how quick (noise steps a second) at 0 km/h, its rise per km/h, its most. */
   bob: number;
+  bobFullKmh: number;
   bobHz: number;
+  bobHzPerKmh: number;
+  bobHzMax: number;
 }
-
-/** The speed the bob is full at (m/s, 200 km/h). */
-const BOB_FULL = 55;
 
 export const DEFAULT_CAMERA: CameraParams = {
   distance: 5.6, // close behind (was 6.8)
@@ -24,8 +24,12 @@ export const DEFAULT_CAMERA: CameraParams = {
   fovMin: 62,
   fovMax: 84,
   yawTau: 0.18,
-  bob: 0.016, // slight: the body riding the road's unevenness
-  bobHz: 3,
+  // The road's small unevenness: half the grass's shake (2.16 cm, Game.grassRumble), as quick.
+  bob: 0.0108,
+  bobFullKmh: 40,
+  bobHz: 4,
+  bobHzPerKmh: 0.12,
+  bobHzMax: 25,
 };
 
 export function wrapAngle(a: number): number {
@@ -123,9 +127,9 @@ export class CameraRig {
     const cam = this.camera;
     cam.position.set(carPos.x - fx * p.distance, carPos.y + p.height, carPos.z - fz * p.distance);
 
-    // A slight bob, more and quicker the faster (it moves by `dt`: held while paused).
-    const k = Math.min(1, Math.abs(vForward) / BOB_FULL);
-    this.shakes.bob(p.bob * k, p.bobHz * (0.4 + 0.6 * k));
+    // The road's shake up and down (it moves by `dt`: held while paused).
+    const kmh = Math.abs(vForward) * 3.6;
+    this.shakes.bob(p.bob * Math.min(1, kmh / p.bobFullKmh), Math.min(p.bobHzMax, p.bobHz + kmh * p.bobHzPerKmh));
     this.shakes.update(dt);
     const o = this.shakes.offset();
     cam.position.x += o.x;
