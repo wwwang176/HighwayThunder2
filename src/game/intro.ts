@@ -35,13 +35,13 @@ interface Shot {
  */
 const ARRIVE_SPEED = [12, 17] as const;
 const ARRIVE_BRAKE = 1.5;
-const ARRIVE_FRONT_STOP = [4.0, 4.9] as const;
+const ARRIVE_FRONT_STOP = [3.7, 4.6] as const;
 const ARRIVE_BACK_LATER = [0.3, 0.8] as const;
 /**
- * The player's car stops 0.7 s into its wheel's close-up (the second shot, from 3.6 s): its nose already in the
+ * The player's car stops 0.7 s into its wheel's close-up (the second shot, from 3.3 s): its nose already in the
  * picture at the cut, braking, still rolling at the first (later, the close-up began on the bare road).
  */
-const ARRIVE_PLAYER_STOP = 4.3;
+const ARRIVE_PLAYER_STOP = 4.0;
 
 /** Where an arriving car is drawn (m ahead of its place: < 0) `t` s in, at `speed` till it brakes to a stop at `stop` s. */
 function arriving(speed: number, stop: number, t: number): number {
@@ -212,7 +212,7 @@ export class Intro {
       return [
         {
           // (Far enough back that the first cars come by soon: they come from ~50-70 m back.)
-          seconds: 3.6, // (the player's car stopping in the next: ARRIVE_PLAYER_STOP)
+          seconds: 3.3, // (the player's car stopping in the next: ARRIVE_PLAYER_STOP)
           from: { pos: [-LANE_WIDTH - 2.6, 0.65, -38], look: [-0.5, 0.8, -6], fov: 38 },
           to: { pos: [-LANE_WIDTH - 2.4, 0.7, -35], look: [-0.5, 0.8, -6], fov: 34 },
           ease: linear, // (still moving at the cut)
@@ -244,7 +244,7 @@ export class Intro {
       const hero: Pose = { pos: [2.9, 0.85, 6.2], look: [0, 0.6, 0], fov: 30 };
       return [
         {
-          seconds: 1.6,
+          seconds: 1.5,
           from: { pos: [mid, 9.5, front + 26], look: [mid, 0, -4], fov: 48 },
           to: { pos: [mid, 7.5, front + 19], look: [mid, 0, -4], fov: 48 },
           ease: linear, // (still moving at the cut)
@@ -283,7 +283,7 @@ export class Intro {
         ease: linear, // (still moving at the cut)
       },
       {
-        seconds: 1.2,
+        seconds: 1.4,
         from: { pos: [tip[0] + 0.9, tip[1] + 0.18, tip[2] - 1.6], look: [...tip], fov: 30 },
         to: { pos: [tip[0] + 0.75, tip[1] + 0.15, tip[2] - 1.35], look: [...tip], fov: 28 },
         ease: linear, // (still moving at the cut)
@@ -297,7 +297,7 @@ export class Intro {
         ease: linear, // (still moving at the cut)
       },
       {
-        seconds: 0.9,
+        seconds: 1.1,
         from: tail,
         to: { ...tail, pos: [-1.0, 0.42, -p.length / 2 - 2.0] },
         ease: linear, // (still moving at the cut)
