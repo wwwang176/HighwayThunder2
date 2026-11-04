@@ -153,6 +153,7 @@ function normalsFrom(file: string, strength: number, repeat: THREE.Vector2): THR
       }
     }
     g.putImageData(out, 0, 0);
+    tex.dispose(); // (sent as 1 x 1 already, its storage that size: made again at the new one)
     tex.needsUpdate = true;
   };
   img.src = TEXTURES + file;

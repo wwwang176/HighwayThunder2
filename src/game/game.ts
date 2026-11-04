@@ -4,6 +4,7 @@ import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { PlanPath } from '../render/planPath';
 import { PostFx } from '../render/postFx';
+import { flameTextures } from '../render/exhaustFlames';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
@@ -22,7 +23,8 @@ import type { TrafficBox } from '../ai/sensors';
 import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { Hud } from '../ui/hud';
 import { HandlingInput } from '../vehicles/handling';
-import { NpcVehicle } from '../vehicles/npcVehicle';
+import { allTrafficModels, NpcVehicle } from '../vehicles/npcVehicle';
+import { BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
 import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
 import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
@@ -51,6 +53,11 @@ const RIVAL_CSS = RIVAL_COLORS.map((c) => `#${c.toString(16).padStart(6, '0')}`)
 
 const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
+/** Every lamp state a traffic vehicle shows (brake lights dim and on, indicators off and on): for prewarm. */
+const PREWARM_LAMPS: VehicleLights[] = [
+  { left: [], right: [], brake: [new THREE.Mesh(undefined, BRAKE_DIM)] },
+  { left: [new THREE.Object3D()], right: [new THREE.Object3D()], brake: [new THREE.Mesh(undefined, BRAKE_ON)] },
+];
 const PLAYER_OBSTACLE_ID = -1;
 /** How fast the race's time runs, by phase (frame()): stopped in a pause, slow motion past the finish line. */
 const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0, finished: 0.1 };
@@ -165,6 +172,41 @@ export class Game {
     });
     this.resetWorld();
     this.openGarage();
+    this.prewarm();
+  }
+
+  /**
+   * Draw everything once: every traffic model (in both lamp states) ahead in the headlights, the racers, every
+   * effect (all made visible for this one frame), through the shadows, bloom and FXAA; every flame picture sent.
+   * Their shaders are compiled and their textures sent now: drawn first mid-race, each held its frame up 40-80
+   * ms (the race's first, ~500 ms). At the start (behind the garage) and as a race is set up (its cars new, the
+   * pictures loaded since). A plain frame drawn after it.
+   */
+  private prewarm(): void {
+    for (const t of flameTextures()) this.renderer.initTexture(t);
+    this.render(0, 1); // (everything placed: the camera, the cars)
+    const ahead = new THREE.Matrix4().makeTranslation(0, 0, -15).premultiply(this.player.mesh.matrix);
+    this.bodies.begin(this.camera, this.player.headlights);
+    for (const m of allTrafficModels()) for (const lamps of PREWARM_LAMPS) this.bodies.add(m.key, m.template, ahead, lamps);
+    this.player.addWheels(this.bodies);
+    for (const r of this.rivals.list) r.car.addWheels(this.bodies);
+    this.bodies.end();
+    // Hidden things shown, and nothing culled (by the camera or the headlights): what is behind the camera or out
+    // of the beams now (the rails' posts, the trees) is drawn, and casts its shadow, later.
+    const hidden: THREE.Object3D[] = [];
+    const culled: THREE.Object3D[] = [];
+    for (const root of [this.scene, this.post.unbloomed]) {
+      root.traverse((o) => {
+        if (!o.visible && !(o as THREE.Light).isLight) hidden.push(o); // (lights: their number is in every shader)
+        if (o.frustumCulled) culled.push(o);
+      });
+    }
+    for (const o of hidden) o.visible = true;
+    for (const o of culled) o.frustumCulled = false;
+    this.post.render();
+    for (const o of hidden) o.visible = false;
+    for (const o of culled) o.frustumCulled = true;
+    this.render(0, 1);
   }
 
   private bindKeys(): void {
@@ -227,6 +269,7 @@ export class Game {
     }
     this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
     this.resetWorld();
+    this.prewarm();
     this.flow.start();
   }
 

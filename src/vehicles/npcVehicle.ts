@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { GRASS_GRIP, MEDIAN_FAR_X, MEDIAN_NEAR_X, VehicleKind } from '../config';
+import { GRASS_GRIP, MEDIAN_FAR_X, MEDIAN_NEAR_X, VEHICLE_SPECS, VehicleKind, type VehicleSpec } from '../config';
 import { G_PLAYER, G_STATIC, groups, NPC_LIVE_GROUPS, PhysicsWorld, WRECK_GROUPS } from '../physics/physicsWorld';
 import type { Agent, Obstacle } from '../traffic/trafficAI';
 import {
@@ -162,7 +162,7 @@ interface Part {
   currQuat: THREE.Quaternion;
 }
 
-interface TrafficModelRef {
+export interface TrafficModelRef {
   key: string;
   template: THREE.Object3D;
 }
@@ -198,6 +198,50 @@ export function emitFlares(mesh: THREE.Object3D, lights: VehicleLights, flares: 
     FLARE_V.set(at.x, at.y, at.z).applyMatrix4(mesh.matrix);
     flares.add(FLARE_V.x, FLARE_V.y, FLARE_V.z, 1.0, 0.5, 0.04, 0.35);
   }
+}
+
+/** A vehicle's models, one per part: paint job `i` (a container: its cab's; `color`, its trailer's). */
+function vehicleModels(kind: VehicleKind, sp: VehicleSpec, i: number, color = 0): ReturnType<typeof model>[] {
+  if (kind === 'container') {
+    return [
+      model(`cab|${i}`, () =>
+        buildTrafficBody('cab', CONTAINER_H, CAB_L, CAB.z, TRUCK_LIVERIES[i]) ??
+        buildContainerCab(sp.width, CONTAINER_H, CAB_L, TRUCK_COLORS[i], false),
+      ),
+      model(`trailer|${color}`, () =>
+        buildTrafficBody('trailer', CONTAINER_H, TRAILER_L, 0, undefined, color) ??
+        buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color, false),
+      ),
+    ];
+  }
+  if (kind === 'truck') {
+    return [
+      model(`truck|${i}`, () =>
+        buildTrafficBody('truck', sp.height, sp.length, BOX_TRUCK.z, TRUCK_LIVERIES[i]) ??
+        buildTruck(sp.width, sp.height, sp.length, TRUCK_COLORS[i], false),
+      ),
+    ];
+  }
+  return [
+    model(`car|${i}`, () =>
+      buildTrafficBody('sedan', sp.height, sp.length, SEDAN.z, CAR_LIVERIES[i]) ??
+      buildCar(sp.width, sp.height, sp.length, CAR_COLORS[i], false, false),
+    ),
+  ];
+}
+
+/**
+ * Every traffic model there is (each paint job's every part), and the traffic's wheel: to draw them all once
+ * before the race (their shaders compiled, their textures sent), not as each first comes along.
+ */
+export function allTrafficModels(): TrafficModelRef[] {
+  const all = new Map<string, TrafficModelRef>();
+  const put = (ms: ReturnType<typeof model>[]) => ms.forEach((m) => all.set(m.ref.key, m.ref));
+  CAR_COLORS.forEach((_, i) => put(vehicleModels('car', VEHICLE_SPECS.car, i)));
+  TRUCK_COLORS.forEach((_, i) => put(vehicleModels('truck', VEHICLE_SPECS.truck, i)));
+  TRUCK_COLORS.forEach((_, i) => CONTAINER_COLORS.forEach((c) => put(vehicleModels('container', VEHICLE_SPECS.container, i, c))));
+  all.set(NPC_WHEEL, { key: NPC_WHEEL, template: npcWheel() });
+  return [...all.values()];
 }
 
 function pick<T>(arr: T[], rng: () => number): T {
@@ -293,34 +337,8 @@ export class NpcVehicle {
     let models: ReturnType<typeof model>[];
     if (agent.kind === 'container') {
       const color = pick(CONTAINER_COLORS, rng);
-      const c = pickIndex(TRUCK_COLORS.length, rng);
-      models = [
-        model(`cab|${c}`, () =>
-          buildTrafficBody('cab', CONTAINER_H, CAB_L, CAB.z, TRUCK_LIVERIES[c]) ??
-          buildContainerCab(sp.width, CONTAINER_H, CAB_L, TRUCK_COLORS[c], false),
-        ),
-        model(`trailer|${color}`, () =>
-          buildTrafficBody('trailer', CONTAINER_H, TRAILER_L, 0, undefined, color) ??
-          buildContainerTrailer(sp.width, CONTAINER_H, TRAILER_L, color, false),
-        ),
-      ];
-    } else if (agent.kind === 'truck') {
-      const i = pickIndex(TRUCK_COLORS.length, rng);
-      models = [
-        model(`truck|${i}`, () =>
-          buildTrafficBody('truck', sp.height, sp.length, BOX_TRUCK.z, TRUCK_LIVERIES[i]) ??
-          buildTruck(sp.width, sp.height, sp.length, TRUCK_COLORS[i], false),
-        ),
-      ];
-    } else {
-      const i = pickIndex(CAR_COLORS.length, rng);
-      models = [
-        model(`car|${i}`, () =>
-          buildTrafficBody('sedan', sp.height, sp.length, SEDAN.z, CAR_LIVERIES[i]) ??
-          buildCar(sp.width, sp.height, sp.length, CAR_COLORS[i], false, false),
-        ),
-      ];
-    }
+      models = vehicleModels('container', sp, pickIndex(TRUCK_COLORS.length, rng), color);
+    } else models = vehicleModels(agent.kind, sp, pickIndex((agent.kind === 'truck' ? TRUCK_COLORS : CAR_COLORS).length, rng));
     specs.forEach((s, i) => this.parts.push(this.makePart(s, models[i])));
     this.totalMass = specs.reduce((m, s) => m + s.mass, 0);
     this.place(agent);

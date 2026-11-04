@@ -21,6 +21,12 @@ function fireTextures() {
   return textures;
 }
 
+/** Every flame picture (a sprite shows one at a time: to send them all to the GPU ahead, Game.prewarm). */
+export function flameTextures(): THREE.Texture[] {
+  const t = fireTextures();
+  return [...t.orange, ...t.blue];
+}
+
 /** A flame's look: the sprites' spacing back from the tip and their sizes (m), the first to the last. */
 interface Look {
   step: number;
