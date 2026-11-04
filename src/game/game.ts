@@ -68,6 +68,8 @@ const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0, finished: 0.1 };
 /** A race's start: the garage faded to black, then the race faded in on its intro (ms). */
 const START_FADE_OUT = 350;
 const START_FADE_IN = 700;
+/** The race's world run this long (s) behind the black before its intro: the cars settled on their springs. */
+const SETTLE_SECONDS = 0.6;
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -298,8 +300,11 @@ export class Game {
       }
       this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
       this.resetWorld();
+      this.flow.start(); // (the intro's phase: the cars held on the grid - after a race the rivals would drive off)
+      // The cars settled on their springs, unseen (put on the grid a little high, they bounced ~5 cm in the
+      // intro's first shot).
+      this.simulate(SETTLE_SECONDS, undefined, false);
       this.prewarm();
-      this.flow.start();
       this.beginIntro();
       this.overlay.fromBlack(START_FADE_IN);
     });
