@@ -86,6 +86,13 @@ export function installLowBeamShader(): void {
     SPOT_INFO,
     `${SPOT_INFO}\n\t\tif ( abs( spotLight.decay - ${HEADLIGHT_DECAY.toFixed(4)} ) < 1e-4 ) directLight.color *= ht2LowBeam( spotLight.position, spotLight.direction, geometryPosition );`,
   );
+  // A spot light lighting nothing here (out of its cone, or a parked pool lamp: rivalLights) costs no shading.
+  const from = C.lights_fragment_begin.indexOf('#if ( NUM_SPOT_LIGHTS > 0 )');
+  const to = C.lights_fragment_begin.indexOf('#pragma unroll_loop_end', from);
+  const call = 'RE_Direct( directLight, geometryPosition';
+  const at = C.lights_fragment_begin.indexOf(call, from);
+  if (from < 0 || at < 0 || at > to) throw new Error('installLowBeamShader: three.js spot light loop changed');
+  C.lights_fragment_begin = `${C.lights_fragment_begin.slice(0, at)}if ( directLight.visible ) ${C.lights_fragment_begin.slice(at)}`;
 }
 installLowBeamShader(); // (on import: before any lit material is compiled)
 

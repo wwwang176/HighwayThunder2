@@ -8,7 +8,8 @@ import { HEADLIGHTS } from '../vehicles/headlight';
 import { POST } from '../render/postFx';
 import { PLANNER } from '../ai/planner';
 import { DRIVER_TUNING } from '../ai/plannerDriver';
-import { RIVAL_LIGHTS, RIVAL_TUNING } from '../game/rivals';
+import { RIVAL_TUNING } from '../game/rivals';
+import { RIVAL_LIGHTS } from '../game/rivalLights';
 import { HUD_SHAKE, RESET_HINT } from '../ui/hudMath';
 import { CONTACT_TUNING } from '../game/contact';
 
@@ -122,9 +123,10 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   a.add(PLANNER, 'brakeCost', 0, 10, 0.1).name('不愛煞車（每減 1 m/s 扣 m）');
   a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');
   const rl = gui.addFolder('對手車燈');
-  rl.add(RIVAL_LIGHTS, 'real').name('真的車燈（下一場生效）');
-  rl.add(RIVAL_LIGHTS, 'slots', 0, 8, 2).name('有陰影的燈（名額）');
-  rl.add(RIVAL_LIGHTS, 'range', 0, 100, 5).name('幾 m 內有陰影');
+  rl.add(RIVAL_LIGHTS, 'real').name('真的車燈（關：全部畫在路面）');
+  rl.add(RIVAL_LIGHTS, 'pairRange', 0, 150, 5).name('光照點離鏡頭幾 m 內：兩盞');
+  rl.add(RIVAL_LIGHTS, 'singleRange', 0, 400, 10).name('幾 m 內：一盞（之外畫在路面）');
+  rl.add(RIVAL_LIGHTS, 'shadowRange', 0, 100, 5).name('幾 m 內有陰影');
   rl.add(RIVAL_LIGHTS, 'fade', 1, 50, 1).name('超出後幾 m 淡出');
   rl.add(HEADLIGHTS, 'pair', 0, 1200, 10).name('車燈亮度 cd（玩家與對手；216 ≈ 路人車）');
   const r = gui.addFolder('電腦對手（橡皮筋）');
