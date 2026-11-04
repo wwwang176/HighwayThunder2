@@ -29,19 +29,20 @@ interface Shot {
 
 /**
  * The arrival: every car coming up its own lane at an even speed, braking over the last ARRIVE_BRAKE s to a stop
- * at its place. Each lane its own speed (m/s); each car its own time to stop (s), all after the first shot (still
- * rolling at the cut: they stop once, the player's in the close-up). In a lane the back row's car is as fast and
- * stops later than the one ahead, so it stays behind it, the gap only ever opening.
+ * at its place. Each lane its own speed (m/s); each car its own time to stop (s): all still rolling at the first
+ * cut (1.5 s), the rivals stopping in the second shot (the pack drawing up), the player's in the third (the
+ * close-up). In a lane the back row's car is as fast and stops later than the one ahead, so it stays behind it,
+ * the gap only ever opening.
  */
 const ARRIVE_SPEED = [12, 17] as const;
 const ARRIVE_BRAKE = 1.5;
-const ARRIVE_FRONT_STOP = [3.7, 4.6] as const;
+const ARRIVE_FRONT_STOP = [2.3, 3.0] as const;
 const ARRIVE_BACK_LATER = [0.3, 0.8] as const;
 /**
- * The player's car stops 0.7 s into its wheel's close-up (the second shot, from 3.3 s): its nose already in the
- * picture at the cut, braking, still rolling at the first (later, the close-up began on the bare road).
+ * The player's car stops 0.7 s into its wheel's close-up (the third shot, from 3.0 s): its nose already in the
+ * picture at the cut, braking (later, the close-up began on the bare road).
  */
-const ARRIVE_PLAYER_STOP = 4.0;
+const ARRIVE_PLAYER_STOP = 3.7;
 
 /** Where an arriving car is drawn (m ahead of its place: < 0) `t` s in, at `speed` till it brakes to a stop at `stop` s. */
 function arriving(speed: number, stop: number, t: number): number {
@@ -205,22 +206,29 @@ export class Intro {
     const half = p.wheelbase / 2;
     const track = Math.abs(car.wheels[0].x);
     if (kind === 'arrival') {
-      // Every car coming up its own lane together and drawing up on the grid, seen low from the roadside behind it
-      // (coming by the camera into the picture); then the player's front wheel rolling to a stop; then up behind it.
-      // (Facing the cars' headlights - from ahead of the grid, or turned after them coming - whited it out.)
+      // Every car coming up its own lane: seen low from the roadside behind the grid as they come by; from up on
+      // the right behind them as the pack draws up on the grid; then the player's front wheel rolling to a stop;
+      // then up behind it. (Facing the cars' headlights - from ahead of the grid, or turned after them coming -
+      // whited the picture out.)
       const wheel: [number, number, number] = [-track, r, half];
       return [
         {
-          // (Far enough back that the first cars come by soon: they come from ~50-70 m back.)
-          seconds: 3.3, // (the player's car stopping in the next: ARRIVE_PLAYER_STOP)
-          from: { pos: [-LANE_WIDTH - 2.6, 0.65, -38], look: [-0.5, 0.8, -6], fov: 38 },
-          to: { pos: [-LANE_WIDTH - 2.4, 0.7, -35], look: [-0.5, 0.8, -6], fov: 34 },
+          // (Far enough back that the cars come by in it: they come from ~30-50 m back.)
+          seconds: 1.5,
+          from: { pos: [-LANE_WIDTH - 2.6, 0.65, -30], look: [-0.5, 0.8, -6], fov: 38 },
+          to: { pos: [-LANE_WIDTH - 2.4, 0.7, -28], look: [-0.5, 0.8, -6], fov: 35 },
+          ease: linear, // (still moving at the cut)
+        },
+        {
+          seconds: 1.5,
+          from: { pos: [2 * LANE_WIDTH + 5, 3.4, -15], look: [LANE_WIDTH / 2, 0.4, -2], fov: 40 },
+          to: { pos: [2 * LANE_WIDTH + 4.4, 3.1, -12], look: [LANE_WIDTH / 2, 0.4, -2], fov: 38 },
           ease: linear, // (still moving at the cut)
         },
         {
           // Low beside and behind where its front wheel stops, looking at that: the car's side sweeping in from
           // behind the camera, the wheel rolling into the middle and stopping (from ahead, its headlights glared).
-          seconds: 1.2,
+          seconds: 1.5,
           from: { pos: [wheel[0] - 1.35, 0.3, wheel[2] - 1.3], look: [...wheel], fov: 36 },
           to: { pos: [wheel[0] - 1.2, 0.32, wheel[2] - 1.0], look: [...wheel], fov: 34 },
           ease: linear, // (still moving at the cut)
