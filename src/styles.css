@@ -108,6 +108,8 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 
 /* ══ The race HUD (src/ui/hud.ts): numbers floating on the view, no panels (and no backdrop blur: it would
    re-blur the 3D view every frame). ══ */
+/* The HUD box the screen's size (it shakes with the camera: Hud.update), its parts placed in it. */
+#hud { position: absolute; inset: 0; will-change: transform; }
 #hud > * { position: absolute; }
 #hud .h-time { left: 3.1vw; top: 2.3vw; }
 #hud .h-time .lbl { margin-bottom: 0.42vw; }
@@ -385,7 +387,7 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #ui .intro-hint.on { opacity: 1; transition-delay: 0.8s; }
 /* The HUD coming in as the countdown starts (Hud.update: the intro over). */
 @keyframes hud-in { from { opacity: 0; translate: 0 1.2vh; } to { opacity: 1; translate: 0 0; } } /* (translate: their own transforms stay) */
-#hud.enter > * { animation: hud-in 0.6s ease-out both; }
+#hud.enter > * { animation: hud-in 0.6s ease-out backwards; } /* (backwards: held at its start before it, not at its end after - that held opacity 1 over the R hint's 0) */
 /* A menu panel coming in: up from a little below. */
 @keyframes panel-in { from { opacity: 0; translate: 0 0.6vw; } to { opacity: 1; translate: 0 0; } }
 .menu, .result, #garage .g-back.open .g-modal { animation: panel-in 0.25s ease-out both; }
