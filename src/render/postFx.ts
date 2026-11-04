@@ -18,6 +18,8 @@ export const POST = {
   radius: 0,
   // Only the lights themselves (flames, sparks, lamp heads) glow: at 1 the start's floodlit cars and road hazed over.
   threshold: 2.05,
+  /** The bloom's own pictures, times the screen's (three's: from half of that down). */
+  bloomScale: 0.5,
 };
 
 /**
@@ -31,6 +33,8 @@ export class PostFx {
   private readonly fxaa = new ToneMapFxaaPass(); // (tone maps too: the OutputPass off with it)
   private readonly smaa = new SMAAPass();
   private samples = 0;
+  private bloomScale = 1;
+  private readonly size = new THREE.Vector2();
   /** Drawn after the bloom, so never glowing (its fog the scene's). */
   readonly unbloomed = new THREE.Scene();
 
@@ -57,6 +61,8 @@ export class PostFx {
   setSize(w: number, h: number): void {
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(w, h);
+    this.size.set(w, h).multiplyScalar(this.renderer.getPixelRatio());
+    this.bloomScale = 1; // (the composer just sized it to the screen)
   }
 
   render(): void {
@@ -67,6 +73,10 @@ export class PostFx {
         t.samples = samples;
         t.dispose(); // (made again, so, at the next render)
       }
+    }
+    if (POST.bloomScale !== this.bloomScale) {
+      this.bloomScale = POST.bloomScale;
+      this.bloom.setSize(Math.round(this.size.x * this.bloomScale), Math.round(this.size.y * this.bloomScale));
     }
     this.unbloomed.fog = this.scene.fog;
     this.fxaa.enabled = POST.antialias === 'fxaa';
