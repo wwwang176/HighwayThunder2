@@ -110,6 +110,22 @@ describe('GameFlow', () => {
     expect(g.canReset()).toBe(true);
   });
 
+  it('keeps the race top speed: only while racing, from zero each race', () => {
+    const g = new GameFlow(memStorage());
+    startRace(g);
+    g.noteSpeed(120); // (the countdown: not yet)
+    expect(g.topSpeed).toBe(0);
+    runTo(g, 3.05);
+    g.noteSpeed(180);
+    g.noteSpeed(150);
+    expect(g.topSpeed).toBe(180);
+    runTo(g, 1, ROAD_LENGTH); // finished
+    g.noteSpeed(250);
+    expect(g.topSpeed).toBe(180);
+    g.start();
+    expect(g.topSpeed).toBe(0);
+  });
+
   it('formatTime', () => {
     expect(formatTime(0)).toBe('0:00.000');
     expect(formatTime(83.4567)).toBe('1:23.456');

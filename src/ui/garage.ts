@@ -20,6 +20,9 @@ const UI = `${import.meta.env.BASE_URL}ui/`;
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const icon = (name: string, cls = '') => `<span class="icon ${cls}" style="--src:url(${UI}${name}.png)"></span>`;
 const card = (id: string) => CAR_CARDS.find((c) => c.id === id) ?? CAR_CARDS[0];
+/** A call to action's inside (docs/ui-design.md .cta): its offset outline, its fill, the words, Enter, the chevrons. */
+const CTA = (text: string) =>
+  `<span class="ghost"></span><span class="fill"></span><span class="txt">${text}<kbd>Enter</kbd><span class="chev"><b>›</b><b>›</b><b>›</b></span></span>`;
 const WEATHERS: [Weather, string, string][] = [
   ['clear', 'icon-night-clear', '晴夜'],
   ['rain', 'icon-night-rain', '雨夜'],
@@ -65,37 +68,46 @@ export class Garage {
       <div class="g-vignette"></div>
       <div class="g-title-shade"></div>
       <div class="g-title">
-        <div class="g-title-name">${icon('emblem')}<h1>HIGHWAY<br>THUNDER 2</h1></div>
-        <button class="g-start">開始遊戲</button>
+        <div class="g-title-name">${icon('emblem')}<h1>HIGHWAY<br>THUNDER 2</h1><div class="rule"></div></div>
+        <button class="cta g-start">${CTA('開始遊戲')}</button>
       </div>
-      <div class="g-brand">${icon('emblem')}<div class="g-name">HIGHWAY THUNDER 2</div></div>
-      <button class="g-keys" data-tip="操作說明" data-tip-place="left">${icon('icon-keys')}</button>
-      <div class="g-classes"></div>
-      <div class="g-spec"></div>
-      <div class="g-bottom">
-        <button class="g-race" data-tip="修改比賽設定"></button>
-        <button class="g-go">開始比賽</button>
+      <div class="g-brand">${icon('emblem')}<div class="g-name">HIGHWAY THUNDER 2</div><div class="rule"></div></div>
+      <button class="g-keys panel cut" data-tip="操作說明" data-tip-place="left">${icon('icon-keys')}</button>
+      <div class="g-left">
+        <div class="g-head"><span class="lbl">Select class</span><span><kbd>↑</kbd><kbd>↓</kbd></span></div>
+        <div class="g-classes"></div>
+        <div class="g-head"><span class="lbl">Paint</span><span><kbd>←</kbd><kbd>→</kbd></span></div>
+        <div class="g-paints"></div>
+      </div>
+      <div class="g-spec-wrap bracketed"><span class="brk tr"></span><span class="brk bl"></span><div class="g-spec panel cut"></div></div>
+      <div class="g-depart">
+        <button class="g-race panel cut" data-tip="修改比賽設定" data-tip-place="left"></button>
+        <button class="cta g-go">${CTA('開始比賽')}</button>
       </div>
       <div class="g-back" data-pop="race">
-        <div class="g-modal" role="dialog" aria-modal="true" aria-label="比賽設定">
-          <button class="g-close" data-tip="關閉" data-tip-place="left">✕</button>
+        <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-modal panel cut" role="dialog" aria-modal="true" aria-label="比賽設定">
+          <button class="g-close cut" data-tip="關閉" data-tip-place="left">✕</button>
+          <div class="lbl dash">Race setup</div>
           <div class="g-row">${icon('icon-rivals')}<div class="g-rival-row">
             <div class="g-tools">
-              <button class="g-tool" data-act="random" data-tip="對手全部隨機">${icon('icon-random')}</button>
-              <button class="g-tool" data-act="same" data-tip="對手全部和我同車種" data-tip-place="bottom">${icon('icon-same')}</button>
+              <button class="g-tool cut" data-act="random" data-tip="對手全部隨機">${icon('icon-random')}</button>
+              <button class="g-tool cut" data-act="same" data-tip="對手全部和我同車種" data-tip-place="bottom">${icon('icon-same')}</button>
             </div>
             <div class="g-slots"></div>
           </div></div>
           <div class="g-row">${icon('icon-difficulty')}<div class="g-seg" data-seg="difficulty"></div></div>
           <div class="g-row">${icon('icon-night-clear')}<div class="g-seg" data-seg="weather"></div></div>
-          <button class="g-done">完成</button>
-        </div>
+          <button class="g-done"><span>完成</span></button>
+        </div></div>
       </div>
       <div class="g-back" data-pop="keys">
-        <div class="g-modal g-keys-list" role="dialog" aria-modal="true" aria-label="操作說明">
-          <button class="g-close" data-tip="關閉" data-tip-place="left">✕</button>
+        <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-modal g-keys-list panel cut" role="dialog" aria-modal="true" aria-label="操作說明">
+          <button class="g-close cut" data-tip="關閉" data-tip-place="left">✕</button>
+          <div class="lbl dash">Controls</div>
           ${KEYS.map(([k, what]) => `<div class="g-key"><kbd>${k}</kbd><span>${what}</span></div>`).join('')}
-        </div>
+        </div></div>
       </div>`;
     root.appendChild(this.el);
     this.backdrop = this.el;
@@ -225,41 +237,49 @@ export class Garage {
     const s = this.sel;
     const me = card(s.player);
     this.backdrop.style.setProperty('--accent', me.accent);
+    // Left, what to change: the car types (numbered, the picked one filled), its paint jobs (a slanted swatch each).
     this.q('.g-classes').innerHTML = CAR_CARDS.map(
-      (c) => `<button class="g-cls ${c.id === s.player ? 'sel' : ''}" data-id="${c.id}">${icon(c.icon, 'car')}<span class="t">${c.name}</span></button>`,
+      (c, i) =>
+        `<button class="opt g-cls ${c.id === s.player ? 'sel' : ''}" data-id="${c.id}"><span class="no">${String(i + 1).padStart(2, '0')}</span>` +
+        `${icon(c.icon, 'car')}<span>${c.name}</span></button>`,
     ).join('');
     this.el.querySelectorAll<HTMLElement>('.g-cls').forEach((b) => (b.onclick = () => this.pick(b.dataset.id!)));
-    // Under its name, its paint jobs: a swatch each (the stripes across a corner), the picked one ringed.
     const picked = this.paintOf(s.player);
     const swatch = (j: PaintJob) =>
       `<button class="g-paint ${j.name === picked ? 'sel' : ''}" data-paint="${j.name}" ` +
       `style="--p:${j.paint};--s:${j.stripe ?? j.paint}"></button>`;
-    this.q('.g-spec').innerHTML =
-      `<h1>${me.name}</h1>` +
-      `<div class="g-paints">${paintJobs(CARS[s.player].style).map(swatch).join('')}</div>` +
-      me.stats
-        .map((st) => `<div class="g-stat"><span data-tip="${st.tip}" data-tip-place="left" tabindex="0">${icon(st.icon)}</span><span class="v">${st.value}</span><div class="bar"><i style="width:${st.bar * 100}%"></i></div></div>`)
-        .join('');
+    this.q('.g-paints').innerHTML = paintJobs(CARS[s.player].style).map(swatch).join('');
     this.el.querySelectorAll<HTMLElement>('.g-paint').forEach((b) => (b.onclick = () => this.paint(b.dataset.paint!)));
+    // Right, what to read: its type and place in the list, its name big, its stats on segmented bars.
+    const seg = (bar: number) => `<div class="seg">${Array.from({ length: 20 }, (_, i) => `<i class="${i < Math.round(bar * 20) ? 'on' : ''}"></i>`).join('')}</div>`;
+    const at = CAR_CARDS.indexOf(me) + 1;
+    this.q('.g-spec').innerHTML =
+      `<div class="head"><span class="lbl">${me.tag}</span><span class="lbl pos">${String(at).padStart(2, '0')} / ${String(CAR_CARDS.length).padStart(2, '0')}</span></div>` +
+      `<h1>${me.name}</h1><div class="bar-top"></div>` +
+      me.stats
+        .map(
+          (st) =>
+            `<div class="g-stat"><span data-tip="${st.tip}" data-tip-place="left" tabindex="0">${icon(st.icon)}</span><div>` +
+            `<div class="row"><span class="lbl">${st.label}</span><span class="v num">${st.value}<small>${st.unit}</small></span></div>${seg(st.bar)}</div></div>`,
+        )
+        .join('');
     // The race at a glance: the rivals by car type (silhouette x how many), difficulty, weather.
     const lineUp = PICKABLE.filter((id) => s.rivals.includes(id))
       .map((id) => `<span class="count" data-tip="${CARS[id].name}">${icon(card(id).icon, 'mini')}×${s.rivals.filter((r) => r === id).length}</span>`)
       .join('');
     const w = WEATHERS.find(([k]) => k === s.weather)!;
     this.q('.g-race').innerHTML = html`
-      <span class="item ${lineUp ? '' : 'none'}">${icon('icon-rivals')}${lineUp || '<span class="count">×0</span>'}</span>
-      <span class="sep"></span>
-      <span class="item">${icon('icon-difficulty')}${DIFFICULTIES[s.difficulty].name}</span>
-      <span class="sep"></span>
-      <span class="item">${icon(w[1])}${w[2]}</span>
-      <span class="edit">✎</span>`;
+      <div class="head"><span class="lbl">Race setup</span><span class="lbl edit">Edit ▸</span></div>
+      <div class="row ${lineUp ? '' : 'none'}">${icon('icon-rivals')}<span class="lbl">Rivals</span><span class="val">${lineUp || '<span class="count">×0</span>'}</span></div>
+      <div class="row">${icon('icon-difficulty')}<span class="lbl">Difficulty</span><span class="val">${DIFFICULTIES[s.difficulty].name}</span></div>
+      <div class="row">${icon(w[1])}<span class="lbl">Weather</span><span class="val">${w[2]}</span></div>`;
     // The race pop-up: rivals from the left (number and colour by place), one + while there is room.
     this.q('.g-slots').innerHTML =
       s.rivals
         .map(
           (id, i) =>
-            `<div class="g-slot" style="--c:${hex(this.rivalColors[i % this.rivalColors.length])}"><span class="no">${i + 1}</span>` +
-            `<button class="remove" data-i="${i}" data-tip="移除對手">✕</button><button class="arrow" data-i="${i}" data-d="-1">◀</button>` +
+            `<div class="g-slot cut" style="--c-slot:${hex(this.rivalColors[i % this.rivalColors.length])}"><span class="no">${i + 1}</span>` +
+            `<button class="remove cut" data-i="${i}" data-tip="移除對手">✕</button><button class="arrow" data-i="${i}" data-d="-1">◀</button>` +
             `<div class="mid">${icon(card(id).icon, 'car')}<div class="name">${CARS[id].name}</div></div><button class="arrow" data-i="${i}" data-d="1">▶</button></div>`,
         )
         .join('') + (s.rivals.length < MAX_RIVALS ? `<button class="g-slot empty" data-tip="加入對手">＋</button>` : '');
@@ -275,11 +295,11 @@ export class Garage {
     );
     this.el.querySelectorAll<HTMLElement>('.g-slot .remove').forEach((b) => (b.onclick = () => this.change(removeRival(s, Number(b.dataset.i)))));
     this.el.querySelectorAll<HTMLElement>('.g-slot.empty').forEach((b) => (b.onclick = () => this.change(addRival(s))));
-    this.q('[data-seg="difficulty"]').innerHTML = DIFFICULTIES.map((d, i) => `<button class="${i === s.difficulty ? 'sel' : ''}" data-i="${i}">${d.name}</button>`).join('');
+    this.q('[data-seg="difficulty"]').innerHTML = DIFFICULTIES.map((d, i) => `<button class="${i === s.difficulty ? 'sel' : ''}" data-i="${i}"><span>${d.name}</span></button>`).join('');
     this.el.querySelectorAll<HTMLElement>('[data-seg="difficulty"] button').forEach((b) => (b.onclick = () => this.change({ ...s, difficulty: Number(b.dataset.i) })));
     // Only the clear night for now. aria-disabled, not disabled: a disabled button gets no mouse events, so its tip would never show.
     this.q('[data-seg="weather"]').innerHTML = WEATHERS.map(
-      ([k, ic, name]) => `<button class="${k === s.weather ? 'sel' : ''}" ${k === 'clear' ? '' : 'aria-disabled="true" data-tip="即將推出"'}>${icon(ic)}${name}</button>`,
+      ([k, ic, name]) => `<button class="${k === s.weather ? 'sel' : ''}" ${k === 'clear' ? '' : 'aria-disabled="true" data-tip="即將推出"'}>${icon(ic)}<span>${name}</span></button>`,
     ).join('');
   }
 }

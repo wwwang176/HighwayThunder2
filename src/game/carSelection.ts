@@ -33,21 +33,24 @@ export interface CarCard {
   accent: string;
   /** Silhouette icon (public/ui/<icon>.png). */
   icon: string;
-  stats: { icon: string; tip: string; value: string; bar: number }[];
+  /** Its type in English: the garage's small caps over its name. */
+  tag: string;
+  /** A stat: its small-caps label, the number and its unit apart (the number big). */
+  stats: { icon: string; tip: string; label: string; value: string; unit: string; bar: number }[];
   pickable: boolean;
 }
 
 const stats = (accel: string, a: number, top: string, t: number, grip: string, g: number) => [
-  { icon: 'icon-accel', tip: '加速（0–100 km/h）', value: accel, bar: a },
-  { icon: 'icon-topspeed', tip: '極速', value: top, bar: t },
-  { icon: 'icon-handling', tip: '過彎抓地力', value: grip, bar: g },
+  { icon: 'icon-accel', tip: '加速（0–100 km/h）', label: '0–100', value: accel, unit: '秒', bar: a },
+  { icon: 'icon-topspeed', tip: '極速', label: 'Top speed', value: top, unit: 'km/h', bar: t },
+  { icon: 'icon-handling', tip: '過彎抓地力', label: 'Grip', value: grip, unit: 'g', bar: g },
 ];
 
 // training/cornering.train.ts (launch, cornering at 200 km/h).
 export const CAR_CARDS: CarCard[] = [
-  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', stats: stats('0–100 3.6 秒', 1, '300 km/h', 1, '2.0 g', 0.75), pickable: true },
-  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', stats: stats('0–100 4.1 秒', 0.9, '259 km/h', 0.75, '1.4 g', 0.45), pickable: true },
-  { id: JDM_CAR.id, name: JDM_CAR.name, accent: '#2f9bff', icon: 'icon-jdm', stats: stats('0–100 4.0 秒', 0.75, '245 km/h', 0.6, '2.4 g', 1), pickable: true },
+  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', tag: 'Supercar', stats: stats('3.6', 1, '300', 1, '2.0', 0.75), pickable: true },
+  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', tag: 'Muscle car', stats: stats('4.1', 0.9, '259', 0.75, '1.4', 0.45), pickable: true },
+  { id: JDM_CAR.id, name: JDM_CAR.name, accent: '#2f9bff', icon: 'icon-jdm', tag: 'Tuner', stats: stats('4.0', 0.75, '245', 0.6, '2.4', 1), pickable: true },
 ];
 
 /** Everyone on the supercar, five rivals, normal, a clear night (the game as it was). */

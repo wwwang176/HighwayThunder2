@@ -173,7 +173,7 @@ export class Game {
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
-    this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
+    this.stats.dom.style.cssText = 'position:fixed;left:3.1vw;top:8.4vw;z-index:20;opacity:0.85;cursor:pointer'; // (under the HUD's time)
     document.body.appendChild(this.stats.dom);
     this.hud = new Hud(uiRoot, this.flow, {
       onAgain: () => this.startRace(this.cars),
@@ -837,11 +837,15 @@ export class Game {
     const rev = this.player.showRev;
     this.sound.setEngine(this.player.shownRpm, rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
+    const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
+    this.flow.noteSpeed(speedKmh);
+    const q = this.player.body.rotation();
     this.hud.update(play, {
-      speedKmh: Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6,
+      speedKmh,
       reverse: this.player.driveMode === 'R',
       playerS: this.player.s,
       resetCooldown: this.flow.resetCooldown,
+      upY: 1 - 2 * (q.x * q.x + q.z * q.z), // (the car's up axis, its world y)
       muted: this.sound.muted,
       gear: this.player.gearbox.gear,
       rpm: this.player.rpm,

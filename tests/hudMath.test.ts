@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { closestBehind, overtook, progress } from '../src/ui/hudMath';
+import { closestBehind, overtook, progress, RESET_HINT, ResetHint } from '../src/ui/hudMath';
 
 describe('hudMath', () => {
   it('the rival closest behind within range, with its colour and the side it comes up on', () => {
@@ -27,5 +27,36 @@ describe('hudMath', () => {
     expect(overtook(2, 3)).toBe(false);
     expect(overtook(2, 2)).toBe(false);
     expect(overtook(null, 1)).toBe(false);
+  });
+});
+
+describe('ResetHint', () => {
+  const step = (h: ResetHint, seconds: number, kmh: number, upY: number) => {
+    let on = false;
+    for (let t = 0; t < seconds - 1e-9; t += 0.1) on = h.update(0.1, kmh, upY);
+    return on;
+  };
+
+  it('shows once the car has been all but stopped for the set time', () => {
+    const h = new ResetHint();
+    expect(step(h, RESET_HINT.stoppedSeconds - 0.2, 2, 1)).toBe(false);
+    expect(step(h, 0.4, 2, 1)).toBe(true);
+  });
+
+  it('shows once the car has been on its side or roof for the set time, moving or not', () => {
+    const h = new ResetHint();
+    expect(step(h, RESET_HINT.flippedSeconds - 0.2, 40, 0.2)).toBe(false);
+    expect(step(h, 0.4, 40, 0.2)).toBe(true);
+  });
+
+  it('goes as soon as the car drives on upright, and the timers start over', () => {
+    const h = new ResetHint();
+    expect(step(h, RESET_HINT.stoppedSeconds + 0.5, 0, 1)).toBe(true);
+    expect(h.update(0.1, 30, 1)).toBe(false);
+    expect(step(h, RESET_HINT.stoppedSeconds - 0.2, 0, 1)).toBe(false);
+  });
+
+  it('never shows while driving upright', () => {
+    expect(step(new ResetHint(), 20, 80, 0.98)).toBe(false);
   });
 });
