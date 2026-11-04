@@ -48,7 +48,7 @@ export const HEADLIGHTS = { pair: 216, high: 2 };
 // (`high`: the high beam's brightness, times the low beam's.)
 
 /**
- * The high beam (the player's, X): a plain spot light, aimed level - no low-beam cut-off (its decay out of the
+ * The high beam (the player's, while X is held): a plain spot light, aimed level - no low-beam cut-off (its decay out of the
  * lit shaders' headlight range: installLowBeamShader leaves it round). Told apart by decay alone (a uniform): the
  * switch recompiles nothing.
  */

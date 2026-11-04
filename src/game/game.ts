@@ -297,7 +297,6 @@ export class Game {
     k.onPress('KeyR', () => !g.isOpen && this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
     k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
-    k.onPress('KeyX', () => !g.isOpen && this.player.setHighBeam(!this.player.highBeam)); // (the high beam)
     k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
   }
@@ -345,7 +344,6 @@ export class Game {
       this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
       this.resetWorld();
       this.flow.start(); // (the intro's phase: the cars held on the grid - after a race the rivals would drive off)
-      this.player.setHighBeam(false); // (every race starts on the low beam)
       // The cars settled on their springs, unseen (put on the grid a little high, they bounced ~5 cm in the
       // intro's first shot).
       this.simulate(SETTLE_SECONDS, undefined, false);
@@ -740,7 +738,10 @@ export class Game {
    * painted on the road.
    */
   private lightRivals(): LitCar[] {
-    for (const l of this.player.headlights) l.intensity = (HEADLIGHTS.pair / 2) * (this.player.highBeam ? HEADLIGHTS.high : 1);
+    // The high beam while X is held (in the race: not in the garage).
+    const high = !this.garage.isOpen && this.keyboard.isDown('KeyX');
+    if (high !== this.player.highBeam) this.player.setHighBeam(high);
+    for (const l of this.player.headlights) l.intensity = (HEADLIGHTS.pair / 2) * (high ? HEADLIGHTS.high : 1);
     const cars = this.rivals.list.map((r) => ({ mesh: r.car.mesh, width: r.car.width, length: r.car.length }));
     const { painted, shadows } = this.rivalLights.assign(cars, this.camera);
     this.rivalShadows = shadows;

@@ -486,7 +486,7 @@ export class PlayerCar {
     for (const v of this.visuals) if (v.file) bodies.add(v.file.key, v.file.wheel, v.file.wheel.matrixWorld, NO_LIGHTS);
   }
 
-  /** The high beam on (X): its lamps plain spots aimed level, brighter (HEADLIGHTS.high: the game sets their brightness). */
+  /** The high beam on (X held: the game sets it each frame): its lamps plain spots aimed level, brighter (HEADLIGHTS.high: the game sets their brightness). */
   highBeam = false;
 
   /** The low beam (aimed a little down, its cut-off) or the high beam (level, no cut-off). */
