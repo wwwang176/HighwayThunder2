@@ -205,10 +205,11 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-name { font: italic 900 1.67vw/1 "Segoe UI", system-ui, sans-serif; letter-spacing: 0.16vw; }
 #garage .g-brand .rule { position: absolute; left: 3.75vw; top: 3.44vw; width: 27vw; height: 2px; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 40%, transparent) 60%, transparent); }
 #garage .g-brand .rule::after { content: ""; position: absolute; left: 0; top: 0; width: 4.7vw; height: 0.42vw; background: var(--accent); clip-path: polygon(0 0, 100% 0, calc(100% - 0.31vw) 100%, 0 100%); }
-/* The controls: its key and its name floating, as the HUD's R (no box). */
-#garage .g-keys { position: absolute; right: 3.1vw; top: 2.9vw; display: flex; align-items: center; gap: 0.42vw; }
-#garage .g-keys span { font: 600 0.73vw/1 var(--f-title); color: rgba(255, 255, 255, 0.7); transition: color 0.15s; }
-#garage .g-keys:hover span, #garage .g-keys:focus-visible span { color: #fff; }
+/* Top right, the controls and the settings: each its key and its name floating, as the HUD's R (no box). */
+#garage .g-corner { position: absolute; right: 3.1vw; top: 2.9vw; display: flex; align-items: center; gap: 1.25vw; }
+#garage .g-corner button { display: flex; align-items: center; gap: 0.42vw; }
+#garage .g-corner span { font: 600 0.73vw/1 var(--f-title); color: rgba(255, 255, 255, 0.7); transition: color 0.15s; }
+#garage .g-corner button:hover span, #garage .g-corner button:focus-visible span { color: #fff; }
 /* The screen's sides a little darker, so the floating type holds over the lights. */
 #garage .g-vignette::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(0,0,0,0.45), transparent 22%, transparent 78%, rgba(0,0,0,0.45)); }
 /* Top centre: the car's type and place in the list, its name, its stats, on a dark pool (not a panel). */
@@ -234,7 +235,8 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-classes { display: flex; flex-direction: column; gap: 0.5vw; }
 #garage .g-cls { height: 3.3vw; gap: 0.5vw; padding: 0 0.9vw; background: rgba(8, 12, 22, 0.62); font-size: 0.94vw; color: var(--text-2); }
 #garage .g-cls .no { width: 1.2vw; }
-#garage .g-cls .icon.car { width: 4.2vw; height: 1.9vw; color: #8693ab; }
+#garage .g-cls .icon.car { width: 3.9vw; height: 1.9vw; color: #8693ab; }
+#garage .g-cls { letter-spacing: 0.02vw; padding-right: 1.5vw; white-space: nowrap; } /* (the English names are longer: clear of the picked one's bar) */
 #garage .g-cls.sel { background: var(--accent); }
 #garage .g-cls.sel .icon.car { color: #fff; }
 #garage .g-cls.sel::after { top: 0.6vw; bottom: 0.6vw; right: 0.5vw; }
@@ -306,7 +308,7 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-head .aside .num { display: inline-flex; align-items: center; gap: 0.15vw; }
 #garage .s-head .icon.mini { width: 2vw; height: 1vw; }
 #garage .s-sub { position: relative; display: flex; align-items: center; gap: 0.83vw; margin-bottom: 0.73vw; }
-#garage .s-sub > .lbl { width: 3.4vw; }
+#garage .s-sub > .lbl { min-width: 3.4vw; }
 /* The small parallelogram button; picked: filled. */
 #garage .s-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.52vw; height: 2.6vw; padding: 0 0.83vw; box-sizing: border-box;
   transform: skewX(-12deg); background: rgba(255, 255, 255, 0.05); border-left: 0.21vw solid rgba(255, 255, 255, 0.18);
@@ -318,18 +320,18 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-btn.sel::after { content: ""; position: absolute; right: 0.42vw; top: 0.52vw; bottom: 0.52vw; width: 0.21vw; background: #fff; }
 #garage .s-count { display: flex; gap: 0.42vw; }
 #garage .s-count .s-btn { width: 3vw; padding: 0; font: 700 1.25vw/1 var(--f-num); }
-#garage .s-count .s-btn.sel::after, #garage .s-chip.sel::after, #garage .s-modes .s-btn.sel::after { display: none; }
+#garage .s-count .s-btn.sel::after, #garage .s-chip.sel::after, #garage .s-modes .s-btn.sel::after, #garage .s-weather .s-btn.sel::after { display: none; }
 /* How the rivals' cars are picked; at random or all the player's, a line saying what that means instead of the list. */
-#garage .s-modes { display: flex; gap: 0.42vw; }
-#garage .s-modes .s-btn { padding: 0 0.6vw; font-size: 0.88vw; }
+#garage .s-modes { display: flex; flex: 1; min-width: 0; gap: 0.42vw; }
+#garage .s-modes .s-btn { flex: 1 1 auto; min-width: 0; padding: 0 0.5vw; font-size: 0.85vw; } /* (they give way to the row's "?", the English names being longer) */
 #garage .count .icon.dice { width: 1.1vw; height: 1.1vw; margin-right: 0.3vw; }
 #garage .s-head .count { display: inline-flex; align-items: center; gap: 0.15vw; font: 600 0.78vw/1 var(--f-num); }
 #garage .s-head .count + .count { margin-left: 0.4vw; }
 /* The rivals: one row each (its place's colour on its badge), one column per car type (named once on top; YOU over the player's). */
 #garage .mx-head, #garage .s-rival { display: grid; grid-template-columns: 2.5vw repeat(3, 1fr) 3.6vw; gap: 0.52vw; align-items: center; }
-#garage .mx-head { padding: 0 0.42vw 0.42vw; align-items: end; }
-#garage .mx-head > div { display: flex; justify-content: center; align-items: center; gap: 0.3vw; font: 700 0.83vw/1 var(--f-title); color: var(--text-2); }
-#garage .mx-head .you { --c: 0.21vw; padding: 0.21vw 0.36vw; background: var(--accent); color: #fff; font: 700 0.6vw/1 var(--f-num); letter-spacing: 0.1vw; }
+#garage .mx-head { padding: 1vw 0.42vw 0.42vw; align-items: end; }
+#garage .mx-head > div { position: relative; display: flex; justify-content: center; align-items: center; font: 700 0.83vw/1 var(--f-title); color: var(--text-2); white-space: nowrap; }
+#garage .mx-head .you { position: absolute; left: 50%; bottom: 100%; translate: -50% -0.3vw; --c: 0.21vw; padding: 0.21vw 0.36vw; background: var(--accent); color: #fff; font: 700 0.6vw/1 var(--f-num); letter-spacing: 0.1vw; } /* (over the name: a name of any length stays on one line) */
 #garage .s-rival { position: relative; padding: 0.21vw 0.42vw; }
 #garage .s-badge { height: 2.2vw; display: grid; place-items: center; --c: 0.42vw; background: var(--c-slot); color: #0a0e18; font: 700 1.04vw/1 var(--f-num); }
 #garage .s-chip { height: 2.2vw; }
@@ -355,6 +357,17 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .compact .s-rival { padding: 0.1vw 0.42vw; }
 #garage .compact .s-chip, #garage .compact .s-badge { height: 1.8vw; }
 #garage .compact .s-go { height: 3.3vw; margin-top: 0.8vw; }
+/* The settings pop-up: nothing in it counts till OK; its language shown in itself at once (Garage.drawSettings). */
+#garage .g-settings { width: 30vw; }
+#garage .g-settings h2 { margin: 0.4vw 0 1.4vw; font: italic 900 2.3vw/1 var(--f-title); letter-spacing: 0.21vw; }
+#garage .g-settings .s-sub { padding: 0.31vw 0.42vw; margin-bottom: 0; }
+#garage .g-settings .s-sub > .lbl { width: 4.6vw; }
+#garage .g-settings .keys { margin-left: auto; display: inline-flex; }
+#garage .s-langs { display: flex; gap: 0.42vw; }
+#garage .s-langs .s-btn { min-width: 6.3vw; }
+#garage .s-langs .s-btn.sel::after { display: none; }
+#garage .g-settings .btns { display: flex; gap: 1.15vw; margin-top: 2.1vw; }
+#garage .g-settings .btns .opt { flex: 1; height: 3.1vw; font-size: 1.15vw; }
 /* The controls pop-up. */
 #garage .g-keys-list { width: 30vw; display: grid; grid-template-columns: 1fr; gap: 1.2vh; }
 #garage .g-key { display: grid; grid-template-columns: 11vw 1fr; align-items: center; font-size: 1vw; color: #cfd8e8; }
@@ -380,11 +393,11 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 /* The title (src/ui/garage.ts, #garage.title): the game's name and its start on the left, the car on the right
    (garageScene's picture shifted), none of the garage's controls; entering, the car slides to the middle and the
    controls come in after it. */
-#garage .g-brand, #garage .g-keys, #garage .g-id, #garage .g-left, #garage .g-paint, #garage .g-depart { transition: opacity 0.5s ease 0.45s; }
-#garage.title .g-brand, #garage.title .g-keys, #garage.title .g-id, #garage.title .g-left, #garage.title .g-paint, #garage.title .g-depart {
+#garage .g-brand, #garage .g-corner, #garage .g-id, #garage .g-left, #garage .g-paint, #garage .g-depart { transition: opacity 0.5s ease 0.45s; }
+#garage.title .g-brand, #garage.title .g-corner, #garage.title .g-id, #garage.title .g-left, #garage.title .g-paint, #garage.title .g-depart {
   opacity: 0; pointer-events: none; transition: none; }
 /* The race setup open: the garage's own type out of its way (the brand stays), back once it closes. */
-#garage.setup .g-keys, #garage.setup .g-id, #garage.setup .g-left, #garage.setup .g-paint, #garage.setup .g-depart {
+#garage.setup .g-corner, #garage.setup .g-id, #garage.setup .g-left, #garage.setup .g-paint, #garage.setup .g-depart {
   opacity: 0; pointer-events: none; transition: opacity 0.25s; }
 #garage .g-title-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.6s;
   background: linear-gradient(90deg, rgba(2, 4, 10, 0.85), rgba(2, 4, 10, 0.55) 35%, transparent 55%); }

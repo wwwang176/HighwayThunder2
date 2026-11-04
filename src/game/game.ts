@@ -36,6 +36,7 @@ import { CAR_CARDS, CarSelection, defaultSelection, loadSelection, MAX_RIVALS, r
 import { applyDifficulty } from './difficulty';
 import { Garage } from '../ui/garage';
 import { IntroOverlay } from '../ui/introOverlay';
+import { loadSettings, setLang, t } from '../ui/i18n';
 import { Intro, nextIntro, type IntroBag } from './intro';
 
 /** A car type by id (the supercar for an id no longer known). */
@@ -177,6 +178,7 @@ export class Game {
     this.sparks = new Sparks(this.scene);
     this.stats.dom.style.cssText = 'position:fixed;left:3.1vw;top:8.4vw;z-index:20;opacity:0.85;cursor:pointer'; // (under the HUD's time)
     document.body.appendChild(this.stats.dom);
+    setLang(loadSettings(localStorage, navigator.language).lang); // (the screens below are built in it)
     this.hud = new Hud(uiRoot, this.flow, {
       onAgain: () => this.startRace(this.cars),
       onResume: () => this.togglePause(),
@@ -241,13 +243,15 @@ export class Game {
     const k = this.keyboard;
     const g = this.garage;
     // Every screen works from the keyboard alone (docs/ui-design.md). Enter: at the title, into the garage; in the
-    // garage (the race setup open or not), into the race (not while the controls pop-up is open); on the pause and
-    // the finish, the option under the menu's cursor. A button the Tab key is on takes the Enter itself.
+    // garage (the race setup open or not), into the race (not while the controls pop-up is open; the settings
+    // open, their OK); on the pause and the finish, the option under the menu's cursor. A button the Tab key is on
+    // takes the Enter itself.
     const menu = () => !g.isOpen && (this.flow.phase === 'paused' || this.flow.phase === 'finished');
     const enter = () => {
       if (document.activeElement instanceof HTMLButtonElement) return;
       if (g.isOpen) {
         if (g.keysOpen) return;
+        if (g.settingsOpen) return g.confirmSettings();
         if (g.onTitle) g.enter();
         else g.start();
       } else if (menu()) this.hud.menuPick();
@@ -260,17 +264,20 @@ export class Game {
       if (this.flow.phase === 'finished') return this.toTitle();
       this.togglePause();
     });
-    // ↑ ↓ the car, ← → its paint, E the race setup, H the controls: in the garage (not at the title: its picks are
-    // not shown there). The setup open, the arrows walk its rows and change them, 0-5 set how many rivals. On the
-    // pause and the finish, the arrows move the menu's cursor.
+    // ↑ ↓ the car, ← → its paint, E the race setup, H the controls, O the settings: in the garage (not at the title:
+    // its picks are not shown there). The setup open, the arrows walk its rows and change them, 0-5 set how many
+    // rivals; the settings open, ← → their language. On the pause and the finish, the arrows move the menu's cursor.
     const picking = () => g.isOpen && !g.popOpen && !g.onTitle;
     const setup = () => g.isOpen && g.setupOpen;
     const arrow = (dy: number, dx: number) => {
+      if (g.isOpen && g.settingsOpen) return dx && g.settingsAdjust(dx);
       if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
       if (picking()) return dy ? g.step(dy) : g.stepPaint(dx);
       if (menu()) this.hud.menuMove(dy || dx);
     };
-    k.onPress('KeyH', () => g.isOpen && !g.onTitle && !g.setupOpen && g.toggleKeys());
+    const corner = () => g.isOpen && !g.onTitle && !g.setupOpen;
+    k.onPress('KeyH', () => corner() && !g.settingsOpen && g.toggleKeys());
+    k.onPress('KeyO', () => corner() && !g.keysOpen && g.toggleSettings());
     k.onPress('ArrowUp', () => arrow(-1, 0));
     k.onPress('ArrowDown', () => arrow(1, 0));
     k.onPress('ArrowLeft', () => arrow(0, -1));
@@ -560,7 +567,7 @@ export class Game {
   /** Hand the car to the trained AI, or take it back. */
   toggleAi(): void {
     if (!this.aiDriver) {
-      this.hud.message('沒有可用的 AI 駕駛（請先在 lab/train.html 訓練並存檔）');
+      this.hud.message(t('toast.noAi'));
       return;
     }
     this.aiActive = !this.aiActive;

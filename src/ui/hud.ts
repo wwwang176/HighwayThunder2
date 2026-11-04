@@ -1,6 +1,7 @@
 import { formatTime, GameFlow } from '../game/gameState';
 import { ROAD_LENGTH } from '../config';
 import { closestBehind, overtook, progress, ResetHint } from './hudMath';
+import { applyLang, onLangChange, t, tx } from './i18n';
 
 export interface HudHandlers {
   /** After the finish: the same race again. */
@@ -152,7 +153,7 @@ export class Hud {
           <span class="n2o lbl">N2O</span>
         </div>
         <div class="h-behind float" data-id="behind"><div class="d num" data-id="behindGap"></div><div class="chev"></div></div>
-        <div class="h-reset" data-id="reset"><kbd>R</kbd><span class="float">回到賽道</span></div>
+        <div class="h-reset" data-id="reset"><kbd>R</kbd>${tx('hud.reset', 'span', 'float')}</div>
         <div class="h-badges"><span data-id="ai" class="h-ai cut">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
       </div>
       <div id="toast" class="toast" data-id="toast"></div>
@@ -160,22 +161,22 @@ export class Hud {
       <div id="pause" class="center bracketed">
         <span class="brk tr"></span><span class="brk bl"></span>
         <div class="menu panel cut">
-          <div class="lbl dash">Paused</div>
-          <h2>暫停</h2>
+          ${tx('pause.kicker', 'div', 'lbl dash')}
+          ${tx('pause.title', 'h2')}
           <div class="status">
             <div><span class="lbl">Time</span><b class="num" data-id="pTime"></b></div>
             <div data-id="pPlaceBox"><span class="lbl">Position</span><b class="num" data-id="pPlace"></b></div>
             <div><span class="lbl">To go</span><b class="num" data-id="pRemain"></b></div>
           </div>
-          <button class="opt" data-id="resumeBtn"><span class="no">01</span><span>繼續</span><kbd>Esc</kbd></button>
-          <button class="opt" data-id="pauseTitleBtn"><span class="no">02</span><span>回車庫</span></button>
+          <button class="opt" data-id="resumeBtn"><span class="no">01</span>${tx('pause.resume')}<kbd>Esc</kbd></button>
+          <button class="opt" data-id="pauseTitleBtn"><span class="no">02</span>${tx('pause.garage')}</button>
         </div>
       </div>
       <div id="finish" class="center bracketed">
         <span class="brk tr"></span><span class="brk bl"></span>
         <div class="result panel cut">
-          <div class="lbl dash">Race complete</div>
-          <h2>抵達終點！</h2>
+          ${tx('finish.kicker', 'div', 'lbl dash')}
+          ${tx('finish.title', 'h2')}
           <div class="main" data-id="fMain">
             <div class="place" data-id="fPlaceBox"><div class="hexo hex"><div class="hexi hex"><span class="p num" data-id="fPlace"></span></div></div><span class="lbl">Position</span></div>
             <div class="time">
@@ -189,8 +190,8 @@ export class Hud {
             </div>
           </div>
           <div class="btns">
-            <button class="opt" data-id="againBtn"><span>再一場</span></button>
-            <button class="opt" data-id="finishTitleBtn"><span>回車庫</span><kbd>Esc</kbd></button>
+            <button class="opt" data-id="againBtn">${tx('finish.again')}</button>
+            <button class="opt" data-id="finishTitleBtn">${tx('pause.garage')}<kbd>Esc</kbd></button>
           </div>
         </div>
       </div>`;
@@ -206,6 +207,7 @@ export class Hud {
     for (const id of ['resumeBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn'])
       this.el[id].addEventListener('pointerenter', () => this.menu.includes(this.el[id]) && this.point(this.menu.indexOf(this.el[id])));
     root.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
+    onLangChange(() => applyLang(root)); // (another language: the fixed words redone; the rest are set as they show)
     this.hide();
   }
 
@@ -248,7 +250,7 @@ export class Hud {
   }
 
   nearMiss(): void {
-    this.message('險過！', 1);
+    this.message(t('toast.nearMiss'), 1);
   }
 
   /** Flash a short message in the middle of the screen. */
@@ -320,7 +322,7 @@ export class Hud {
     this.el.place.textContent = String(f.place);
     this.el.of.textContent = `/${f.racers.length}`;
     if (phase === 'racing' && many) {
-      if (overtook(this.lastPlace, f.place) && flow.raceTime > 1) this.message('超車！', 1.2);
+      if (overtook(this.lastPlace, f.place) && flow.raceTime > 1) this.message(t('toast.overtake'), 1.2);
       this.lastPlace = f.place;
     }
     this.drawTrack(f);

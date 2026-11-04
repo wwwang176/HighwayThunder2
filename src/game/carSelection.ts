@@ -31,7 +31,10 @@ const NORMAL = 1;
 /** Car types that can be picked now. */
 export const PICKABLE: string[] = [STREET_RACER.id, MUSCLE_CAR.id, JDM_CAR.id];
 
-/** What the garage shows for a car: its accent colour and three measured stats (value shown, bar 0..1 relative to the others). */
+/**
+ * What the garage shows for a car: its accent colour and three measured stats (value shown, bar 0..1 relative to
+ * the others). Its words (name, type, the stats' tips) the garage takes from src/ui/i18n by its id and icons.
+ */
 export interface CarCard {
   id: string;
   name: string;
@@ -39,24 +42,22 @@ export interface CarCard {
   accent: string;
   /** Silhouette icon (public/ui/<icon>.png). */
   icon: string;
-  /** Its type in English: the garage's small caps over its name. */
-  tag: string;
-  /** A stat: its small-caps label, the number and its unit apart (the number big). */
-  stats: { icon: string; tip: string; label: string; value: string; unit: string; bar: number }[];
+  /** A stat: its small-caps label, the number and its unit apart (the number big; 's' in the player's language). */
+  stats: { icon: string; label: string; value: string; unit: string; bar: number }[];
   pickable: boolean;
 }
 
 const stats = (accel: string, a: number, top: string, t: number, grip: string, g: number) => [
-  { icon: 'icon-accel', tip: '加速（0–100 km/h）', label: '0–100', value: accel, unit: '秒', bar: a },
-  { icon: 'icon-topspeed', tip: '極速', label: 'Top speed', value: top, unit: 'km/h', bar: t },
-  { icon: 'icon-handling', tip: '過彎抓地力', label: 'Grip', value: grip, unit: 'g', bar: g },
+  { icon: 'icon-accel', label: '0–100', value: accel, unit: 's', bar: a },
+  { icon: 'icon-topspeed', label: 'Top speed', value: top, unit: 'km/h', bar: t },
+  { icon: 'icon-handling', label: 'Grip', value: grip, unit: 'g', bar: g },
 ];
 
 // training/cornering.train.ts (launch, cornering at 200 km/h).
 export const CAR_CARDS: CarCard[] = [
-  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', tag: 'Supercar', stats: stats('3.6', 1, '300', 1, '2.0', 0.75), pickable: true },
-  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', tag: 'Muscle car', stats: stats('4.1', 0.9, '259', 0.75, '1.4', 0.45), pickable: true },
-  { id: JDM_CAR.id, name: JDM_CAR.name, accent: '#2f9bff', icon: 'icon-jdm', tag: 'Tuner', stats: stats('4.0', 0.75, '245', 0.6, '2.4', 1), pickable: true },
+  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', stats: stats('3.6', 1, '300', 1, '2.0', 0.75), pickable: true },
+  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', stats: stats('4.1', 0.9, '259', 0.75, '1.4', 0.45), pickable: true },
+  { id: JDM_CAR.id, name: JDM_CAR.name, accent: '#2f9bff', icon: 'icon-jdm', stats: stats('4.0', 0.75, '245', 0.6, '2.4', 1), pickable: true },
 ];
 
 /** Everyone on the supercar, five rivals, normal, a clear night (the game as it was). */
