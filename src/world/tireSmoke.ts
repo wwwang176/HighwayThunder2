@@ -15,6 +15,8 @@ const PUFF_TEXTURE = `${import.meta.env.BASE_URL}fx/smoke.png`;
 const PUFF_SPIN = 0.6;
 /** How bright a lit puff is, times its light (the fake volume's shade with it; at 1.15 the smoke glared). */
 const SHADE_GAIN = 0.8;
+/** The brightest a lit puff gets (linear; tone mapped, near white). */
+const SMOKE_WHITE = 4;
 
 function puffTexture(): THREE.Texture {
   return new THREE.TextureLoader().load(PUFF_TEXTURE); // (only its alpha is read)
@@ -195,7 +197,12 @@ export class TireSmoke {
           // Its dense core the light's longest way through: darkest on the far side.
           float core = pow(density, 1.35);
           float shade = mix(0.58, 1.0, direct) * (1.0 - core * mix(0.32, 0.12, direct));
-          gl_FragColor = vec4(ambient + vLit * shade * ${SHADE_GAIN.toFixed(2)}, vAlpha * density);
+          vec3 col = ambient + vLit * shade * ${SHADE_GAIN.toFixed(2)};
+          // Its own white: past 1 eased toward SMOKE_WHITE (the picture is tone mapped only after the smoke is
+          // laid over it: a puff by a headlight, ~100, made even its faint square's edge show).
+          vec3 over = max(col - 1.0, 0.0);
+          col = min(col, 1.0) + over / (1.0 + over / ${(SMOKE_WHITE - 1).toFixed(1)});
+          gl_FragColor = vec4(col, vAlpha * density);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
           #include <fog_fragment>

@@ -3,6 +3,7 @@ import Stats from 'stats.js';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { PlanPath } from '../render/planPath';
+import { PostFx } from '../render/postFx';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
 import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED } from '../config';
@@ -56,6 +57,7 @@ const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0, finished: 0.1 };
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
+  private readonly post: PostFx;
   private flares!: LightFlares;
   readonly npcBeams = new NpcBeams();
   readonly scene = new THREE.Scene();
@@ -118,16 +120,18 @@ export class Game {
 
   constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld) {
     physics.timestep = PHYSICS_DT;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // (No antialiasing of its own: the picture's edges are smoothed in render/postFx.)
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    // Night: lights glow through flare sprites rather than a bloom pass (bloom made
-    // distant lights shimmer and blew out close ones). Only the player's headlights
-    // cast shadows (needed for their low-beam cookie).
+    // Night: lights glow through flare sprites (steady however far), and through a gentle
+    // bloom over them (render/postFx: only what is brighter than white). Only the player's
+    // headlights cast shadows (needed for their low-beam cookie).
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
     container.appendChild(this.renderer.domElement);
+    this.post = new PostFx(this.renderer, this.scene, this.camera);
     this.flares = new LightFlares(this.scene);
     this.road = new RoadScene(this.scene, this.renderer);
     for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
@@ -138,7 +142,7 @@ export class Game {
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.cars.rivals.map(specOf));
     this.trafficWorld = new TrafficWorld(physics, this.scene, this.wheelPool, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
-    this.smoke = new TireSmoke(this.scene);
+    this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
     this.stats.dom.style.cssText = 'position:fixed;left:24px;top:84px;z-index:20;opacity:0.85;cursor:pointer';
     document.body.appendChild(this.stats.dom);
@@ -189,7 +193,7 @@ export class Game {
 
   private resize(): void {
     this.renderer.setSize(innerWidth, innerHeight);
-
+    this.post.setSize(innerWidth, innerHeight);
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
   }
@@ -679,6 +683,6 @@ export class Game {
     const h = this.renderer.domElement.height;
     updateFlareScale(this.flares.material, this.camera, h);
     updateFlareScale(this.road.lampFlareMaterial, this.camera, h);
-    this.renderer.render(this.scene, this.camera);
+    this.post.render();
   }
 }

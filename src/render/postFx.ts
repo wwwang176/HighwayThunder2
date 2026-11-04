@@ -1,0 +1,79 @@
+import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+
+export type Antialias = 'fxaa' | 'smaa' | 'msaa' | 'none';
+
+/** The race's post-processing (mutable: tuned live from the panel). */
+export const POST = {
+  // Edges smoothed after the picture (one cheap pass) rather than by multisampling: 4x MSAA at full resolution
+  // ate a third of the frame on an integrated GPU.
+  antialias: 'fxaa' as Antialias,
+  bloom: true,
+  strength: 0.05,
+  radius: 0,
+  // Only the lights themselves (flames, sparks, lamp heads) glow: at 1 the start's floodlit cars and road hazed over.
+  threshold: 2.05,
+};
+
+/**
+ * The race's picture through a bloom, as the garage's: the scene into an HDR target, its lights glowing, tone
+ * mapped, then its edges smoothed (POST.antialias; the canvas has none of its own).
+ */
+export class PostFx {
+  private readonly composer: EffectComposer;
+  private readonly bloom: UnrealBloomPass;
+  private readonly fxaa = new FXAAPass();
+  private readonly smaa = new SMAAPass();
+  private samples = 0;
+  /** Drawn after the bloom, so never glowing (its fog the scene's). */
+  readonly unbloomed = new THREE.Scene();
+
+  constructor(
+    private readonly renderer: THREE.WebGLRenderer,
+    private readonly scene: THREE.Scene,
+    camera: THREE.Camera,
+  ) {
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.samples });
+    this.composer = new EffectComposer(renderer, target);
+    this.composer.addPass(new RenderPass(scene, camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), POST.strength, POST.radius, POST.threshold);
+    this.composer.addPass(this.bloom);
+    // Then what is lit, not alight, however bright (tyre smoke by a headlight): over the bloom, in the same depth.
+    const late = new RenderPass(this.unbloomed, camera);
+    late.clear = false;
+    this.composer.addPass(late);
+    this.composer.addPass(new OutputPass());
+    // (After the tone mapping: they work on the picture as it will be seen.)
+    this.composer.addPass(this.fxaa);
+    this.composer.addPass(this.smaa);
+  }
+
+  setSize(w: number, h: number): void {
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(w, h);
+  }
+
+  render(): void {
+    const samples = POST.antialias === 'msaa' ? 4 : 0;
+    if (samples !== this.samples) {
+      this.samples = samples;
+      for (const t of [this.composer.renderTarget1, this.composer.renderTarget2]) {
+        t.samples = samples;
+        t.dispose(); // (made again, so, at the next render)
+      }
+    }
+    this.unbloomed.fog = this.scene.fog;
+    this.fxaa.enabled = POST.antialias === 'fxaa';
+    this.smaa.enabled = POST.antialias === 'smaa';
+    this.bloom.enabled = POST.bloom;
+    this.bloom.strength = POST.strength;
+    this.bloom.radius = POST.radius;
+    this.bloom.threshold = POST.threshold;
+    this.composer.render();
+  }
+}

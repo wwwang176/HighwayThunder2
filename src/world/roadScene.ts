@@ -17,6 +17,8 @@ export const LAMP_COLOR = 0xffe9d2;
 export const NIGHT = {
   lampIntensity: 300, // candela, real street lights near the player (one per lamp pair; at 1000 the road glared)
   poolStrength: 0.15, // the lamps' pools of light on the ground (render/lampPools; as bright as the real lights make the road)
+  wetness: 1, // the asphalt's wet patches (0 dry)
+  rim: 0.25, // a cold light from the city glow ahead, edging the cars (as the garage's)
 };
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
 const LAMP_HEIGHT = 9.8;
@@ -88,6 +90,13 @@ function roadTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
 const TEXTURES = `${import.meta.env.BASE_URL}textures/`;
 /** The asphalt's picture (cracked, worn): over the road's markings, tiled every ASPHALT.tile m along the world. */
 const ASPHALT = { file: 'road-small.jpg', tile: 5, strength: 0.85, mean: 0.168 };
+/**
+ * The asphalt's wet patches (as the garage's lay-by): blotches some metres across (value noise by world position,
+ * two sizes), darker and smooth, so the lights glint off them; the dry asphalt between stays rough.
+ */
+const WET = { sizes: [6.3, 2.2] as const, from: 0.55, to: 0.75, darken: 0.3, roughness: 0.3 };
+const WETNESS = { value: 1 };
+
 /** The grass's picture, tiled every GRASS.tile m (dividing the strip's period, so it doesn't jump), darkened. */
 const GRASS = {
   file: 'grass-small.jpg',
@@ -200,6 +209,7 @@ function withAsphalt(mat: THREE.MeshStandardMaterial, renderer: THREE.WebGLRende
   const mean = ASPHALT.mean; // the picture's mean, linear (for the brightness 1)
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.asphalt = { value: detail };
+    shader.uniforms.wetness = WETNESS;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vAsphalt;')
       .replace(
@@ -207,10 +217,30 @@ function withAsphalt(mat: THREE.MeshStandardMaterial, renderer: THREE.WebGLRende
         `#include <project_vertex>\nvAsphalt = (modelMatrix * vec4(transformed, 1.0)).xz / ${ASPHALT.tile.toFixed(1)};`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vAsphalt;\nuniform sampler2D asphalt;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec2 vAsphalt;
+uniform sampler2D asphalt;
+uniform float wetness;
+float wetHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float wetNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(wetHash(i), wetHash(i + vec2(1.0, 0.0)), u.x), mix(wetHash(i + vec2(0.0, 1.0)), wetHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}`,
+      )
       .replace(
         '#include <map_fragment>',
-        `#include <map_fragment>\ndiffuseColor.rgb *= mix(vec3(1.0), texture2D(asphalt, vAsphalt).rgb / ${mean.toFixed(4)}, ${ASPHALT.strength.toFixed(2)});`,
+        `#include <map_fragment>
+diffuseColor.rgb *= mix(vec3(1.0), texture2D(asphalt, vAsphalt).rgb / ${mean.toFixed(4)}, ${ASPHALT.strength.toFixed(2)});
+vec2 wetAt = vAsphalt * ${ASPHALT.tile.toFixed(1)};
+float wet = wetness * smoothstep(${WET.from.toFixed(2)}, ${WET.to.toFixed(2)},
+  0.65 * wetNoise(wetAt / ${WET.sizes[0].toFixed(1)}) + 0.35 * wetNoise(wetAt / ${WET.sizes[1].toFixed(1)} + 31.7));
+diffuseColor.rgb *= 1.0 - ${WET.darken.toFixed(2)} * wet;`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, ${WET.roughness.toFixed(2)}, wet);`,
       );
   };
   mat.customProgramCacheKey = () => 'road-asphalt';
@@ -229,6 +259,7 @@ export class RoadScene {
   /** The street lights' pools of light on the ground (in the ground's shaders). */
   private lampPools!: LampPools;
   private realLights: THREE.SpotLight[] = [];
+  private readonly rim = new THREE.DirectionalLight(0x7aa8ff, NIGHT.rim);
 
   /** The street lights currently shining (for things lit by hand, like tyre smoke). */
   activeLights(): THREE.SpotLight[] {
@@ -244,6 +275,9 @@ export class RoadScene {
     const moon = new THREE.DirectionalLight(0x8fa4d8, 0.12);
     moon.position.set(-200, 300, 100);
     scene.add(moon);
+    // The city's cold glow ahead, low: the cars' edges and tops catch it (the road, flat, hardly).
+    this.rim.position.set(-30, 35, -100);
+    scene.add(this.rim);
 
     for (let i = 0; i < REAL_LIGHTS; i++) {
       // Straight down from between a lamp pair, wide enough to cover both pools.
@@ -477,6 +511,8 @@ export class RoadScene {
     this.far.position.z = -playerS;
 
     this.lampPools.update(playerS, LAMP_COLOR, NIGHT.poolStrength);
+    WETNESS.value = NIGHT.wetness;
+    this.rim.intensity = NIGHT.rim;
     let li = 0;
     for (const row of this.lampRows) {
       const ds = stripS + row.s - playerS;
