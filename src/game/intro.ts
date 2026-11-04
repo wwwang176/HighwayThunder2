@@ -16,29 +16,38 @@ interface Pose {
 
 /**
  * A shot: the camera from one pose to another over `seconds` (a cut into it: the shot before ends elsewhere).
- * The player's car drawn `offset` metres ahead of its spot meanwhile (from, to), and `blip` seconds in the
- * engine blipped (a rev and let go: the exhaust pops). The camera can look at where the car is drawn
- * (`follow`: the look's z is added to its offset).
+ * `blip` seconds in, the engine blipped (a rev and let go: the exhaust pops).
  */
 interface Shot {
   seconds: number;
   from: Pose;
   to: Pose;
   ease: (t: number) => number;
-  offset?: [number, number];
-  offsetEase?: (t: number) => number;
-  follow?: boolean;
   blip?: number;
 }
 
 
 /**
- * The arrival: every car coming up its own lane to its place together, as a pack. A rival `z` m behind the line
- * comes from further back by this much a metre (the back row: the gap to the car ahead of it only opening on
- * the way in, never closing); the front row a little behind the player's, by its turn.
+ * The arrival: every car coming up its own lane at an even speed, braking over the last ARRIVE_BRAKE s to a stop
+ * at its place. Each lane its own speed (m/s); each car its own time to stop (s), all after the first shot (still
+ * rolling at the cut: they stop once, the player's in the close-up). In a lane the back row's car is as fast and
+ * stops later than the one ahead, so it stays behind it, the gap only ever opening.
  */
-const ARRIVAL_SPREAD = 0.05;
-const ARRIVAL_STAGGER = 0.04;
+const ARRIVE_SPEED = [12, 17] as const;
+const ARRIVE_BRAKE = 1.5;
+const ARRIVE_FRONT_STOP = [4.0, 4.9] as const;
+const ARRIVE_BACK_LATER = [0.3, 0.8] as const;
+/**
+ * The player's car stops 0.7 s into its wheel's close-up (the second shot, from 3.6 s): its nose already in the
+ * picture at the cut, braking, still rolling at the first (later, the close-up began on the bare road).
+ */
+const ARRIVE_PLAYER_STOP = 4.3;
+
+/** Where an arriving car is drawn (m ahead of its place: < 0) `t` s in, at `speed` till it brakes to a stop at `stop` s. */
+function arriving(speed: number, stop: number, t: number): number {
+  const left = Math.max(0, stop - t);
+  return -(left > ARRIVE_BRAKE ? speed * (ARRIVE_BRAKE / 2 + left - ARRIVE_BRAKE) : (speed * left * left) / (2 * ARRIVE_BRAKE));
+}
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
 
@@ -70,9 +79,11 @@ export class Intro {
   private blipAt: number | null = null; // the blip's time so far (s), while it lasts
   private readonly idle: number;
   private readonly redline: number;
-  /** Each rival's place (grid coordinates), and how far behind the player's it is (m). */
+  /** Each rival's place (grid coordinates); its arrival (way back, time); the intro's time so far. */
   private readonly rivalsAt: [number, number, number][];
-  private readonly behind: number[];
+  private readonly arrivals: { speed: number; stop: number }[];
+  private readonly playerArrival: { speed: number; stop: number };
+  private elapsed = 0;
 
   constructor(
     readonly kind: IntroKind,
@@ -91,7 +102,24 @@ export class Intro {
     this.idle = scene.player.params.idleRpm;
     this.redline = scene.player.params.redline;
     this.rivalsAt = scene.rivals.map((r) => this.grid(at(r)));
-    this.behind = this.rivalsAt.map((g) => Math.max(0, -g[2]));
+    // Each lane's speed; the front row's stops (the player's: the end of the first two shots), then the back row's.
+    const within = ([lo, hi]: readonly [number, number]) => lo + Math.random() * (hi - lo);
+    const lane = (x: number) => Math.round(x / LANE_WIDTH);
+    const speeds = new Map<number, number>();
+    const speedOf = (x: number) => speeds.get(lane(x)) ?? speeds.set(lane(x), within(ARRIVE_SPEED)).get(lane(x))!;
+    const stops = new Map<number, number>([[0, ARRIVE_PLAYER_STOP]]); // the front row's, by lane
+    this.playerArrival = { speed: speedOf(0), stop: ARRIVE_PLAYER_STOP };
+    const front = this.rivalsAt.map((g, i) => [g, i] as const).filter(([g]) => g[2] >= -1);
+    const back = this.rivalsAt.map((g, i) => [g, i] as const).filter(([g]) => g[2] < -1);
+    this.arrivals = [];
+    for (const [g, i] of front) {
+      this.arrivals[i] = { speed: speedOf(g[0]), stop: within(ARRIVE_FRONT_STOP) };
+      stops.set(lane(g[0]), this.arrivals[i].stop);
+    }
+    for (const [g, i] of back) {
+      const ahead = stops.get(lane(g[0])) ?? ARRIVE_FRONT_STOP[1];
+      this.arrivals[i] = { speed: speedOf(g[0]), stop: ahead + within(ARRIVE_BACK_LATER) };
+    }
     this.shots = this.script(kind, car.y);
   }
 
@@ -110,14 +138,11 @@ export class Intro {
     }
     const done = this.shot >= this.shots.length;
     const s = this.shots[Math.min(this.shot, this.shots.length - 1)];
-    const k = done ? 1 : this.t / s.seconds;
     const car = this.scene.player;
-    car.showOffset = s.offset ? THREE.MathUtils.lerp(s.offset[0], s.offset[1], (s.offsetEase ?? linear)(k)) : 0;
     if (this.kind === 'arrival') {
-      this.scene.rivals.forEach((r, i) => {
-        const behind = this.behind[i];
-        r.showOffset = car.showOffset * (1 + behind * ARRIVAL_SPREAD + (behind > 1 ? 0 : (i + 1) * ARRIVAL_STAGGER));
-      });
+      this.elapsed += dt;
+      car.showOffset = arriving(this.playerArrival.speed, this.playerArrival.stop, this.elapsed);
+      this.scene.rivals.forEach((r, i) => (r.showOffset = arriving(this.arrivals[i].speed, this.arrivals[i].stop, this.elapsed)));
     }
     if (!done && s.blip !== undefined && this.t >= s.blip && this.blipAt === null) this.blipAt = 0;
     else if (this.blipAt !== null) this.blipAt += dt;
@@ -133,7 +158,6 @@ export class Intro {
     const lerp = (a: number[], b: number[]) => [0, 1, 2].map((i) => THREE.MathUtils.lerp(a[i], b[i], k));
     const pos = lerp(s.from.pos, s.to.pos);
     const look = lerp(s.from.look, s.to.look);
-    if (s.follow) look[2] += this.scene.player.showOffset;
     const cam = this.scene.camera;
     cam.position.copy(this.world(pos));
     cam.lookAt(this.world(look));
@@ -187,25 +211,23 @@ export class Intro {
       const wheel: [number, number, number] = [-track, r, half];
       return [
         {
-          seconds: 2.4,
-          from: { pos: [-LANE_WIDTH - 2.6, 0.65, -24], look: [-0.5, 0.8, -4], fov: 38 },
-          to: { pos: [-LANE_WIDTH - 2.4, 0.7, -22], look: [-0.5, 0.8, -4], fov: 34 },
+          // (Far enough back that the first cars come by soon: they come from ~50-70 m back.)
+          seconds: 3.6, // (the player's car stopping in the next: ARRIVE_PLAYER_STOP)
+          from: { pos: [-LANE_WIDTH - 2.6, 0.65, -38], look: [-0.5, 0.8, -6], fov: 38 },
+          to: { pos: [-LANE_WIDTH - 2.4, 0.7, -35], look: [-0.5, 0.8, -6], fov: 34 },
           ease: linear, // (still moving at the cut)
-          offset: [-50, -1.4],
-          offsetEase: easeOut,
         },
         {
+          // Low beside and behind where its front wheel stops, looking at that: the car's side sweeping in from
+          // behind the camera, the wheel rolling into the middle and stopping (from ahead, its headlights glared).
           seconds: 1.2,
-          from: { pos: [wheel[0] - 1.25, 0.3, wheel[2] + 1.1], look: [...wheel], fov: 34 },
-          to: { pos: [wheel[0] - 1.05, 0.32, wheel[2] + 0.75], look: [...wheel], fov: 32 },
+          from: { pos: [wheel[0] - 1.35, 0.3, wheel[2] - 1.3], look: [...wheel], fov: 36 },
+          to: { pos: [wheel[0] - 1.2, 0.32, wheel[2] - 1.0], look: [...wheel], fov: 34 },
           ease: linear, // (still moving at the cut)
-          offset: [-1.4, 0],
-          offsetEase: easeOut,
-          follow: true,
         },
         {
           seconds: 1.5,
-          from: { pos: [wheel[0] - 1.1, 0.45, wheel[2] + 0.4], look: [wheel[0] + 0.2, r + 0.1, wheel[2]], fov: 34 },
+          from: { pos: [wheel[0] - 1.15, 0.45, wheel[2] - 0.8], look: [wheel[0] + 0.2, r + 0.1, wheel[2]], fov: 34 },
           to: chase,
           ease: easeOut, // (in moving, settling where the chase camera starts)
         },
