@@ -7,7 +7,6 @@ import { CameraRig } from '../render/cameraRig';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { BodyInstances } from '../render/bodyInstances';
-import { WheelInstances } from '../vehicles/wheelInstances';
 import { RoadScene } from '../world/roadScene';
 import { GhostView } from './ghostView';
 import { TrainPanel } from './trainPanel';
@@ -32,12 +31,10 @@ async function boot() {
   const flares = new LightFlares(scene);
   const beams = new NpcBeams();
   for (const m of road.groundMaterials) beams.patch(m);
-  const wheelPool = new WheelInstances(scene);
   const bodies = new BodyInstances(scene);
   const ghosts = new GhostView(scene);
 
-  const opts = { scene, wheelPool };
-  let trainer = Trainer.load(localStorage, opts) ?? new Trainer({ ...opts, seed: (Math.random() * 2 ** 31) >>> 0, storage: localStorage });
+  let trainer = Trainer.load(localStorage) ?? new Trainer({ seed: (Math.random() * 2 ** 31) >>> 0, storage: localStorage });
   (window as unknown as { __trainer: Trainer }).__trainer = trainer;
 
   const state = { running: true, speed: 4, actualSpeed: 0, message: trainer.generation > 1 ? `已載入上次的訓練進度（第 ${trainer.generation} 代）` : '' };
@@ -124,7 +121,6 @@ async function boot() {
     }
     flares.end();
     beams.end();
-    wheelPool.commit();
     if (leader) {
       const car = leader.car;
       road.update(car.s, car.d);

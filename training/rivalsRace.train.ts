@@ -1,6 +1,5 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import * as THREE from 'three';
 import { selfStateOf } from '../src/ai/driver';
 import { PlannerDriver } from '../src/ai/plannerDriver';
 import { mulberry32 } from '../src/ai/rng';
@@ -10,7 +9,6 @@ import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { OUR_FRAME, boxToFrame } from '../src/road/frame';
 import { TrafficWorld } from '../src/sim/trafficWorld';
 import { PLAYER_L, PLAYER_W, PlayerCar } from '../src/vehicles/playerCar';
-import { WheelInstances } from '../src/vehicles/wheelInstances';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -20,8 +18,7 @@ beforeAll(async () => {
 function race(seed: number) {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
-  const scene = new THREE.Scene();
-  const traffic = new TrafficWorld(physics, new WheelInstances(scene), mulberry32(seed), { oncoming: false });
+  const traffic = new TrafficWorld(physics, mulberry32(seed), { oncoming: false });
   const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
   player.params.maxSpeed = 300 * KMH;
   player.resetTo(-3, 1, 0);

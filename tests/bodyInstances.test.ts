@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { BodyInstances } from '../src/render/bodyInstances';
+import { BodyInstances, SHADOW_LAYER } from '../src/render/bodyInstances';
 import { BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../src/vehicles/models';
 
 /** A body (one box), a brake light and a left indicator, as a compacted template is made. */
@@ -51,6 +51,30 @@ describe('BodyInstances', () => {
     by(BRAKE_ON)!.getMatrixAt(0, m);
     const p = new THREE.Vector3().setFromMatrixPosition(m);
     expect(p.distanceTo(new THREE.Vector3(10.6, 0.6, -48))).toBeLessThan(1e-5);
+  });
+
+  it('shadows: a vehicle in a shadow-casting light\'s reach casts (on the shadow layer only), one out of it not', () => {
+    const scene = new THREE.Scene();
+    const bodies = new BodyInstances(scene);
+    const t = template();
+    t.body.castShadow = true;
+    const light = new THREE.SpotLight(0xffffff, 1, 50, 0.5);
+    light.castShadow = true;
+    light.position.set(0, 1, 0);
+    light.target.position.set(0, 1, -10); // looking down -z, 50 m
+    scene.add(light, light.target);
+    scene.updateMatrixWorld(true);
+    bodies.begin(undefined, [light]);
+    bodies.add('car', t.root, new THREE.Matrix4().makeTranslation(0, 0, -20), lights(false, false)); // in its beam
+    bodies.add('car', t.root, new THREE.Matrix4().makeTranslation(0, 0, 40), lights(false, false)); // behind it
+    bodies.end();
+    const ofBody = meshes(scene).filter((m) => m.material === t.body.material);
+    const seen = ofBody.find((m) => !m.castShadow)!;
+    const casts = ofBody.find((m) => m.castShadow)!;
+    expect(seen.count).toBe(2); // both drawn
+    expect(casts.count).toBe(1); // only the one in the beam casts
+    expect(casts.layers.mask).toBe(1 << SHADOW_LAYER); // not seen by the camera
+    expect(light.shadow.camera.layers.isEnabled(SHADOW_LAYER)).toBe(true);
   });
 
   it('a frame without a template\'s vehicles draws none of it; more than it had room for, it grows', () => {

@@ -18,12 +18,12 @@ import {
   setIndicators,
   TRUCK_COLORS,
   TRUCK_LIVERIES,
+  unitWheelGeometry,
   VehicleLights,
   VehicleModel,
 } from './models';
 import { npcDriveForces, stanleySteer, wheelLoads } from './npcDriver';
 import { boxToFrame, RoadFrame } from '../road/frame';
-import { WheelInstances } from './wheelInstances';
 import type { LightFlares } from '../render/lightFlares';
 import type { BodyInstances } from '../render/bodyInstances';
 import { BRAKE_ON, FlareSpot } from './models';
@@ -87,6 +87,18 @@ const TMP_M2 = new THREE.Matrix4();
 const TMP_E = new THREE.Euler(0, 0, 0, 'YXZ');
 const TMP_S = new THREE.Vector3();
 
+/** Every traffic wheel: one vertex-coloured unit wheel (scaled to each), drawn instanced (render/bodyInstances). */
+const NPC_WHEEL = 'npc-wheel';
+let wheelModel: THREE.Mesh | null = null;
+function npcWheel(): THREE.Mesh {
+  if (!wheelModel) {
+    wheelModel = new THREE.Mesh(unitWheelGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }));
+    wheelModel.castShadow = true;
+  }
+  return wheelModel;
+}
+const NO_LAMPS: VehicleLights = { left: [], right: [], brake: [] };
+
 /** World-space forward (nose) direction of a body on the ground plane. */
 function forwardOf(q: { x: number; y: number; z: number; w: number }): { x: number; z: number } {
   TMP_V.set(0, 0, -1).applyQuaternion(TMP_Q.set(q.x, q.y, q.z, q.w));
@@ -118,10 +130,8 @@ interface PartSpec {
 }
 
 interface Wheel {
-  slot: number;
-  /** Twin tyres: the second one's slot, both shown either side of `shownX`, `gap` apart (-1: one tyre at x). */
-  slot2: number;
   shownX: number;
+  /** Twin tyres: shown either side of `shownX`, `gap` apart (0: one tyre). */
   gap: number;
   staticLoad: number; // N, design load (sets spring rates)
   x: number;
@@ -272,7 +282,6 @@ export class NpcVehicle {
 
   constructor(
     private physics: PhysicsWorld,
-    private wheelPool: WheelInstances,
     readonly frame: RoadFrame,
     agent: Agent,
     rng: () => number,
@@ -383,8 +392,6 @@ export class NpcVehicle {
         vehicle.setWheelSideFrictionStiffness(idx, 1);
         const twin = s.twin && ai >= s.twin.from ? s.twin : null;
         wheels.push({
-          slot: this.wheelPool.alloc(),
-          slot2: twin ? this.wheelPool.alloc() : -1,
           shownX: side * (twin ? twin.x : s.halfTrack),
           gap: twin ? twin.gap : 0,
           staticLoad: loads[ai],
@@ -578,13 +585,24 @@ export class NpcVehicle {
     }
   }
 
-  /** Interpolated body pose; wheels placed from the live suspension state; light flares. */
+  /** Interpolated body pose; light flares. */
   render(alpha: number, flares: LightFlares): void {
     for (const p of this.parts) {
       p.mesh.position.lerpVectors(p.prevPos, p.currPos, alpha);
       p.mesh.quaternion.slerpQuaternions(p.prevQuat, p.currQuat, alpha);
       p.mesh.updateMatrix();
       emitFlares(p.mesh, p.lights, flares);
+    }
+  }
+
+  /**
+   * Its bodies, and the wheels of those drawn (placed from the live suspension state), into this frame's
+   * instanced drawing (after render: where they are).
+   */
+  addBodies(bodies: BodyInstances): void {
+    const wheel = npcWheel();
+    for (const p of this.parts) {
+      if (!bodies.add(p.model.key, p.model.template, p.mesh.matrix, p.lights)) continue;
       p.wheels.forEach((w, i) => {
         const cw = p.chassis?.wheels[i];
         const len = cw ? cw.susp : p.vehicle!.wheelSuspensionLength(i) ?? p.spec.rest;
@@ -593,19 +611,12 @@ export class NpcVehicle {
         TMP_E.set(spin, steer, 0, 'YXZ');
         TMP_Q.setFromEuler(TMP_E);
         TMP_S.set(w.width, w.r, w.r);
-        for (const [slot, dx] of [[w.slot, -w.gap / 2], [w.slot2, w.gap / 2]]) {
-          if (slot < 0) continue;
+        for (const dx of w.gap > 0 ? [-w.gap / 2, w.gap / 2] : [0]) {
           TMP_M2.compose(TMP_V.set(w.shownX + dx, w.connY - len, w.z), TMP_Q, TMP_S);
-          TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2);
-          this.wheelPool.set(slot, TMP_M);
+          bodies.add(NPC_WHEEL, wheel, TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2), NO_LAMPS);
         }
       });
     }
-  }
-
-  /** Its bodies into this frame's instanced drawing (after render: where they are). */
-  addBodies(bodies: BodyInstances): void {
-    for (const p of this.parts) bodies.add(p.model.key, p.model.template, p.mesh.matrix, p.lights);
   }
 
   /** Position along OUR road (world s = -z) of the first part, for culling. */
@@ -632,10 +643,6 @@ export class NpcVehicle {
   dispose(): void {
     if (this.joint) this.physics.world.removeImpulseJoint(this.joint, true);
     for (const p of this.parts) {
-      for (const w of p.wheels) {
-        this.wheelPool.release(w.slot);
-        if (w.slot2 >= 0) this.wheelPool.release(w.slot2);
-      }
       if (p.vehicle) this.physics.world.removeVehicleController(p.vehicle);
       for (const c of p.colliders) this.physics.unregister(c);
       this.physics.world.removeRigidBody(p.body);

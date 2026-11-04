@@ -23,7 +23,6 @@ import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { Hud } from '../ui/hud';
 import { HandlingInput } from '../vehicles/handling';
 import { NpcVehicle } from '../vehicles/npcVehicle';
-import { WheelInstances } from '../vehicles/wheelInstances';
 import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
 import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
@@ -96,7 +95,6 @@ export class Game {
   /** Velocities (world x/z) of the player [0] and the rivals [1..] going into the physics step. */
   private racerVelBefore: { x: number; z: number }[] = [];
   private aiTraffic: TrafficBox[] = [];
-  private wheelPool!: WheelInstances;
   /** The traffic's bodies, drawn instanced. */
   private bodies!: BodyInstances;
   private skids!: SkidMarks;
@@ -140,11 +138,10 @@ export class Game {
     for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = surfaceGrip;
-    this.wheelPool = new WheelInstances(this.scene);
     this.bodies = new BodyInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.cars.rivals.map(specOf));
-    this.trafficWorld = new TrafficWorld(physics, this.wheelPool, Math.random, { oncoming: true });
+    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
@@ -636,7 +633,6 @@ export class Game {
     for (const r of this.rivals.list) this.npcBeams.add(r.car.mesh, pp.x, pp.z);
     this.flares.end();
     this.npcBeams.end();
-    this.wheelPool.commit();
     const planned = this.aiDriver as { plan?: Plan | null; planAge?: number } | null;
     if (this.showPlan && this.aiActive && this.flow.phase === 'racing' && planned?.plan) this.planPath.show(planned.plan, planned.planAge ?? 0);
     else this.planPath.hide();
@@ -665,7 +661,7 @@ export class Game {
     // Paused, the camera holds still too (its shakes stop where they are, and go on after).
     this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     // The traffic's bodies, those in this frame's view (the camera placed).
-    this.bodies.begin(this.camera);
+    this.bodies.begin(this.camera, this.player.headlights); // (the only lights casting shadows)
     for (const npc of this.npcs.values()) npc.addBodies(this.bodies);
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);

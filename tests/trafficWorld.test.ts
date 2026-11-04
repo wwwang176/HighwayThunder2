@@ -1,9 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import * as THREE from 'three';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { TrafficWorld } from '../src/sim/trafficWorld';
-import { WheelInstances } from '../src/vehicles/wheelInstances';
 import { mulberry32 } from '../src/ai/rng';
 import { PHYSICS_DT } from '../src/config';
 
@@ -14,8 +12,7 @@ beforeAll(async () => {
 function makeWorld(seed = 1) {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
-  const scene = new THREE.Scene();
-  const world = new TrafficWorld(physics, new WheelInstances(scene), mulberry32(seed), { oncoming: false });
+  const world = new TrafficWorld(physics, mulberry32(seed), { oncoming: false });
   return { physics, world };
 }
 

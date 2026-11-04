@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { PHYSICS_DT, ROAD_LENGTH } from '../config';
 import { PhysicsWorld } from '../physics/physicsWorld';
 import { laneAt, laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
@@ -7,7 +6,6 @@ import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
 import { PlayerCar } from '../vehicles/playerCar';
-import { WheelInstances } from '../vehicles/wheelInstances';
 import type { Brain } from './brain';
 import { AiDriver, Driver, selfStateOf } from './driver';
 import { endOn, FITNESS, isOffRoad, RunResult, touching } from './fitness';
@@ -91,9 +89,6 @@ export interface TrainingSimOptions {
   /** Top speed every car in this run is limited to (m/s); also a network input. */
   speedCap: number;
   timeLimit?: number;
-  /** Where the traffic is drawn; a throwaway scene when omitted (headless runs). */
-  scene?: THREE.Scene;
-  wheelPool?: WheelInstances;
   /**
    * Traffic sees the AI cars and gives way to them, as it does the player in
    * the game (for evaluating a single driver). Off for training: dozens of
@@ -124,8 +119,6 @@ export class TrainingSim {
   time = 0;
   private boxes: TrafficBox[] = [];
   private touched: TrafficBox[] = [];
-  private readonly ownPool: WheelInstances | null;
-  private readonly scene: THREE.Scene;
 
   constructor(drivers: (Brain | Driver)[], seed: number, opts: TrainingSimOptions) {
     const spec = opts.spec ?? STREET_RACER;
@@ -135,10 +128,7 @@ export class TrainingSim {
     this.resetOnCrash = opts.resetOnCrash ?? null;
     this.physics = PhysicsWorld.createSync();
     this.physics.timestep = PHYSICS_DT;
-    this.scene = opts.scene ?? new THREE.Scene();
-    this.ownPool = opts.wheelPool ? null : new WheelInstances(this.scene);
-    const pool = opts.wheelPool ?? this.ownPool!;
-    this.traffic = new TrafficWorld(this.physics, pool, mulberry32(seed), { oncoming: false });
+    this.traffic = new TrafficWorld(this.physics, mulberry32(seed), { oncoming: false });
     for (const d of drivers) {
       const car = new PlayerCar(this.physics, null, { spec });
       car.params.maxSpeed = this.speedCap;
@@ -292,7 +282,6 @@ export class TrainingSim {
 
   dispose(): void {
     this.traffic.dispose();
-    if (this.ownPool) this.scene.remove(this.ownPool.mesh);
     this.physics.free();
   }
 }

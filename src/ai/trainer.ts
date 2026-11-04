@@ -1,6 +1,4 @@
-import type * as THREE from 'three';
 import { KMH } from '../config';
-import type { WheelInstances } from '../vehicles/wheelInstances';
 import { Brain, cloneBrain, createBrain, mutate } from './brain';
 import { BRAIN_LAYERS, DEFAULT_EVO, EvoParams, nextGeneration } from './evolution';
 import { FITNESS, fitness } from './fitness';
@@ -47,9 +45,6 @@ export interface TrainerOptions {
   storage?: Storage | null;
   /** Start from these trained networks (kept as they are, the rest of the population are mutated copies). */
   seedBrains?: Brain[];
-  /** Where to draw the visible generation's traffic (training page). */
-  scene?: THREE.Scene;
-  wheelPool?: WheelInstances;
 }
 
 interface Validation {
@@ -78,8 +73,6 @@ export class Trainer {
   speedCapKmh = 300;
   private validation: Validation | null = null;
   private readonly storage: Storage | null;
-  private readonly scene?: THREE.Scene;
-  private readonly wheelPool?: WheelInstances;
 
   constructor(opts: TrainerOptions) {
     this.seed = opts.seed;
@@ -87,8 +80,6 @@ export class Trainer {
     if (opts.population) this.evo.population = opts.population;
     this.timeLimit = opts.timeLimit ?? FITNESS.timeLimit;
     this.storage = opts.storage ?? null;
-    this.scene = opts.scene;
-    this.wheelPool = opts.wheelPool;
     const rng = mulberry32(this.seed);
     const seeds = opts.seedBrains ?? [];
     this.population = Array.from({ length: this.evo.population }, (_, i) =>
@@ -161,8 +152,6 @@ export class Trainer {
     this.sim = new TrainingSim(this.population, hashSeed(this.seed, this.generation), {
       speedCap: this.speedCapKmh * KMH,
       timeLimit: this.timeLimit,
-      scene: this.scene,
-      wheelPool: this.wheelPool,
     });
   }
 

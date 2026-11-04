@@ -5,7 +5,6 @@ import { laneCenter, lanesOccupied } from '../road/coords';
 import { Agent, Obstacle, TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant, planSpawns, shouldDespawnRange } from '../traffic/spawner';
 import { NpcVehicle } from '../vehicles/npcVehicle';
-import type { WheelInstances } from '../vehicles/wheelInstances';
 import type { TrafficBox } from '../ai/sensors';
 import type { Rng } from '../ai/rng';
 
@@ -48,7 +47,6 @@ export class TrafficWorld {
 
   constructor(
     private readonly physics: PhysicsWorld,
-    private readonly wheelPool: WheelInstances,
     public rng: Rng,
     private readonly opts: { oncoming: boolean },
   ) {}
@@ -205,7 +203,7 @@ export class TrafficWorld {
       for (const r of reqs) {
         const agent = side.sim.addAgent(r.kind, r.s, r.lane, this.rng);
         agent.v = Math.min(agent.v, r.vMax);
-        this.npcs.set(agent.id, new NpcVehicle(this.physics, this.wheelPool, side.frame, agent, this.rng));
+        this.npcs.set(agent.id, new NpcVehicle(this.physics, side.frame, agent, this.rng));
         this.side.set(agent.id, side);
       }
     }
