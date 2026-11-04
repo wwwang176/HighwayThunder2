@@ -94,6 +94,13 @@ export async function loadCarModels(base = import.meta.env.BASE_URL): Promise<vo
     Object.entries(FILES).map(async ([style, file]) => {
       try {
         const [gltf, liveries] = await Promise.all([loader.loadAsync(base + file), loadLiveries(base + file.replace(/\.glb$/, '/'))]);
+        // Double-sided parts cast shadows from their back faces only, as single-sided ones do: three picks a
+        // shadow shader per side by the order things are drawn in, and the double-sided one came along
+        // mid-race, compiled there (~60 ms) whatever was drawn ahead of the race (Game.prewarm).
+        gltf.scene.traverse((o) => {
+          const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+          if (m && m.side === THREE.DoubleSide) m.shadowSide = THREE.BackSide;
+        });
         const wheel = gltf.scene.getObjectByName('wheel') ?? null;
         wheel?.removeFromParent();
         const caliper = gltf.scene.getObjectByName('caliper') ?? null;
