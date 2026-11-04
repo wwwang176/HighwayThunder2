@@ -84,7 +84,7 @@ export class Garage {
         <button class="cta g-start">${CTA('開始遊戲')}</button>
       </div>
       <div class="g-brand">${icon('emblem')}<div class="g-name">HIGHWAY THUNDER 2</div><div class="rule"></div></div>
-      <button class="g-keys panel cut" data-tip="操作說明（H）" data-tip-place="left">${icon('icon-keys')}</button>
+      <button class="g-keys"><kbd>H</kbd><span class="float">操作說明</span></button>
       <div class="g-id float"><div class="pool"></div><div class="tagrow"><span class="lbl tag"></span><span class="lbl pos"></span></div><h1></h1><div class="bar-top"></div><div class="g-stats"></div></div>
       <div class="g-left">
         <div class="g-head"><span class="lbl float">Select class</span><span><kbd>↑</kbd><kbd>↓</kbd></span></div>
