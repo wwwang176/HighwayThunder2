@@ -35,7 +35,9 @@ interface Shot {
  * the gap only ever opening.
  */
 const ARRIVE_SPEED = [12, 17] as const;
-const ARRIVE_BRAKE = 1.5;
+const ARRIVE_BRAKE = 2.0; // (0.6-0.85 g: drawing up, not a stop in a hurry - at 1.5, ~1 g, the tails popped up)
+/** The braking's load on a body building up over this long (s), as a car's weight comes forward (at once, it bounced). */
+const ARRIVE_LOAD_RISE = 0.4;
 const ARRIVE_FRONT_STOP = [2.3, 3.0] as const;
 const ARRIVE_BACK_LATER = [0.3, 0.8] as const;
 /**
@@ -44,10 +46,14 @@ const ARRIVE_BACK_LATER = [0.3, 0.8] as const;
  */
 const ARRIVE_PLAYER_STOP = 3.7;
 
-/** How hard an arriving car is braking `t` s in (m/s²): its speed shed evenly over ARRIVE_BRAKE s, then none. */
+/**
+ * The braking's load on an arriving car `t` s in (as m/s² of deceleration): its speed shed evenly over
+ * ARRIVE_BRAKE s, the load building up over ARRIVE_LOAD_RISE s of it; then none (stopped: it comes back).
+ */
 function arrivalBraking(speed: number, stop: number, t: number): number {
   const left = stop - t;
-  return left > 0 && left <= ARRIVE_BRAKE ? speed / ARRIVE_BRAKE : 0;
+  if (left <= 0 || left > ARRIVE_BRAKE) return 0;
+  return (speed / ARRIVE_BRAKE) * THREE.MathUtils.smoothstep(ARRIVE_BRAKE - left, 0, ARRIVE_LOAD_RISE);
 }
 
 /** Where an arriving car is drawn (m ahead of its place: < 0) `t` s in, at `speed` till it brakes to a stop at `stop` s. */
