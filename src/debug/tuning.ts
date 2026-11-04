@@ -72,6 +72,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   n.add(NIGHT, 'poolStrength', 0, 2, 0.05).name('路燈光區亮度（遠處）');
   n.add(NPC_BEAM, 'intensity', 0, 20, 0.1).name('NPC 車燈照地亮度');
   n.add(VEHICLE_FLARE, 'opacity', 0, 1, 0.05).name('車燈光點不透明度');
+  n.add(VEHICLE_FLARE, 'squash', 0.2, 1, 0.05).name('車燈光點高寬比（1 = 圓）');
   n.add(FLARE_AIM, 'full', 0, 90, 1).name('車燈光點：偏離幾度內全亮');
   n.add(FLARE_AIM, 'gone', 30, 180, 1).name('車燈光點：偏離幾度完全消失');
   n.add(NIGHT, 'wetness', 0, 1, 0.05).name('路面濕區（0 = 乾）');

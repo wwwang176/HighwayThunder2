@@ -25,6 +25,7 @@ export function makeFlareMaterial(minPx = 3, aimed = false, depth?: FlareDepth):
       scale: { value: 600 },
       minPx: { value: minPx },
       opacity: { value: 1 },
+      squash: { value: 1 },
       aimFull: { value: Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.full)) },
       aimGone: { value: Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.gone)) },
       ...depth,
@@ -42,8 +43,10 @@ export function makeFlareMaterial(minPx = 3, aimed = false, depth?: FlareDepth):
       uniform float scale;
       uniform float minPx;
       uniform float opacity;
+      uniform float squash;
       varying vec3 vColor;
       varying float vAlpha;
+      varying float vSquash;
       #ifdef AIMED
       attribute vec3 aim;
       uniform float aimFull;
@@ -56,6 +59,8 @@ export function makeFlareMaterial(minPx = 3, aimed = false, depth?: FlareDepth):
         // Far lights shrink to a steady dot that dims a little with distance.
         vAlpha = px < minPx ? mix(0.55, 1.0, px / minPx) : 1.0;
         vAlpha *= clamp(1.0 - (-mv.z) / 1400.0, 0.0, 1.0) * opacity;
+        // Flattened to squash of its width (a dot of a few pixels stays rounder: steadier).
+        vSquash = mix(1.0, squash, clamp(px / (4.0 * minPx), 0.0, 1.0));
         #ifdef AIMED
         // (flareFacing; the points are in world space)
         if (dot(aim, aim) > 0.25) {
@@ -69,7 +74,7 @@ export function makeFlareMaterial(minPx = 3, aimed = false, depth?: FlareDepth):
         // How much of it the scene hides: its middle and six points round it (a third of its size out), each
         // seen unless something is drawn nearer (by more than a little: its own lamp's glass behind it).
         vec2 uv = gl_Position.xy / gl_Position.w * 0.5 + 0.5;
-        vec2 r = vec2(max(1.0, 0.35 * px)) / depthRes;
+        vec2 r = vec2(max(1.0, 0.35 * px)) * vec2(1.0, vSquash) / depthRes;
         float bias = max(0.2, 0.02 * -mv.z);
         float seen = 0.0;
         for (int i = 0; i < 7; i++) {
@@ -85,8 +90,10 @@ export function makeFlareMaterial(minPx = 3, aimed = false, depth?: FlareDepth):
     fragmentShader: `
       varying vec3 vColor;
       varying float vAlpha;
+      varying float vSquash;
       void main() {
-        float d = length(gl_PointCoord - 0.5) * 2.0;
+        vec2 p = (gl_PointCoord - 0.5) * 2.0;
+        float d = length(vec2(p.x, p.y / vSquash));
         if (d > 1.0) discard;
         float core = 1.0 - d;
         float glow = core * core * core * 1.2 + core * 0.25;
@@ -100,8 +107,11 @@ export function updateFlareScale(mat: THREE.ShaderMaterial, camera: THREE.Perspe
   mat.uniforms.scale.value = heightPx / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
 }
 
-/** The vehicles' flares (tunable): how strongly they glow (1: full, lower: see-through). */
-export const VEHICLE_FLARE = { opacity: 0.6 };
+/**
+ * The vehicles' flares (tunable): how strongly they glow (1: full, lower: see-through), and how tall to wide
+ * (1: round; under: a flat oval, as a lamp's glow spreads sideways).
+ */
+export const VEHICLE_FLARE = { opacity: 0.6, squash: 0.5 };
 
 /**
  * A lamp's glow seen from off its axis (tunable, degrees): full within `full` of straight ahead of it, fading out
@@ -172,6 +182,7 @@ export class LightFlares {
     this.geo.setDrawRange(0, this.n);
     const u = this.material.uniforms;
     u.opacity.value = VEHICLE_FLARE.opacity;
+    u.squash.value = VEHICLE_FLARE.squash;
     u.aimFull.value = Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.full));
     u.aimGone.value = Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.gone));
     for (const name of ['position', 'color', 'size', 'aim']) (this.geo.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
