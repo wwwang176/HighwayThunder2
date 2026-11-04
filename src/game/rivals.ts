@@ -183,7 +183,7 @@ export class Rivals {
         entity: { type: 'rival', id: i },
         color: RIVAL_COLORS[i % RIVAL_COLORS.length],
         livery: randomLivery(spec.style), // a car with paint jobs wears one at random (its colour is for the HUD)
-        realLights: false,
+        realLights: false, // (their real lamps are a pool shared by them all: game/rivalLights)
       });
       const driver = new PlannerDriver(makeSource());
       driver.accel = spec.ai.accel;

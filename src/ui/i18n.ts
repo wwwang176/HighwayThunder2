@@ -68,6 +68,7 @@ export const STRINGS = {
   'keys.look': { zh: '看正後方', en: 'Look back' },
   'keys.reset': { zh: '重置到車道上', en: 'Back on the road' },
   'keys.ai': { zh: 'AI 接手駕駛', en: 'AI takes the wheel' },
+  'keys.highBeam': { zh: '遠光燈（按住）', en: 'High beam (hold)' },
   'keys.pause': { zh: '暫停', en: 'Pause' },
   'keys.mute': { zh: '靜音', en: 'Mute' },
   'keys.menus': { zh: '車庫：換車、換烤漆；選單：移動游標', en: 'Garage: car, paint · Menus: move the cursor' },
