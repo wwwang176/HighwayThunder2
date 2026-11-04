@@ -276,7 +276,7 @@ export class Hud {
     if (phase !== this.lastPhase) {
       const from = this.lastPhase;
       this.lastPhase = phase;
-      this.show('hud', phase !== 'title' && phase !== 'intro'); // (not over the intro's shots)
+      this.show('hud', phase !== 'title' && phase !== 'intro' && phase !== 'finished'); // (not over the intro's shots, nor the finish's panel)
       this.show('pause', phase === 'paused');
       this.show('finish', phase === 'finished');
       if (phase === 'countdown') this.lastPlace = null;
