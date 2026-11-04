@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { closestBehind, overtook, progress, RESET_HINT, ResetHint } from '../src/ui/hudMath';
+import { closestBehind, HUD_SHAKE, hudShake, overtook, progress, RESET_HINT, ResetHint } from '../src/ui/hudMath';
 
 describe('hudMath', () => {
   it('the rival closest behind within range, with its colour and the side it comes up on', () => {
@@ -58,5 +58,25 @@ describe('ResetHint', () => {
 
   it('never shows while driving upright', () => {
     expect(step(new ResetHint(), 20, 80, 0.98)).toBe(false);
+  });
+});
+
+describe('hudShake', () => {
+  it('moves with the picture (against the camera), a share of its shake, tilted by a share of its roll', () => {
+    const s = hudShake(0.04, 0.02, 0.02);
+    expect(s.x).toBeCloseTo(-0.04 * HUD_SHAKE.move, 5);
+    expect(s.y).toBeCloseTo(0.02 * HUD_SHAKE.move, 5); // (camera up: the picture, and the HUD, down the screen)
+    expect(s.deg).toBeCloseTo((-0.02 * 180) / Math.PI * HUD_SHAKE.tilt, 5);
+  });
+
+  it('a hard hit is held to a readable shake', () => {
+    const s = hudShake(0.5, -0.5, 0.2);
+    expect(Math.abs(s.x)).toBe(HUD_SHAKE.maxMove);
+    expect(Math.abs(s.y)).toBe(HUD_SHAKE.maxMove);
+    expect(Math.abs(s.deg)).toBe(HUD_SHAKE.maxTilt);
+  });
+
+  it('none without a shake', () => {
+    expect(hudShake(0, 0, 0)).toEqual({ x: 0, y: 0, deg: 0 });
   });
 });

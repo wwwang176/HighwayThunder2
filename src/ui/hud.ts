@@ -1,6 +1,6 @@
 import { formatTime, GameFlow } from '../game/gameState';
 import { ROAD_LENGTH } from '../config';
-import { closestBehind, overtook, progress, ResetHint } from './hudMath';
+import { closestBehind, hudShake, overtook, progress, ResetHint } from './hudMath';
 import { applyLang, onLangChange, t, tx } from './i18n';
 
 export interface HudHandlers {
@@ -38,6 +38,8 @@ export interface HudFrame {
   place: number;
   /** Every car in the race (the player's included). */
   racers: HudRacer[];
+  /** The camera's shake this frame (CameraRig.shaken): the HUD shakes with it, a little. */
+  shake: { right: number; up: number; roll: number };
 }
 
 const html = String.raw;
@@ -327,6 +329,9 @@ export class Hud {
     }
     this.drawTrack(f);
     this.drawTacho(f);
+    // Shaking with the camera (a share of it: its road, its rough ground, a gear, a hit).
+    const sh = hudShake(f.shake.right, f.shake.up, f.shake.roll);
+    this.el.hud.style.transform = `translate(${sh.x.toFixed(3)}vw, ${sh.y.toFixed(3)}vw) rotate(${sh.deg.toFixed(3)}deg)`;
     // A rival coming up behind.
     const me = f.racers.find((r) => r.me);
     const behind = me && phase === 'racing' ? closestBehind(me, f.racers.filter((r) => !r.me), BEHIND_RANGE) : null;

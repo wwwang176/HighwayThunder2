@@ -886,6 +886,7 @@ export class Game {
       nitroOn: this.player.nitro.active,
       aiDriving: this.aiActive && this.flow.phase === 'racing',
       place: this.rivals.rank(this.player.s, this.flow.finishTime),
+      shake: this.rig.shaken,
       racers: [
         { s: this.player.s, d: this.player.d, color: '#fff', me: true },
         ...this.rivals.list.map((r) => ({ s: r.car.s, d: r.car.d, color: RIVAL_CSS[r.index % RIVAL_CSS.length], me: false })),

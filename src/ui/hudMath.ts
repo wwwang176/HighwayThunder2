@@ -60,3 +60,30 @@ export class ResetHint {
     this.flipped = 0;
   }
 }
+
+/** How the HUD shakes with the camera (its share of the camera's shake, held to a readable most): the tuning panel's. */
+export const HUD_SHAKE = {
+  /** vw per m of the camera's shake (across, up and down). */
+  move: 12,
+  /** Of the camera's tilt. */
+  tilt: 0.5,
+  /** At most, vw and degrees. */
+  maxMove: 1.2,
+  maxTilt: 1.5,
+};
+
+const clampTo = (v: number, most: number) => Math.max(-most, Math.min(most, v)) + 0; // (+0: no -0)
+
+/**
+ * The HUD's shake for the camera's: `right` and `up` its offset (m, across the view and up), `roll` its tilt
+ * (rad). The HUD goes with the picture (which moves against the camera), a share of it: x and y in vw (y down the
+ * screen), the tilt in degrees.
+ */
+export function hudShake(right: number, up: number, roll: number): { x: number; y: number; deg: number } {
+  const s = HUD_SHAKE;
+  return {
+    x: clampTo(-right * s.move, s.maxMove),
+    y: clampTo(up * s.move, s.maxMove),
+    deg: clampTo(((-roll * 180) / Math.PI) * s.tilt, s.maxTilt),
+  };
+}
