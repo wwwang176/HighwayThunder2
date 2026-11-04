@@ -46,8 +46,6 @@ const G = 9.81;
 /** A wheel has no lamps. */
 const NO_LIGHTS: VehicleLights = { left: [], right: [], brake: [] };
 const SHOW_FWD = new THREE.Vector3();
-const SHOW_UP = new THREE.Vector3(0, 1, 0);
-const SHOW_TURN = new THREE.Quaternion();
 
 /** The mass one wheel carries standing still (kg): half its axle's share (comFwd puts more on the front). */
 export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, front: boolean): number {
@@ -92,12 +90,9 @@ export class PlayerCar {
   private readonly visuals: ReturnType<typeof buildWheel>[] = [];
   /**
    * For show (the race's intro, game/intro): drawn this far ahead of where it is (m; behind: < 0), its wheels
-   * rolled to it, `showSide` to its right and turned `showYaw` (rad, to the right); and the engine's rpm and
-   * throttle as heard and seen at the exhaust (null: its own).
+   * rolled to it; and the engine's rpm and throttle as heard and seen at the exhaust (null: its own).
    */
   showOffset = 0;
-  showSide = 0;
-  showYaw = 0;
   showRev: { rpm: number; throttle: number } | null = null;
   readonly chassis: TyreChassis;
   readonly wheels: WheelState[];
@@ -454,11 +449,7 @@ export class PlayerCar {
   render(alpha: number, flares?: LightFlares): void {
     this.mesh.position.lerpVectors(this.prevPos, this.currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
-    if (this.showOffset !== 0 || this.showSide !== 0) {
-      this.mesh.position.addScaledVector(SHOW_FWD.set(0, 0, -1).applyQuaternion(this.mesh.quaternion), this.showOffset);
-      this.mesh.position.addScaledVector(SHOW_FWD.set(1, 0, 0).applyQuaternion(this.mesh.quaternion), this.showSide);
-      this.mesh.quaternion.premultiply(SHOW_TURN.setFromAxisAngle(SHOW_UP, -this.showYaw));
-    }
+    if (this.showOffset !== 0) this.mesh.position.addScaledVector(SHOW_FWD.set(0, 0, -1).applyQuaternion(this.mesh.quaternion), this.showOffset);
     const roll = this.showOffset / this.params.wheelRadius;
     if (flares) {
       this.mesh.updateMatrix();

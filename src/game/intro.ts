@@ -31,17 +31,14 @@ interface Shot {
   blip?: number;
 }
 
-const smoother = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
 
 /**
- * The arriving car's way in (m to the right of its place), by how far behind it is (`z` < 0): up the lane on its
- * left, then across over the last ARRIVAL_ACROSS m - between the grid's two rows, clear of every car on it.
+ * The arrival: every car coming up its own lane to its place together, as a pack. A rival `z` m behind the line
+ * comes from further back by this much a metre (the back row: the gap to the car ahead of it only opening on
+ * the way in, never closing); the front row a little behind the player's, by its turn.
  */
-const ARRIVAL_ACROSS = 8;
-function arrivalSide(z: number): number {
-  const k = THREE.MathUtils.clamp((z + ARRIVAL_ACROSS) / ARRIVAL_ACROSS, 0, 1);
-  return -LANE_WIDTH * (1 - smoother(k));
-}
+const ARRIVAL_SPREAD = 0.05;
+const ARRIVAL_STAGGER = 0.04;
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
 
@@ -54,7 +51,7 @@ const BLIP_FALL = 0.7;
 export interface IntroScene {
   camera: THREE.PerspectiveCamera;
   player: PlayerCar;
-  rivals: THREE.Object3D[];
+  rivals: PlayerCar[];
   chase: CameraParams;
 }
 
@@ -73,18 +70,29 @@ export class Intro {
   private blipAt: number | null = null; // the blip's time so far (s), while it lasts
   private readonly idle: number;
   private readonly redline: number;
+  /** Each rival's place (grid coordinates), and how far behind the player's it is (m). */
+  private readonly rivalsAt: [number, number, number][];
+  private readonly behind: number[];
 
   constructor(
     readonly kind: IntroKind,
     private readonly scene: IntroScene,
   ) {
-    const car = scene.player.mesh;
-    this.origin.set(car.position.x, 0, car.position.z);
-    this.ahead.set(0, 0, -1).applyQuaternion(car.quaternion).setY(0).normalize();
+    // Where the cars are (their bodies: not as drawn, a show's offset on them).
+    const at = (c: PlayerCar) => {
+      const t = c.body.translation();
+      return new THREE.Vector3(t.x, t.y, t.z);
+    };
+    const car = at(scene.player);
+    const q = scene.player.body.rotation();
+    this.origin.set(car.x, 0, car.z);
+    this.ahead.set(0, 0, -1).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w)).setY(0).normalize();
     this.right.set(-this.ahead.z, 0, this.ahead.x);
     this.idle = scene.player.params.idleRpm;
     this.redline = scene.player.params.redline;
-    this.shots = this.script(kind, car.position.y);
+    this.rivalsAt = scene.rivals.map((r) => this.grid(at(r)));
+    this.behind = this.rivalsAt.map((g) => Math.max(0, -g[2]));
+    this.shots = this.script(kind, car.y);
   }
 
   /** Total length (s). */
@@ -106,10 +114,10 @@ export class Intro {
     const car = this.scene.player;
     car.showOffset = s.offset ? THREE.MathUtils.lerp(s.offset[0], s.offset[1], (s.offsetEase ?? linear)(k)) : 0;
     if (this.kind === 'arrival') {
-      // Up the lane on its left (a rival waits in its own, the row behind), then across into its place.
-      const z = car.showOffset;
-      car.showSide = arrivalSide(z);
-      car.showYaw = Math.atan2(arrivalSide(z + 0.05) - arrivalSide(z - 0.05), 0.1);
+      this.scene.rivals.forEach((r, i) => {
+        const behind = this.behind[i];
+        r.showOffset = car.showOffset * (1 + behind * ARRIVAL_SPREAD + (behind > 1 ? 0 : (i + 1) * ARRIVAL_STAGGER));
+      });
     }
     if (!done && s.blip !== undefined && this.t >= s.blip && this.blipAt === null) this.blipAt = 0;
     else if (this.blipAt !== null) this.blipAt += dt;
@@ -140,9 +148,8 @@ export class Intro {
   end(): void {
     const car = this.scene.player;
     car.showOffset = 0;
-    car.showSide = 0;
-    car.showYaw = 0;
     car.showRev = null;
+    for (const r of this.scene.rivals) r.showOffset = 0;
   }
 
   /** The blip `t` s in: the rpm up fast and the throttle held, then let go and the rpm falling back. */
@@ -174,17 +181,16 @@ export class Intro {
     const half = p.wheelbase / 2;
     const track = Math.abs(car.wheels[0].x);
     if (kind === 'arrival') {
-      // From far back up to its spot: the grid's tail lights from low at the roadside behind it, the car coming by
-      // the camera into the picture and on to its place; then its front wheel rolling to a stop; then up behind it.
-      // (Facing the cars' headlights - from ahead of the grid, or turned after the car coming - whited it out.)
+      // Every car coming up its own lane together and drawing up on the grid, seen low from the roadside behind it
+      // (coming by the camera into the picture); then the player's front wheel rolling to a stop; then up behind it.
+      // (Facing the cars' headlights - from ahead of the grid, or turned after them coming - whited it out.)
       const wheel: [number, number, number] = [-track, r, half];
       return [
         {
-          // (At the roadside left of its way in, behind the grid's back row.)
           seconds: 2.4,
-          from: { pos: [-LANE_WIDTH - 2.6, 0.6, -15], look: [-1.5, 0.7, -1], fov: 40 },
-          to: { pos: [-LANE_WIDTH - 2.4, 0.65, -13.5], look: [-1.2, 0.7, -1], fov: 36 },
-          ease: smoother,
+          from: { pos: [-LANE_WIDTH - 2.6, 0.65, -24], look: [-0.5, 0.8, -4], fov: 38 },
+          to: { pos: [-LANE_WIDTH - 2.4, 0.7, -22], look: [-0.5, 0.8, -4], fov: 34 },
+          ease: linear, // (still moving at the cut)
           offset: [-50, -1.4],
           offsetEase: easeOut,
         },
@@ -192,7 +198,7 @@ export class Intro {
           seconds: 1.2,
           from: { pos: [wheel[0] - 1.25, 0.3, wheel[2] + 1.1], look: [...wheel], fov: 34 },
           to: { pos: [wheel[0] - 1.05, 0.32, wheel[2] + 0.75], look: [...wheel], fov: 32 },
-          ease: smoother,
+          ease: linear, // (still moving at the cut)
           offset: [-1.4, 0],
           offsetEase: easeOut,
           follow: true,
@@ -201,14 +207,14 @@ export class Intro {
           seconds: 1.5,
           from: { pos: [wheel[0] - 1.1, 0.45, wheel[2] + 0.4], look: [wheel[0] + 0.2, r + 0.1, wheel[2]], fov: 34 },
           to: chase,
-          ease: smoother,
+          ease: easeOut, // (in moving, settling where the chase camera starts)
         },
       ];
     }
     if (kind === 'grid') {
       // The grid from up high ahead, then low along the cars' noses, then the player's car (a blip), then round behind it.
-      const xs = [0, ...this.scene.rivals.map((m) => this.grid(m.position)[0])];
-      const zs = [0, ...this.scene.rivals.map((m) => this.grid(m.position)[2])];
+      const xs = [0, ...this.rivalsAt.map((g) => g[0])];
+      const zs = [0, ...this.rivalsAt.map((g) => g[2])];
       const left = Math.min(...xs) - 2.5;
       const rightX = Math.max(...xs) + 2.5;
       const front = Math.max(...zs) + 6.5;
@@ -219,26 +225,26 @@ export class Intro {
           seconds: 1.6,
           from: { pos: [mid, 9.5, front + 26], look: [mid, 0, -4], fov: 48 },
           to: { pos: [mid, 7.5, front + 19], look: [mid, 0, -4], fov: 48 },
-          ease: smoother,
+          ease: linear, // (still moving at the cut)
         },
         {
           seconds: 2.0,
           from: { pos: [rightX, 0.7, front], look: [rightX - 2.5, 0.6, 0], fov: 44 },
           to: { pos: [left, 0.7, front], look: [left + 2.5, 0.6, 0], fov: 44 },
-          ease: smoother,
+          ease: linear, // (still moving at the cut)
         },
         {
           seconds: 1.1,
           from: hero,
           to: { ...hero, pos: [2.6, 0.8, 5.5] },
-          ease: smoother,
+          ease: linear, // (still moving at the cut)
           blip: 0.15,
         },
         {
           seconds: 1.4,
           from: { ...hero, pos: [2.6, 0.8, 5.5] },
           to: chase,
-          ease: smoother,
+          ease: easeOut, // (in moving, settling where the chase camera starts)
         },
       ];
     }
@@ -252,13 +258,13 @@ export class Intro {
         seconds: 1.1,
         from: { pos: [rear[0] + 1.3, 0.22, rear[2] - 1.1], look: [...rear], fov: 32 },
         to: { pos: [rear[0] + 1.15, 0.24, rear[2] - 0.7], look: [...rear], fov: 30 },
-        ease: smoother,
+        ease: linear, // (still moving at the cut)
       },
       {
         seconds: 1.2,
         from: { pos: [tip[0] + 0.9, tip[1] + 0.18, tip[2] - 1.6], look: [...tip], fov: 30 },
         to: { pos: [tip[0] + 0.75, tip[1] + 0.15, tip[2] - 1.35], look: [...tip], fov: 28 },
-        ease: smoother,
+        ease: linear, // (still moving at the cut)
         blip: 0.1,
       },
       {
@@ -266,19 +272,19 @@ export class Intro {
         seconds: 1.1,
         from: { pos: [track + 1.5, carY - 0.05, p.length / 2 + 1.4], look: [track - 0.2, carY, p.length / 2 - 0.4], fov: 34 },
         to: { pos: [track + 1.2, carY + 0.05, p.length / 2 + 1.0], look: [track - 0.35, carY, p.length / 2 - 0.5], fov: 32 },
-        ease: smoother,
+        ease: linear, // (still moving at the cut)
       },
       {
         seconds: 0.9,
         from: tail,
         to: { ...tail, pos: [-1.0, 0.42, -p.length / 2 - 2.0] },
-        ease: smoother,
+        ease: linear, // (still moving at the cut)
       },
       {
         seconds: 1.3,
         from: { ...tail, pos: [-1.0, 0.42, -p.length / 2 - 2.0] },
         to: chase,
-        ease: smoother,
+        ease: easeOut, // (in moving, settling where the chase camera starts)
       },
     ];
   }

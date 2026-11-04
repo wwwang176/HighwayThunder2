@@ -309,7 +309,7 @@ export class Game {
   private beginIntro(): void {
     const kinds = INTRO_KINDS.filter((k) => k !== this.intro?.kind);
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
-    this.intro = new Intro(kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car.mesh), chase: this.rig.params });
+    this.intro = new Intro(kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car), chase: this.rig.params });
     this.introOn = true;
     this.overlay.show(true);
   }
