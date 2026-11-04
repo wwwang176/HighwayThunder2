@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { FlareDepth } from './flarePass';
 
 /**
  * Soft glowing sprites for light sources (car head/tail lights, lamp heads).
@@ -6,23 +7,36 @@ import * as THREE from 'three';
  * distant lights stay visible and steady instead of shimmering in and out the
  * way sub-pixel geometry does. Additive; occluded by the depth buffer.
  * `aimed`: each flare has a direction its lamp shines in (`aim`, world; none:
- * all round) and fades seen from off it (flareFacing).
+ * all round) and fades seen from off it (flareFacing). `depth` (a FlarePass's):
+ * not depth tested but each faded whole by how much of it the scene hides.
  */
-export function makeFlareMaterial(minPx = 3, aimed = false): THREE.ShaderMaterial {
+export function makeFlareMaterial(minPx = 3, aimed = false, depth?: FlareDepth): THREE.ShaderMaterial {
+  const defines: Record<string, string> = {};
+  if (aimed) defines.AIMED = '';
+  if (depth) defines.OCCLUDED = '';
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
+    depthTest: !depth,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
-    defines: aimed ? { AIMED: '' } : {},
+    defines,
     uniforms: {
       scale: { value: 600 },
       minPx: { value: minPx },
       opacity: { value: 1 },
       aimFull: { value: Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.full)) },
       aimGone: { value: Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.gone)) },
+      ...depth,
     },
     vertexShader: `
+      #ifdef OCCLUDED
+      #include <packing>
+      uniform sampler2D tDepth;
+      uniform vec2 depthRes;
+      uniform float cameraNear;
+      uniform float cameraFar;
+      #endif
       attribute vec3 color;
       attribute float size;
       uniform float scale;
@@ -51,6 +65,22 @@ export function makeFlareMaterial(minPx = 3, aimed = false): THREE.ShaderMateria
         #endif
         vColor = color;
         gl_Position = projectionMatrix * mv;
+        #ifdef OCCLUDED
+        // How much of it the scene hides: its middle and six points round it (a third of its size out), each
+        // seen unless something is drawn nearer (by more than a little: its own lamp's glass behind it).
+        vec2 uv = gl_Position.xy / gl_Position.w * 0.5 + 0.5;
+        vec2 r = vec2(max(1.0, 0.35 * px)) / depthRes;
+        float bias = max(0.2, 0.02 * -mv.z);
+        float seen = 0.0;
+        for (int i = 0; i < 7; i++) {
+          float a = float(i) * 1.0472;
+          vec2 at = i == 0 ? uv : uv + vec2(cos(a), sin(a)) * r;
+          bool off = at.x < 0.0 || at.x > 1.0 || at.y < 0.0 || at.y > 1.0;
+          float z = -perspectiveDepthToViewZ(texture2D(tDepth, at).x, cameraNear, cameraFar);
+          seen += off || z >= -mv.z - bias ? 1.0 : 0.0;
+        }
+        vAlpha *= seen / 7.0;
+        #endif
       }`,
     fragmentShader: `
       varying vec3 vColor;
@@ -87,9 +117,12 @@ export function flareFacing(cos: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** A dynamic batch of flares rebuilt every frame (moving vehicles), each aimed as its lamp. */
+/**
+ * A dynamic batch of flares rebuilt every frame (moving vehicles), each aimed as its lamp; in `scene`, depth tested,
+ * or (`depth`: a FlarePass's, `scene` its own) each faded whole by how much of it is hidden.
+ */
 export class LightFlares {
-  readonly material = makeFlareMaterial(3, true);
+  readonly material: THREE.ShaderMaterial;
   private readonly geo = new THREE.BufferGeometry();
   private readonly pos: Float32Array;
   private readonly col: Float32Array;
@@ -97,7 +130,8 @@ export class LightFlares {
   private readonly aim: Float32Array;
   private n = 0;
 
-  constructor(scene: THREE.Scene, private capacity = 2000) {
+  constructor(scene: THREE.Scene, private capacity = 2000, depth?: FlareDepth) {
+    this.material = makeFlareMaterial(3, true, depth);
     this.pos = new Float32Array(capacity * 3);
     this.col = new Float32Array(capacity * 3);
     this.size = new Float32Array(capacity);
