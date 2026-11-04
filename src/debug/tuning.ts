@@ -10,6 +10,7 @@ import { PLANNER } from '../ai/planner';
 import { DRIVER_TUNING } from '../ai/plannerDriver';
 import { RIVAL_TUNING } from '../game/rivals';
 import { RIVAL_LIGHTS } from '../game/rivalLights';
+import { FLASH } from '../game/flashing';
 import { HUD_SHAKE, RESET_HINT } from '../ui/hudMath';
 import { CONTACT_TUNING } from '../game/contact';
 
@@ -128,6 +129,10 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   rl.add(RIVAL_LIGHTS, 'fade', 1, 50, 1).name('超出後幾 m 淡出');
   rl.add(HEADLIGHTS, 'pair', 0, 1200, 10).name('車燈亮度 cd（玩家與對手；216 ≈ 路人車）');
   rl.add(HEADLIGHTS, 'high', 1, 5, 0.1).name('遠光燈亮度（近光的倍數，按住 X）');
+  rl.add(FLASH, 'ahead', 20, 200, 5).name('閃遠光：前車幾 m 內');
+  rl.add(FLASH, 'closing', 2, 30, 0.5).name('閃遠光：速差 m/s 以上（11.1 = 40 km/h）');
+  rl.add(FLASH, 'within', 1, 10, 0.5).name('閃遠光：幾秒內會追上');
+  rl.add(FLASH, 'cooldown', 1, 10, 0.5).name('閃遠光：間隔秒數');
   const r = gui.addFolder('電腦對手（橡皮筋）');
   r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
   r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');

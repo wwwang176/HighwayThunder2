@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AIM_DOWN, createHeadlight, HEADLIGHTS, RIVAL_DECAY } from '../vehicles/headlight';
+import { AIM_DOWN, createHeadlight, HEADLIGHTS, HIGH_BEAM_DECAY, RIVAL_DECAY } from '../vehicles/headlight';
 import { MAX_RIVALS } from './carSelection';
 
 /**
@@ -30,11 +30,12 @@ const OFF_SCREEN = 1000;
 const UPRIGHT = Math.cos(THREE.MathUtils.degToRad(30));
 const PARKED_Y = -500;
 
-/** A rival as the pool sees it: its body (placed this frame) and its size. */
+/** A rival as the pool sees it: its body (placed this frame), its size, and whether it flashes its high beam now (game/flashing). */
 export interface LitCar {
   mesh: THREE.Object3D;
   width: number;
   length: number;
+  high: boolean;
 }
 
 const P = new THREE.Vector3();
@@ -86,10 +87,12 @@ export class RivalLightPool {
     const shadows: THREE.SpotLight[] = [];
     lit.forEach(({ car, d }, i) => {
       const l = this.lamps[i];
+      // Its low beam, or (flashing) its high beam: a plain spot aimed level, brighter, lighting the ground as such.
+      l.decay = car.high ? HIGH_BEAM_DECAY : RIVAL_DECAY;
       l.position.set(0, -0.05, -car.length / 2 - 0.15).applyMatrix4(car.mesh.matrixWorld);
-      l.target.position.set(0, -0.05 - Math.tan(AIM_DOWN) * 30, -car.length / 2 - 30).applyMatrix4(car.mesh.matrixWorld);
+      l.target.position.set(0, -0.05 - (car.high ? 0 : Math.tan(AIM_DOWN) * 30), -car.length / 2 - 30).applyMatrix4(car.mesh.matrixWorld);
       l.target.updateMatrixWorld();
-      l.intensity = HEADLIGHTS.pair; // (both its lamps' light)
+      l.intensity = HEADLIGHTS.pair * (car.high ? HEADLIGHTS.high : 1); // (both its lamps' light)
       if (l.castShadow) {
         const fade = Math.max(0, Math.min(1, (L.shadowRange + L.fade - d) / L.fade));
         l.shadow.intensity = fade;

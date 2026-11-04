@@ -49,6 +49,7 @@ import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
 import { RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
 import { type LitCar, RivalLightPool } from './rivalLights';
+import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
@@ -95,6 +96,8 @@ export class Game {
   /** The rivals' real headlights (a pool handed out each frame: lightRivals) and those of them casting shadows now. */
   private rivalLights!: RivalLightPool;
   private rivalShadows: THREE.SpotLight[] = [];
+  /** Each rival's high-beam flashing (game/flashing). */
+  private readonly flashers = new WeakMap<object, BeamFlasher>();
   readonly flow = new GameFlow(localStorage);
   readonly sound = new Sound();
   readonly hud: Hud;
@@ -733,16 +736,24 @@ export class Game {
   }
 
   /**
-   * The rivals' real lamps handed out (game/rivalLights: their bodies placed; the camera as last drawn) and the
-   * player's at the one brightness (HEADLIGHTS: the tuning panel's). The rivals left without one: their beams
-   * painted on the road.
+   * The rivals' real lamps handed out (game/rivalLights: their bodies placed; the camera as last drawn), each
+   * flashing its high beam at a racer it closes on fast (game/flashing, on race time `play`), and the player's at
+   * the one brightness (HEADLIGHTS: the tuning panel's). The rivals left without one: their beams painted on the road.
    */
-  private lightRivals(): LitCar[] {
+  private lightRivals(play: number): LitCar[] {
     // The high beam while X is held (in the race: not in the garage).
     const high = !this.garage.isOpen && this.keyboard.isDown('KeyX');
     if (high !== this.player.highBeam) this.player.setHighBeam(high);
     for (const l of this.player.headlights) l.intensity = (HEADLIGHTS.pair / 2) * (high ? HEADLIGHTS.high : 1);
-    const cars = this.rivals.list.map((r) => ({ mesh: r.car.mesh, width: r.car.width, length: r.car.length }));
+    const racing = this.flow.phase === 'racing';
+    const road = [this.player, ...this.rivals.list.map((r) => r.car)].map((c) => ({ s: c.s, d: c.d, v: c.speed }));
+    const cars = this.rivals.list.map((r, i) => {
+      let f = this.flashers.get(r);
+      if (!f) this.flashers.set(r, (f = new BeamFlasher()));
+      const me = road[i + 1];
+      const flashing = f.update(play, racing && wantsToFlash(me, road.filter((o) => o !== me)));
+      return { mesh: r.car.mesh, width: r.car.width, length: r.car.length, high: flashing };
+    });
     const { painted, shadows } = this.rivalLights.assign(cars, this.camera);
     this.rivalShadows = shadows;
     return painted;
@@ -854,7 +865,7 @@ export class Game {
       for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
     }
     this.rivals.render(alpha, this.flares);
-    for (const car of this.lightRivals()) this.npcBeams.add(car.mesh, pp.x, pp.z); // (the rivals without a real lamp: their beams painted)
+    for (const car of this.lightRivals(play)) this.npcBeams.add(car.mesh, pp.x, pp.z); // (the rivals without a real lamp: their beams painted)
     this.flares.end();
     this.npcBeams.end();
     const planned = this.aiDriver as { plan?: Plan | null; planAge?: number } | null;
