@@ -291,6 +291,9 @@ export class GarageScene {
     // The city's foot (70% down the picture) at the camera's eye level.
     strip.position.y = CAM.h + height * (0.7 - 0.5);
     strip.scale.x = -1; // seen from inside: the picture the right way round
+    // Centred on where the camera looks on average (from CAM.base, at the car: toward CAM.base + π), not straight
+    // down -z: the swing's one end, and the view shifted for the title or the race setup, ran past its edge.
+    strip.rotation.y = CAM.base;
     this.scene.add(strip);
   }
 }
