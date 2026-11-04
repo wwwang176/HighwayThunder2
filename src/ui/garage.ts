@@ -3,6 +3,7 @@ import { DIFFICULTIES } from '../game/difficulty';
 import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
 import { GarageScene, VIEW } from './garageScene';
+import { applyLang, getLang, onLangChange, saveSettings, setLang, t, tx, type Key, type Lang } from './i18n';
 import { installTooltips } from './tooltip';
 
 const html = String.raw;
@@ -16,35 +17,45 @@ const help = (...lines: string[]) => `<span class="help cut" tabindex="0" data-t
 /** The "?" of a race setup row: it opens by itself while the keys are on that row (Garage.drawSetup). */
 const rowHelp = (row: string, ...lines: string[]) => help(...lines).replace('<span ', `<span data-row="${row}" `);
 /** A call to action's inside (docs/ui-design.md .cta): its offset outline, its fill, the words, Enter, the chevrons. */
-const CTA = (text: string) =>
-  `<span class="ghost"></span><span class="fill"></span><span class="txt">${text}<kbd>Enter</kbd><span class="chev"><b>›</b><b>›</b><b>›</b></span></span>`;
+const CTA = (key: Key) =>
+  `<span class="ghost"></span><span class="fill"></span><span class="txt">${tx(key)}<kbd>Enter</kbd><span class="chev"><b>›</b><b>›</b><b>›</b></span></span>`;
+/** A car type's name, in the language now. */
+const carName = (id: string) => t(`car.${id}` as Key);
 /** How the rivals' cars are picked (the setup's second level: their cars listed only for the custom one). */
-const MODES: [RivalMode, string, string][] = [
-  ['random', 'icon-random', '全部隨機'],
-  ['same', 'icon-same', '全部同我的車'],
-  ['custom', 'icon-rivals', '自由指定'],
+const MODES: [RivalMode, string][] = [
+  ['random', 'icon-random'],
+  ['same', 'icon-same'],
+  ['custom', 'icon-rivals'],
 ];
-const WEATHERS: [Weather, string, string][] = [
-  ['clear', 'icon-night-clear', '晴夜'],
-  ['rain', 'icon-night-rain', '雨夜'],
-  ['fog', 'icon-night-fog', '霧夜'],
+const WEATHERS: [Weather, string][] = [
+  ['clear', 'icon-night-clear'],
+  ['rain', 'icon-night-rain'],
+  ['fog', 'icon-night-fog'],
 ];
 /** The weathers out so far (the rest shown, "coming soon"). */
 const OPEN_WEATHERS: Weather[] = ['clear'];
+/** A car stat's tip, by its icon. */
+const STAT_TIPS: Record<string, Key> = { 'icon-accel': 'stat.accel', 'icon-topspeed': 'stat.top', 'icon-handling': 'stat.grip' };
 /** Keys and what they do (the controls pop-up). */
-const KEYS: [string, string][] = [
-  ['W / ↑', '油門'],
-  ['S / ↓', '煞車 / 倒車'],
-  ['A D / ← →', '轉向'],
-  ['Shift', '氮氣'],
-  ['C', '看正後方'],
-  ['R', '重置到車道上'],
-  ['I', 'AI 接手駕駛'],
-  ['Esc', '暫停'],
-  ['M', '靜音'],
-  ['↑ ↓  ← →', '車庫：換車、換烤漆；選單：移動游標'],
-  ['E', '車庫：比賽設定'],
-  ['H', '車庫：操作說明'],
+const KEYS: [string, Key][] = [
+  ['W / ↑', 'keys.throttle'],
+  ['S / ↓', 'keys.brake'],
+  ['A D / ← →', 'keys.steer'],
+  ['Shift', 'keys.nitro'],
+  ['C', 'keys.look'],
+  ['R', 'keys.reset'],
+  ['I', 'keys.ai'],
+  ['Esc', 'keys.pause'],
+  ['M', 'keys.mute'],
+  ['↑ ↓  ← →', 'keys.menus'],
+  ['E', 'keys.setup'],
+  ['H', 'keys.help'],
+  ['O', 'keys.settings'],
+];
+/** The languages, each named in itself. */
+const LANGS: [Lang, string][] = [
+  ['zh', '中文'],
+  ['en', 'English'],
 ];
 /** The race setup's drawer no smaller than this (its zoom, to fit a short screen); below it, its compact layout, then its scroll. */
 const SETUP_MIN_ZOOM = 0.75;
@@ -81,10 +92,13 @@ export class Garage {
       <div class="g-setup-shade"></div>
       <div class="g-title">
         <div class="g-title-name">${icon('emblem')}<h1>HIGHWAY<br>THUNDER 2</h1><div class="rule"></div></div>
-        <button class="cta g-start">${CTA('開始遊戲')}</button>
+        <button class="cta g-start">${CTA('title.start')}</button>
       </div>
       <div class="g-brand">${icon('emblem')}<div class="g-name">HIGHWAY THUNDER 2</div><div class="rule"></div></div>
-      <button class="g-keys"><kbd>H</kbd><span class="float">操作說明</span></button>
+      <div class="g-corner">
+        <button class="g-keys"><kbd>H</kbd>${tx('garage.controls', 'span', 'float')}</button>
+        <button class="g-opts"><kbd>O</kbd>${tx('garage.settings', 'span', 'float')}</button>
+      </div>
       <div class="g-id float"><div class="pool"></div><div class="tagrow"><span class="lbl tag"></span><span class="lbl pos"></span></div><h1></h1><div class="bar-top"></div><div class="g-stats"></div></div>
       <div class="g-left">
         <div class="g-head"><span class="lbl float">Select class</span><span><kbd>↑</kbd><kbd>↓</kbd></span></div>
@@ -93,26 +107,30 @@ export class Garage {
       <div class="g-paint"><span class="lbl float">Paint</span><kbd>←</kbd><div class="g-paints"></div><kbd>→</kbd></div>
       <div class="g-depart">
         <button class="g-race float"></button>
-        <button class="cta g-go">${CTA('開始比賽')}</button>
+        <button class="cta g-go">${CTA('garage.start')}</button>
       </div>
-      <div class="g-setup bracketed" role="dialog" aria-label="比賽設定"><span class="brk tr"></span><span class="brk bl"></span>
+      <div class="g-setup bracketed" role="dialog" data-t-aria="setup.title"><span class="brk tr"></span><span class="brk bl"></span>
         <div class="g-drawer panel cut">
           <div class="s-top">
-            <div><div class="lbl dash">Race setup</div><h2>比賽設定</h2></div>
-            <span class="s-keys">${help('↑ ↓　選項目', '← →　調整', '0 – 5　對手數量', 'Enter　開始比賽', 'Esc　收起')}</span>
-            <button class="s-back cut"><kbd>Esc</kbd><span>收起</span></button>
+            <div>${tx('setup.kicker', 'div', 'lbl dash')}${tx('setup.title', 'h2')}</div>
+            <span class="s-keys"></span>
+            <button class="s-back cut"><kbd>Esc</kbd>${tx('setup.close')}</button>
           </div>
           <div class="s-body"></div>
-          <button class="cta s-go">${CTA('開始比賽')}</button>
+          <button class="cta s-go">${CTA('garage.start')}</button>
         </div>
       </div>
       <div class="g-back" data-pop="keys">
         <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
-        <div class="g-modal g-keys-list panel cut" role="dialog" aria-modal="true" aria-label="操作說明">
-          <button class="g-close cut" data-tip="關閉" data-tip-place="left">✕</button>
+        <div class="g-modal g-keys-list panel cut" role="dialog" aria-modal="true" data-t-aria="garage.controls">
+          <button class="g-close cut" data-t-tip="garage.close" data-tip-place="left">✕</button>
           <div class="lbl dash">Controls</div>
-          ${KEYS.map(([k, what]) => `<div class="g-key"><kbd>${k}</kbd><span>${what}</span></div>`).join('')}
+          ${KEYS.map(([k, what]) => `<div class="g-key"><kbd>${k}</kbd>${tx(what)}</div>`).join('')}
         </div></div>
+      </div>
+      <div class="g-back" data-pop="settings">
+        <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-modal g-settings panel cut" role="dialog" aria-modal="true"></div></div>
       </div>`;
     root.appendChild(this.el);
     installTooltips(this.el);
@@ -123,8 +141,16 @@ export class Garage {
     this.q('.g-race').onclick = () => this.openSetup();
     this.q('.s-back').onclick = () => this.closePop();
     this.q('.g-keys').onclick = () => this.openKeys();
+    this.q('.g-opts').onclick = () => this.openSettings();
     this.q('.g-close').onclick = () => this.closePop();
-    this.q('.g-back').onclick = (e) => e.target === e.currentTarget && this.closePop();
+    this.el.querySelectorAll<HTMLElement>('.g-back').forEach((b) => (b.onclick = (e) => e.target === e.currentTarget && this.closePop()));
+    this.drawSetupKeys();
+    // Another language (the settings' OK): the fixed words redone, the rest redrawn.
+    onLangChange(() => {
+      applyLang(this.el);
+      this.drawSetupKeys();
+      if (this.sel) this.draw();
+    });
     addEventListener('resize', () => this.setupOpen && this.fitSetup());
     this.q('.g-setup').addEventListener('pointerdown', () => (this.keyed = false));
     // A click leaves no focus behind: Enter is the garage's (start), not the clicked button's again.
@@ -137,7 +163,12 @@ export class Garage {
 
   /** The controls pop-up is open (it takes the keys: Esc closes it, the rest do nothing). */
   get keysOpen(): boolean {
-    return this.q('.g-back').classList.contains('open');
+    return this.q('[data-pop="keys"]').classList.contains('open');
+  }
+
+  /** The settings pop-up is open (← → its language, Enter its OK, Esc its cancel). */
+  get settingsOpen(): boolean {
+    return this.q('[data-pop="settings"]').classList.contains('open');
   }
 
   /** The race setup's drawer is open (the arrows and 0-5 work it: setupMove, setupAdjust, setupCount). */
@@ -147,7 +178,7 @@ export class Garage {
 
   /** Something over the garage (Esc closes it rather than anything else). */
   get popOpen(): boolean {
-    return this.keysOpen || this.setupOpen;
+    return this.keysOpen || this.settingsOpen || this.setupOpen;
   }
 
   /** Open on `sel`: at the title (the game's name and its start on the left, the car on the right) or in it. */
@@ -188,9 +219,9 @@ export class Garage {
     this.onStart(this.sel);
   }
 
-  /** Close the controls pop-up and the race setup (the car back in the middle). */
+  /** Close the pop-ups (the settings: cancelled, nothing of them kept) and the race setup (the car back in the middle). */
   closePop(): void {
-    this.q('.g-back').classList.remove('open');
+    this.el.querySelectorAll('.g-back').forEach((b) => b.classList.remove('open'));
     if (this.setupOpen) {
       if (this.q('.g-setup').contains(document.activeElement)) (document.activeElement as HTMLElement).blur(); // (its tip with it)
       this.el.classList.remove('setup');
@@ -201,7 +232,7 @@ export class Garage {
   /** The race setup, from the right (its card, or E): the car slides left beside it, the garage's own type fades. */
   openSetup(): void {
     if (this.titleOn || this.setupOpen) return;
-    this.q('.g-back').classList.remove('open');
+    this.closePop();
     this.row = 0;
     this.el.classList.add('setup');
     this.preview.slide(VIEW.setup, true);
@@ -212,7 +243,59 @@ export class Garage {
 
   private openKeys(): void {
     this.closePop();
-    this.q('.g-back').classList.add('open');
+    this.q('[data-pop="keys"]').classList.add('open');
+  }
+
+  /** The settings' language picked but not yet the game's (OK takes it; cancel drops it): the pop-up shows itself in it. */
+  private pendingLang: Lang = 'zh';
+
+  /** The settings pop-up (its button, or O): nothing it sets counts till OK. */
+  openSettings(): void {
+    if (this.titleOn) return;
+    this.closePop();
+    this.pendingLang = getLang();
+    this.drawSettings();
+    this.q('[data-pop="settings"]').classList.add('open');
+    (document.activeElement as HTMLElement | null)?.blur();
+  }
+
+  /** O in the garage: the settings, or cancelled again. */
+  toggleSettings(): void {
+    if (this.settingsOpen) this.closePop();
+    else this.openSettings();
+  }
+
+  /** ← → on the settings: the other language (the pop-up in it at once, the game only on OK). */
+  settingsAdjust(d: number): void {
+    const i = LANGS.findIndex(([l]) => l === this.pendingLang);
+    this.pendingLang = LANGS[Math.max(0, Math.min(LANGS.length - 1, i + d))][0];
+    this.drawSettings();
+  }
+
+  /** OK (or Enter): the settings taken - the game into the language picked, and kept for the next visit. */
+  confirmSettings(): void {
+    this.closePop();
+    saveSettings(localStorage, { lang: this.pendingLang });
+    if (this.pendingLang !== getLang()) setLang(this.pendingLang);
+  }
+
+  /** The settings pop-up, in the language picked in it: its language row, OK (Enter) and cancel (Esc). */
+  private drawSettings(): void {
+    const l = this.pendingLang;
+    const box = this.q('.g-settings');
+    box.setAttribute('aria-label', t('settings.title', {}, l));
+    box.innerHTML = html`
+      <div class="lbl dash">${t('settings.kicker', {}, l)}</div><h2>${t('settings.title', {}, l)}</h2>
+      <div class="s-sub focus"><span class="lbl">${t('settings.lang', {}, l)}</span><div class="s-langs">${LANGS.map(([k, name]) => `<button class="s-btn ${k === l ? 'sel' : ''}" data-lang="${k}"><span>${name}</span></button>`).join('')}</div><span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>
+      <div class="btns"><button class="opt sel" data-act="ok"><span>${t('settings.ok', {}, l)}</span><kbd>Enter</kbd></button><button class="opt" data-act="cancel"><span>${t('settings.cancel', {}, l)}</span><kbd>Esc</kbd></button></div>`;
+    box.querySelectorAll<HTMLElement>('[data-lang]').forEach((b) => (b.onclick = () => ((this.pendingLang = b.dataset.lang as Lang), this.drawSettings())));
+    box.querySelector<HTMLElement>('[data-act="ok"]')!.onclick = () => this.confirmSettings();
+    box.querySelector<HTMLElement>('[data-act="cancel"]')!.onclick = () => this.closePop();
+  }
+
+  /** The race setup's "?" of its keys, in the language now. */
+  private drawSetupKeys(): void {
+    this.q('.s-keys').innerHTML = help(t('setup.keys.move'), t('setup.keys.adjust'), t('setup.keys.count'), t('setup.keys.start'), t('setup.keys.close'));
   }
 
   /** H in the garage: the controls pop-up, or closed again. */
@@ -313,7 +396,7 @@ export class Garage {
     const n = s.rivals.length;
     const count = (ic: string, k: number) => `<span class="count">${icon(ic, 'mini')}×${k}</span>`;
     if (!n) return `<span class="count">×0</span>`;
-    if (s.rivalMode === 'random') return `<span class="count">${icon('icon-random', 'dice')}隨機 ×${n}</span>`;
+    if (s.rivalMode === 'random') return `<span class="count">${icon('icon-random', 'dice')}${t('garage.randomCount', { n })}</span>`;
     if (s.rivalMode === 'same') return count(card(s.player).icon, n);
     return PICKABLE.filter((id) => s.rivals.includes(id))
       .map((id) => count(card(id).icon, s.rivals.filter((r) => r === id).length))
@@ -330,7 +413,7 @@ export class Garage {
     this.el.style.setProperty('--accent', me.accent);
     // Left: the car types (numbered, the picked one filled).
     this.q('.g-classes').innerHTML = CAR_CARDS.map(
-      (c, i) => `<button class="opt g-cls ${c.id === s.player ? 'sel' : ''}" data-id="${c.id}"><span class="no">${two(i + 1)}</span>${icon(c.icon, 'car')}<span>${c.name}</span></button>`,
+      (c, i) => `<button class="opt g-cls ${c.id === s.player ? 'sel' : ''}" data-id="${c.id}"><span class="no">${two(i + 1)}</span>${icon(c.icon, 'car')}<span>${carName(c.id)}</span></button>`,
     ).join('');
     this.el.querySelectorAll<HTMLElement>('.g-cls').forEach((b) => (b.onclick = () => this.pick(b.dataset.id!)));
     // Under the car: its paint jobs (a slanted swatch each).
@@ -341,14 +424,14 @@ export class Garage {
     this.el.querySelectorAll<HTMLElement>('.g-paint-job').forEach((b) => (b.onclick = () => this.paint(b.dataset.paint!)));
     // Top: its type and place in the list, its name, its stats.
     const seg = (bar: number) => `<div class="seg">${Array.from({ length: 20 }, (_, i) => `<i class="${i < Math.round(bar * 20) ? 'on' : ''}"></i>`).join('')}</div>`;
-    this.q('.g-id .tag').textContent = me.tag;
+    this.q('.g-id .tag').textContent = t(`tag.${me.id}` as Key);
     this.q('.g-id .pos').textContent = `${two(CAR_CARDS.indexOf(me) + 1)} / ${two(CAR_CARDS.length)}`;
-    this.q('.g-id h1').textContent = me.name;
+    this.q('.g-id h1').textContent = carName(me.id);
     this.q('.g-stats').innerHTML = me.stats
       .map(
         (st) =>
-          `<div><div class="top"><span data-tip="${st.tip}" tabindex="0">${icon(st.icon)}</span><span class="lbl">${st.label}</span></div>` +
-          `<span class="v num lean">${st.value}<small>${st.unit}</small></span>${seg(st.bar)}</div>`,
+          `<div><div class="top"><span data-tip="${t(STAT_TIPS[st.icon])}" tabindex="0">${icon(st.icon)}</span><span class="lbl">${st.label}</span></div>` +
+          `<span class="v num lean">${st.value}<small>${st.unit === 's' ? t('unit.s') : st.unit}</small></span>${seg(st.bar)}</div>`,
       )
       .join('');
     // Bottom right: the race at a glance (the rivals, difficulty, weather), opening the setup.
@@ -356,8 +439,8 @@ export class Garage {
     this.q('.g-race').innerHTML = html`
       <div class="head"><span class="lbl">Race setup</span><span class="edit"><kbd>E</kbd><span class="lbl">Edit ▸</span></span></div>
       <div class="row">${icon('icon-rivals')}<span class="lbl">Rivals</span><span class="val">${this.lineUp()}</span></div>
-      <div class="row">${icon('icon-difficulty')}<span class="lbl">Difficulty</span><span class="val">${DIFFICULTIES[s.difficulty].name}</span></div>
-      <div class="row">${icon(w[1])}<span class="lbl">Weather</span><span class="val">${w[2]}</span></div>`;
+      <div class="row">${icon('icon-difficulty')}<span class="lbl">Difficulty</span><span class="val">${t(`diff.${s.difficulty}` as Key)}</span></div>
+      <div class="row">${icon(w[1])}<span class="lbl">Weather</span><span class="val">${t(`weather.${w[0]}` as Key)}</span></div>`;
     if (this.setupOpen) this.drawSetup();
   }
 
@@ -369,35 +452,35 @@ export class Garage {
     const s = this.sel;
     const rows = this.rowKeys();
     const focus = (key: string) => (rows[this.row] === key ? 'focus' : '');
-    const head = (en: string, zh: string, aside = '') => `<div class="s-head"><span class="lbl dash">${en}</span><h3>${zh}</h3><div class="aside">${aside}</div></div>`;
+    const head = (kicker: Key, title: Key, aside = '') => `<div class="s-head"><span class="lbl dash">${t(kicker)}</span><h3>${t(title)}</h3><div class="aside">${aside}</div></div>`;
     const custom = s.rivalMode === 'custom' && s.rivals.length > 0;
     const body = this.q('.s-body');
     const scrolled = body.scrollTop; // (redrawn on every change: kept where it was)
     body.innerHTML = html`
       <div class="s-sec">
-        ${head('Rivals', '對手', this.lineUp())}
-        <div class="s-sub ${focus('count')}"><span class="lbl">數量</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) => `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`).join('')}</div></div>
-        <div class="s-sub ${focus('mode')}"><span class="lbl">車種</span><div class="s-modes">${MODES.map(([m, ic, name]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${name}</span></button>`).join('')}</div>${rowHelp('mode', '全部隨機：每場比賽重新抽選對手的車種', '全部同我的車：對手開你的車，你換車他們也跟著換', '自由指定：逐台指定對手的車種')}</div>
-        ${custom ? `<div class="mx-head"><span></span>${PICKABLE.map((id) => `<div>${id === s.player ? '<span class="you cut">YOU</span>' : ''}<span>${card(id).name}</span></div>`).join('')}<span></span></div>` : ''}
+        ${head('setup.rivals.kicker', 'setup.rivals', this.lineUp())}
+        <div class="s-sub ${focus('count')}"><span class="lbl">${t('setup.count')}</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) => `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`).join('')}</div></div>
+        <div class="s-sub ${focus('mode')}"><span class="lbl">${t('setup.mode')}</span><div class="s-modes">${MODES.map(([m, ic]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${t(`mode.${m}`)}</span></button>`).join('')}</div>${rowHelp('mode', ...MODES.map(([m]) => t(`mode.help.${m}`)))}</div>
+        ${custom ? `<div class="mx-head"><span></span>${PICKABLE.map((id) => `<div>${id === s.player ? '<span class="you cut">YOU</span>' : ''}<span>${carName(id)}</span></div>`).join('')}<span></span></div>` : ''}
         ${(custom ? s.rivals : [])
           .map(
             (id, i) =>
               `<div class="s-rival ${focus(`rival${i}`)}" style="--c-slot:${hex(this.rivalColors[i % this.rivalColors.length])}"><span class="s-badge cut">${i + 1}</span>` +
-              PICKABLE.map((c) => `<button class="s-btn s-chip ${c === id ? 'sel' : ''}" data-i="${i}" data-car="${c}" data-tip="${card(c).name}">${icon(card(c).icon, 'car')}</button>`).join('') +
+              PICKABLE.map((c) => `<button class="s-btn s-chip ${c === id ? 'sel' : ''}" data-i="${i}" data-car="${c}" data-tip="${carName(c)}">${icon(card(c).icon, 'car')}</button>`).join('') +
               `<span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>`,
           )
           .join('')}
       </div>
       <div class="s-sec">
-        ${head('Difficulty', '難度', rowHelp('difficulty', ...DIFFICULTIES.map((x) => `${x.name}：${x.hint}`)))}
-        <div class="s-diff-row ${focus('difficulty')}">${DIFFICULTIES.map((x, i) => `<button class="s-btn ${i === s.difficulty ? 'sel' : ''}" data-d="${i}"><span>${x.name}</span></button>`).join('')}</div>
+        ${head('setup.difficulty.kicker', 'setup.difficulty', rowHelp('difficulty', ...DIFFICULTIES.map((_, i) => `${t(`diff.${i}` as Key)}：${t(`diff.hint.${i}` as Key)}`)))}
+        <div class="s-diff-row ${focus('difficulty')}">${DIFFICULTIES.map((_, i) => `<button class="s-btn ${i === s.difficulty ? 'sel' : ''}" data-d="${i}"><span>${t(`diff.${i}` as Key)}</span></button>`).join('')}</div>
       </div>
       <div class="s-sec">
-        ${head('Weather', '天氣')}
-        <div class="s-weather ${focus('weather')}">${WEATHERS.map(([k, ic, name]) =>
+        ${head('setup.weather.kicker', 'setup.weather')}
+        <div class="s-weather ${focus('weather')}">${WEATHERS.map(([k, ic]) =>
           OPEN_WEATHERS.includes(k)
-            ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}" data-w="${k}">${icon(ic)}<span>${name}</span></button>`
-            : `<button class="s-btn soon" aria-disabled="true" data-tip="即將推出">${icon(ic)}<span>${name}</span></button>`,
+            ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}" data-w="${k}">${icon(ic)}<span>${t(`weather.${k}`)}</span></button>`
+            : `<button class="s-btn soon" aria-disabled="true" data-tip="${t('weather.soon')}">${icon(ic)}<span>${t(`weather.${k}`)}</span></button>`,
         ).join('')}</div>
       </div>`;
     const all = (sel: string) => this.el.querySelectorAll<HTMLElement>(`.s-body ${sel}`);
