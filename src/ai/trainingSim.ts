@@ -138,7 +138,7 @@ export class TrainingSim {
     this.scene = opts.scene ?? new THREE.Scene();
     this.ownPool = opts.wheelPool ? null : new WheelInstances(this.scene);
     const pool = opts.wheelPool ?? this.ownPool!;
-    this.traffic = new TrafficWorld(this.physics, this.scene, pool, mulberry32(seed), { oncoming: false });
+    this.traffic = new TrafficWorld(this.physics, pool, mulberry32(seed), { oncoming: false });
     for (const d of drivers) {
       const car = new PlayerCar(this.physics, null, { spec });
       car.params.maxSpeed = this.speedCap;

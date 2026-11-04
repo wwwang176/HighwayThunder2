@@ -15,7 +15,7 @@ function makeWorld(seed = 1) {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   const scene = new THREE.Scene();
-  const world = new TrafficWorld(physics, scene, new WheelInstances(scene), mulberry32(seed), { oncoming: false });
+  const world = new TrafficWorld(physics, new WheelInstances(scene), mulberry32(seed), { oncoming: false });
   return { physics, world };
 }
 

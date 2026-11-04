@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { MAX_WRECKS, WRECK_LIFETIME } from '../config';
 import type { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
 import { ONCOMING_FRAME, OUR_FRAME, RoadFrame } from '../road/frame';
@@ -49,7 +48,6 @@ export class TrafficWorld {
 
   constructor(
     private readonly physics: PhysicsWorld,
-    private readonly scene: THREE.Scene,
     private readonly wheelPool: WheelInstances,
     public rng: Rng,
     private readonly opts: { oncoming: boolean },
@@ -207,7 +205,7 @@ export class TrafficWorld {
       for (const r of reqs) {
         const agent = side.sim.addAgent(r.kind, r.s, r.lane, this.rng);
         agent.v = Math.min(agent.v, r.vMax);
-        this.npcs.set(agent.id, new NpcVehicle(this.physics, this.scene, this.wheelPool, side.frame, agent, this.rng));
+        this.npcs.set(agent.id, new NpcVehicle(this.physics, this.wheelPool, side.frame, agent, this.rng));
         this.side.set(agent.id, side);
       }
     }

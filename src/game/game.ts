@@ -4,6 +4,7 @@ import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { PlanPath } from '../render/planPath';
 import { PostFx } from '../render/postFx';
+import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
 import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED } from '../config';
@@ -96,6 +97,8 @@ export class Game {
   private racerVelBefore: { x: number; z: number }[] = [];
   private aiTraffic: TrafficBox[] = [];
   private wheelPool!: WheelInstances;
+  /** The traffic's bodies, drawn instanced. */
+  private bodies!: BodyInstances;
   private skids!: SkidMarks;
   private smoke!: TireSmoke;
   private sparks!: Sparks;
@@ -138,9 +141,10 @@ export class Game {
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = surfaceGrip;
     this.wheelPool = new WheelInstances(this.scene);
+    this.bodies = new BodyInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.cars.rivals.map(specOf));
-    this.trafficWorld = new TrafficWorld(physics, this.scene, this.wheelPool, Math.random, { oncoming: true });
+    this.trafficWorld = new TrafficWorld(physics, this.wheelPool, Math.random, { oncoming: true });
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
@@ -660,6 +664,12 @@ export class Game {
     this.grassRumble();
     // Paused, the camera holds still too (its shakes stop where they are, and go on after).
     this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
+    // The traffic's bodies, those in this frame's view (the camera placed).
+    this.bodies.begin(this.camera);
+    for (const npc of this.npcs.values()) npc.addBodies(this.bodies);
+    this.player.addWheels(this.bodies);
+    for (const r of this.rivals.list) r.car.addWheels(this.bodies);
+    this.bodies.end();
     // (Mid-upshift the engine is let go of: it sounds off the throttle.)
     this.sound.setEngine(this.player.rpm, this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);

@@ -6,6 +6,7 @@ import { Trainer } from '../ai/trainer';
 import { CameraRig } from '../render/cameraRig';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
+import { BodyInstances } from '../render/bodyInstances';
 import { WheelInstances } from '../vehicles/wheelInstances';
 import { RoadScene } from '../world/roadScene';
 import { GhostView } from './ghostView';
@@ -32,6 +33,7 @@ async function boot() {
   const beams = new NpcBeams();
   for (const m of road.groundMaterials) beams.patch(m);
   const wheelPool = new WheelInstances(scene);
+  const bodies = new BodyInstances(scene);
   const ghosts = new GhostView(scene);
 
   const opts = { scene, wheelPool };
@@ -128,6 +130,9 @@ async function boot() {
       road.update(car.s, car.d);
       rig.update(dt, new THREE.Vector3(lp.x, lp.y, lp.z), car.yaw, car.body.linvel(), car.speed, 83.3);
     }
+    bodies.begin(camera);
+    for (const npc of sim.traffic.npcs.values()) npc.addBodies(bodies);
+    bodies.end();
     const h = renderer.domElement.height;
     updateFlareScale(flares.material, camera, h);
     updateFlareScale(road.lampFlareMaterial, camera, h);

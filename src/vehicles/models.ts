@@ -453,16 +453,28 @@ export function buildContainerTrailer(w: number, h: number, trailerL: number, co
  * about the axle. Spokes make the rotation visible. (A file's brake caliper
  * steers but doesn't roll.)
  */
-export function buildWheel(r: number, width: number, style?: CarStyle, left = false): { steer: THREE.Group; spin: THREE.Group } {
+/**
+ * A wheel: its steering pivot and, in it, what rolls. A file's wheel (`file`) is hidden, its place only: it is
+ * drawn instanced with every wheel like it (render/bodyInstances, by `file.key`; 7 parts a wheel, each its own
+ * material, were 28 draws a car).
+ */
+export function buildWheel(
+  r: number,
+  width: number,
+  style?: CarStyle,
+  left = false,
+): { steer: THREE.Group; spin: THREE.Group; file?: { key: string; wheel: THREE.Object3D } } {
   const steer = new THREE.Group();
   const spin = new THREE.Group();
   steer.add(spin);
   const fromFile = style ? carTemplate(style) : undefined;
   if (fromFile?.wheel) {
-    spin.add(templateWheel(fromFile, r, left));
+    const wheel = templateWheel(fromFile, r, left);
+    wheel.visible = false;
+    spin.add(wheel);
     const c = templateCaliper(fromFile, r, left);
     if (c) steer.add(c);
-    return { steer, spin };
+    return { steer, spin, file: { key: `wheel|${style}`, wheel } };
   }
   const tire = new THREE.Mesh(wheelGeo, TIRE);
   tire.scale.set(width, r, r);

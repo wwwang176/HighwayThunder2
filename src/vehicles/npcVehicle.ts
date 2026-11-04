@@ -25,6 +25,7 @@ import { npcDriveForces, stanleySteer, wheelLoads } from './npcDriver';
 import { boxToFrame, RoadFrame } from '../road/frame';
 import { WheelInstances } from './wheelInstances';
 import type { LightFlares } from '../render/lightFlares';
+import type { BodyInstances } from '../render/bodyInstances';
 import { BRAKE_ON, FlareSpot } from './models';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
 import type { TireParams } from './tireModel';
@@ -139,22 +140,32 @@ interface Part {
   vehicle: RAPIER.DynamicRayCastVehicleController | null; // live: Rapier's controller
   chassis: TyreChassis | null; // wrecked: the full tyre model
   wheels: Wheel[];
+  nDriven: number;
+  /** Where it is drawn (its matrix; never in the scene: drawn instanced, render/bodyInstances), its lamps' state. */
   mesh: THREE.Group;
   lights: VehicleLights;
+  /** Its model: the template every vehicle of it is drawn from, and its key. */
+  model: TrafficModelRef;
   prevPos: THREE.Vector3;
   currPos: THREE.Vector3;
   prevQuat: THREE.Quaternion;
   currQuat: THREE.Quaternion;
 }
 
+interface TrafficModelRef {
+  key: string;
+  template: THREE.Object3D;
+}
+
 const templates = new Map<string, VehicleModel>();
-function model(key: string, build: () => VehicleModel): VehicleModel {
+/** A vehicle of model `key`: its own lamps (their state) and pose holder, and the model it is drawn from. */
+function model(key: string, build: () => VehicleModel): VehicleModel & { ref: TrafficModelRef } {
   let t = templates.get(key);
   if (!t) {
     t = compactModel(build());
     templates.set(key, t);
   }
-  return cloneModel(t);
+  return { ...cloneModel(t), ref: { key, template: t.root } };
 }
 
 const FLARE_V = new THREE.Vector3();
@@ -261,7 +272,6 @@ export class NpcVehicle {
 
   constructor(
     private physics: PhysicsWorld,
-    private scene: THREE.Scene,
     private wheelPool: WheelInstances,
     readonly frame: RoadFrame,
     agent: Agent,
@@ -271,7 +281,7 @@ export class NpcVehicle {
     this.kind = agent.kind;
     const sp = agent.spec;
     const specs = partSpecs(agent.kind, sp);
-    let models: VehicleModel[];
+    let models: ReturnType<typeof model>[];
     if (agent.kind === 'container') {
       const color = pick(CONTAINER_COLORS, rng);
       const c = pickIndex(TRUCK_COLORS.length, rng);
@@ -317,7 +327,7 @@ export class NpcVehicle {
     }
   }
 
-  private makePart(s: PartSpec, m: VehicleModel): Part {
+  private makePart(s: PartSpec, m: ReturnType<typeof model>): Part {
     const body = this.physics.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setCanSleep(false));
     const ch = s.h - s.clearance;
     const inertia = {
@@ -389,7 +399,6 @@ export class NpcVehicle {
       }
     });
 
-    this.scene.add(m.root);
     return {
       spec: s,
       body,
@@ -397,8 +406,10 @@ export class NpcVehicle {
       vehicle,
       chassis: null,
       wheels,
+      nDriven: wheels.filter((w) => w.driven).length,
       mesh: m.root,
       lights: m.lights,
+      model: m.ref,
       prevPos: new THREE.Vector3(),
       currPos: new THREE.Vector3(),
       prevQuat: new THREE.Quaternion(),
@@ -449,11 +460,10 @@ export class NpcVehicle {
     // Brakes on every axle in proportion to each part's mass.
     const decel = f.brakeImpulse > 0 ? (f.brakeImpulse * 4) / (this.totalMass * dt) : 0;
     for (const p of this.parts) {
-      const nDriven = p.wheels.filter((w) => w.driven).length;
       const vc = p.vehicle!;
       p.wheels.forEach((w, i) => {
         vc.setWheelSteering(i, w.steer ? -steer : 0);
-        vc.setWheelEngineForce(i, w.driven ? -f.engineForce / nDriven : 0);
+        vc.setWheelEngineForce(i, w.driven ? -f.engineForce / p.nDriven : 0);
         vc.setWheelBrake(i, (decel * p.spec.mass * dt) / p.wheels.length);
       });
       vc.updateVehicle(dt, undefined, WHEEL_RAY_GROUPS);
@@ -593,6 +603,11 @@ export class NpcVehicle {
     }
   }
 
+  /** Its bodies into this frame's instanced drawing (after render: where they are). */
+  addBodies(bodies: BodyInstances): void {
+    for (const p of this.parts) bodies.add(p.model.key, p.model.template, p.mesh.matrix, p.lights);
+  }
+
   /** Position along OUR road (world s = -z) of the first part, for culling. */
   get s(): number {
     return -this.parts[0].body.translation().z;
@@ -624,7 +639,6 @@ export class NpcVehicle {
       if (p.vehicle) this.physics.world.removeVehicleController(p.vehicle);
       for (const c of p.colliders) this.physics.unregister(c);
       this.physics.world.removeRigidBody(p.body);
-      this.scene.remove(p.mesh);
     }
   }
 }

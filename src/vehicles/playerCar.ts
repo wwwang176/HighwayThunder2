@@ -12,6 +12,7 @@ import { ExhaustFlames } from '../render/exhaustFlames';
 import { Backfire } from './backfire';
 import { emitFlares } from './npcVehicle';
 import type { LightFlares } from '../render/lightFlares';
+import type { BodyInstances } from '../render/bodyInstances';
 import { TireParams } from './tireModel';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
 
@@ -42,6 +43,8 @@ const BURNOUT_REAR_GRIP = 0.6;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
 const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
+/** A wheel has no lamps. */
+const NO_LIGHTS: VehicleLights = { left: [], right: [], brake: [] };
 
 /** The mass one wheel carries standing still (kg): half its axle's share (comFwd puts more on the front). */
 export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, front: boolean): number {
@@ -83,7 +86,7 @@ export class PlayerCar {
   private flames: ExhaustFlames | null = null;
   private held = false;
   private readonly backfire = new Backfire();
-  private readonly visuals: { steer: THREE.Group; spin: THREE.Group }[] = [];
+  private readonly visuals: ReturnType<typeof buildWheel>[] = [];
   readonly chassis: TyreChassis;
   readonly wheels: WheelState[];
   params: CarParams;
@@ -440,6 +443,13 @@ export class PlayerCar {
       v.steer.rotation.y = -w.steer;
       v.spin.rotation.x = w.spin;
     });
+  }
+
+  /** Its file wheels into this frame's instanced drawing (after render: where they are). */
+  addWheels(bodies: BodyInstances): void {
+    if (!this.visuals.some((v) => v.file)) return;
+    this.mesh.updateMatrixWorld(true);
+    for (const v of this.visuals) if (v.file) bodies.add(v.file.key, v.file.wheel, v.file.wheel.matrixWorld, NO_LIGHTS);
   }
 
   /** The headlights as seen by tyre smoke (call after render). Tail and brake lamps don't light it. */

@@ -21,7 +21,7 @@ function race(seed: number) {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   const scene = new THREE.Scene();
-  const traffic = new TrafficWorld(physics, scene, new WheelInstances(scene), mulberry32(seed), { oncoming: false });
+  const traffic = new TrafficWorld(physics, new WheelInstances(scene), mulberry32(seed), { oncoming: false });
   const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
   player.params.maxSpeed = 300 * KMH;
   player.resetTo(-3, 1, 0);
