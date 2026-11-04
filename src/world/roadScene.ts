@@ -18,7 +18,7 @@ export const NIGHT = {
   lampIntensity: 300, // candela, real street lights near the player (one per lamp pair; at 1000 the road glared)
   poolStrength: 0.15, // the lamps' pools of light on the ground (render/lampPools; as bright as the real lights make the road)
   wetness: 1, // the asphalt's wet patches (0 dry)
-  rim: 0.25, // a cold light from the city glow ahead, edging the cars (as the garage's)
+  rim: 0.25, // a warm light from the city glow ahead, edging the cars (cold blue, it tinted the road blue)
 };
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
 const LAMP_HEIGHT = 9.8;
@@ -260,7 +260,7 @@ export class RoadScene {
   /** The street lights' pools of light on the ground (in the ground's shaders). */
   private lampPools!: LampPools;
   private realLights: THREE.SpotLight[] = [];
-  private readonly rim = new THREE.DirectionalLight(0x7aa8ff, NIGHT.rim);
+  private readonly rim = new THREE.DirectionalLight(0xffb35c, NIGHT.rim);
 
   /** The street lights currently shining (for things lit by hand, like tyre smoke). */
   activeLights(): THREE.SpotLight[] {
@@ -276,7 +276,7 @@ export class RoadScene {
     const moon = new THREE.DirectionalLight(0x8fa4d8, 0.12);
     moon.position.set(-200, 300, 100);
     scene.add(moon);
-    // The city's cold glow ahead, low: the cars' edges and tops catch it (the road, flat, hardly).
+    // The city's warm glow ahead, low: the cars' edges and tops catch it (and the road, a little).
     this.rim.position.set(-30, 35, -100);
     scene.add(this.rim);
 
