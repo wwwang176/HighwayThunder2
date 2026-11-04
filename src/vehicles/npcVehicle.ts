@@ -44,6 +44,7 @@ const TRAILER_TAIL_START = -KINGPIN_FROM_TRAILER_CENTER + 3.0;
 // (midway between its axles) sits along the physics box (centred on the body, nose to tail), its axles
 // either side of it, the wheels' x, radius and width (tyres 185/60 R15, 275/80 R22.5).
 const SEDAN = { z: -0.078, axle: 1.224, x: 0.74, r: 0.301, width: 0.18 };
+const SEDAN_FRONT_SHARE = 0.6; // engine up front: 60 % of the weight on the front tyres
 const BOX_TRUCK = { z: -0.108, axle: 2.158, x: 1.109, r: 0.506, width: 0.26 };
 // The container truck's cab (cab.glb, tyres 295/80 R22.5): its origin midway between its front and last axles,
 // its axles from the box's centre (front, then the two at the back, on twin tyres), its cabin's back wall.
@@ -110,6 +111,7 @@ interface PartSpec {
   frictionSlip: number;
   extraLoad?: { load: number; z: number };
   kingpinZ?: number; // trailers: front supported by the fifth wheel
+  comZ?: number; // centre of mass along the body (local z, front negative); default its box's middle
   /** Explicit collision boxes (heights above ground, local z); the first one carries the mass. */
   boxes?: { y0: number; y1: number; z0: number; z1: number }[];
 }
@@ -201,6 +203,7 @@ function partSpecs(kind: VehicleKind, sp: Agent['spec']): PartSpec[] {
         w: sp.width, h: sp.height, l: sp.length, mass: sp.mass, clearance: 0.3,
         axles: [m.z - m.axle, m.z + m.axle], steerAxles: 1, driven: [false, true],
         wheelR: m.r, wheelW: m.width, halfTrack: m.x, rest: 0.3, frictionSlip: 2.2,
+        comZ: m.z - (SEDAN_FRONT_SHARE - 0.5) * 2 * m.axle,
       },
     ];
   }
@@ -343,7 +346,7 @@ export class NpcVehicle {
       // The first box carries all the mass; Rapier wants its centre of mass in the
       // collider's own frame, so convert from body space.
       desc = i === 0
-        ? desc.setMassProperties(s.mass, { x: 0, y: comY - cy, z: -cz }, inertia, { x: 0, y: 0, z: 0, w: 1 })
+        ? desc.setMassProperties(s.mass, { x: 0, y: comY - cy, z: (s.comZ ?? 0) - cz }, inertia, { x: 0, y: 0, z: 0, w: 1 })
         : desc.setDensity(0);
       const c = this.physics.world.createCollider(desc, body);
       this.physics.register(c, { type: 'npc', id: this.id });
@@ -353,7 +356,7 @@ export class NpcVehicle {
     const vehicle = this.physics.world.createVehicleController(body);
     vehicle.indexUpAxis = 1;
     vehicle.setIndexForwardAxis = 2;
-    const loads = wheelLoads(s.mass, s.axles, s.extraLoad, s.kingpinZ);
+    const loads = wheelLoads(s.mass, s.axles, s.extraLoad, s.kingpinZ, s.comZ);
     const wheels: Wheel[] = [];
     s.axles.forEach((z, ai) => {
       const stiffness = loads[ai] / (SAG * s.mass);

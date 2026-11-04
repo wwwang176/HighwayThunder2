@@ -45,6 +45,12 @@ describe('wheelLoads', () => {
     expect(loads[0]).toBeCloseTo(1000 * 9.81 / 4);
     expect(loads[1]).toBeCloseTo(1000 * 9.81 / 4);
   });
+  it('centre of mass ahead of the middle (comZ) → the front axle carries its share', () => {
+    // 0.1 x the 2.6 m wheelbase toward the nose: 60 % on the front tyres.
+    const loads = wheelLoads(1000, [-1.3, 1.3], undefined, undefined, -0.26);
+    expect(loads[0] * 2).toBeCloseTo(1000 * 9.81 * 0.6);
+    expect(loads[1] * 2).toBeCloseTo(1000 * 9.81 * 0.4);
+  });
   it('extra point load on the rear axle goes to the rear', () => {
     const loads = wheelLoads(8000, [-1.9, 1.5, 2.5], { load: 60000, z: 2.0 });
     const total = (loads[0] + loads[1] + loads[2]) * 2;
