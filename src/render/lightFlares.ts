@@ -12,12 +12,13 @@ export function makeFlareMaterial(minPx = 3): THREE.ShaderMaterial {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
-    uniforms: { scale: { value: 600 }, minPx: { value: minPx } },
+    uniforms: { scale: { value: 600 }, minPx: { value: minPx }, opacity: { value: 1 } },
     vertexShader: `
       attribute vec3 color;
       attribute float size;
       uniform float scale;
       uniform float minPx;
+      uniform float opacity;
       varying vec3 vColor;
       varying float vAlpha;
       void main() {
@@ -26,7 +27,7 @@ export function makeFlareMaterial(minPx = 3): THREE.ShaderMaterial {
         gl_PointSize = max(px, minPx);
         // Far lights shrink to a steady dot that dims a little with distance.
         vAlpha = px < minPx ? mix(0.55, 1.0, px / minPx) : 1.0;
-        vAlpha *= clamp(1.0 - (-mv.z) / 1400.0, 0.0, 1.0);
+        vAlpha *= clamp(1.0 - (-mv.z) / 1400.0, 0.0, 1.0) * opacity;
         vColor = color;
         gl_Position = projectionMatrix * mv;
       }`,
@@ -47,6 +48,9 @@ export function makeFlareMaterial(minPx = 3): THREE.ShaderMaterial {
 export function updateFlareScale(mat: THREE.ShaderMaterial, camera: THREE.PerspectiveCamera, heightPx: number): void {
   mat.uniforms.scale.value = heightPx / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
 }
+
+/** The vehicles' flares (tunable): how strongly they glow (1: full, lower: see-through). */
+export const VEHICLE_FLARE = { opacity: 0.6 };
 
 /** A dynamic batch of flares rebuilt every frame (moving vehicles). */
 export class LightFlares {
@@ -88,6 +92,7 @@ export class LightFlares {
 
   end(): void {
     this.geo.setDrawRange(0, this.n);
+    this.material.uniforms.opacity.value = VEHICLE_FLARE.opacity;
     for (const name of ['position', 'color', 'size']) (this.geo.getAttribute(name) as THREE.BufferAttribute).needsUpdate = true;
   }
 }

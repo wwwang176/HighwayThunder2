@@ -6,6 +6,7 @@ import { NIGHT } from '../world/roadScene';
 import { NPC_BEAM } from '../render/npcBeams';
 import { HEADLIGHTS } from '../vehicles/headlight';
 import { POST } from '../render/postFx';
+import { VEHICLE_FLARE } from '../render/lightFlares';
 import { PLANNER } from '../ai/planner';
 import { DRIVER_TUNING } from '../ai/plannerDriver';
 import { RIVAL_TUNING } from '../game/rivals';
@@ -70,6 +71,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   n.add(NIGHT, 'lampIntensity', 0, 3000, 10).name('路燈亮度（近處真實光源）');
   n.add(NIGHT, 'poolStrength', 0, 2, 0.05).name('路燈光區亮度（遠處）');
   n.add(NPC_BEAM, 'intensity', 0, 20, 0.1).name('NPC 車燈照地亮度');
+  n.add(VEHICLE_FLARE, 'opacity', 0, 1, 0.05).name('車燈光點不透明度');
   n.add(NIGHT, 'wetness', 0, 1, 0.05).name('路面濕區（0 = 乾）');
   n.add(NIGHT, 'rim', 0, 2, 0.05).name('前方城市背光');
   n.add(POST, 'antialias', { 'FXAA（最省）': 'fxaa', 'SMAA（較銳利）': 'smaa', 'MSAA 4 倍（最慢）': 'msaa', '關': 'none' }).name('抗鋸齒');
