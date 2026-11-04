@@ -11,6 +11,8 @@ const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 const icon = (name: string, cls = '') => `<span class="icon ${cls}" style="--src:url(${UI}${name}.png)"></span>`;
 const card = (id: string) => CAR_CARDS.find((c) => c.id === id) ?? CAR_CARDS[0];
 const two = (n: number) => String(n).padStart(2, '0');
+/** A "?" in place of an explanation: its text on hover or focus (a line per row of `lines`). */
+const help = (...lines: string[]) => `<span class="help cut" tabindex="0" data-tip="${lines.join('\n')}">?</span>`;
 /** A call to action's inside (docs/ui-design.md .cta): its offset outline, its fill, the words, Enter, the chevrons. */
 const CTA = (text: string) =>
   `<span class="ghost"></span><span class="fill"></span><span class="txt">${text}<kbd>Enter</kbd><span class="chev"><b>›</b><b>›</b><b>›</b></span></span>`;
@@ -88,7 +90,7 @@ export class Garage {
         <div class="g-drawer panel cut">
           <div class="s-top">
             <div><div class="lbl dash">Race setup</div><h2>比賽設定</h2></div>
-            <span class="s-keys"><kbd>↑</kbd><kbd>↓</kbd>選項目</span>
+            <span class="s-keys">${help('↑ ↓　選項目', '← →　調整', '0 – 5　對手數量', 'Enter　開始比賽', 'Esc　收起')}</span>
             <button class="s-back cut"><kbd>Esc</kbd><span>收起</span></button>
           </div>
           <div class="s-body"></div>
@@ -334,7 +336,7 @@ export class Garage {
 
   /**
    * The race setup's drawer: how many rivals (0-5), how their cars are picked (at random each race, the player's,
-   * or custom: only then each rival's car, one column per car type), the difficulty (what it means), the weather.
+   * or custom: only then each rival's car, one column per car type), the difficulty, the weather; what they mean behind a "?" each.
    */
   private drawSetup(): void {
     const s = this.sel;
@@ -342,16 +344,13 @@ export class Garage {
     const focus = (key: string) => (rows[this.row] === key ? 'focus' : '');
     const head = (en: string, zh: string, aside = '') => `<div class="s-head"><span class="lbl dash">${en}</span><h3>${zh}</h3><div class="aside">${aside}</div></div>`;
     const custom = s.rivalMode === 'custom' && s.rivals.length > 0;
-    const d = DIFFICULTIES[s.difficulty];
     const body = this.q('.s-body');
     const scrolled = body.scrollTop; // (redrawn on every change: kept where it was)
     body.innerHTML = html`
       <div class="s-sec">
         ${head('Rivals', '對手', this.lineUp())}
-        <div class="s-sub ${focus('count')}"><span class="lbl">數量</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) => `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`).join('')}</div><span class="s-k"><kbd>0</kbd>–<kbd>${MAX_RIVALS}</kbd></span></div>
-        <div class="s-sub ${focus('mode')}"><span class="lbl">車種</span><div class="s-modes">${MODES.map(([m, ic, name]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${name}</span></button>`).join('')}</div></div>
-        ${s.rivals.length && s.rivalMode === 'random' ? '<div class="s-note">每場比賽重新抽選對手的車種</div>' : ''}
-        ${s.rivals.length && s.rivalMode === 'same' ? `<div class="s-note">對手全部開${card(s.player).name}，你換車他們也跟著換</div>` : ''}
+        <div class="s-sub ${focus('count')}"><span class="lbl">數量</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) => `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`).join('')}</div></div>
+        <div class="s-sub ${focus('mode')}"><span class="lbl">車種</span><div class="s-modes">${MODES.map(([m, ic, name]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${name}</span></button>`).join('')}</div>${help('全部隨機：每場比賽重新抽選對手的車種', '全部同我的車：對手開你的車，你換車他們也跟著換', '自由指定：逐台指定對手的車種')}</div>
         ${custom ? `<div class="mx-head"><span></span>${PICKABLE.map((id) => `<div>${id === s.player ? '<span class="you cut">YOU</span>' : ''}<span>${card(id).name}</span></div>`).join('')}<span></span></div>` : ''}
         ${(custom ? s.rivals : [])
           .map(
@@ -363,16 +362,15 @@ export class Garage {
           .join('')}
       </div>
       <div class="s-sec">
-        ${head('Difficulty', '難度')}
+        ${head('Difficulty', '難度', help(...DIFFICULTIES.map((x) => `${x.name}：對手極速 ${x.speedCapKmh} km/h，${x.behind}，${x.ahead}`)))}
         <div class="s-diff-row ${focus('difficulty')}">${DIFFICULTIES.map((x, i) => `<button class="s-btn ${i === s.difficulty ? 'sel' : ''}" data-d="${i}"><span>${x.name}</span></button>`).join('')}</div>
-        <div class="s-desc"><span>對手極速 <b class="num">${d.speedCapKmh}</b><small class="num">km/h</small></span><span>${d.behind}</span><span>${d.ahead}</span></div>
       </div>
       <div class="s-sec">
         ${head('Weather', '天氣')}
         <div class="s-weather">${WEATHERS.map(([k, ic, name]) =>
           k === 'clear'
             ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}">${icon(ic)}<span>${name}</span></button>`
-            : `<button class="s-btn soon" aria-disabled="true">${icon(ic)}<span>${name}</span><span class="tag cut">即將推出</span></button>`,
+            : `<button class="s-btn soon" aria-disabled="true" data-tip="即將推出">${icon(ic)}<span>${name}</span></button>`,
         ).join('')}</div>
       </div>`;
     const all = (sel: string) => this.el.querySelectorAll<HTMLElement>(`.s-body ${sel}`);
@@ -387,7 +385,7 @@ export class Garage {
   /**
    * The drawer on any screen's height (on opening, and as the window changes), always the screen's full height,
    * its start at the bottom: zoomed down to fit (no smaller than SETUP_MIN_ZOOM), below that its compact layout
-   * (no difficulty note, tighter rows), and past that its middle scrolls. Fitted to its tallest (five custom
+   * (tighter rows), and past that its middle scrolls. Fitted to its tallest (five custom
    * rivals listed), so changing the settings never moves nor resizes it.
    */
   private fitSetup(): void {

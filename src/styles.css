@@ -185,10 +185,10 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 /* Icons (grok's glyphs, white PNGs with alpha: training/icons_to_png.py): a mask that takes any colour. */
 .icon { display: inline-block; background: currentColor; -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat; }
 
-/* What an icon means, on hover or keyboard focus (src/ui/tooltip.ts places it with Floating UI). */
+/* What an icon (or a "?") means, on hover or keyboard focus (src/ui/tooltip.ts places it with Floating UI); a line per \n. */
 .tip { position: absolute; left: 0; top: 0; padding: 0.6vh 0.7vw; --c: 0.36vw; clip-path: polygon(var(--c) 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%, 0 var(--c));
   background: linear-gradient(90deg, var(--accent, #ffd400) 0 2px, rgba(10, 14, 24, 0.96) 2px);
-  color: #eef3fb; font: 600 0.8vw/1.2 "Microsoft JhengHei", sans-serif; white-space: nowrap; pointer-events: none; opacity: 0;
+  color: #eef3fb; font: 600 0.8vw/1.6 "Microsoft JhengHei", sans-serif; white-space: pre; pointer-events: none; opacity: 0;
   transition: opacity 0.12s; z-index: 100; }
 .tip.on { opacity: 1; }
 
@@ -282,7 +282,12 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-drawer { display: flex; flex-direction: column; box-sizing: border-box; padding: 1.67vw 1.9vw 1.6vw; --c: 1.35vw; }
 #garage .s-top { display: flex; align-items: flex-start; gap: 1.04vw; margin-bottom: 0.94vw; }
 #garage .s-top h2 { margin: 0.52vw 0 0; font: italic 900 1.67vw/1 var(--f-title); letter-spacing: 0.21vw; white-space: nowrap; }
-#garage .s-keys { margin-top: 2.1vw; display: flex; align-items: center; gap: 0.3vw; font: 700 0.73vw/1 var(--f-title); color: var(--text-2); white-space: nowrap; }
+#garage .s-keys { margin-top: 2.1vw; display: flex; align-items: center; }
+/* The "?": an explanation kept off the screen till asked for (hover or focus: its data-tip). */
+#ui .help { display: inline-grid; place-items: center; flex: none; width: 1.25vw; height: 1.25vw; --c: 0.31vw; background: rgba(255, 255, 255, 0.1);
+  color: var(--text-2); font: 700 0.78vw/1 var(--f-num); cursor: help; outline: none; transition: background 0.15s, color 0.15s; }
+#ui .help:hover, #ui .help:focus-visible { background: var(--accent); color: #fff; }
+#garage .s-sub > .help { margin-left: auto; }
 #garage .s-back { margin-left: auto; white-space: nowrap; display: flex; align-items: center; gap: 0.52vw; height: 2.3vw; padding: 0 0.83vw 0 0.42vw; --c: 0.42vw;
   background: rgba(255, 255, 255, 0.08); color: var(--text-2); font: 700 0.83vw/1 var(--f-title); }
 #garage .s-back:hover { color: #fff; background: var(--accent); }
@@ -297,7 +302,6 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-head .icon.mini { width: 2vw; height: 1vw; }
 #garage .s-sub { position: relative; display: flex; align-items: center; gap: 0.83vw; margin-bottom: 0.73vw; }
 #garage .s-sub > .lbl { width: 3.4vw; }
-#garage .s-k { margin-left: auto; display: flex; align-items: center; gap: 0.2vw; font: 700 0.73vw/1 var(--f-num); color: var(--text-2); }
 /* The small parallelogram button; picked: filled. */
 #garage .s-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.52vw; height: 2.6vw; padding: 0 0.83vw; box-sizing: border-box;
   transform: skewX(-12deg); background: rgba(255, 255, 255, 0.05); border-left: 0.21vw solid rgba(255, 255, 255, 0.18);
@@ -313,7 +317,6 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 /* How the rivals' cars are picked; at random or all the player's, a line saying what that means instead of the list. */
 #garage .s-modes { display: flex; gap: 0.52vw; }
 #garage .s-modes .s-btn { padding: 0 0.8vw; font-size: 0.88vw; }
-#garage .s-note { margin: 0.1vw 0 0.3vw 4.23vw; font: 700 0.78vw/1.3 var(--f-title); color: var(--text-2); }
 #garage .count .icon.dice { width: 1.1vw; height: 1.1vw; margin-right: 0.3vw; }
 #garage .s-head .count { display: inline-flex; align-items: center; gap: 0.15vw; font: 600 0.78vw/1 var(--f-num); }
 #garage .s-head .count + .count { margin-left: 0.4vw; }
@@ -334,19 +337,13 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-rival.focus .keys { opacity: 1; }
 #garage .s-diff-row { position: relative; display: flex; gap: 0.42vw; }
 #garage .s-diff-row .s-btn { flex: 1; }
-#garage .s-desc { display: flex; gap: 1.25vw; margin-top: 0.73vw; padding-left: 0.31vw; font: 700 0.83vw/1 var(--f-title); color: var(--text-2); }
-#garage .s-desc span { display: flex; align-items: baseline; gap: 0.42vw; }
-#garage .s-desc .num { color: var(--text); font-size: 1vw; }
-#garage .s-desc small.num { font-size: 0.7vw; }
 /* Weather: the ones not out yet say so on their face. */
 #garage .s-weather { display: flex; gap: 0.52vw; }
 #garage .s-weather .s-btn { flex: 1; padding: 0 0.5vw; }
 #garage .s-btn.soon { color: rgba(201, 211, 230, 0.4); cursor: not-allowed;
   background: repeating-linear-gradient(-60deg, rgba(255, 255, 255, 0.045) 0 0.31vw, rgba(255, 255, 255, 0.015) 0.31vw 0.62vw); }
 #garage .s-btn.soon:hover { color: rgba(201, 211, 230, 0.4); border-left-color: rgba(255, 255, 255, 0.18); }
-#garage .s-btn .tag { --c: 0.21vw; padding: 0.21vw 0.36vw; background: rgba(255, 255, 255, 0.1); color: rgba(201, 211, 230, 0.8); font: 700 0.63vw/1 var(--f-title); }
-/* A short screen, zoomed as far as it goes: the difficulty's note dropped, the rows tighter. */
-#garage .compact .s-desc { display: none; }
+/* A short screen, zoomed as far as it goes: the rows tighter. */
 #garage .compact .s-top { margin-bottom: 0.5vw; }
 #garage .compact .s-sec + .s-sec { margin-top: 0.5vw; padding-top: 0.5vw; }
 #garage .compact .s-sub { margin-bottom: 0.4vw; }
