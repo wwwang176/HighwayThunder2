@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { SpeedBlurPass } from './speedBlur';
 import { ToneMapFxaaPass } from './toneMapFxaaPass';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -7,6 +8,8 @@ import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 export type Antialias = 'fxaa' | 'smaa' | 'msaa' | 'none';
+
+const ZERO = new THREE.Vector2();
 
 /** The race's post-processing (mutable: tuned live from the panel). */
 export const POST = {
@@ -20,6 +23,14 @@ export const POST = {
   threshold: 2.05,
   /** The bloom's own pictures, times the screen's (three's: from half of that down). */
   bloomScale: 0.5,
+  /** The speed blur (render/speedBlur): from `blurFrom` km/h, full (`blurStrength`) at `blurFull`, times `blurNitro` with the nitro. */
+  speedBlur: true,
+  blurFrom: 120,
+  blurFull: 300,
+  blurStrength: 0.05,
+  blurNitro: 1.5,
+  /** The camera's turning smeared across, times what a 1/60 s exposure would. */
+  blurTurn: 1,
 };
 
 /**
@@ -32,6 +43,8 @@ export class PostFx {
   private readonly output = new OutputPass();
   private readonly fxaa = new ToneMapFxaaPass(); // (tone maps too: the OutputPass off with it)
   private readonly smaa = new SMAAPass();
+  /** The speed blur, set each frame (motion()); skipped when there is none. */
+  private readonly blur = new SpeedBlurPass();
   private samples = 0;
   private bloomScale = 1;
   private readonly size = new THREE.Vector2();
@@ -52,6 +65,9 @@ export class PostFx {
     const late = new RenderPass(this.unbloomed, camera);
     late.clear = false;
     this.composer.addPass(late);
+    // The speed blur on the HDR picture, smoke and all (the lights streak), before the tone mapping: a pass of its
+    // own for SMAA / MSAA / none (with FXAA it is folded into that pass).
+    this.composer.addPass(this.blur);
     this.composer.addPass(this.output);
     // (FXAA tone maps as it reads; SMAA after the tone mapping: on the picture as it will be seen.)
     this.composer.addPass(this.fxaa);
@@ -63,6 +79,15 @@ export class PostFx {
     this.composer.setSize(w, h);
     this.size.set(w, h).multiplyScalar(this.renderer.getPixelRatio());
     this.bloomScale = 1; // (the composer just sized it to the screen)
+  }
+
+  /** This frame's speed blur: where the camera is going on the screen, how much, and across by its turning. */
+  motion(center: THREE.Vector2, amount: number, sweep: THREE.Vector2): void {
+    const a = POST.speedBlur ? amount : 0;
+    const s = POST.speedBlur ? sweep : ZERO;
+    // With FXAA, folded into its pass (a full-screen pass fewer); else a pass of its own.
+    this.fxaa.blur(center, a, s);
+    this.blur.set(center, a, s, POST.antialias === 'fxaa');
   }
 
   render(): void {

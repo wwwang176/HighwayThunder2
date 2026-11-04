@@ -3,7 +3,8 @@ import Stats from 'stats.js';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { PlanPath } from '../render/planPath';
-import { PostFx } from '../render/postFx';
+import { POST, PostFx } from '../render/postFx';
+import { blurAmount, motionCenter } from '../render/speedBlur';
 import { flameTextures } from '../render/exhaustFlames';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
@@ -59,6 +60,7 @@ const PREWARM_LAMPS: VehicleLights[] = [
   { left: [new THREE.Object3D()], right: [new THREE.Object3D()], brake: [new THREE.Mesh(undefined, BRAKE_ON)] },
 ];
 const PLAYER_OBSTACLE_ID = -1;
+const BLUR_V = new THREE.Vector3();
 /** How fast the race's time runs, by phase (frame()): stopped in a pause, slow motion past the finish line. */
 const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0, finished: 0.1 };
 
@@ -121,6 +123,11 @@ export class Game {
   private lastGear = 1;
   /** An upshift under way, from this gear (its shake comes as the new one takes up). */
   private shiftingFrom: number | null = null;
+  /** The speed blur as last set (held while paused), and the camera's heading last frame (its turning). */
+  private readonly blurCenter = new THREE.Vector2(0.5, 0.5);
+  private readonly blurSweep = new THREE.Vector2();
+  private blurAmount = 0;
+  private camYaw: number | null = null;
   /** Overrides keyboard input when set (used by automated checks). */
   inputOverride: HandlingInput | null = null;
   /** Debug: stop the real-time loop from advancing the simulation. */
@@ -203,6 +210,7 @@ export class Game {
     }
     for (const o of hidden) o.visible = true;
     for (const o of culled) o.frustumCulled = false;
+    this.post.motion(new THREE.Vector2(0.5, 0.5), 0.01, new THREE.Vector2()); // (the speed blur's shader too: off till 120 km/h)
     this.post.render();
     for (const o of hidden) o.visible = false;
     for (const o of culled) o.frustumCulled = true;
@@ -606,6 +614,32 @@ export class Game {
   }
 
   /**
+   * The speed blur (render/speedBlur; call with the camera placed): out from where the car is going on the
+   * screen (off the middle as it slides), the more the faster (POST.blurFrom km/h up, more with the nitro), and
+   * across by the camera's turning (as a 1/60 s exposure would smear it). Paused, it holds as it was (the
+   * picture stays); none at the title.
+   */
+  private speedBlur(play: number): void {
+    this.camera.getWorldDirection(BLUR_V);
+    const yaw = Math.atan2(BLUR_V.x, BLUR_V.z);
+    if (play > 0) {
+      const v = this.player.body.linvel();
+      const center = this.flow.phase === 'title' ? null : motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
+      if (center) this.blurCenter.copy(center);
+      this.blurAmount = center
+        ? blurAmount(Math.abs(this.player.speed) * 3.6, this.player.nitro.active, { from: POST.blurFrom, full: POST.blurFull, strength: POST.blurStrength, nitro: POST.blurNitro })
+        : 0;
+      // (A jump of the camera - a reset - is no turn: at most 3 rad/s.)
+      const turned = this.camYaw === null ? 0 : Math.atan2(Math.sin(yaw - this.camYaw), Math.cos(yaw - this.camYaw));
+      const rate = Math.min(3, Math.abs(turned) / play);
+      const hFov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * this.camera.aspect);
+      this.blurSweep.set(this.flow.phase === 'title' ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
+    }
+    this.camYaw = yaw;
+    this.post.motion(this.blurCenter, this.blurAmount, this.blurSweep);
+  }
+
+  /**
    * Wheels on the grass shake the camera a little, up and down: the more of them and the faster, the more
    * (full with all four on it from 40 km/h, 2.2 cm), quicker with speed (10 Hz at 50 km/h, 22 at 150, at most 25).
    */
@@ -703,6 +737,7 @@ export class Game {
     this.grassRumble();
     // Paused, the camera holds still too (its shakes stop where they are, and go on after).
     this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
+    this.speedBlur(play);
     // The traffic's bodies, those in this frame's view (the camera placed).
     this.bodies.begin(this.camera, this.player.headlights); // (the only lights casting shadows)
     for (const npc of this.npcs.values()) npc.addBodies(this.bodies);

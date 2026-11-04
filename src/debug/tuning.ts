@@ -67,6 +67,12 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   n.add(POST, 'strength', 0, 2, 0.05).name('光暈強度');
   n.add(POST, 'radius', 0, 1, 0.05).name('光暈範圍');
   n.add(POST, 'threshold', 0, 3, 0.05).name('光暈門檻（亮過多少才發光）');
+  n.add(POST, 'speedBlur').name('速度模糊');
+  n.add(POST, 'blurFrom', 0, 300, 5).name('速度模糊：從幾 km/h 開始');
+  n.add(POST, 'blurFull', 100, 400, 5).name('速度模糊：幾 km/h 最強');
+  n.add(POST, 'blurStrength', 0, 0.2, 0.005).name('速度模糊：強度');
+  n.add(POST, 'blurNitro', 1, 3, 0.1).name('速度模糊：氮氣時倍率');
+  n.add(POST, 'blurTurn', 0, 3, 0.1).name('速度模糊：鏡頭轉動拖曳倍率');
   n.add(POST, 'bloomScale', { '原本（1）': 1, '一半（0.5，省）': 0.5, '四分之一（0.25）': 0.25 }).name('光暈內部解析度');
   const t = gui.addFolder('車流');
   t.add(traffic, 'spacing', 30, 250, 1).name('同車道平均間距 m');

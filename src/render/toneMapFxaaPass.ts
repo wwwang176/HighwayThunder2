@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+import { setSpeedBlur, SPEED_BLUR_GLSL, speedBlurUniforms } from './speedBlur';
 
 const SAMPLE = 'return texture( tex2D, uv );';
 const LUMA = 'return dot( Sample( tex2D, uv ).rgb, vec3( 0.3, 0.59, 0.11 ) );';
@@ -28,9 +29,9 @@ vec3 tmSRGB( vec3 c ) {
 }`;
 
 /**
- * OutputPass and FXAA in one: FXAA reading the HDR picture, what it shows tone mapped (ACES, the renderer's
- * exposure) and made sRGB as it is read. One full-screen pass fewer (the picture written out and read back
- * again: ~1.3 ms a frame at 2560 x 1341 on an integrated GPU).
+ * OutputPass, FXAA and the speed blur in one: FXAA reading the HDR picture, what it shows smeared (blur()),
+ * tone mapped (ACES, the renderer's exposure) and made sRGB as it is read. Full-screen passes fewer (each the
+ * picture written out and read back again: ~1.3 ms a frame at 2560 x 1341 on an integrated GPU).
  */
 export class ToneMapFxaaPass extends ShaderPass {
   constructor() {
@@ -43,11 +44,13 @@ export class ToneMapFxaaPass extends ShaderPass {
         tDiffuse: { value: null },
         resolution: { value: new THREE.Vector2(1 / 1024, 1 / 512) },
         exposure: { value: 1 },
+        ...speedBlurUniforms(),
       },
       vertexShader: FXAAShader.vertexShader,
       fragmentShader: FXAAShader.fragmentShader
-        .replace('uniform sampler2D tDiffuse;', `uniform sampler2D tDiffuse;\n${TONE_MAP}`)
-        .replace(SAMPLE, 'vec4 c = texture( tex2D, uv );\nreturn vec4( tmSRGB( tmACES( c.rgb ) ), c.a );')
+        .replace('uniform sampler2D tDiffuse;', `uniform sampler2D tDiffuse;\n${TONE_MAP}\n${SPEED_BLUR_GLSL}`)
+        // What it shows: the speed blur's smear of the HDR picture (one tap where there is none), then tone mapped.
+        .replace(SAMPLE, 'return vec4( tmSRGB( tmACES( speedBlurred( tex2D, uv, resolution ) ) ), 1.0 );')
         // Its edge finding (9 to 21 taps a pixel) on a cheap stand-in for the tone mapped luma (rising like it, 0..1,
         // gamma-ish); the full tone mapping only for the one tap it shows.
         .replace(LUMA, 'float l = dot( texture( tex2D, uv ).rgb, vec3( 0.3, 0.59, 0.11 ) ) * exposure;\nreturn sqrt( l / ( 1.0 + l ) );'),
@@ -56,6 +59,11 @@ export class ToneMapFxaaPass extends ShaderPass {
 
   setSize(width: number, height: number): void {
     this.material.uniforms.resolution.value.set(1 / width, 1 / height);
+  }
+
+  /** This frame's speed blur (render/speedBlur), smeared into what it shows. */
+  blur(center: THREE.Vector2, amount: number, sweep: THREE.Vector2): void {
+    setSpeedBlur(this.material.uniforms, center, amount, sweep);
   }
 
   render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget, deltaTime: number, maskActive: boolean): void {
