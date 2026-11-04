@@ -362,7 +362,7 @@ export class Garage {
           .join('')}
       </div>
       <div class="s-sec">
-        ${head('Difficulty', '難度', help(...DIFFICULTIES.map((x) => `${x.name}：對手極速 ${x.speedCapKmh} km/h，${x.behind}，${x.ahead}`)))}
+        ${head('Difficulty', '難度', help(...DIFFICULTIES.map((x) => `${x.name}：${x.hint}`)))}
         <div class="s-diff-row ${focus('difficulty')}">${DIFFICULTIES.map((x, i) => `<button class="s-btn ${i === s.difficulty ? 'sel' : ''}" data-d="${i}"><span>${x.name}</span></button>`).join('')}</div>
       </div>
       <div class="s-sec">
