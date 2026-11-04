@@ -123,6 +123,8 @@ export function flareFacing(cos: number): number {
  */
 export class LightFlares {
   readonly material: THREE.ShaderMaterial;
+  /** The drawn batch (its layers: who sees it). */
+  readonly points: THREE.Points;
   private readonly geo = new THREE.BufferGeometry();
   private readonly pos: Float32Array;
   private readonly col: Float32Array;
@@ -140,10 +142,10 @@ export class LightFlares {
     this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('aim', new THREE.BufferAttribute(this.aim, 3).setUsage(THREE.DynamicDrawUsage));
-    const pts = new THREE.Points(this.geo, this.material);
-    pts.frustumCulled = false;
-    pts.renderOrder = 3;
-    scene.add(pts);
+    this.points = new THREE.Points(this.geo, this.material);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = 3;
+    scene.add(this.points);
   }
 
   begin(): void {
