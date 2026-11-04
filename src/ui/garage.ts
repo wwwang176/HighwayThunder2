@@ -191,6 +191,7 @@ export class Garage {
     this.el.classList.add('setup');
     this.preview.slide(VIEW.setup, true);
     this.draw();
+    this.fitSetup();
     (document.activeElement as HTMLElement | null)?.blur();
   }
 
@@ -379,28 +380,37 @@ export class Garage {
     all('[data-mode]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, rivalMode: b.dataset.mode as RivalMode })));
     all('[data-car]').forEach((b) => (b.onclick = () => this.change(setRival(this.sel, Number(b.dataset.i), b.dataset.car!))));
     all('[data-d]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, difficulty: Number(b.dataset.d) })));
-    this.fitSetup();
     body.scrollTop = scrolled;
     body.querySelector('.focus')?.scrollIntoView({ block: 'nearest' }); // (the keys' row in view, when it scrolls)
   }
 
   /**
-   * The drawer on any screen's height: zoomed down to fit (no smaller than SETUP_MIN_ZOOM), below that its
-   * compact layout (no difficulty note, tighter rows), and past that its middle scrolls (the start stays).
+   * The drawer on any screen's height (on opening, and as the window changes), always the screen's full height,
+   * its start at the bottom: zoomed down to fit (no smaller than SETUP_MIN_ZOOM), below that its compact layout
+   * (no difficulty note, tighter rows), and past that its middle scrolls. Fitted to its tallest (five custom
+   * rivals listed), so changing the settings never moves nor resizes it.
    */
   private fitSetup(): void {
     const wrap = this.q('.g-setup');
     const drawer = this.q('.g-drawer');
     wrap.style.setProperty('zoom', '1');
     wrap.classList.remove('compact');
-    drawer.style.maxHeight = '';
+    drawer.style.height = ''; // (its own height, to measure)
+    const picked = this.sel;
+    this.sel = { ...picked, rivalMode: 'custom', rivals: Array.from({ length: MAX_RIVALS }, () => picked.player) };
+    const tallest = () => {
+      this.drawSetup();
+      return drawer.offsetHeight;
+    };
     const avail = innerHeight - 2 * innerWidth * 0.0125; // (its margin: 1.25vw above and below)
-    let z = Math.min(1, avail / drawer.offsetHeight);
+    let z = Math.min(1, avail / tallest());
     if (z < SETUP_MIN_ZOOM) {
       wrap.classList.add('compact');
-      z = Math.max(SETUP_MIN_ZOOM, Math.min(1, avail / drawer.offsetHeight));
+      z = Math.max(SETUP_MIN_ZOOM, Math.min(1, avail / tallest()));
     }
+    this.sel = picked;
+    this.drawSetup();
     wrap.style.setProperty('zoom', String(z));
-    drawer.style.maxHeight = `${Math.ceil(avail / z) + 2}px`; // (a pixel's rounding is no reason to scroll)
+    drawer.style.height = `${Math.round(avail / z)}px`; // (rounded: a float's last digit is no reason to scroll)
   }
 }
