@@ -189,6 +189,22 @@ export function shuntRevs(t: number, throttle: number): number {
   return -SHUNT_RPM * throttle * Math.exp(-t / SHUNT_DECAY) * Math.sin(2 * Math.PI * SHUNT_HZ * t);
 }
 
+/**
+ * On the rev limiter (at LIMITER_SHARE of the redline or more, the throttle past half) the gauge's needle bounces:
+ * each fuel cut drops the revs LIMITER_BOUNCE_RPM and they climb straight back, LIMITER_BOUNCE_HZ times a second.
+ * The gauge's only: the engine's sound stutters by its own limiter recording.
+ */
+export const LIMITER_SHARE = 0.988;
+export const LIMITER_BOUNCE_RPM = 300;
+export const LIMITER_BOUNCE_HZ = 8;
+
+/** The gauge's offset (rpm, 0 or below) `t` s into the limiter: a quick drop (a fifth of a cycle), a climb back. */
+export function limiterBounce(t: number): number {
+  if (!(t >= 0)) return 0;
+  const p = (t * LIMITER_BOUNCE_HZ) % 1;
+  return -LIMITER_BOUNCE_RPM * (p < 0.2 ? p / 0.2 : 1 - (p - 0.2) / 0.8);
+}
+
 const TC_MAX_MULT = 2.0; // torque converter multiplication at stall
 const TC_STALL_RPM = 3000;
 

@@ -1048,7 +1048,7 @@ export class Game {
       upY: 1 - 2 * (q.x * q.x + q.z * q.z), // (the car's up axis, its world y)
       muted: this.sound.muted,
       gear: this.player.gearbox.gear,
-      rpm: this.player.rpm,
+      rpm: this.player.gaugeRpm,
       nitro: this.player.nitro.level,
       nitroOn: this.player.nitro.active,
       aiDriving: this.aiActive && this.flow.phase === 'racing',

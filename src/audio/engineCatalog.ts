@@ -73,7 +73,8 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
   'i4j-med-high': { rpm: 3125 },
   'i4j-high': { rpm: 3254 },
   'i4j-very-high': { rpm: 3398 },
-  'i4j-limiter': { rpm: 3398 },
+  // (its own limiter recording a smeared roar with no steady pitch to it: likewise its top rev, the cut put on it)
+  'i4j-limiter': { rpm: 3398, stutter: { hz: 12, depthDb: 16 } },
   'i4j-startup': { rpm: 0 },
   // sedan four (likewise).
   'i4g-idle': { rpm: 957 },

@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, steerAngle } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, steerAngle } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
@@ -111,6 +111,8 @@ export class PlayerCar {
   private baseRpm = 900;
   private sinceBite = Infinity;
   private offThrottle = false;
+  /** s on the rev limiter (-1: off it). */
+  private onLimiter = -1;
   driveMode: DriveMode = 'D';
   /** Optional per-position grip multiplier (e.g. grass). */
   surfaceGrip: (x: number) => number = () => 1;
@@ -324,6 +326,8 @@ export class PlayerCar {
       this.offThrottle = false;
     } else this.sinceBite += dt;
     this.rpm = this.baseRpm + shuntRevs(this.sinceBite, input.throttle);
+    // On the rev limiter: how long (the gauge's needle bounces by it, gaugeRpm).
+    this.onLimiter = this.rpm >= p.redline * LIMITER_SHARE && this.throttle > 0.5 ? this.onLimiter + dt : -1;
     // Nitro: a harder push, a little past the limiter (on the throttle only).
     const boost = this.nitro.update(dt, !!input.nitro && input.throttle > 0);
     const limit = boost ? { ...p, maxSpeed: p.maxSpeed * NITRO.topSpeed } : p;
@@ -438,6 +442,11 @@ export class PlayerCar {
   /** The engine as heard and seen at the exhaust: its own, or a blip put on for show (`showRev`). */
   get shownRpm(): number {
     return this.showRev?.rpm ?? this.rpm;
+  }
+
+  /** The rpm on the gauge: the engine's, its needle bouncing on the rev limiter (limiterBounce). */
+  get gaugeRpm(): number {
+    return this.rpm + (this.onLimiter >= 0 ? limiterBounce(this.onLimiter) : 0);
   }
 
   get shownThrottle(): number {
