@@ -4,13 +4,18 @@ import type { PlayerCar } from '../vehicles/playerCar';
 
 /**
  * Past the line, the race slowed to `scale` of its speed, held for `hold` s (the show's own, real time), then
- * back up to full by `back` s.
+ * back up to full by `back` s; the panel in, slowed again to `panel` over `settle` s, and kept there.
  */
-export const FINISH_SLOW = { scale: 0.15, hold: 1.4, back: 3.4 };
+export const FINISH_SLOW = { scale: 0.15, hold: 1.4, back: 3.4, panel: 0.2, settle: 0.8 };
 
-/** How fast the race runs `t` s (real) into the finish's show. */
-export function finishTimeScale(t: number): number {
-  return THREE.MathUtils.lerp(FINISH_SLOW.scale, 1, THREE.MathUtils.smoothstep(t, FINISH_SLOW.hold, FINISH_SLOW.back));
+/**
+ * How fast the race runs `t` s (real) into the finish's show, its panel in at `panelAt` s; skipped to it, from
+ * the speed it was at then (`from`).
+ */
+export function finishTimeScale(t: number, panelAt: number, from?: number): number {
+  const S = FINISH_SLOW;
+  if (t < panelAt) return THREE.MathUtils.lerp(S.scale, 1, THREE.MathUtils.smoothstep(t, S.hold, S.back));
+  return THREE.MathUtils.lerp(from ?? 1, S.panel, THREE.MathUtils.smoothstep(t, panelAt, panelAt + S.settle));
 }
 
 /** A camera pose in the car's frame: x right, y up from the ground, z ahead (the car on the origin). */
@@ -52,7 +57,8 @@ export class FinishShow {
   private readonly right = new THREE.Vector3();
   private readonly look = new THREE.Vector3();
   private elapsed = 0;
-  private skipped = false;
+  /** Skipped: how fast the race ran then (the slow-down behind the panel from there). */
+  private skippedAt: number | undefined;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -103,9 +109,9 @@ export class FinishShow {
     return this.elapsed >= this.seconds;
   }
 
-  /** How fast the race runs now (finishTimeScale; skipped, full). */
+  /** How fast the race runs now (finishTimeScale). */
   get timeScale(): number {
-    return this.skipped ? 1 : finishTimeScale(this.elapsed);
+    return finishTimeScale(this.elapsed, this.seconds, this.skippedAt);
   }
 
   /** `dt` s (real) on. */
@@ -113,10 +119,11 @@ export class FinishShow {
     this.elapsed += dt;
   }
 
-  /** Straight to its end (the panel), the race at full speed. */
+  /** Straight to its end (the panel), the race slowing from how fast it ran then. */
   skip(): void {
-    this.skipped = true;
-    this.elapsed = Math.max(this.elapsed, this.seconds);
+    if (this.done) return;
+    this.skippedAt = this.timeScale;
+    this.elapsed = this.seconds;
   }
 
   /** The camera where the show has it now. */
