@@ -3,7 +3,8 @@ import { loadEngineBank } from './engineBank';
 import { EngineVoice } from './engineVoice';
 import { OtherEngines, type EngineSource } from './otherEngines';
 import type { EarPose } from './pan';
-import limiterUrl from './limiter.worklet.js?url';
+// (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
+import limiterUrl from './limiter.worklet.js?url&no-inline';
 
 /** The player's engine, this loud (its clips are at -16 LUFS each); the others' (each by its distance on top). */
 const ENGINE_VOLUME = 0.8;
