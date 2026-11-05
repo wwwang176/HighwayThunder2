@@ -361,9 +361,9 @@ describe('the gauge on the rev limiter', () => {
   it('drops quickly and climbs back, each cut, never above the revs', () => {
     const period = 1 / LIMITER_BOUNCE_HZ;
     expect(limiterBounce(0)).toBeCloseTo(0);
-    expect(limiterBounce(period * 0.2)).toBeCloseTo(-LIMITER_BOUNCE_RPM);
-    expect(limiterBounce(period * 0.6)).toBeCloseTo(-LIMITER_BOUNCE_RPM / 2);
+    expect(limiterBounce(period * 0.3)).toBeCloseTo(-LIMITER_BOUNCE_RPM);
+    expect(limiterBounce(period * 0.65)).toBeCloseTo(-LIMITER_BOUNCE_RPM / 2);
     for (let t = 0; t < 1; t += 0.003) expect(limiterBounce(t)).toBeLessThanOrEqual(0);
-    expect(limiterBounce(period * 1.2)).toBeCloseTo(-LIMITER_BOUNCE_RPM); // (again, the next cut)
+    expect(limiterBounce(period * 1.3)).toBeCloseTo(-LIMITER_BOUNCE_RPM); // (again, the next cut)
   });
 });
