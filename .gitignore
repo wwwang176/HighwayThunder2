@@ -5,3 +5,6 @@ dist/
 training/out/
 __pycache__/
 *.blend1
+
+# The engine sounds: built locally from a licensed pack (tools/build-engine-audio.ts); never committed (docs/audio.md).
+public/audio/

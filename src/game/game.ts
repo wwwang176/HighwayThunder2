@@ -328,7 +328,7 @@ export class Game {
   openGarage(title = false): void {
     if (!picksCars(this.flow.phase)) return;
     // The world (and its render, which drives the engine and tyre sounds) stops: no engine left running in the garage.
-    this.sound.setEngine(0, 0, false);
+    this.sound.silenceEngine();
     this.sound.setSkid(0);
     this.hud.hide();
     this.garage.open(loadSelection(localStorage), title);
@@ -955,7 +955,9 @@ export class Game {
     this.bodies.end();
     // (Mid-upshift the engine is let go of: it sounds off the throttle. The intro's blip, as it is put on.)
     const rev = this.player.showRev;
-    this.sound.setEngine(this.player.shownRpm, rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
+    const car = this.player.params;
+    this.sound.setEngine(this.player.style, this.player.shownRpm, car.idleRpm, car.redline,
+      rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);

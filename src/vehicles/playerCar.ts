@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
 import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, rollInfluenceAt, smoothSteer, aeroGripScale, steerAngle } from './handling';
-import { CarSpec, STREET_RACER } from './cars';
+import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
@@ -98,6 +98,8 @@ export class PlayerCar {
   readonly chassis: TyreChassis;
   readonly wheels: WheelState[];
   params: CarParams;
+  /** Its body and engine: which car it is (its engine's sound by it). */
+  readonly style: CarStyle;
   private steer = 0;
   private throttle = 0;
   readonly gearbox = new Gearbox();
@@ -128,6 +130,7 @@ export class PlayerCar {
    */
   constructor(physics: PhysicsWorld, scene: THREE.Scene | null, opts: PlayerCarOptions = {}) {
     const spec = opts.spec ?? STREET_RACER;
+    this.style = spec.style;
     this.params = { ...spec.params };
     const p = this.params;
     const ghost = !opts.entity && scene === null;

@@ -1,0 +1,89 @@
+/**
+ * The engine sounds: which recordings each vehicle's engine is made of, and the rpm each was recorded at.
+ *
+ * The recordings are licensed recordings:
+ * they are NOT in this repository, and must never be committed (docs/audio.md). tools/build-engine-audio.ts makes
+ * them, from a local copy of the pack, into public/audio/engines.bin (git-ignored); without that file the game runs
+ * with its engines silent.
+ *
+ * Each clip is one steady rev of one engine, a seamless loop. Its rpm: from its harmonics (the engine's firing
+ * series), every pair of neighbours confirmed by matching their spectra (the ratio that lines their harmonics up);
+ * a pack's numbers are only right relative to each other (what the crossfades need), not the real car's.
+ */
+
+/** One recording: where it is in the pack (its folder, its file without .wav) and the rpm it holds. */
+export interface EngineClip {
+  pack: string;
+  file: string;
+  rpm: number;
+}
+
+/** A vehicle's engine: its clips in rising rpm, and how much higher than recorded it's played (1: as recorded). */
+export interface EngineSet {
+  clips: string[];
+  pitch: number;
+}
+
+export type EngineKind = 'super' | 'muscle' | 'jdm' | 'sedan' | 'truck' | 'container';
+
+/** Every clip, by id (`<pack tag>-<rev>`). */
+export const ENGINE_CLIPS: Record<string, EngineClip> = {
+  // V10 (a rev below idle left out: it sits below its idle, ~1299 against ~1411).
+  'g10-idle': { rpm: 1411 },
+  'g10-low': { rpm: 1819 },
+  'g10-low-med': { rpm: 2111 },
+  'g10-med': { rpm: 2849 },
+  'g10-med-high': { rpm: 3368 },
+  'g10-high': { rpm: 3697 },
+  'g10-very-high': { rpm: 4304 },
+  // V8 (its idle a lumpy one, no steady harmonics: its rpm from its spectrum against the next
+  // three revs').
+  'v8c-idle': { rpm: 1920 },
+  'v8c-idle-low': { rpm: 2212 },
+  'v8c-low': { rpm: 2803 },
+  'v8c-low-med': { rpm: 4351 },
+  'v8c-med': { rpm: 4800 },
+  'v8c-med-high': { rpm: 4961 },
+  'v8c-high': { rpm: 5218 },
+  'v8c-very-high': { rpm: 5934 },
+  // JDM four (a rev below idle left out, as the V10's): each rev against the idle's spectrum directly.
+  'i4j-idle': { rpm: 1388 },
+  'i4j-low': { rpm: 1837 },
+  'i4j-low-med': { rpm: 2546 },
+  'i4j-med': { rpm: 2800 },
+  'i4j-med-high': { rpm: 3125 },
+  'i4j-high': { rpm: 3254 },
+  'i4j-very-high': { rpm: 3398 },
+  // sedan four (likewise).
+  'i4g-idle': { rpm: 957 },
+  'i4g-low': { rpm: 1227 },
+  'i4g-low-med': { rpm: 1480 },
+  'i4g-med': { rpm: 1908 },
+  'i4g-med-high': { rpm: 2016 },
+  'i4g-high': { rpm: 2425 },
+  'i4g-very-high': { rpm: 2810 },
+  // truck diesel (its idle a six's firing at 30 Hz: 600).
+  'trk-idle': { rpm: 600 },
+  'trk-idle-low': { rpm: 763 },
+  'trk-low': { rpm: 907 },
+  'trk-low-med': { rpm: 1075 },
+  'trk-med': { rpm: 1246 },
+  'trk-med-high': { rpm: 1394 },
+  'trk-high': { rpm: 1654 },
+  'trk-very-high': { rpm: 1856 },
+};
+
+const clipsOf = (tag: string): string[] => Object.keys(ENGINE_CLIPS).filter((id) => id.startsWith(tag + '-'));
+
+/** Each vehicle's engine. The truck: the tractor unit's engine, played higher (lighter, revvier). */
+export const ENGINE_SETS: Record<EngineKind, EngineSet> = {
+  super: { clips: clipsOf('g10'), pitch: 1 },
+  muscle: { clips: clipsOf('v8c'), pitch: 1 },
+  jdm: { clips: clipsOf('i4j'), pitch: 1 },
+  sedan: { clips: clipsOf('i4g'), pitch: 1 },
+  truck: { clips: clipsOf('trk'), pitch: 1.2 },
+  container: { clips: clipsOf('trk'), pitch: 1 },
+};
+
+/** Where the built sounds are (under the site's root). */
+export const ENGINE_BUNDLE_URL = 'audio/engines.bin';
