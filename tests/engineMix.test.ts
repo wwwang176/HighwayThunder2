@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HANDOVER, TOP, handovers, mixAt, soundRpm } from '../src/audio/engineMix';
+import { HANDOVER, TOP, atLimiter, handovers, mixAt, soundRpm } from '../src/audio/engineMix';
 import { ENGINE_CLIPS, ENGINE_SETS } from '../src/audio/engineCatalog';
 
 const RPMS = [1000, 1500, 1560, 2400];
@@ -71,5 +71,13 @@ describe('the catalog', () => {
       const rpms = set.clips.map((id) => ENGINE_CLIPS[id].rpm);
       for (let i = 1; i < rpms.length; i++) expect(rpms[i]).toBeGreaterThan(rpms[i - 1]);
     }
+  });
+});
+
+describe('the rev limiter', () => {
+  it('is on at the redline with the throttle held, off below it or off the throttle', () => {
+    expect(atLimiter(7500, 7500, 1)).toBe(true);
+    expect(atLimiter(7000, 7500, 1)).toBe(false);
+    expect(atLimiter(7500, 7500, 0)).toBe(false);
   });
 });

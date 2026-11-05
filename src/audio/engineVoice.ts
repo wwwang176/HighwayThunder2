@@ -1,5 +1,5 @@
 import { ENGINE_CLIPS, ENGINE_SETS, type EngineKind } from './engineCatalog';
-import { handovers, mixAt, soundRpm } from './engineMix';
+import { atLimiter, handovers, mixAt, soundRpm } from './engineMix';
 
 /** How quickly the clips' speeds and volumes follow the rpm (s, time constant). */
 const FOLLOW = 0.03;
@@ -19,7 +19,7 @@ interface Layer {
 
 /**
  * One engine's sound: its set's clips (engineCatalog), each a looping source through its own gain, mixed by the rpm
- * (engineMix) into `output`. Only the clips sounding are playing.
+ * (engineMix) into `output`; on the rev limiter its limiter clip instead. Only the clips sounding are playing.
  */
 export class EngineVoice {
   readonly kind: EngineKind;
@@ -29,6 +29,8 @@ export class EngineVoice {
   private readonly rpms: number[];
   private readonly bands: [number, number][];
   private readonly pitch: number;
+  /** The limiter clip's rpm (it's the last of `layers`, after the revs). */
+  private readonly limiterRpm: number;
   private readonly gains: number[] = [];
   private readonly rates: number[] = [];
   /** When it was last asked to sound (its volume above 0). */
@@ -44,7 +46,8 @@ export class EngineVoice {
     this.output = ctx.createGain();
     this.output.gain.value = 0;
     this.output.connect(out);
-    this.layers = set.clips.map((id) => {
+    this.limiterRpm = ENGINE_CLIPS[set.limiter].rpm;
+    this.layers = [...set.clips, set.limiter].map((id) => {
       const gain = ctx.createGain();
       gain.gain.value = 0;
       gain.connect(this.output);
@@ -59,7 +62,13 @@ export class EngineVoice {
    */
   update(rpm: number, idle: number, redline: number, throttle: number, volume: number, rateScale = 1, follow = THROTTLE_FOLLOW): void {
     const t = this.ctx.currentTime;
-    mixAt(soundRpm(rpm, idle, redline, this.rpms), this.rpms, this.pitch, this.bands, this.gains, this.rates);
+    const s = soundRpm(rpm, idle, redline, this.rpms), n = this.rpms.length;
+    mixAt(s, this.rpms, this.pitch, this.bands, this.gains, this.rates);
+    // On the rev limiter: the limiter clip (the top rev, stuttering) in the revs' place, crossfaded as they follow.
+    const limiting = atLimiter(rpm, redline, throttle);
+    if (limiting) for (let i = 0; i < n; i++) this.gains[i] = 0;
+    this.gains[n] = limiting ? 1 : 0;
+    this.rates[n] = (s / this.limiterRpm) * this.pitch;
     this.output.gain.setTargetAtTime(volume * (OFF_THROTTLE_GAIN + (1 - OFF_THROTTLE_GAIN) * throttle), t, follow);
     // Silenced: its clips carry on under the fade (`follow`), and stop once it's been silent a while.
     if (volume > 0) this.quietSince = t;

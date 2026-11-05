@@ -1,4 +1,4 @@
-import type { EngineKind } from './engineCatalog';
+import { ENGINE_SETS, type EngineKind } from './engineCatalog';
 import { loadEngineBank } from './engineBank';
 import { EngineVoice } from './engineVoice';
 import { OtherEngines, type EngineSource } from './otherEngines';
@@ -13,6 +13,9 @@ const OTHERS_VOLUME = 0.8;
 const MASTER = 0.5;
 /** After a pause (or a tab coming back), everything fades back in over this (s): no pop. */
 const RESUME_FADE = 0.8;
+/** The start-up this loud (on the engine's own volume); played only if its clips are in within this (s). */
+const STARTUP_VOLUME = 1;
+const STARTUP_WAIT = 1;
 
 /**
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - as from inside, whichever way the camera
@@ -29,6 +32,8 @@ export class Sound {
   private skidGain!: GainNode;
   /** The engine clips (null: none to be had - no bundle - or not loaded yet). */
   private bank: Map<string, AudioBuffer> | null = null;
+  /** The clips' loading (resolved once they're in, or known not to be had). */
+  private bankLoaded: Promise<void> = Promise.resolve();
   private engine: EngineVoice | null = null;
   private others: OtherEngines | null = null;
   private othersBus!: GainNode;
@@ -70,7 +75,7 @@ export class Sound {
     this.othersBus = ctx.createGain();
     this.othersBus.gain.value = OTHERS_VOLUME;
     this.othersBus.connect(this.master);
-    void loadEngineBank(ctx).then((bank) => {
+    this.bankLoaded = loadEngineBank(ctx).then((bank) => {
       this.bank = bank;
       if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
     });
@@ -139,6 +144,25 @@ export class Sound {
       this.engine = new EngineVoice(this.ctx, this.bank, kind, this.engineBus);
     }
     this.engine.update(rpm, idle, redline, throttle, active ? 1 : 0, this.timeScale);
+  }
+
+  /**
+   * The player's car starting up (its engine's start-up, once, unplaced). On the race's first start the clips may
+   * still be loading: then it waits for them, if not for long (STARTUP_WAIT).
+   */
+  startup(kind: EngineKind): void {
+    const asked = performance.now();
+    void this.bankLoaded.then(() => {
+      const ctx = this.ctx, buffer = this.bank?.get(ENGINE_SETS[kind].startup);
+      if (!ctx || !buffer || performance.now() - asked > STARTUP_WAIT * 1000) return;
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      src.buffer = buffer;
+      src.playbackRate.value = ENGINE_SETS[kind].pitch;
+      g.gain.value = STARTUP_VOLUME;
+      src.connect(g).connect(this.engineBus);
+      src.onended = () => g.disconnect();
+      src.start();
+    });
   }
 
   /** The player's engine silenced (until setEngine sounds it again), and the others'. */

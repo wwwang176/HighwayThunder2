@@ -7,14 +7,23 @@
  * crossfade is all the handover needs (as the pack itself does it).
  *
  * The game's rpm (idle .. redline) is laid onto the sound's own range: its lowest clip at its own speed for the
- * idle, its highest at TOP times its own for the redline (a pack's revs reach only so high; this keeps every clip
- * near its own speed rather than the real car's range).
+ * idle, its highest at TOP times its own for the redline (as the pack itself plays it at its top rpm; a pack's
+ * revs reach only so high, and this keeps every clip near its own speed rather than the real car's range). On the
+ * rev limiter (atLimiter), the set's limiter clip in their place.
  */
 
 /** Each handover: ± this factor around the two clips' geometric mean. */
 export const HANDOVER = 1.04;
-/** The highest clip's speed at the redline. */
-export const TOP = 1.08;
+/** The highest clip's speed at the redline (pushed past its own it only sounded shrill). */
+export const TOP = 1;
+/** On the rev limiter from this share of the redline on (the pack's own threshold), the throttle past LIMITER_THROTTLE. */
+export const LIMITER_FROM = 0.988;
+export const LIMITER_THROTTLE = 0.5;
+
+/** Whether the engine is on its rev limiter: at the redline, the throttle held open (the fuel cut stuttering it). */
+export function atLimiter(rpm: number, redline: number, throttle: number): boolean {
+  return rpm >= redline * LIMITER_FROM && throttle > LIMITER_THROTTLE;
+}
 
 /** Where each pair of neighbouring clips hands over: [from, to] rpm, by the sound's rpm. */
 export function handovers(rpms: readonly number[]): [number, number][] {

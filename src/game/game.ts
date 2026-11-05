@@ -236,6 +236,11 @@ export class Game {
     });
     this.resetWorld();
     this.openGarage(true); // (the game opens on its title)
+    // The sound woken at the first click or key (the browser lets it start only then), so its clips load in the
+    // garage, ready for the race's start.
+    const wake = (): void => this.sound.init();
+    addEventListener('pointerdown', wake, { once: true });
+    addEventListener('keydown', wake, { once: true });
     this.prewarm();
   }
 
@@ -358,6 +363,7 @@ export class Game {
     if (!picksCars(this.flow.phase) || this.starting) return;
     this.starting = true;
     this.sound.init(); // (in the click or key itself: the browser lets the sound start only there)
+    this.sound.startup(specOf((cars ?? this.cars).player).style); // (the car started up, as it heads for the grid)
     this.overlay.toBlack(START_FADE_OUT, () => {
       this.starting = false;
       this.garage.close();
