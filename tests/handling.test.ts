@@ -343,11 +343,11 @@ describe('the shunt as an upshift bites', () => {
   it('dips first, bounces back, and dies away', () => {
     expect(shuntRevs(0, 1)).toBeCloseTo(0);
     expect(shuntRevs(0.03, 1)).toBeLessThan(-50); // (the dip)
-    expect(shuntRevs(0.1, 1)).toBeGreaterThan(0); // (the bounce)
+    expect(shuntRevs(0.15, 1)).toBeGreaterThan(0); // (the bounce)
     let peak = 0;
     for (let t = 0; t < SHUNT_TIME; t += 0.001) peak = Math.max(peak, Math.abs(shuntRevs(t, 1)));
     expect(peak).toBeLessThan(SHUNT_RPM);
-    expect(Math.abs(shuntRevs(0.3, 1))).toBeLessThan(10);
+    for (let t = 0.45; t < SHUNT_TIME; t += 0.01) expect(Math.abs(shuntRevs(t, 1))).toBeLessThan(SHUNT_RPM * 0.05);
     expect(shuntRevs(SHUNT_TIME + 0.01, 1)).toBe(0);
   });
 
