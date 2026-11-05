@@ -14,9 +14,9 @@ export const NITRO = {
   force: 1.5,
   /** The car's top speed (its limiter), times, while it burns (the top gear's still the end of it). */
   topSpeed: 1.08,
-  /** The AI's: each burst, seconds; seconds between them; the throttle it fires on. */
-  aiBurst: 0.5,
-  aiGap: 2,
+  /** The AI's: each burst, seconds, between these (by chance); seconds off after one, between these; the throttle it fires on. */
+  aiBurst: [0.4, 0.9] as const,
+  aiGap: [1.5, 2.5] as const,
   aiThrottle: 0.8,
 };
 
@@ -44,10 +44,19 @@ export class Nitro {
   }
 }
 
-/** The AI's use of it, by rule: on full throttle, a NITRO.aiBurst burst whenever there is one in the tank, NITRO.aiGap apart. */
+/**
+ * The AI's use of it, by rule: on full throttle, a burst (NITRO.aiBurst s long, by chance) whenever there is enough
+ * in the tank for it, then off for a while (NITRO.aiGap s, by chance). `random`: its dice (0..1).
+ */
 export class NitroAi {
   private burst = 0;
   private wait = 0;
+  /** How long the next burst (s). */
+  private next: number;
+
+  constructor(private readonly random: () => number = Math.random) {
+    this.next = this.roll(NITRO.aiBurst);
+  }
 
   /** A step of `dt` s at `throttle` (0..1): whether to ask for nitro. */
   want(dt: number, throttle: number, nitro: Nitro): boolean {
@@ -56,14 +65,20 @@ export class NitroAi {
       this.burst -= dt;
       return true;
     }
-    if (this.wait > 0 || throttle < NITRO.aiThrottle || nitro.level < NITRO.aiBurst / NITRO.burn) return false;
-    this.burst = NITRO.aiBurst - dt;
-    this.wait = NITRO.aiGap;
+    if (this.wait > dt / 2 || throttle < NITRO.aiThrottle || nitro.level < this.next / NITRO.burn) return false;
+    this.burst = this.next - dt;
+    this.wait = this.next + this.roll(NITRO.aiGap);
+    this.next = this.roll(NITRO.aiBurst);
     return true;
   }
 
   reset(): void {
     this.burst = 0;
     this.wait = 0;
+    this.next = this.roll(NITRO.aiBurst);
+  }
+
+  private roll([lo, hi]: readonly [number, number]): number {
+    return lo + this.random() * (hi - lo);
   }
 }
