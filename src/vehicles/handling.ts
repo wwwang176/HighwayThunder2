@@ -169,6 +169,26 @@ export function revsFalling(prev: number, target: number, dt: number, rate = ENG
   return target >= prev ? target : Math.max(target, prev - rate * dt);
 }
 
+/**
+ * The driveline's shunt as the drive bites again (an upshift's, or the throttle back on): the revs, carrying on, dip and
+ * bounce back a few times, dying away (SHUNT_RPM deep at full throttle, SHUNT_HZ, SHUNT_DECAY s time constant).
+ */
+export const SHUNT_RPM = 200;
+export const SHUNT_HZ = 7;
+export const SHUNT_DECAY = 0.08;
+/** The throttle back on past SHUNT_ON after it was let off under SHUNT_OFF bites too (driving, past SHUNT_MIN_SPEED m/s). */
+export const SHUNT_OFF = 0.05;
+export const SHUNT_ON = 0.2;
+export const SHUNT_MIN_SPEED = 2;
+/** After this long (s) it's over. */
+export const SHUNT_TIME = 0.4;
+
+/** The shunt's offset to the revs (rpm), `t` s after the drive bit again, at `throttle` (0..1). */
+export function shuntRevs(t: number, throttle: number): number {
+  if (!(t >= 0) || t > SHUNT_TIME) return 0;
+  return -SHUNT_RPM * throttle * Math.exp(-t / SHUNT_DECAY) * Math.sin(2 * Math.PI * SHUNT_HZ * t);
+}
+
 const TC_MAX_MULT = 2.0; // torque converter multiplication at stall
 const TC_STALL_RPM = 3000;
 

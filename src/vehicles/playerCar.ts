@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, smoothSteer, aeroGripScale, steerAngle } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, steerAngle } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
@@ -107,6 +107,10 @@ export class PlayerCar {
   readonly nitro = new Nitro();
   readonly headlights: THREE.SpotLight[] = [];
   rpm = 900;
+  /** The revs without the shunt (rpm is them with it); how long since the drive bit again (s); off the throttle since. */
+  private baseRpm = 900;
+  private sinceBite = Infinity;
+  private offThrottle = false;
   driveMode: DriveMode = 'D';
   /** Optional per-position grip multiplier (e.g. grass). */
   surfaceGrip: (x: number) => number = () => 1;
@@ -304,13 +308,22 @@ export class PlayerCar {
 
     // Engine power is limited by how fast the driven wheels turn (wheelspin eats power).
     const rearOmega = (this.wheels[2].omega + this.wheels[3].omega) / 2;
-    const gear = this.gearbox.gear;
+    const gear = this.gearbox.gear, wasShifting = this.gearbox.shifting;
     this.gearbox.update(this.vLong, dt, p, rearOmega);
     // Displayed / audible rpm bounces off the limiter but never far past it; it winds down, not drops, as the
     // wheels slow (revsFalling) - but for a shift, whose own fall (the gearbox's) is the gearbox's speed.
     const revs = Math.min(p.redline * 1.03, this.gearbox.engineRpm(rearOmega, p));
     const shifting = this.gearbox.shifting || this.gearbox.gear !== gear;
-    this.rpm = shifting ? revs : revsFalling(this.rpm, revs, dt);
+    this.baseRpm = shifting ? revs : revsFalling(this.baseRpm, revs, dt);
+    // The drive biting again - an upshift's, or the throttle back on (driving) after it was let off: the
+    // driveline's slack taken up, the revs shudder a moment (shuntRevs) as they carry on.
+    if (this.throttle < SHUNT_OFF) this.offThrottle = true;
+    const tipIn = this.offThrottle && this.throttle > SHUNT_ON && Math.abs(this.vLong) > SHUNT_MIN_SPEED;
+    if (tipIn || (wasShifting && !this.gearbox.shifting)) {
+      this.sinceBite = 0;
+      this.offThrottle = false;
+    } else this.sinceBite += dt;
+    this.rpm = this.baseRpm + shuntRevs(this.sinceBite, input.throttle);
     // Nitro: a harder push, a little past the limiter (on the throttle only).
     const boost = this.nitro.update(dt, !!input.nitro && input.throttle > 0);
     const limit = boost ? { ...p, maxSpeed: p.maxSpeed * NITRO.topSpeed } : p;

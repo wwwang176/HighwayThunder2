@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -336,5 +336,23 @@ describe('the engine winding down', () => {
 
   it('never falls past the target', () => {
     expect(revsFalling(1000, 900, 1)).toBe(900);
+  });
+});
+
+describe('the shunt as an upshift bites', () => {
+  it('dips first, bounces back, and dies away', () => {
+    expect(shuntRevs(0, 1)).toBeCloseTo(0);
+    expect(shuntRevs(0.03, 1)).toBeLessThan(-50); // (the dip)
+    expect(shuntRevs(0.1, 1)).toBeGreaterThan(0); // (the bounce)
+    let peak = 0;
+    for (let t = 0; t < SHUNT_TIME; t += 0.001) peak = Math.max(peak, Math.abs(shuntRevs(t, 1)));
+    expect(peak).toBeLessThan(SHUNT_RPM);
+    expect(Math.abs(shuntRevs(0.3, 1))).toBeLessThan(10);
+    expect(shuntRevs(SHUNT_TIME + 0.01, 1)).toBe(0);
+  });
+
+  it('is as hard as the throttle: none off it', () => {
+    expect(shuntRevs(0.03, 0)).toBeCloseTo(0);
+    expect(shuntRevs(0.03, 0.5)).toBeCloseTo(shuntRevs(0.03, 1) / 2);
   });
 });
