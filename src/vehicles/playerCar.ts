@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, rollInfluenceAt, smoothSteer, aeroGripScale, steerAngle } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, smoothSteer, aeroGripScale, steerAngle } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
@@ -304,9 +304,13 @@ export class PlayerCar {
 
     // Engine power is limited by how fast the driven wheels turn (wheelspin eats power).
     const rearOmega = (this.wheels[2].omega + this.wheels[3].omega) / 2;
+    const gear = this.gearbox.gear;
     this.gearbox.update(this.vLong, dt, p, rearOmega);
-    // Displayed / audible rpm bounces off the limiter but never far past it.
-    this.rpm = Math.min(p.redline * 1.03, this.gearbox.engineRpm(rearOmega, p));
+    // Displayed / audible rpm bounces off the limiter but never far past it; it winds down, not drops, as the
+    // wheels slow (revsFalling) - but for a shift, whose own fall (the gearbox's) is the gearbox's speed.
+    const revs = Math.min(p.redline * 1.03, this.gearbox.engineRpm(rearOmega, p));
+    const shifting = this.gearbox.shifting || this.gearbox.gear !== gear;
+    this.rpm = shifting ? revs : revsFalling(this.rpm, revs, dt);
     // Nitro: a harder push, a little past the limiter (on the throttle only).
     const boost = this.nitro.update(dt, !!input.nitro && input.throttle > 0);
     const limit = boost ? { ...p, maxSpeed: p.maxSpeed * NITRO.topSpeed } : p;

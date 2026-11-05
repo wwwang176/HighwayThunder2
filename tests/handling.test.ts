@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -320,5 +320,21 @@ describe('rollInfluenceAt', () => {
     const at280 = rollInfluenceAt(280 / 3.6, p);
     expect(at280).toBeLessThan(1);
     expect(at280 * effectiveMu(280 / 3.6, p)).toBeCloseTo(effectiveMu(150 / 3.6, p), 5);
+  });
+});
+
+describe('the engine winding down', () => {
+  it('rises at once, falls no faster than its rate', () => {
+    expect(revsFalling(1000, 6000, 0.01)).toBe(6000);
+    expect(revsFalling(6000, 900, 0.1)).toBeCloseTo(6000 - ENGINE_FALL_RATE * 0.1);
+    // a blip let go: back at the idle in about a second, not at once
+    let rpm = 6000, t = 0;
+    while (rpm > 900) { rpm = revsFalling(rpm, 900, 1 / 60); t += 1 / 60; }
+    expect(t).toBeGreaterThan(0.9);
+    expect(t).toBeLessThan(1.2);
+  });
+
+  it('never falls past the target', () => {
+    expect(revsFalling(1000, 900, 1)).toBe(900);
   });
 });

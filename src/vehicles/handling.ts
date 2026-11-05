@@ -157,6 +157,18 @@ const SHIFT_DOWN = 0.6;
 const SHIFT_TIME = 0.25;
 
 const RPM_TO_RAD = (2 * Math.PI) / 60;
+/**
+ * How fast the engine's revs can fall on their own (rpm/s): its flywheel's inertia, the torque converter letting it
+ * slip from the wheels. Without it, a blip standing still drops straight back to the idle as the spun-up rear
+ * tyres bite (the revs read off the wheels); with it they wind down over a second or so.
+ */
+export const ENGINE_FALL_RATE = 5000;
+
+/** The revs a step on: up at once to `target`, down no faster than ENGINE_FALL_RATE. */
+export function revsFalling(prev: number, target: number, dt: number, rate = ENGINE_FALL_RATE): number {
+  return target >= prev ? target : Math.max(target, prev - rate * dt);
+}
+
 const TC_MAX_MULT = 2.0; // torque converter multiplication at stall
 const TC_STALL_RPM = 3000;
 
