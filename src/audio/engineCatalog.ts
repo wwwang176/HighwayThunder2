@@ -16,6 +16,11 @@ export interface EngineClip {
   pack: string;
   file: string;
   rpm: number;
+  /**
+   * Made into a rev limiter when it's built (tools/build-engine-audio.ts): the fuel cut put on it, `hz` times a
+   * second (to a whole number of cuts a lap), each `depthDb` down - for a pack whose own limiter recording won't do.
+   */
+  stutter?: { hz: number; depthDb: number };
 }
 
 /**
@@ -57,7 +62,8 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
   'v8c-med-high': { rpm: 4961 },
   'v8c-high': { rpm: 5218 },
   'v8c-very-high': { rpm: 5934 },
-  'v8c-limiter': { rpm: 5849 },
+  // (its own limiter recording a ragged burble, off its top rev's pitch, no steady cut: its top rev, the cut put on it)
+  'v8c-limiter': { rpm: 5934, stutter: { hz: 12, depthDb: 16 } },
   'v8c-startup': { rpm: 0 },
   // JDM four (a rev below idle left out, as the V10's): each rev against the idle's spectrum directly.
   'i4j-idle': { rpm: 1388 },
