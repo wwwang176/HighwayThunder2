@@ -40,6 +40,8 @@ export interface HudFrame {
   racers: HudRacer[];
   /** The camera's shake this frame (CameraRig.shaken): the HUD shakes with it, a little. */
   shake: { right: number; up: number; roll: number };
+  /** The finish gate on the screen (0..1 from its left and top), `m` m on; none: behind the camera. */
+  goal: { x: number; y: number; m: number } | null;
 }
 
 const html = String.raw;
@@ -47,6 +49,9 @@ const UI = `${import.meta.env.BASE_URL}ui/`;
 const icon = (name: string, cls = '') => `<span class="icon ${cls}" style="--src:url(${UI}${name}.png)"></span>`;
 /** A rival this close behind (m, bumper to bumper) shows as an arrow on the screen's bottom edge. */
 const BEHIND_RANGE = 30;
+/** The finish marked over its gate (how far it is to go) from this close (m), fading in over the first `GOAL_FADE` m. */
+const GOAL_RANGE = 1000;
+const GOAL_FADE = 100;
 /** A time, its thousandths small: 0:20<small>.225</small>. */
 const timeHtml = (sec: number) => formatTime(sec).replace(/\.(\d+)$/, '<small>.$1</small>');
 
@@ -154,6 +159,7 @@ export class Hud {
           <div class="gear hex"><b class="hex" data-id="gear">1</b></div>
           <span class="n2o lbl">N2O</span>
         </div>
+        <div class="h-goal float" data-id="goal">${icon('icon-flag', 'flag')}<div class="num"><span data-id="goalM"></span><small>m</small></div></div>
         <div class="h-behind float" data-id="behind"><div class="d num" data-id="behindGap"></div><div class="chev"></div></div>
         <div class="h-reset" data-id="reset"><kbd>R</kbd>${tx('hud.reset', 'span', 'float')}</div>
         <div class="h-badges"><span data-id="ai" class="h-ai cut">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
@@ -237,6 +243,17 @@ export class Hud {
     this.menu[this.cursor]?.click();
   }
 
+  /** Whether the finish's panel is in (revealFinish: its show over). */
+  finishShown = false;
+
+  /** The finish's panel in, its menu open (the finish's show over: game/finishShow). */
+  revealFinish(): void {
+    if (this.flow.phase !== 'finished' || this.finishShown) return;
+    this.finishShown = true;
+    this.show('finish', true);
+    this.openMenu([this.el.againBtn, this.el.finishTitleBtn]);
+  }
+
   /** Nothing of the race on screen (the garage is open: update() is not called until the next race). */
   hide(): void {
     this.lastPhase = '';
@@ -278,7 +295,8 @@ export class Hud {
       this.lastPhase = phase;
       this.show('hud', phase !== 'title' && phase !== 'intro' && phase !== 'finished'); // (not over the intro's shots, nor the finish's panel)
       this.show('pause', phase === 'paused');
-      this.show('finish', phase === 'finished');
+      this.show('finish', false); // (in after the finish's show: revealFinish)
+      this.finishShown = false;
       if (phase === 'countdown') this.lastPlace = null;
       if (phase === 'countdown' && from === 'intro') {
         // Coming in as the intro hands over (the class again: the animation from its start).
@@ -288,7 +306,6 @@ export class Hud {
       }
       this.menu = [];
       if (phase === 'paused') this.openMenu([this.el.resumeBtn, this.el.pauseTitleBtn]);
-      if (phase === 'finished') this.openMenu([this.el.againBtn, this.el.finishTitleBtn]);
       if (phase === 'paused') {
         this.el.pTime.innerHTML = timeHtml(flow.raceTime);
         this.el.pPlaceBox.style.display = many ? '' : 'none';
@@ -338,6 +355,16 @@ export class Hud {
       this.el.behind.style.setProperty('--c', behind.color);
       this.el.behind.style.left = `${50 + behind.side * 12}%`;
       this.el.behindGap.textContent = `${Math.round(behind.gap)} m`;
+    }
+    // The finish, marked over its gate as it nears.
+    const goal = phase === 'racing' && f.goal && f.goal.m <= GOAL_RANGE ? f.goal : null;
+    this.el.goal.style.display = goal ? '' : 'none';
+    if (goal) {
+      const g = this.el.goal.style;
+      g.left = `${(goal.x * 100).toFixed(2)}%`;
+      g.top = `${(goal.y * 100).toFixed(2)}%`;
+      g.opacity = Math.min(1, (GOAL_RANGE - goal.m) / GOAL_FADE).toFixed(2);
+      this.el.goalM.textContent = String(Math.ceil(goal.m));
     }
     // R: only once the car is stuck or rolled over (dt is the race's step: paused, the timers hold).
     const hint = phase === 'racing' && this.resetHint.update(dt, f.speedKmh, f.upY);
