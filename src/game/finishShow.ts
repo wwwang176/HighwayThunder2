@@ -3,10 +3,10 @@ import { MEDIAN_NEAR_X, RAIL_D } from '../config';
 import type { PlayerCar } from '../vehicles/playerCar';
 
 /**
- * Past the line, the race slowed to `scale` of its speed, held for `hold` s (the show's own, real time), then
- * back up to full by `back` s; the panel in, slowed again to `panel` over `settle` s, and kept there.
+ * Past the line, the race eased down from full speed to `scale` of it over `ease` s (the show's own, real time),
+ * and held there through the shots; the panel in, eased to `panel` over `settle` s, and kept there.
  */
-export const FINISH_SLOW = { scale: 0.15, hold: 1.4, back: 3.4, panel: 0.2, settle: 0.8 };
+export const FINISH_SLOW = { scale: 0.15, ease: 0.6, panel: 0.2, settle: 0.8 };
 
 /**
  * How fast the race runs `t` s (real) into the finish's show, its panel in at `panelAt` s; skipped to it, from
@@ -14,8 +14,16 @@ export const FINISH_SLOW = { scale: 0.15, hold: 1.4, back: 3.4, panel: 0.2, sett
  */
 export function finishTimeScale(t: number, panelAt: number, from?: number): number {
   const S = FINISH_SLOW;
-  if (t < panelAt) return THREE.MathUtils.lerp(S.scale, 1, THREE.MathUtils.smoothstep(t, S.hold, S.back));
-  return THREE.MathUtils.lerp(from ?? 1, S.panel, THREE.MathUtils.smoothstep(t, panelAt, panelAt + S.settle));
+  if (t < panelAt) return THREE.MathUtils.lerp(1, S.scale, THREE.MathUtils.smoothstep(t, 0, S.ease));
+  return THREE.MathUtils.lerp(from ?? S.scale, S.panel, THREE.MathUtils.smoothstep(t, panelAt, panelAt + S.settle));
+}
+
+/** How much of the race's time passes in the first `t` s (real) past the line (before the panel). */
+export function slowedSeconds(t: number): number {
+  const n = 100;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += finishTimeScale(((i + 0.5) / n) * t, Infinity);
+  return (sum / n) * t;
 }
 
 /** A camera pose in the car's frame: x right, y up from the ground, z ahead (the car on the origin). */
@@ -43,8 +51,8 @@ const ORBIT = 0.12;
 
 /**
  * The finish's show (as the race's intro, game/intro): from the line, a few shots of the player's car - seen from
- * the roadside coming past the finish in slow motion, then low behind it as the race comes back up to speed and
- * it brakes, then from up ahead of it looking back at the gate as it rolls to a stop - and then on round it, slowly,
+ * the roadside coming past the finish, slowing into slow motion, then low behind it as it brakes,
+ * then from up ahead of it looking back at the finish - and then on round it, slowly,
  * behind the panel (`done`: the panel's time). Runs on real time (it is what slows the race down: finishTimeScale);
  * a key skips it to its end.
  */
@@ -68,7 +76,7 @@ export class FinishShow {
     const at = car.mesh.position;
     // Past the car by a bit more than it goes in the first shot (the race slowed: it stops short), beside the road
     // on the nearest side with room (not where the car is: it would come through the camera).
-    const goes = THREE.MathUtils.clamp(Math.abs(car.speed) * FINISH_SLOW.scale * THROUGH * 1.3, 8, 30);
+    const goes = THREE.MathUtils.clamp(Math.abs(car.speed) * slowedSeconds(THROUGH) * 1.15, 8, 50);
     const edges = [RAIL_D - 0.8, MEDIAN_NEAR_X + 0.8];
     const room = edges.filter((x) => Math.abs(x - at.x) >= 6);
     const x = room.length ? room.reduce((a, b) => (Math.abs(b - at.x) < Math.abs(a - at.x) ? b : a)) : edges.reduce((a, b) => (Math.abs(b - at.x) > Math.abs(a - at.x) ? b : a));
@@ -76,7 +84,7 @@ export class FinishShow {
     // The shots after it from that side of the car, so it keeps going the same way across the picture.
     const side = Math.sign((x - at.x) * this.right.x + 1e-6);
     this.shots = [
-      { seconds: THROUGH, from: { pos: [0, 0, 0], look: [0, 0, 0], fov: 36 }, to: { pos: [0, 0, 0], look: [0, 0, 0], fov: 32 }, ease: linear },
+      { seconds: THROUGH, from: { pos: [0, 0, 0], look: [0, 0, 0], fov: 28 }, to: { pos: [0, 0, 0], look: [0, 0, 0], fov: 38 }, ease: linear },
       {
         // Low behind it on that side, going along with it: its tail lights, the road ahead.
         seconds: 1.6,
