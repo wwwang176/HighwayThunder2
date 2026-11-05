@@ -237,6 +237,17 @@ export class Hud {
     this.menu[this.cursor]?.click();
   }
 
+  /** Whether the finish's panel is in (revealFinish: its show over). */
+  finishShown = false;
+
+  /** The finish's panel in, its menu open (the finish's show over: game/finishShow). */
+  revealFinish(): void {
+    if (this.flow.phase !== 'finished' || this.finishShown) return;
+    this.finishShown = true;
+    this.show('finish', true);
+    this.openMenu([this.el.againBtn, this.el.finishTitleBtn]);
+  }
+
   /** Nothing of the race on screen (the garage is open: update() is not called until the next race). */
   hide(): void {
     this.lastPhase = '';
@@ -278,7 +289,8 @@ export class Hud {
       this.lastPhase = phase;
       this.show('hud', phase !== 'title' && phase !== 'intro' && phase !== 'finished'); // (not over the intro's shots, nor the finish's panel)
       this.show('pause', phase === 'paused');
-      this.show('finish', phase === 'finished');
+      this.show('finish', false); // (in after the finish's show: revealFinish)
+      this.finishShown = false;
       if (phase === 'countdown') this.lastPlace = null;
       if (phase === 'countdown' && from === 'intro') {
         // Coming in as the intro hands over (the class again: the animation from its start).
@@ -288,7 +300,6 @@ export class Hud {
       }
       this.menu = [];
       if (phase === 'paused') this.openMenu([this.el.resumeBtn, this.el.pauseTitleBtn]);
-      if (phase === 'finished') this.openMenu([this.el.againBtn, this.el.finishTitleBtn]);
       if (phase === 'paused') {
         this.el.pTime.innerHTML = timeHtml(flow.raceTime);
         this.el.pPlaceBox.style.display = many ? '' : 'none';

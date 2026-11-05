@@ -39,9 +39,11 @@ import { Garage } from '../ui/garage';
 import { IntroOverlay } from '../ui/introOverlay';
 import { loadSettings, setLang, t } from '../ui/i18n';
 import { Intro, nextIntro, type IntroBag } from './intro';
+import { FinishShow } from './finishShow';
 
 /** A car type by id (the supercar for an id no longer known). */
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
+import { FinishGate, type SparkEmitter } from '../world/finishGate';
 import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
@@ -67,8 +69,9 @@ const PREWARM_LAMPS: VehicleLights[] = [
 ];
 const PLAYER_OBSTACLE_ID = -1;
 const BLUR_V = new THREE.Vector3();
-/** How fast the race's time runs, by phase (frame()): stopped in a pause, slow motion past the finish line. */
-const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0, finished: 0.1 };
+const STILL = { x: 0, y: 0, z: 0 };
+/** How fast the race's time runs, by phase (frame()): stopped in a pause (past the finish line: its show's, finishTimeScale). */
+const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0 };
 /** A race's start: the garage faded to black, then the race faded in on its intro (ms). */
 const START_FADE_OUT = 350;
 const START_FADE_IN = 700;
@@ -151,6 +154,10 @@ export class Game {
   /** The race's intro, whether it is on; a race starting (the fade). */
   private intro: Intro | null = null;
   private introOn = false;
+  /** The finish's show (past the line, till the next race), and the gate it is at. */
+  private finishShow: FinishShow | null = null;
+  private readonly gate: FinishGate;
+  private readonly emitSpark: SparkEmitter = (x, y, z, vx, vy, vz, life) => this.sparks.emit(x, y, z, vx, vy, vz, life);
   private starting = false;
   private overlay!: IntroOverlay;
   /** Overrides keyboard input when set (used by automated checks). */
@@ -174,6 +181,7 @@ export class Game {
     this.post = new PostFx(this.renderer, this.scene, this.camera);
     this.flares = new LightFlares(this.post.flares.scene, 2000, this.post.flares.depth); // (faded by how hidden, not cut)
     this.road = new RoadScene(this.scene, this.renderer);
+    this.gate = new FinishGate(this.scene);
     for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = surfaceGrip;
@@ -200,9 +208,10 @@ export class Game {
     this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
-    // Any key or click skips the intro.
-    addEventListener('keydown', () => this.skipIntro());
-    addEventListener('pointerdown', () => this.skipIntro());
+    // Any key or click skips the intro, and the finish's show (its panel in on the next frame: the same key not
+    // also picking from it).
+    addEventListener('keydown', () => this.skipShows());
+    addEventListener('pointerdown', () => this.skipShows());
     this.resize();
     addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
@@ -255,7 +264,7 @@ export class Game {
     // garage (the race setup open or not), into the race (not while the controls pop-up is open; the settings
     // open, their OK); on the pause and the finish, the option under the menu's cursor. A button the Tab key is on
     // takes the Enter itself.
-    const menu = () => !g.isOpen && (this.flow.phase === 'paused' || this.flow.phase === 'finished');
+    const menu = () => !g.isOpen && (this.flow.phase === 'paused' || (this.flow.phase === 'finished' && this.hud.finishShown));
     const enter = () => {
       if (document.activeElement instanceof HTMLButtonElement) return;
       if (g.isOpen) {
@@ -270,7 +279,7 @@ export class Game {
     // Esc: closes what is over the garage; races, pauses and resumes; after the finish, back to the garage.
     k.onPress('Escape', () => {
       if (g.isOpen) return g.popOpen && g.closePop();
-      if (this.flow.phase === 'finished') return this.toTitle();
+      if (this.flow.phase === 'finished') return this.hud.finishShown && this.toTitle(); // (in its show: skips it)
       this.togglePause();
     });
     // ↑ ↓ the car, ← → its paint, E the race setup, H the controls, O the settings: in the garage (not at the title:
@@ -394,6 +403,19 @@ export class Game {
     this.finishIntro();
   }
 
+  /** A key or a click: the intro skipped, or the finish's show (to its end: the panel). */
+  private skipShows(): void {
+    this.skipIntro();
+    if (this.flow.phase === 'finished' && this.finishShow && !this.finishShow.done) this.finishShow.skip();
+  }
+
+  /** Past the line: the finish's show from here (the HUD off, the bars in; its panel after it: render). */
+  private beginFinishShow(): void {
+    this.finishShow = new FinishShow(this.camera, this.player);
+    this.gate.shown = false; // (its fountains go on)
+    this.overlay.show(true);
+  }
+
   /**
    * Put these cars on the grid: the player's car and the rivals are rebuilt
    * where their type changed (the player's, its paint job too; the tuning panel
@@ -493,6 +515,11 @@ export class Game {
     this.playerNitroAi.reset();
     this.aiDriver?.reset(this.player.d);
     this.rivals.place();
+    if (this.finishShow) {
+      this.finishShow = null;
+      this.overlay.show(false);
+    }
+    this.gate.reset();
     this.skids.clear();
     this.smoke.clear();
     this.sparks.clear();
@@ -545,10 +572,12 @@ export class Game {
     // The garage covers the whole screen and draws its own car: the world waits (and the GPU rests), the FPS meter too.
     this.stats.dom.style.visibility = this.garage.isOpen ? 'hidden' : '';
     if (this.garage.isOpen) return;
-    // The race's time this frame: 0 while paused, slowed past the finish (TIME_SCALE). The world and everything
-    // that moves with the race (effects, the camera, the HUD's pop-ups) run on it, so a pause stills the whole
-    // picture; only the menus run on real time.
-    const play = dt * (TIME_SCALE[this.flow.phase] ?? 1);
+    // The race's time this frame: 0 while paused, slowed past the finish (TIME_SCALE; its show's). The world and
+    // everything that moves with the race (effects, the camera, the HUD's pop-ups) run on it, so a pause stills the
+    // whole picture; only the menus, and the finish's show (what sets how slow), run on real time.
+    const show = this.flow.phase === 'finished' ? this.finishShow : null;
+    show?.step(dt);
+    const play = dt * (show ? show.timeScale : (TIME_SCALE[this.flow.phase] ?? 1));
     if (play > 0 && !this.freeze) {
       this.accumulator += play;
       let steps = 0;
@@ -684,7 +713,10 @@ export class Game {
 
     const wasFinished = this.flow.phase === 'finished';
     this.flow.update(dt, this.player.s);
-    if (!wasFinished && this.flow.phase === 'finished') this.sound.whoosh();
+    if (!wasFinished && this.flow.phase === 'finished') {
+      this.sound.whoosh();
+      this.beginFinishShow();
+    }
   }
 
   /** The player's car as an obstacle in a carriageway's coordinates. */
@@ -768,14 +800,15 @@ export class Game {
    * The speed blur (render/speedBlur; call with the camera placed): out from where the car is going on the
    * screen (off the middle as it slides), the more the faster (POST.blurFrom km/h up, more with the nitro), and
    * across by the camera's turning (as a 1/60 s exposure would smear it). Paused, it holds as it was (the
-   * picture stays); none at the title.
+   * picture stays); none at the title, nor in the intro's or the finish's shots.
    */
   private speedBlur(play: number): void {
     this.camera.getWorldDirection(BLUR_V);
     const yaw = Math.atan2(BLUR_V.x, BLUR_V.z);
+    const shot = this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null);
     if (play > 0) {
       const v = this.player.body.linvel();
-      const center = this.flow.phase === 'title' || this.flow.phase === 'intro' ? null : motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
+      const center = shot ? null : motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
       if (center) this.blurCenter.copy(center);
       this.blurAmount = center
         ? blurAmount(Math.abs(this.player.speed) * 3.6, this.player.nitro.active, { from: POST.blurFrom, full: POST.blurFull, strength: POST.blurStrength, nitro: POST.blurNitro })
@@ -784,7 +817,7 @@ export class Game {
       const turned = this.camYaw === null ? 0 : Math.atan2(Math.sin(yaw - this.camYaw), Math.cos(yaw - this.camYaw));
       const rate = Math.min(3, Math.abs(turned) / play);
       const hFov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * this.camera.aspect);
-      this.blurSweep.set(this.flow.phase === 'title' || this.flow.phase === 'intro' ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
+      this.blurSweep.set(shot ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
     }
     this.camYaw = yaw;
     this.post.motion(this.blurCenter, this.blurAmount, this.blurSweep);
@@ -874,7 +907,11 @@ export class Game {
     const p = this.player.mesh.position;
     this.road.update(-p.z, p.x);
     // After the road has placed this frame's street lights.
-    this.sparks.update(play, this.player.body.linvel());
+    // The finish's fountains (their sparks as the crashes'). Streaked as the camera moves: standing by the road
+    // in the finish's first shot, not with the car.
+    this.gate.spray(play, this.camera.position.z, this.emitSpark);
+    const standing = this.flow.phase === 'finished' && this.finishShow?.standing;
+    this.sparks.update(play, standing ? STILL : this.player.body.linvel());
     this.player.exhaust(play);
     for (const r of this.rivals.list) r.car.exhaust(play);
     this.smoke.update(play, [
@@ -894,9 +931,19 @@ export class Game {
     }
     this.grassRumble();
     // Paused, the camera holds still too (its shakes stop where they are, and go on after). The intro's shots
-    // instead while it is on.
+    // instead while it is on, the finish's past the line (its panel in once they are over).
+    const show = this.flow.phase === 'finished' ? this.finishShow : null;
     if (this.introOn) this.intro!.placeCamera();
+    else if (show) show.placeCamera();
     else this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
+    if (show?.done && !this.hud.finishShown) {
+      this.overlay.show(false);
+      this.hud.revealFinish();
+    }
+    // The finish gate: a flare where each racer goes through it.
+    this.gate.pass(-1, this.player.s, p.x);
+    for (const r of this.rivals.list) this.gate.pass(r.index, r.car.s, r.car.mesh.position.x);
+    this.gate.update(play, this.camera.position.z);
     this.speedBlur(play);
     // The traffic's bodies, those in this frame's view (the camera placed).
     this.bodies.begin(this.camera, this.shadowLights()); // (the lights casting shadows)

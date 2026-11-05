@@ -105,6 +105,21 @@ export class Sparks {
     for (let k = 0; k < whole; k++) this.spawn(t, slide);
   }
 
+  /** A spark of its own: at (x, y, z), going (vx, vy, vz), for `life` s (the finish's fountains). */
+  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number): void {
+    const i = this.next;
+    this.next = (this.next + 1) % MAX;
+    const o = i * 3;
+    this.pos[o] = x;
+    this.pos[o + 1] = y;
+    this.pos[o + 2] = z;
+    this.vel[o] = vx;
+    this.vel[o + 1] = vy;
+    this.vel[o + 2] = vz;
+    this.age[i] = 0;
+    this.life[i] = life;
+  }
+
   private spawn(t: Touch, slide: number): void {
     const i = this.next;
     this.next = (this.next + 1) % MAX;
