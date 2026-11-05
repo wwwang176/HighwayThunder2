@@ -1,19 +1,28 @@
 import type { EngineKind } from './engineCatalog';
 import { loadEngineBank } from './engineBank';
 import { EngineVoice } from './engineVoice';
-import { OtherEngines, type Ear, type EngineSource } from './otherEngines';
+import { OtherEngines, type EngineSource } from './otherEngines';
+import type { EarPose } from './pan';
+import limiterUrl from './limiter.worklet.js?url';
 
 /** The player's engine, this loud (its clips are at -16 LUFS each); the others' (each by its distance on top). */
 const ENGINE_VOLUME = 0.8;
 const OTHERS_VOLUME = 0.8;
+/** The whole mix (everything summed) this loud: -6 dB of headroom, so the limiter steps in only on a pile-up. */
+const MASTER = 0.5;
+/** After a pause (or a tab coming back), everything fades back in over this (s): no pop. */
+const RESUME_FADE = 0.8;
 
 /**
- * Web Audio: the engines (recorded, engineVoice: the player's as from inside, the others' each from where it is;
- * silent without the built sound bundle), procedural crash bursts, tyre squeal and the near-miss whoosh.
+ * Web Audio: the engines (recorded, engineVoice: the player's unplaced - as from inside, whichever way the camera
+ * looks - the others' each from where it is, otherEngines; silent without the built sound bundle), procedural crash
+ * bursts, tyre squeal and the near-miss whoosh. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
+  private fade!: GainNode;
+  private limiter: AudioWorkletNode | null = null;
   private engineBus!: GainNode;
   private noise!: AudioBuffer;
   private skidGain!: GainNode;
@@ -22,6 +31,8 @@ export class Sound {
   private engine: EngineVoice | null = null;
   private others: OtherEngines | null = null;
   private othersBus!: GainNode;
+  /** How fast the race's time runs (the finish's slow motion): every engine's rate by it. */
+  private timeScale = 1;
   muted = false;
 
   /** Must be called from a user gesture. */
@@ -32,18 +43,25 @@ export class Sound {
     }
     const ctx = new AudioContext();
     this.ctx = ctx;
-    // Everything through a limiter (a fast, hard compressor just under full scale), so a crash on top of the engine
-    // doesn't clip.
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -3;
-    limiter.knee.value = 0;
-    limiter.ratio.value = 20;
-    limiter.attack.value = 0.003;
-    limiter.release.value = 0.15;
-    limiter.connect(ctx.destination);
     this.master = ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : 0.5;
-    this.master.connect(limiter);
+    this.master.gain.value = this.muted ? 0 : MASTER;
+    this.fade = ctx.createGain();
+    this.master.connect(this.fade);
+    // Straight out until the limiter's in (its module loads asynchronously, and may fail: then it stays out); out of
+    // the way again if it ever fails (a failed worklet outputs silence for good - the whole mix gone).
+    this.fade.connect(ctx.destination);
+    void ctx.audioWorklet?.addModule(limiterUrl).then(() => {
+      const node = new AudioWorkletNode(ctx, 'ht2-limiter', { outputChannelCount: [2] });
+      node.onprocessorerror = () => {
+        this.limiter = null;
+        node.disconnect();
+        this.fade.disconnect();
+        this.fade.connect(ctx.destination);
+      };
+      this.fade.disconnect();
+      this.fade.connect(node).connect(ctx.destination);
+      this.limiter = node;
+    }).catch(() => { this.limiter = null; });
 
     this.engineBus = ctx.createGain();
     this.engineBus.gain.value = ENGINE_VOLUME;
@@ -84,13 +102,29 @@ export class Sound {
 
   toggleMute(): void {
     this.muted = !this.muted;
-    if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.5, this.ctx.currentTime, 0.05);
+    if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : MASTER, this.ctx.currentTime, 0.05);
   }
 
+  /** Paused (the whole context stopped) or going again: faded back in, the limiter's buffer cleared first. */
   suspend(on: boolean): void {
     if (!this.ctx) return;
-    if (on) void this.ctx.suspend();
-    else void this.ctx.resume();
+    if (on) {
+      void this.ctx.suspend();
+      return;
+    }
+    if (this.ctx.state === 'running') return;
+    // (its few ms of lookahead were scaled by the mix as it stopped: let out, they'd pop)
+    this.limiter?.port.postMessage('reset');
+    const g = this.fade.gain, now = this.ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(0, now);
+    g.setTargetAtTime(1, now, RESUME_FADE / 4);
+    void this.ctx.resume();
+  }
+
+  /** How fast the race's time runs (1: as it is; the finish's slow motion below): every engine pitched by it. */
+  setTimeScale(scale: number): void {
+    if (scale > 0) this.timeScale = scale;
   }
 
   /**
@@ -103,7 +137,7 @@ export class Sound {
       this.engine?.dispose();
       this.engine = new EngineVoice(this.ctx, this.bank, kind, this.engineBus);
     }
-    this.engine.update(rpm, idle, redline, throttle, active ? 1 : 0);
+    this.engine.update(rpm, idle, redline, throttle, active ? 1 : 0, this.timeScale);
   }
 
   /** The player's engine silenced (until setEngine sounds it again), and the others'. */
@@ -113,11 +147,12 @@ export class Sound {
   }
 
   /**
-   * The engines around the player (the rivals', the traffic's), each heard from where it is from `ear` (the
-   * camera): the nearest, panned, fading with distance, Doppler-shifted. The player's own is heard as from inside.
+   * The engines around the player (the rivals', the traffic's: the first `count` of `sources`), each heard from
+   * where it is from `ear` (the camera; `dt` the race's time since the last frame): the nearest, panned, fading with
+   * distance, Doppler-shifted. The player's own isn't among them: heard as from inside, never panned.
    */
-  setOtherEngines(sources: readonly EngineSource[], ear: Ear, active: boolean): void {
-    this.others?.update(sources, ear, active);
+  setOtherEngines(sources: readonly EngineSource[], count: number, ear: EarPose, dt: number, active: boolean): void {
+    this.others?.update(sources, count, ear, dt, this.timeScale, active);
   }
 
   private burst(duration: number, freq: number, type: BiquadFilterType, gain: number, sweepTo?: number): void {

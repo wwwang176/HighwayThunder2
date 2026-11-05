@@ -56,7 +56,8 @@ import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
-import type { Ear, EngineSource } from '../audio/otherEngines';
+import type { EngineSource } from '../audio/otherEngines';
+import type { EarPose } from '../audio/pan';
 import type { EngineKind } from '../audio/engineCatalog';
 import { trafficEngine, type TrafficGearing } from '../audio/spatial';
 
@@ -116,6 +117,9 @@ export class Game {
   private readonly flashers = new WeakMap<object, BeamFlasher>();
   readonly flow = new GameFlow(localStorage);
   readonly sound = new Sound();
+  /** The engines heard from outside, this frame's (heardEngines; reused). */
+  private readonly engineSources: EngineSource[] = [];
+  private readonly earPose: EarPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 };
   readonly hud: Hud;
   /** The garage: the title screen, where the car and the race are picked. */
   readonly garage: Garage;
@@ -591,6 +595,7 @@ export class Game {
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     show?.step(dt);
     const play = dt * (show ? show.timeScale : (TIME_SCALE[this.flow.phase] ?? 1));
+    this.sound.setTimeScale(dt > 0 ? play / dt : 1); // (the engines slow with it; a pause leaves it as it was)
     if (play > 0 && !this.freeze) {
       this.accumulator += play;
       let steps = 0;
@@ -893,33 +898,55 @@ export class Game {
     }
   }
 
-  /** The engines heard from outside this frame: the rivals' (their own rpm and throttle) and the traffic's. */
-  private heardEngines(): EngineSource[] {
-    const out: EngineSource[] = [];
+  /**
+   * The engines heard from outside this frame, into `this.engineSources` (its entries reused: none made a frame):
+   * the rivals' (their own rpm and throttle; keys -1, -2, ...) and the traffic's (keys their ids). How many.
+   */
+  private heardEngines(): number {
+    let n = 0;
+    const next = (): EngineSource => (this.engineSources[n++] ??= {
+      key: 0, kind: 'sedan', pos: [0, 0, 0], vel: [0, 0, 0], rpm: 0, idle: 0, redline: 1, throttle: 0, gain: 1,
+    });
     for (const r of this.rivals.list) {
-      const c = r.car, p = c.mesh.position, v = c.body.linvel();
-      out.push({ key: `r${r.index}`, kind: c.style, pos: [p.x, p.y, p.z], vel: [v.x, v.y, v.z], rpm: c.shownRpm,
-        idle: c.params.idleRpm, redline: c.params.redline, throttle: c.shownThrottle, gain: 1 });
+      const c = r.car, s = next(), p = c.mesh.position, v = c.body.linvel();
+      s.key = -1 - r.index;
+      s.kind = c.style;
+      s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.rpm = c.shownRpm;
+      s.idle = c.params.idleRpm;
+      s.redline = c.params.redline;
+      s.throttle = c.shownThrottle;
+      s.gain = 1;
     }
     for (const npc of this.npcs.values()) {
       if (npc.wrecked) continue; // (its engine dead)
       const agent = this.trafficWorld.sideOf(npc.id)?.sim.agents.get(npc.id);
       if (!agent) continue;
       const t = TRAFFIC_ENGINE[npc.kind], part = npc.parts[0], p = part.mesh.position, v = part.body.linvel();
-      const e = trafficEngine(agent.v, agent.accel, t.gearing);
-      out.push({ key: `t${npc.id}`, kind: t.kind, pos: [p.x, p.y, p.z], vel: [v.x, v.y, v.z], rpm: e.rpm, idle: 0,
-        redline: 1, throttle: e.throttle, gain: t.gain });
+      const e = trafficEngine(agent.v, agent.accel, t.gearing), s = next();
+      s.key = npc.id;
+      s.kind = t.kind;
+      s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.rpm = e.rpm;
+      s.idle = 0;
+      s.redline = 1;
+      s.throttle = e.throttle;
+      s.gain = t.gain;
     }
-    return out;
+    return n;
   }
 
-  /** Where the sound is heard from: the camera, moving with the player's car. */
-  private ear(): Ear {
-    const c = this.camera, v = this.player.body.linvel();
+  /** Where the sound is heard from, facing which way: the camera (looking back too: the others swing round it). */
+  private ear(): EarPose {
+    const c = this.camera, e = this.earPose;
     c.getWorldDirection(EAR_FWD);
     EAR_UP.set(0, 1, 0).applyQuaternion(c.quaternion);
-    return { pos: [c.position.x, c.position.y, c.position.z], forward: [EAR_FWD.x, EAR_FWD.y, EAR_FWD.z],
-      up: [EAR_UP.x, EAR_UP.y, EAR_UP.z], vel: [v.x, v.y, v.z] };
+    e.px = c.position.x; e.py = c.position.y; e.pz = c.position.z;
+    e.fx = EAR_FWD.x; e.fy = EAR_FWD.y; e.fz = EAR_FWD.z;
+    e.ux = EAR_UP.x; e.uy = EAR_UP.y; e.uz = EAR_UP.z;
+    return e;
   }
 
   /** `play`: the race's time this frame (0 paused: frame()), what everything here moves by. */
@@ -998,7 +1025,7 @@ export class Game {
     const car = this.player.params;
     this.sound.setEngine(this.player.style, this.player.shownRpm, car.idleRpm, car.redline,
       rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
-    this.sound.setOtherEngines(this.heardEngines(), this.ear(), this.flow.phase !== 'title');
+    this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);

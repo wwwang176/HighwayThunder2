@@ -31,6 +31,8 @@ export class EngineVoice {
   private readonly pitch: number;
   private readonly gains: number[] = [];
   private readonly rates: number[] = [];
+  /** When it was last asked to sound (its volume above 0). */
+  private quietSince = 0;
 
   constructor(ctx: BaseAudioContext, bank: Map<string, AudioBuffer>, kind: EngineKind, out: AudioNode) {
     this.ctx = ctx;
@@ -52,15 +54,19 @@ export class EngineVoice {
 
   /**
    * The engine at `rpm` (its car's idle .. redline), `throttle` 0..1, at `volume` (0: silent, the clips stopped
-   * after a while); `rateScale`: every clip that much faster on top (a Doppler shift).
+   * after a while); `rateScale`: every clip that much faster on top (a Doppler shift, the race's time scale);
+   * `follow`: how quickly its volume goes where it's set (s, time constant).
    */
-  update(rpm: number, idle: number, redline: number, throttle: number, volume: number, rateScale = 1): void {
+  update(rpm: number, idle: number, redline: number, throttle: number, volume: number, rateScale = 1, follow = THROTTLE_FOLLOW): void {
     const t = this.ctx.currentTime;
     mixAt(soundRpm(rpm, idle, redline, this.rpms), this.rpms, this.pitch, this.bands, this.gains, this.rates);
-    this.output.gain.setTargetAtTime(volume * (OFF_THROTTLE_GAIN + (1 - OFF_THROTTLE_GAIN) * throttle), t, THROTTLE_FOLLOW);
+    this.output.gain.setTargetAtTime(volume * (OFF_THROTTLE_GAIN + (1 - OFF_THROTTLE_GAIN) * throttle), t, follow);
+    // Silenced: its clips carry on under the fade (`follow`), and stop once it's been silent a while.
+    if (volume > 0) this.quietSince = t;
+    const stopped = t - this.quietSince > IDLE_STOP;
     this.layers.forEach((L, i) => {
-      const g = volume > 0 ? this.gains[i] : 0;
-      if (g > 0) {
+      const g = stopped ? 0 : this.gains[i];
+      if (g > 0 && (L.src || volume > 0)) {
         if (!L.src) {
           L.src = this.ctx.createBufferSource();
           L.src.buffer = L.buffer;
@@ -70,7 +76,7 @@ export class EngineVoice {
           L.src.start(t, Math.random() * L.buffer.duration);
         }
         L.silentSince = t;
-      } else if (L.src && t - L.silentSince > IDLE_STOP) {
+      } else if (L.src && (stopped || t - L.silentSince > IDLE_STOP)) {
         L.src.stop();
         L.src.disconnect();
         L.src = null;
