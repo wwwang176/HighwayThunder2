@@ -327,7 +327,7 @@ export class PlayerCar {
     } else this.sinceBite += dt;
     this.rpm = this.baseRpm + shuntRevs(this.sinceBite, input.throttle);
     // On the rev limiter: how long (the gauge's needle bounces by it, gaugeRpm).
-    this.onLimiter = this.rpm >= p.redline * LIMITER_SHARE && this.throttle > 0.5 ? this.onLimiter + dt : -1;
+    this.onLimiter = this.rpm >= p.redline * LIMITER_SHARE && this.throttle > 0.5 ? Math.max(0, this.onLimiter) + dt : -1;
     // Nitro: a harder push, a little past the limiter (on the throttle only).
     const boost = this.nitro.update(dt, !!input.nitro && input.throttle > 0);
     const limit = boost ? { ...p, maxSpeed: p.maxSpeed * NITRO.topSpeed } : p;
