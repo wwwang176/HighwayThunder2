@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { MEDIAN_NEAR_X, RAIL_D, ROAD_LENGTH } from '../config';
 
 /**
- * The finish: a gate of yellow light over our carriageway at the end of the race (z = -ROAD_LENGTH). Dark posts
- * and a beam edged with glowing tubes, a checkered band on the beam, a faint curtain of light between the posts
- * that every racer goes through (it flares from where they cross), a checkered line on the road. Its lights are
- * clear of the fog: seen from as far as the camera sees (fading in from there, not popping).
+ * The finish: a gate of yellow light across our carriageway at the end of the race (z = -ROAD_LENGTH). Two dark
+ * posts edged with glowing tubes (nothing across their tops), between them a curtain of light rising off the road
+ * and fading out going up, that every racer goes through (it flares from where they cross), a checkered line on
+ * the road. Its lights are clear of the fog: seen from as far as the camera sees (fading in from there, not popping).
  */
 const GATE = {
   /** The posts' middles (m from our carriageway's middle line, x 0; the median's edge on the left, the rail on the right). */
@@ -13,7 +13,6 @@ const GATE = {
   right: RAIL_D + 1.2,
   height: 7.5,
   post: 0.7,
-  beam: 1.5,
   /** The light's colour, and how bright its tubes (over the bloom's threshold: they glow). */
   color: new THREE.Color(1, 0.78, 0.1),
   glow: 3,
@@ -56,7 +55,6 @@ function checkerTexture(cols: number, rows: number, on: string, off: string): TH
 export class FinishGate {
   private readonly group = new THREE.Group();
   private readonly tube: THREE.MeshBasicMaterial;
-  private readonly band: THREE.MeshBasicMaterial;
   private readonly line: THREE.MeshBasicMaterial;
   private readonly curtain: THREE.ShaderMaterial;
   /** The flares going (x where crossed, age s; age < 0: none). */
@@ -68,8 +66,11 @@ export class FinishGate {
   private readonly fountains: THREE.Vector3[];
   private readonly owed: number[];
 
+  /** Over the middle of the gate, a little above its posts (world): where the HUD marks it (Hud: goal). */
+  readonly mark = new THREE.Vector3((GATE.left + GATE.right) / 2, GATE.height + 1, Z);
+
   constructor(scene: THREE.Scene) {
-    const { left, right, height: h, post, beam } = GATE;
+    const { left, right, height: h, post } = GATE;
     const width = right - left;
     const mid = (left + right) / 2;
     const metal = new THREE.MeshStandardMaterial({ color: 0x1a1b1f, roughness: 0.6, metalness: 0.6 });
@@ -80,27 +81,12 @@ export class FinishGate {
       this.group.add(mesh);
       return mesh;
     };
-    // The posts and the beam.
+    // The posts.
     for (const x of [left, right]) box(post, h, post, x, h / 2, 0, metal);
-    box(width + post, beam, post, mid, h + beam / 2 - 0.2, 0, metal);
     // The tubes along their inner edges, on both faces (seen coming and in the show's shots from past it).
     const inner = h - 0.2;
-    for (const z of [post / 2 + 0.03, -post / 2 - 0.03]) {
+    for (const z of [post / 2 + 0.03, -post / 2 - 0.03])
       for (const x of [left + post / 2 - 0.06, right - post / 2 + 0.06]) box(0.12, inner, 0.08, x, inner / 2, z, this.tube);
-      box(width - post + 0.12, 0.12, 0.08, mid, inner - 0.06, z, this.tube);
-      box(width + post, 0.12, 0.08, mid, h + beam - 0.26, z, this.tube);
-    }
-    // The checkered band across the beam, both faces.
-    this.band = new THREE.MeshBasicMaterial({ map: checkerTexture(Math.round(width / 0.6), 2, '#ffd21a', '#111111'), fog: false, toneMapped: false });
-    for (const [z, ry] of [
-      [post / 2 + 0.01, 0],
-      [-post / 2 - 0.01, Math.PI],
-    ]) {
-      const band = new THREE.Mesh(new THREE.PlaneGeometry(width - 0.2, beam - 0.45), this.band);
-      band.position.set(mid, h + beam / 2 - 0.25, z);
-      band.rotation.y = ry;
-      this.group.add(band);
-    }
     // The line on the road, across our carriageway and its shoulders.
     this.line = new THREE.MeshBasicMaterial({
       map: checkerTexture(Math.round((2 * RAIL_D) / 0.5), 2, '#ffd21a', '#151515'),
@@ -141,11 +127,12 @@ export class FinishGate {
         uniform vec2 size;
         varying vec2 vAt;
         void main() {
-          // Faint, brightest low (the light rising off the road), bands of it drifting up; brighter at its edges.
+          // Rising off the road: brightest on it, gone by the posts' tops, bands of it drifting up; brighter at its edges.
           float y = vAt.y / size.y;
           float edge = min(vAt.x, size.x - vAt.x);
-          float a = 0.025 * (1.0 - y) + 0.025 * smoothstep(0.6, 1.0, sin(vAt.y * 2.2 - time * 3.0) * 0.5 + 0.5) * (1.0 - y);
-          a += 0.08 * exp(-edge * 2.0);
+          float rise = pow(1.0 - y, 2.2);
+          float a = 0.16 * rise + 0.06 * smoothstep(0.6, 1.0, sin(vAt.y * 2.2 - time * 3.0) * 0.5 + 0.5) * rise;
+          a += 0.1 * exp(-edge * 2.0) * (1.0 - y);
           // The flares: a ring spreading out from where each racer crossed (at its height: 0.7 m), the curtain lit
           // all over a little as it goes.
           for (int i = 0; i < ${FLASH.max}; i++) {
@@ -218,7 +205,6 @@ export class FinishGate {
 
   private fade(k: number): void {
     this.tube.color.copy(GATE.color).multiplyScalar(GATE.glow * k);
-    this.band.color.setScalar(1.6 * k);
     this.line.color.setScalar(0.35 + 0.65 * k);
     this.curtain.uniforms.seen.value = k;
   }

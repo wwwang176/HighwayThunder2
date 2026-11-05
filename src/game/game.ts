@@ -10,7 +10,7 @@ import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
-import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED } from '../config';
+import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH } from '../config';
 import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound } from '../audio/sound';
 import { createTuningPanel } from '../debug/tuning';
@@ -70,6 +70,8 @@ const PREWARM_LAMPS: VehicleLights[] = [
 const PLAYER_OBSTACLE_ID = -1;
 const BLUR_V = new THREE.Vector3();
 const STILL = { x: 0, y: 0, z: 0 };
+/** The finish gate's mark, on the screen (render: the HUD's goal). */
+const GOAL = new THREE.Vector3();
 /** How fast the race's time runs, by phase (frame()): stopped in a pause (past the finish line: its show's, finishTimeScale). */
 const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0 };
 /** A race's start: the garage faded to black, then the race faded in on its intro (ms). */
@@ -958,7 +960,11 @@ export class Game {
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);
     const q = this.player.body.rotation();
+    // The finish ahead, where it is on the screen (behind the camera: none).
+    this.camera.updateMatrixWorld();
+    const mark = GOAL.copy(this.gate.mark).project(this.camera);
     this.hud.update(play, {
+      goal: mark.z < 1 && this.player.s < ROAD_LENGTH ? { x: (mark.x + 1) / 2, y: (1 - mark.y) / 2, m: ROAD_LENGTH - this.player.s } : null,
       speedKmh,
       reverse: this.player.driveMode === 'R',
       playerS: this.player.s,
