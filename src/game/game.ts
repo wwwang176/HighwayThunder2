@@ -10,7 +10,7 @@ import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
-import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH } from '../config';
+import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound } from '../audio/sound';
 import { createTuningPanel } from '../debug/tuning';
@@ -56,6 +56,9 @@ import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
+import type { Ear, EngineSource } from '../audio/otherEngines';
+import type { EngineKind } from '../audio/engineCatalog';
+import { trafficEngine, type TrafficGearing } from '../audio/spatial';
 
 /** The rivals' colours, for the HUD. */
 const RIVAL_CSS = RIVAL_COLORS.map((c) => `#${c.toString(16).padStart(6, '0')}`);
@@ -69,6 +72,14 @@ const PREWARM_LAMPS: VehicleLights[] = [
 ];
 const PLAYER_OBSTACLE_ID = -1;
 const BLUR_V = new THREE.Vector3();
+const EAR_FWD = new THREE.Vector3();
+const EAR_UP = new THREE.Vector3();
+/** The traffic's engines: each kind's sound, its gearing (for its rpm by its speed), how loud against a rival's. */
+const TRAFFIC_ENGINE: Record<VehicleKind, { kind: EngineKind; gearing: TrafficGearing; gain: number }> = {
+  car: { kind: 'sedan', gearing: { gears: 5, top: 55 }, gain: 0.6 },
+  truck: { kind: 'truck', gearing: { gears: 6, top: 35 }, gain: 0.8 },
+  container: { kind: 'container', gearing: { gears: 8, top: 32 }, gain: 0.9 },
+};
 const STILL = { x: 0, y: 0, z: 0 };
 /** The finish gate's mark, on the screen (render: the HUD's goal). */
 const GOAL = new THREE.Vector3();
@@ -882,6 +893,35 @@ export class Game {
     }
   }
 
+  /** The engines heard from outside this frame: the rivals' (their own rpm and throttle) and the traffic's. */
+  private heardEngines(): EngineSource[] {
+    const out: EngineSource[] = [];
+    for (const r of this.rivals.list) {
+      const c = r.car, p = c.mesh.position, v = c.body.linvel();
+      out.push({ key: `r${r.index}`, kind: c.style, pos: [p.x, p.y, p.z], vel: [v.x, v.y, v.z], rpm: c.shownRpm,
+        idle: c.params.idleRpm, redline: c.params.redline, throttle: c.shownThrottle, gain: 1 });
+    }
+    for (const npc of this.npcs.values()) {
+      if (npc.wrecked) continue; // (its engine dead)
+      const agent = this.trafficWorld.sideOf(npc.id)?.sim.agents.get(npc.id);
+      if (!agent) continue;
+      const t = TRAFFIC_ENGINE[npc.kind], part = npc.parts[0], p = part.mesh.position, v = part.body.linvel();
+      const e = trafficEngine(agent.v, agent.accel, t.gearing);
+      out.push({ key: `t${npc.id}`, kind: t.kind, pos: [p.x, p.y, p.z], vel: [v.x, v.y, v.z], rpm: e.rpm, idle: 0,
+        redline: 1, throttle: e.throttle, gain: t.gain });
+    }
+    return out;
+  }
+
+  /** Where the sound is heard from: the camera, moving with the player's car. */
+  private ear(): Ear {
+    const c = this.camera, v = this.player.body.linvel();
+    c.getWorldDirection(EAR_FWD);
+    EAR_UP.set(0, 1, 0).applyQuaternion(c.quaternion);
+    return { pos: [c.position.x, c.position.y, c.position.z], forward: [EAR_FWD.x, EAR_FWD.y, EAR_FWD.z],
+      up: [EAR_UP.x, EAR_UP.y, EAR_UP.z], vel: [v.x, v.y, v.z] };
+  }
+
   /** `play`: the race's time this frame (0 paused: frame()), what everything here moves by. */
   private render(play: number, alpha: number): void {
     // The intro's show for this frame (the cars drawn arriving, the engine blipped); the countdown in its last
@@ -958,6 +998,7 @@ export class Game {
     const car = this.player.params;
     this.sound.setEngine(this.player.style, this.player.shownRpm, car.idleRpm, car.redline,
       rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
+    this.sound.setOtherEngines(this.heardEngines(), this.ear(), this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);

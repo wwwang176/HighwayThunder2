@@ -52,9 +52,9 @@ export class EngineVoice {
 
   /**
    * The engine at `rpm` (its car's idle .. redline), `throttle` 0..1, at `volume` (0: silent, the clips stopped
-   * after a while).
+   * after a while); `rateScale`: every clip that much faster on top (a Doppler shift).
    */
-  update(rpm: number, idle: number, redline: number, throttle: number, volume: number): void {
+  update(rpm: number, idle: number, redline: number, throttle: number, volume: number, rateScale = 1): void {
     const t = this.ctx.currentTime;
     mixAt(soundRpm(rpm, idle, redline, this.rpms), this.rpms, this.pitch, this.bands, this.gains, this.rates);
     this.output.gain.setTargetAtTime(volume * (OFF_THROTTLE_GAIN + (1 - OFF_THROTTLE_GAIN) * throttle), t, THROTTLE_FOLLOW);
@@ -65,7 +65,7 @@ export class EngineVoice {
           L.src = this.ctx.createBufferSource();
           L.src.buffer = L.buffer;
           L.src.loop = true;
-          L.src.playbackRate.value = this.rates[i];
+          L.src.playbackRate.value = this.rates[i] * rateScale;
           L.src.connect(L.gain);
           L.src.start(t, Math.random() * L.buffer.duration);
         }
@@ -75,7 +75,7 @@ export class EngineVoice {
         L.src.disconnect();
         L.src = null;
       }
-      if (L.src) L.src.playbackRate.setTargetAtTime(this.rates[i], t, FOLLOW);
+      if (L.src) L.src.playbackRate.setTargetAtTime(this.rates[i] * rateScale, t, FOLLOW);
       L.gain.gain.setTargetAtTime(g, t, FOLLOW);
     });
   }

@@ -1,13 +1,15 @@
 import type { EngineKind } from './engineCatalog';
 import { loadEngineBank } from './engineBank';
 import { EngineVoice } from './engineVoice';
+import { OtherEngines, type Ear, type EngineSource } from './otherEngines';
 
-/** The player's engine, this loud (its clips are at -16 LUFS each). */
+/** The player's engine, this loud (its clips are at -16 LUFS each); the others' (each by its distance on top). */
 const ENGINE_VOLUME = 0.8;
+const OTHERS_VOLUME = 0.8;
 
 /**
- * Web Audio: the player's engine (recorded, engineVoice; silent without the built sound bundle), procedural crash
- * bursts, tyre squeal and the near-miss whoosh.
+ * Web Audio: the engines (recorded, engineVoice: the player's as from inside, the others' each from where it is;
+ * silent without the built sound bundle), procedural crash bursts, tyre squeal and the near-miss whoosh.
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -18,6 +20,8 @@ export class Sound {
   /** The engine clips (null: none to be had - no bundle - or not loaded yet). */
   private bank: Map<string, AudioBuffer> | null = null;
   private engine: EngineVoice | null = null;
+  private others: OtherEngines | null = null;
+  private othersBus!: GainNode;
   muted = false;
 
   /** Must be called from a user gesture. */
@@ -44,8 +48,12 @@ export class Sound {
     this.engineBus = ctx.createGain();
     this.engineBus.gain.value = ENGINE_VOLUME;
     this.engineBus.connect(this.master);
+    this.othersBus = ctx.createGain();
+    this.othersBus.gain.value = OTHERS_VOLUME;
+    this.othersBus.connect(this.master);
     void loadEngineBank(ctx).then((bank) => {
       this.bank = bank;
+      if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
     });
 
     const len = ctx.sampleRate;
@@ -98,9 +106,18 @@ export class Sound {
     this.engine.update(rpm, idle, redline, throttle, active ? 1 : 0);
   }
 
-  /** The player's engine silenced (until setEngine sounds it again). */
+  /** The player's engine silenced (until setEngine sounds it again), and the others'. */
   silenceEngine(): void {
     this.engine?.update(0, 0, 1, 0, 0);
+    this.others?.clear();
+  }
+
+  /**
+   * The engines around the player (the rivals', the traffic's), each heard from where it is from `ear` (the
+   * camera): the nearest, panned, fading with distance, Doppler-shifted. The player's own is heard as from inside.
+   */
+  setOtherEngines(sources: readonly EngineSource[], ear: Ear, active: boolean): void {
+    this.others?.update(sources, ear, active);
   }
 
   private burst(duration: number, freq: number, type: BiquadFilterType, gain: number, sweepTo?: number): void {
