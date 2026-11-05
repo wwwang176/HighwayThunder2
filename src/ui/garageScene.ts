@@ -5,9 +5,12 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { FlarePass } from '../render/flarePass';
+import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { CARS } from '../vehicles/cars';
 import { buildCar } from '../vehicles/models';
+import { emitFlares } from '../vehicles/npcVehicle';
 import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
 
 const SKY = `${import.meta.env.BASE_URL}ui/garage-sky.jpg`;
@@ -29,6 +32,8 @@ const PUDDLES = 28; // the wet patches' picture, times across the ground (each 1
 /** The title: the picture shifted this share of the screen's width right (the car on the right half), sliding back to the garage's over SLIDE_SECONDS. */
 const TITLE_SHIFT = 0.2; // (0.25: the car's tail off the right edge)
 const SLIDE_SECONDS = 0.9;
+/** The layer of what only the wet ground's mirror shows (the lamps' glows, drawn in the picture by their own pass). */
+const MIRRORED = 1;
 /** The picture's shifts (x TITLE_SHIFT of the screen's width; slide()): the title's, the garage's, with the race setup's drawer open. */
 export const VIEW = { title: 1, garage: 0, setup: -0.7 };
 
@@ -47,6 +52,10 @@ export class GarageScene {
   private readonly bokeh: BokehPass;
   private readonly shadow: THREE.Mesh;
   private readonly beams = new NpcBeams();
+  /** The car's lamps' glows, as in the race: over the scene, each faded whole by how much the car hides of it. */
+  private readonly flares: LightFlares;
+  /** The same in the wet ground's mirror (which draws the scene, not the flares' pass): only its camera sees them. */
+  private readonly mirrored = new LightFlares(this.scene, 16);
   private car: THREE.Object3D | null = null;
   private running = false;
   private t = 0;
@@ -94,9 +103,13 @@ export class GarageScene {
     this.shadow.renderOrder = 1;
     this.scene.add(this.shadow);
 
-    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
+    // (its depth a texture: the flares read it)
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2, depthTexture: new THREE.DepthTexture(1, 1) });
     this.composer = new EffectComposer(this.renderer, target);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    const flares = new FlarePass(this.camera);
+    this.flares = new LightFlares(flares.scene, 16, flares.depth);
+    this.composer.addPass(flares);
     // Only the lights themselves bloom (over 1), not what they light.
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.5, 1.0);
     this.composer.addPass(this.bloom);
@@ -110,10 +123,16 @@ export class GarageScene {
   show(id: string, livery?: string): void {
     if (this.car) this.scene.remove(this.car);
     const spec = CARS[id];
-    this.car = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, true, livery).root;
+    const built = buildCar(PLAYER_W, PLAYER_H, PLAYER_L, spec.color, spec.style, true, true, livery);
+    this.car = built.root;
     this.car.position.y = PLAYER_H / 2; // on the ground
     this.car.rotation.y = CAR_YAW;
     this.car.updateMatrix();
+    for (const f of [this.flares, this.mirrored]) {
+      f.begin();
+      emitFlares(this.car, built.lights, f);
+      f.end();
+    }
     // Its low beam on the ground ahead, as the race's NPCs' (no real light: one by the nose, seen from in front,
     // glared off the wet asphalt right under the camera).
     this.beams.begin();
@@ -180,6 +199,8 @@ export class GarageScene {
     this.composer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    updateFlareScale(this.flares.material, this.camera, h);
+    updateFlareScale(this.mirrored.material, this.camera, h);
     this.placeView();
   }
 
@@ -217,6 +238,9 @@ export class GarageScene {
     mirror.rotation.x = -Math.PI / 2;
     mirror.position.y = 0.002;
     this.scene.add(mirror);
+    // The car's lamps' glows in it: their own copy, on a layer only the mirror's camera sees.
+    this.mirrored.points.layers.set(MIRRORED);
+    mirror.getReflectionCamera(this.camera).layers.enable(MIRRORED);
   }
 
   /** The parking bays: white lines across, the car in one, the lay-by's edge line along. */

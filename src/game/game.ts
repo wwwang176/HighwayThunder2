@@ -172,7 +172,7 @@ export class Game {
     this.renderer.toneMappingExposure = 0.95;
     container.appendChild(this.renderer.domElement);
     this.post = new PostFx(this.renderer, this.scene, this.camera);
-    this.flares = new LightFlares(this.scene);
+    this.flares = new LightFlares(this.post.flares.scene, 2000, this.post.flares.depth); // (faded by how hidden, not cut)
     this.road = new RoadScene(this.scene, this.renderer);
     for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);

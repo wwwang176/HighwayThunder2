@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { FlarePass } from './flarePass';
 import { SpeedBlurPass } from './speedBlur';
 import { ToneMapFxaaPass } from './toneMapFxaaPass';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
@@ -50,15 +51,20 @@ export class PostFx {
   private readonly size = new THREE.Vector2();
   /** Drawn after the bloom, so never glowing (its fog the scene's). */
   readonly unbloomed = new THREE.Scene();
+  /** The vehicles' lamp glows, over the scene, each faded by how much of it is hidden (render/flarePass). */
+  readonly flares: FlarePass;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
     private readonly scene: THREE.Scene,
-    camera: THREE.Camera,
+    camera: THREE.PerspectiveCamera,
   ) {
-    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.samples });
+    // (its depth a texture: the flares read it; the composer's second target gets one of its own)
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: this.samples, depthTexture: new THREE.DepthTexture(1, 1) });
     this.composer = new EffectComposer(renderer, target);
     this.composer.addPass(new RenderPass(scene, camera));
+    this.flares = new FlarePass(camera);
+    this.composer.addPass(this.flares);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), POST.strength, POST.radius, POST.threshold);
     this.composer.addPass(this.bloom);
     // Then what is lit, not alight, however bright (tyre smoke by a headlight): over the bloom, in the same depth.
