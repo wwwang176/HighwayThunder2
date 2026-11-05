@@ -49,7 +49,7 @@ import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
-import { RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
+import { FINISHED_SPEED, RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
@@ -435,6 +435,8 @@ export class Game {
   /** Past the line: the finish's show from here (the HUD off, the bars in; its panel after it: render). */
   private beginFinishShow(): void {
     this.finishShow = new FinishShow(this.camera, this.player);
+    // Past the line the AI takes the car (as the I key does; the next race hands it back), rolling on.
+    if (this.aiDriver && !this.aiActive) this.toggleAi();
     this.gate.shown = false; // (its fountains go on)
     this.overlay.show(true);
   }
@@ -639,20 +641,28 @@ export class Game {
     } else this.player.params.maxSpeed = this.humanMaxSpeed;
   }
 
+  /**
+   * The AI driving the player's car: same inputs as in training (our carriageway's traffic, the rivals), its top
+   * speed the AI's cap (the car's own when lower), no faster than `limit` (m/s).
+   */
+  private aiInput(ai: Driver, limit: number): HandlingInput {
+    const cap = Math.min(limit, aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player)));
+    this.player.params.maxSpeed = cap;
+    const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
+    for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
+    const input = ai.drive(selfStateOf(this.player, cap), seen, this.player.params);
+    return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
+  }
+
   private currentInput(): HandlingInput {
     switch (this.flow.phase) {
       case 'racing':
-        if (this.aiActive && this.aiDriver && !this.inputOverride) {
-          // Same inputs as in training: our carriageway's traffic, and its own top speed (the car's when lower).
-          const cap = aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player));
-          this.player.params.maxSpeed = cap;
-          const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
-          for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
-          const input = this.aiDriver.drive(selfStateOf(this.player, cap), seen, this.player.params);
-          return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
-        }
+        if (this.aiActive && this.aiDriver && !this.inputOverride) return this.aiInput(this.aiDriver, Infinity);
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
+        // Past the line the AI has the car (beginFinishShow hands it over), rolling on as the rivals do once
+        // finished (FINISHED_SPEED: the show's shots follow a car slowing down); without one, braked to a stop.
+        if (this.aiActive && this.aiDriver) return this.aiInput(this.aiDriver, FINISHED_SPEED);
         return this.player.speed > 1 ? ROLL_OUT : HOLD; // brake to a stop, never into reverse
       case 'countdown': {
         // On the grid the brake is held for the player, whatever else they press: with the throttle that is a

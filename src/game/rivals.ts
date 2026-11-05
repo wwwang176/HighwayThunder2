@@ -130,7 +130,7 @@ const BAND_SMOOTH = 1;
 /** Speed (m/s) it is put back on the road at when stuck, spun or off the road. */
 const RESET_SPEED_RIVAL = 60 * KMH;
 /** Top speed (m/s) once past the finish: it rolls out. */
-const FINISHED_SPEED = 40 * KMH;
+export const FINISHED_SPEED = 40 * KMH;
 const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 
 export interface Rival {
