@@ -5,8 +5,7 @@ import { MEDIAN_NEAR_X, RAIL_D, ROAD_LENGTH } from '../config';
  * The finish: a gate of yellow light across our carriageway at the end of the race (z = -ROAD_LENGTH). Two bars
  * of light standing up off the road, nothing across their tops, and between them a curtain of light; all of it
  * brightest on the road and fading out going up. Every racer goes through the curtain (it flares from where they
- * cross). A checkered line on the road. Its lights are clear of the fog: seen from as far as the camera sees
- * (fading in from there, not popping).
+ * cross). Its lights are clear of the fog: seen from as far as the camera sees (fading in from there, not popping).
  */
 const GATE = {
   /** The gate's sides (m from our carriageway's middle line, x 0; the median's edge on the left, the rail on the right). */
@@ -26,39 +25,20 @@ const GATE = {
 /** A racer's flare through the curtain: rings spreading from where it crossed at `speed` m/s, gone in ~`life` s. */
 const FLASH = { speed: 22, life: 1.4, max: 4 };
 /**
- * The fountains of sparks at the gate's corners (each bar's foot, both sides), spraying up all the while (a
- * firework on the ground; the gate's own gone, past the player's finish, they still mark it): sparks a second
- * each, how fast up (m/s) and across, how long each lasts (s); only within `near` m of the camera.
+ * The fountains of sparks by the gate's corners (by each bar, `off` m before it and past it), spraying up all the
+ * while (a firework on the ground; the gate's own gone, past the player's finish, they still mark it): sparks a
+ * second each, how fast up (m/s) and across, how long each lasts (s); only within `near` m of the camera.
  */
-const FOUNTAIN = { rate: 120, up: [8, 12] as const, across: 1.2, life: [0.7, 1.3] as const, near: 700 };
+const FOUNTAIN = { off: 1.8, rate: 120, up: [8, 12] as const, across: 1.2, life: [0.7, 1.3] as const, near: 700 };
 
 /** Where a spark goes: at (x, y, z), going (vx, vy, vz), for `life` s (Sparks.emit). */
 export type SparkEmitter = (x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number) => void;
 
 const Z = -ROAD_LENGTH;
 
-function checkerTexture(cols: number, rows: number, on: string, off: string): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  const px = 32;
-  c.width = cols * px;
-  c.height = rows * px;
-  const g = c.getContext('2d')!;
-  for (let y = 0; y < rows; y++)
-    for (let x = 0; x < cols; x++) {
-      g.fillStyle = (x + y) % 2 ? off : on;
-      g.fillRect(x * px, y * px, px, px);
-    }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.magFilter = THREE.NearestFilter;
-  t.anisotropy = 8;
-  return t;
-}
-
 export class FinishGate {
   private readonly group = new THREE.Group();
   private readonly tube: THREE.MeshBasicMaterial;
-  private readonly line: THREE.MeshBasicMaterial;
   private readonly curtain: THREE.ShaderMaterial;
   /** The flares going (x where crossed, age s; age < 0: none). */
   private readonly flashes = Array.from({ length: FLASH.max }, () => new THREE.Vector2(0, -1));
@@ -90,17 +70,6 @@ export class FinishGate {
       b.renderOrder = 2;
       this.group.add(b);
     }
-    // The line on the road, across our carriageway and its shoulders.
-    this.line = new THREE.MeshBasicMaterial({
-      map: checkerTexture(Math.round((2 * RAIL_D) / 0.5), 2, '#ffd21a', '#151515'),
-      fog: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-    });
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(2 * RAIL_D, 1), this.line);
-    line.rotation.x = -Math.PI / 2;
-    line.position.set(0, 0.02, 0);
-    this.group.add(line);
     // The curtain of light between the bars.
     this.curtain = new THREE.ShaderMaterial({
       transparent: true,
@@ -158,7 +127,7 @@ export class FinishGate {
     this.fade(1);
     this.fountains = [];
     for (const x of [left + inset + 0.25, right - inset - 0.25])
-      for (const z of [0.3, -0.3]) this.fountains.push(new THREE.Vector3(x, 0.05, Z + z));
+      for (const z of [FOUNTAIN.off, -FOUNTAIN.off]) this.fountains.push(new THREE.Vector3(x, 0.05, Z + z));
     this.owed = this.fountains.map(() => 0);
   }
 
@@ -208,7 +177,6 @@ export class FinishGate {
 
   private fade(k: number): void {
     this.tube.color.copy(GATE.color).multiplyScalar(GATE.glow * k);
-    this.line.color.setScalar(0.35 + 0.65 * k);
     this.curtain.uniforms.seen.value = k;
   }
 }
