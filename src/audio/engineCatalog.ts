@@ -115,5 +115,15 @@ export const ENGINE_SETS: Record<EngineKind, EngineSet> = {
   container: setOf('trk'),
 };
 
+/**
+ * The exhaust's crackle (a backfire's run of pops: one for the run, src/audio/sound.ts): the pack's short muffler
+ * crackles, each a one-shot - as heard from inside the car (the player's own) and from outside (everyone else's).
+ * Their ids `crackle-in-N` / `crackle-out-N`: tools/build-engine-audio.ts builds them with the engines.
+ */
+export const CRACKLE_COUNT = 10;
+export const crackleClip = (inside: boolean, n: number): { id: string; pack: string; file: string } => inside
+  ? { id: `crackle-in-${n}`, pack: 'crackles/Interior', file: `int_c${n}` }
+  : { id: `crackle-out-${n}`, pack: 'crackles', file: `c${n}` };
+
 /** Where the built sounds are (under the site's root). */
 export const ENGINE_BUNDLE_URL = 'audio/engines.bin';

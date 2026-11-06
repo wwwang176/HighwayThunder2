@@ -1,9 +1,9 @@
-import { ENGINE_SETS, type EngineKind } from './engineCatalog';
+import { CRACKLE_COUNT, crackleClip, ENGINE_SETS, type EngineKind } from './engineCatalog';
 import { EFFECTS_BUNDLE_URL, loadEngineBank, loadSoundBank } from './engineBank';
 import { loadCrashBank, type CrashClip } from './crashBank';
 import { EngineVoice } from './engineVoice';
 import { OtherEngines, type EngineSource } from './otherEngines';
-import type { EarPose } from './pan';
+import { azimuthDeg, equalPowerMono, inverseDistanceGain, type EarPose } from './pan';
 // (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
 import limiterUrl from './limiter.worklet.js?url&no-inline';
 
@@ -25,6 +25,15 @@ const CRASH_LAYER_DB = -6;
 const SKID_VOLUME = 0.6;
 const NITRO_VOLUME = 0.5;
 const NITRO_START_VOLUME = 0.53;
+/**
+ * A backfire's crackle (each clip's loudest 0.4 s at -16 LUFS): the player's; another car's within BACKFIRE_REF m
+ * (fading beyond it, inversely with distance, as the engines), none past BACKFIRE_RANGE m.
+ */
+const BACKFIRE_VOLUME = 0.7;
+const BACKFIRE_OTHERS_VOLUME = 0.8;
+const BACKFIRE_REF = 10;
+const BACKFIRE_RANGE = 220;
+const BACKFIRE_PAN = new Float32Array(2);
 
 /** One of `size`, at random: not `last` (the same recording twice running is heard as one). */
 function pickNoRepeat(size: number, last: number): number {
@@ -53,6 +62,9 @@ export class Sound {
   private skidLoop: AudioBufferSourceNode | null = null;
   private nitroLoop: AudioBufferSourceNode | null = null;
   private nitroOn = false;
+  /** The crackles last played (inside, outside): not the same one twice running. */
+  private lastCrackleIn = -1;
+  private lastCrackleOut = -1;
   /** The engine clips (null: none to be had - no bundle - or not loaded yet). */
   private bank: Map<string, AudioBuffer> | null = null;
   /** The clips' loading (resolved once they're in, or known not to be had). */
@@ -195,6 +207,50 @@ export class Sound {
   /** How fast the race's time runs (1: as it is; the finish's slow motion below): every engine pitched by it. */
   setTimeScale(scale: number): void {
     if (scale > 0) this.timeScale = scale;
+  }
+
+  /**
+   * A backfire's crackle (one for its run of pops), one of the pack's at random (not the last one again), its pitch
+   * ±3 % and with the race's time: the player's (`at` null) as from inside, unplaced, as its engine; another car's
+   * (`at` its place) from outside, placed from `ear` as the engines are (panned, fading with distance; none past
+   * BACKFIRE_RANGE). Silent without the clips.
+   */
+  backfire(at: { x: number; y: number; z: number } | null, ear?: EarPose): void {
+    const ctx = this.ctx, bank = this.bank;
+    if (!ctx || !bank) return;
+    const inside = at === null;
+    let gain = BACKFIRE_VOLUME;
+    if (at) {
+      if (!ear) return;
+      const d = Math.hypot(at.x - ear.px, at.y - ear.py, at.z - ear.pz);
+      if (d > BACKFIRE_RANGE) return;
+      equalPowerMono(azimuthDeg(at.x, at.y, at.z, ear), inverseDistanceGain(d, BACKFIRE_REF, 1) * BACKFIRE_OTHERS_VOLUME, BACKFIRE_PAN);
+      gain = 1;
+    }
+    const k = pickNoRepeat(CRACKLE_COUNT, inside ? this.lastCrackleIn : this.lastCrackleOut);
+    if (inside) this.lastCrackleIn = k;
+    else this.lastCrackleOut = k;
+    const buffer = bank.get(crackleClip(inside, k + 1).id);
+    if (!buffer) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = (0.97 + Math.random() * 0.06) * this.timeScale;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g);
+    const nodes: AudioNode[] = [g];
+    if (inside) g.connect(this.master);
+    else {
+      const l = ctx.createGain(), r = ctx.createGain(), merge = ctx.createChannelMerger(2);
+      l.gain.value = BACKFIRE_PAN[0];
+      r.gain.value = BACKFIRE_PAN[1];
+      g.connect(l).connect(merge, 0, 0);
+      g.connect(r).connect(merge, 0, 1);
+      merge.connect(this.master);
+      nodes.push(l, r, merge);
+    }
+    src.onended = () => { for (const n of nodes) n.disconnect(); };
+    src.start();
   }
 
   /**

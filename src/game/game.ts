@@ -1023,8 +1023,9 @@ export class Game {
     this.gate.spray(play, this.camera.position.z, this.emitSpark);
     const standing = this.flow.phase === 'finished' && this.finishShow?.standing;
     this.sparks.update(play, standing ? STILL : this.player.body.linvel());
-    this.player.exhaust(play);
-    for (const r of this.rivals.list) r.car.exhaust(play);
+    // (each lift-off's run of pops crackles: the player's as from inside, the rivals' from where they are)
+    if (this.player.exhaust(play)) this.sound.backfire(null);
+    for (const r of this.rivals.list) if (r.car.exhaust(play)) this.sound.backfire(r.car.body.translation(), this.ear());
     this.smoke.update(play, [
       ...this.road.activeLights().map(smokeLightFromSpot),
       ...this.player.smokeLights(),

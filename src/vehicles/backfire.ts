@@ -24,20 +24,26 @@ export class Backfire {
   private wait = 0;
   private left = 0;
   private flame = 0;
+  private first = false; // the next pop a lift-off's first
+  /** Whether the last update lit a lift-off's first pop (its sound: one crackle for the run of them). */
+  firstPop = false;
 
   constructor(private readonly rng: () => number = Math.random) {}
 
   /** A step of `dt` s: the throttle (0..1) and the engine's share of its redline; whether a flame shows. */
   update(dt: number, throttle: number, rpmShare: number): boolean {
+    this.firstPop = false;
     if (throttle >= BACKFIRE.from) {
       this.armed = true;
       this.left = 0;
+      this.first = false;
       this.flame = 0;
     } else if (this.armed && throttle < BACKFIRE.to) {
       this.armed = false;
       if (rpmShare >= BACKFIRE.rpm) {
         this.left = 1 + Math.floor(this.rng() * BACKFIRE.most);
         this.wait = this.between(BACKFIRE.delay);
+        this.first = true;
       }
     }
     if (this.flame > 0) {
@@ -50,6 +56,8 @@ export class Backfire {
       if (this.wait <= 0) {
         this.left--;
         this.flame = BACKFIRE.pop;
+        this.firstPop = this.first;
+        this.first = false;
         return true;
       }
     }
@@ -57,6 +65,8 @@ export class Backfire {
   }
 
   reset(): void {
+    this.firstPop = false;
+    this.first = false;
     this.armed = false;
     this.left = 0;
     this.flame = 0;
