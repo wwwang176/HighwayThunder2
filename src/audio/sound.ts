@@ -1,5 +1,5 @@
 import { ENGINE_SETS, type EngineKind } from './engineCatalog';
-import { loadEngineBank } from './engineBank';
+import { EFFECTS_BUNDLE_URL, loadEngineBank, loadSoundBank } from './engineBank';
 import { loadCrashBank, type CrashClip } from './crashBank';
 import { EngineVoice } from './engineVoice';
 import { OtherEngines, type EngineSource } from './otherEngines';
@@ -21,6 +21,10 @@ const STARTUP_WAIT = 1;
 const CRASH_VOLUME = 10 ** (-4 / 20);
 /** A crash's second recording, layered under the first this much quieter (dB). */
 const CRASH_LAYER_DB = -6;
+/** The tyre squeal at its fullest; the nitro's hiss while it burns, its start as it lights (each clip -16 LUFS). */
+const SKID_VOLUME = 0.6;
+const NITRO_VOLUME = 0.5;
+const NITRO_START_VOLUME = 0.8;
 
 /** One of `size`, at random: not `last` (the same recording twice running is heard as one). */
 function pickNoRepeat(size: number, last: number): number {
@@ -32,8 +36,8 @@ function pickNoRepeat(size: number, last: number): number {
 /**
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - as from inside, whichever way the camera
  * looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
- * (recorded, crashBank; silent without their bundle), tyre squeal and the near-miss whoosh. All of it
- * through a lookahead limiter (limiter.worklet.js).
+ * (recorded, crashBank; silent without their bundle), the tyre squeal and the nitro (recorded: effects.bin; silent
+ * without it) and the near-miss whoosh. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -43,6 +47,12 @@ export class Sound {
   private engineBus!: GainNode;
   private noise!: AudioBuffer;
   private skidGain!: GainNode;
+  private nitroGain!: GainNode;
+  /** The tyre squeal's and the nitro's clips (null: none to be had, or not loaded yet); their loops, once going. */
+  private effects: Map<string, AudioBuffer> | null = null;
+  private skidLoop: AudioBufferSourceNode | null = null;
+  private nitroLoop: AudioBufferSourceNode | null = null;
+  private nitroOn = false;
   /** The engine clips (null: none to be had - no bundle - or not loaded yet). */
   private bank: Map<string, AudioBuffer> | null = null;
   /** The clips' loading (resolved once they're in, or known not to be had). */
@@ -102,25 +112,62 @@ export class Sound {
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
 
-    // Tyre squeal: looping noise through a resonant band-pass, volume follows slip.
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    src.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 1400;
-    bp.Q.value = 6;
+    // The tyre squeal and the nitro's hiss: their loops running from the start, silent until called for.
     this.skidGain = ctx.createGain();
     this.skidGain.gain.value = 0;
-    src.connect(bp).connect(this.skidGain).connect(this.master);
-    src.start();
+    this.skidGain.connect(this.master);
+    this.nitroGain = ctx.createGain();
+    this.nitroGain.gain.value = 0;
+    this.nitroGain.connect(this.master);
+    void loadSoundBank(ctx, EFFECTS_BUNDLE_URL).then((effects) => {
+      this.effects = effects;
+      this.skidLoop = this.startLoop(effects?.get('skid'), this.skidGain);
+      this.nitroLoop = this.startLoop(effects?.get('nitro'), this.nitroGain);
+    });
   }
 
-  /** Tyre slip speed in m/s (0 = gripping). */
+  /** A loop played on and on into `out` (null: no clip). */
+  private startLoop(buffer: AudioBuffer | undefined, out: GainNode): AudioBufferSourceNode | null {
+    if (!this.ctx || !buffer) return null;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    src.connect(out);
+    src.start(0, Math.random() * buffer.duration);
+    return src;
+  }
+
+  /**
+   * The player's tyres' slip, m/s (its strongest sliding tyre's; 0 gripping): the squeal from 1.5 m/s, full at 11.5,
+   * pitched with the race's time. Silent without its recording.
+   */
   setSkid(slip: number): void {
     if (!this.ctx) return;
     const k = Math.min(1, Math.max(0, (slip - 1.5) / 10));
-    this.skidGain.gain.setTargetAtTime(k * 0.35, this.ctx.currentTime, 0.04);
+    this.skidGain.gain.setTargetAtTime(k * SKID_VOLUME, this.ctx.currentTime, 0.04);
+    if (this.skidLoop) this.skidLoop.playbackRate.value = this.timeScale;
+  }
+
+  /**
+   * Whether the player's nitro burns: as it lights, its start (once); while it burns, its hiss (in over ~0.3 s, out
+   * over ~0.6 s). Silent without their recordings.
+   */
+  setNitro(on: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (this.nitroLoop) this.nitroLoop.playbackRate.value = this.timeScale;
+    if (on === this.nitroOn) return;
+    this.nitroOn = on;
+    this.nitroGain.gain.setTargetAtTime(on ? NITRO_VOLUME : 0, ctx.currentTime, on ? 0.1 : 0.2);
+    const start = this.effects?.get('nitro-start');
+    if (!on || !start) return;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = start;
+    src.playbackRate.value = this.timeScale;
+    g.gain.value = NITRO_START_VOLUME;
+    src.connect(g).connect(this.master);
+    src.onended = () => g.disconnect();
+    src.start();
   }
 
   toggleMute(): void {

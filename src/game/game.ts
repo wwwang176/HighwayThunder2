@@ -354,6 +354,7 @@ export class Game {
     // The world (and its render, which drives the engine and tyre sounds) stops: no engine left running in the garage.
     this.sound.silenceEngine();
     this.sound.setSkid(0);
+    this.sound.setNitro(false);
     this.hud.hide();
     this.garage.open(loadSelection(localStorage), title);
   }
@@ -1068,6 +1069,7 @@ export class Game {
       rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
+    this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);
     const q = this.player.body.rotation();

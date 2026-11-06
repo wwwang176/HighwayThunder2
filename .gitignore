@@ -6,6 +6,6 @@ training/out/
 __pycache__/
 *.blend1
 
-# The engine and crash sounds: built locally from licensed recordings (tools/build-engine-audio.ts,
-# tools/build-crash-audio.ts); never committed (docs/audio.md).
+# The engine, crash, tyre and nitro sounds: built locally (tools/build-engine-audio.ts, build-crash-audio.ts,
+# build-effect-audio.ts) from licensed or unrecorded-source recordings; never committed (docs/audio.md).
 public/audio/
