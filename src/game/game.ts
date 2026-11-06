@@ -91,6 +91,8 @@ const START_FADE_OUT = 350;
 const START_FADE_IN = 700;
 /** The race's world run this long (s) behind the black before its intro: the cars settled on their springs. */
 const SETTLE_SECONDS = 0.6;
+/** The same thing touched again within this (s of race time) isn't heard again (game.contactSound). */
+const CONTACT_SOUND_GAP = 0.3;
 /** The intros' round left (game/intro IntroBag), kept between visits. */
 const INTRO_BAG_KEY = 'ht2.introBag';
 
@@ -156,6 +158,8 @@ export class Game {
   private simTime = 0;
   private prevRelS = new Map<number, number>();
   private touched = new Set<number>();
+  /** When each thing the player touched was last heard (race time, s): contactSound. */
+  private contactSoundAt = new Map<string, number>();
   private lastInput: HandlingInput = HOLD;
   /** The AI driving the player's car (I) uses the nitro as the rivals do. */
   private readonly playerNitroAi = new NitroAi();
@@ -535,6 +539,7 @@ export class Game {
   resetWorld(): void {
     this.prevRelS.clear();
     this.touched.clear();
+    this.contactSoundAt.clear();
     this.player.resetTo(-3, 1, 0);
     this.player.nitro.reset();
     this.playerNitroAi.reset();
@@ -770,7 +775,15 @@ export class Game {
       const rv = this.rivals.list[rival.id].car.body.linvel();
       const rel = Math.hypot(pv.x - rv.x, pv.z - rv.z);
       this.crashShake(rel, normal ?? { x: pv.x - rv.x, z: pv.z - rv.z });
-      this.sound.crash(rel);
+      // (heard by how fast they closed in along the push, going into it: a side swipe little, as with the traffic)
+      const pb = this.racerVelBefore[0], rb = this.racerVelBefore[rival.id + 1];
+      this.contactSound(`rival ${rival.id}`, pb && rb ? closingSpeed(pb, rb, normal) : rel);
+      return;
+    }
+    // The player on a guardrail (the ground's contacts have no normal across it: never heard).
+    if (playerHit && (a.type === 'static' || b.type === 'static')) {
+      const v = this.racerVelBefore[0];
+      if (normal && v) this.contactSound('rail', closingSpeed(v, { x: 0, z: 0 }, normal));
       return;
     }
     // NPC pile-ups are handled by the traffic; we get the NPC the player or a rival hit.
@@ -788,7 +801,18 @@ export class Game {
     this.touched.add(id);
     this.prevRelS.delete(id);
     this.crashShake(rel, normal ?? (racerV ? { x: racerV.x - nv.x, z: racerV.z - nv.z } : null));
-    if (hard) this.sound.crash(rel);
+    this.contactSound(`npc ${id}`, rel);
+  }
+
+  /**
+   * Every touch of the player's heard, a scrape as much as a hit - only quieter, by `rel` (how fast they closed in).
+   * The same thing (`key`) not again within CONTACT_SOUND_GAP of race time: a scrape along it touching on and off.
+   */
+  private contactSound(key: string, rel: number): void {
+    const last = this.contactSoundAt.get(key);
+    if (last !== undefined && this.simTime - last < CONTACT_SOUND_GAP) return;
+    this.contactSoundAt.set(key, this.simTime);
+    this.sound.crash(rel);
   }
 
   /**
@@ -888,6 +912,7 @@ export class Game {
   private forgetRemovedNpcs(): void {
     for (const id of this.prevRelS.keys()) if (!this.npcs.has(id)) this.prevRelS.delete(id);
     for (const id of this.touched) if (!this.npcs.has(id)) this.touched.delete(id);
+    for (const key of this.contactSoundAt.keys()) if (key.startsWith('npc ') && !this.npcs.has(+key.slice(4))) this.contactSoundAt.delete(key);
   }
 
   private checkNearMisses(): void {
