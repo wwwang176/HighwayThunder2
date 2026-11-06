@@ -125,5 +125,11 @@ export const crackleClip = (inside: boolean, n: number): { id: string; pack: str
   ? { id: `crackle-in-${n}`, pack: 'crackles/Interior', file: `int_c${n}` }
   : { id: `crackle-out-${n}`, pack: 'crackles', file: `c${n}` };
 
+/**
+ * The player's tyre squeal: one of the pack's skid loops, as heard from inside (9.5 s, the steadiest of its four).
+ * Built with the engines, a loop as they are.
+ */
+export const SKID_CLIP = { id: 'skid-in' };
+
 /** Where the built sounds are (under the site's root). */
 export const ENGINE_BUNDLE_URL = 'audio/engines.bin';

@@ -1,4 +1,4 @@
-import { CRACKLE_COUNT, crackleClip, ENGINE_SETS, type EngineKind } from './engineCatalog';
+import { CRACKLE_COUNT, crackleClip, ENGINE_SETS, SKID_CLIP, type EngineKind } from './engineCatalog';
 import { EFFECTS_BUNDLE_URL, loadEngineBank, loadSoundBank } from './engineBank';
 import { loadCrashBank, type CrashClip } from './crashBank';
 import { EngineVoice } from './engineVoice';
@@ -45,8 +45,8 @@ function pickNoRepeat(size: number, last: number): number {
 /**
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - as from inside, whichever way the camera
  * looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
- * (recorded, crashBank; silent without their bundle), the tyre squeal and the nitro (recorded: effects.bin; silent
- * without it) and the near-miss whoosh. All of it through a lookahead limiter (limiter.worklet.js).
+ * (recorded, crashBank; silent without their bundle), the tyre squeal (the pack's, with the engines), the nitro
+ * (recorded: effects.bin; silent without it) and the near-miss whoosh. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -57,7 +57,7 @@ export class Sound {
   private noise!: AudioBuffer;
   private skidGain!: GainNode;
   private nitroGain!: GainNode;
-  /** The tyre squeal's and the nitro's clips (null: none to be had, or not loaded yet); their loops, once going. */
+  /** The nitro's clips (null: none to be had, or not loaded yet); its loop and the squeal's, once going. */
   private effects: Map<string, AudioBuffer> | null = null;
   private skidLoop: AudioBufferSourceNode | null = null;
   private nitroLoop: AudioBufferSourceNode | null = null;
@@ -113,9 +113,17 @@ export class Sound {
     this.othersBus = ctx.createGain();
     this.othersBus.gain.value = OTHERS_VOLUME;
     this.othersBus.connect(this.master);
+    // The tyre squeal and the nitro's hiss: their loops running from the start, silent until called for.
+    this.skidGain = ctx.createGain();
+    this.skidGain.gain.value = 0;
+    this.skidGain.connect(this.master);
+    this.nitroGain = ctx.createGain();
+    this.nitroGain.gain.value = 0;
+    this.nitroGain.connect(this.master);
     this.bankLoaded = loadEngineBank(ctx).then((bank) => {
       this.bank = bank;
       if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
+      this.skidLoop = this.startLoop(bank?.get(SKID_CLIP.id), this.skidGain); // (the pack's, with the engines)
     });
     void loadCrashBank(ctx).then((clips) => { this.crashes = clips; });
 
@@ -124,16 +132,8 @@ export class Sound {
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
 
-    // The tyre squeal and the nitro's hiss: their loops running from the start, silent until called for.
-    this.skidGain = ctx.createGain();
-    this.skidGain.gain.value = 0;
-    this.skidGain.connect(this.master);
-    this.nitroGain = ctx.createGain();
-    this.nitroGain.gain.value = 0;
-    this.nitroGain.connect(this.master);
     void loadSoundBank(ctx, EFFECTS_BUNDLE_URL).then((effects) => {
       this.effects = effects;
-      this.skidLoop = this.startLoop(effects?.get('skid'), this.skidGain);
       this.nitroLoop = this.startLoop(effects?.get('nitro'), this.nitroGain);
     });
   }
