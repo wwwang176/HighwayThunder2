@@ -420,12 +420,12 @@ export class PlayerCar {
 
   /**
    * Its exhaust's flames this frame (`dt` s; 0 paused): a backfire lifting off at high revs, blue on nitro. Whether
-   * a lift-off's first pop lit (its crackle's cue; not on nitro, its flame not shown).
+   * a flame lit (its pop's cue; not on nitro, its flame not shown).
    */
   exhaust(dt: number): boolean {
     const pops = this.backfire.update(dt, this.shownThrottle, this.shownRpm / this.params.redline);
     this.flames?.update(dt, pops, this.nitro.active);
-    return this.backfire.firstPop && !this.nitro.active;
+    return this.backfire.lit && !this.nitro.active;
   }
 
   /**

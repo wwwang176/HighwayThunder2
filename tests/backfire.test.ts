@@ -34,17 +34,19 @@ describe('backfire', () => {
     expect(run(new Backfire(), 2, 0, 0.9).pops).toBe(0);
   });
 
-  it('firstPop: on the step a lift-off lights its first pop, only then', () => {
+  it('lit: on the step each flame lights, only then', () => {
     const b = new Backfire(() => 0.99); // 3 pops
     run(b, 0.5, 1, 0.8);
-    let firsts = 0, at = -1, flameAt = -1;
-    for (let i = 0; i < 100; i++) {
+    const lit: number[] = [], lights: number[] = [];
+    let was = false;
+    for (let i = 0; i < 200; i++) {
       const f = b.update(0.01, 0, 0.8);
-      if (f && flameAt < 0) flameAt = i;
-      if (b.firstPop) { firsts++; at = i; }
+      if (f && !was) lights.push(i);
+      if (b.lit) lit.push(i);
+      was = f;
     }
-    expect(firsts).toBe(1);
-    expect(at).toBe(flameAt);
+    expect(lit).toHaveLength(3);
+    expect(lit).toEqual(lights);
   });
 
   it('back on the throttle: the pops still to come are off', () => {

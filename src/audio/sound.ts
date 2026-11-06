@@ -1,4 +1,4 @@
-import { CRACKLE_COUNT, crackleClip, ENGINE_SETS, SKID_CLIP, type EngineKind } from './engineCatalog';
+import { ENGINE_SETS, popId, SKID_CLIP, type EngineKind } from './engineCatalog';
 import { EFFECTS_BUNDLE_URL, loadEngineBank, loadSoundBank } from './engineBank';
 import { loadCrashBank, type CrashClip } from './crashBank';
 import { EngineVoice } from './engineVoice';
@@ -26,7 +26,7 @@ const SKID_VOLUME = 0.6;
 const NITRO_VOLUME = 0.5;
 const NITRO_START_VOLUME = 0.53;
 /**
- * A backfire's crackle (each clip's loudest 0.4 s at -16 LUFS): the player's; another car's within BACKFIRE_REF m
+ * A backfire's pop (cut from crackles brought to -16 LUFS): the player's; another car's within BACKFIRE_REF m
  * (fading beyond it, inversely with distance, as the engines), none past BACKFIRE_RANGE m.
  */
 const BACKFIRE_VOLUME = 0.7;
@@ -62,8 +62,9 @@ export class Sound {
   private skidLoop: AudioBufferSourceNode | null = null;
   private nitroLoop: AudioBufferSourceNode | null = null;
   private nitroOn = false;
-  /** The crackle last played: not the same one twice running. */
-  private lastCrackle = -1;
+  /** How many pops the bank holds; the one last played (not the same one twice running). */
+  private popCount = 0;
+  private lastPop = -1;
   /** The engine clips (null: none to be had - no bundle - or not loaded yet). */
   private bank: Map<string, AudioBuffer> | null = null;
   /** The clips' loading (resolved once they're in, or known not to be had). */
@@ -123,6 +124,7 @@ export class Sound {
       this.bank = bank;
       if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
       this.skidLoop = this.startLoop(bank?.get(SKID_CLIP.id), this.skidGain); // (the pack's, with the engines)
+      while (bank?.has(popId(this.popCount + 1))) this.popCount++;
     });
     void loadCrashBank(ctx).then((clips) => { this.crashes = clips; });
 
@@ -209,14 +211,14 @@ export class Sound {
   }
 
   /**
-   * A backfire's crackle (one for its run of pops), one of the pack's at random (not the last one again), its pitch
+   * A backfire flame's pop (one for each flame), one of the pops at random (not the last one again), its pitch
    * ±3 % and with the race's time: the player's (`at` null) unplaced, as its engine; another car's (`at` its place)
    * placed from `ear` as the engines are (panned, fading with distance; none past
    * BACKFIRE_RANGE). Silent without the clips.
    */
   backfire(at: { x: number; y: number; z: number } | null, ear?: EarPose): void {
     const ctx = this.ctx, bank = this.bank;
-    if (!ctx || !bank) return;
+    if (!ctx || !bank || this.popCount === 0) return;
     const own = at === null;
     let gain = BACKFIRE_VOLUME;
     if (at) {
@@ -226,9 +228,9 @@ export class Sound {
       equalPowerMono(azimuthDeg(at.x, at.y, at.z, ear), inverseDistanceGain(d, BACKFIRE_REF, 1) * BACKFIRE_OTHERS_VOLUME, BACKFIRE_PAN);
       gain = 1;
     }
-    const k = pickNoRepeat(CRACKLE_COUNT, this.lastCrackle);
-    this.lastCrackle = k;
-    const buffer = bank.get(crackleClip(k + 1).id);
+    const k = pickNoRepeat(this.popCount, this.lastPop);
+    this.lastPop = k;
+    const buffer = bank.get(popId(k + 1));
     if (!buffer) return;
     const src = ctx.createBufferSource();
     src.buffer = buffer;

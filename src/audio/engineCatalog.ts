@@ -116,13 +116,14 @@ export const ENGINE_SETS: Record<EngineKind, EngineSet> = {
 };
 
 /**
- * The exhaust's crackle (a backfire's run of pops: one for the run, src/audio/sound.ts): the pack's short muffler
- * crackles, each a one-shot, as heard from outside (the camera's behind the car: the player's too, as its engine).
- * Their ids `crackle-N`: tools/build-engine-audio.ts builds them with the engines.
+ * The exhaust's pops (one for each backfire flame, src/audio/sound.ts): the pack's short muffler crackles, as heard
+ * from outside (the camera's behind the car: the player's too, as its engine), cut into single pops by
+ * tools/build-engine-audio.ts as it builds them with the engines - their ids `pop-1`, `pop-2`, ... (as many as it cut).
  */
 export const CRACKLE_COUNT = 10;
-export const crackleClip = (n: number): { id: string; pack: string; file: string } =>
-  ({ id: `crackle-${n}`, pack: 'crackles', file: `c${n}` });
+export const crackleClip = (n: number): { pack: string; file: string } =>
+  ({});
+export const popId = (n: number): string => `pop-${n}`;
 
 /**
  * The player's tyre squeal: one of the pack's skid loops, as heard from outside (9.5 s, the steadiest of its four).

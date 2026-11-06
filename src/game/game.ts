@@ -1023,7 +1023,7 @@ export class Game {
     this.gate.spray(play, this.camera.position.z, this.emitSpark);
     const standing = this.flow.phase === 'finished' && this.finishShow?.standing;
     this.sparks.update(play, standing ? STILL : this.player.body.linvel());
-    // (each lift-off's run of pops crackles: the player's unplaced, the rivals' from where they are)
+    // (each flame pops: the player's unplaced, the rivals' from where they are)
     if (this.player.exhaust(play)) this.sound.backfire(null);
     for (const r of this.rivals.list) if (r.car.exhaust(play)) this.sound.backfire(r.car.body.translation(), this.ear());
     this.smoke.update(play, [
