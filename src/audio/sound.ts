@@ -24,7 +24,7 @@ const CRASH_LAYER_DB = -6;
 /** The tyre squeal at its fullest; the nitro's hiss while it burns, its start as it lights (each clip -16 LUFS). */
 const SKID_VOLUME = 0.6;
 const NITRO_VOLUME = 0.5;
-const NITRO_START_VOLUME = 0.8;
+const NITRO_START_VOLUME = 0.53;
 
 /** One of `size`, at random: not `last` (the same recording twice running is heard as one). */
 function pickNoRepeat(size: number, last: number): number {
