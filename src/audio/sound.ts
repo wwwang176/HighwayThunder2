@@ -19,6 +19,15 @@ const STARTUP_VOLUME = 1;
 const STARTUP_WAIT = 1;
 /** A crash recording at full force (k = 1) this loud: -4 dB on its -12 LUFS. */
 const CRASH_VOLUME = 10 ** (-4 / 20);
+/** A crash's second recording, layered under the first this much quieter (dB). */
+const CRASH_LAYER_DB = -6;
+
+/** One of `size`, at random: not `last` (the same recording twice running is heard as one). */
+function pickNoRepeat(size: number, last: number): number {
+  if (size <= 1) return 0;
+  const k = Math.floor(Math.random() * size);
+  return k === last ? (k + 1 + Math.floor(Math.random() * (size - 1))) % size : k;
+}
 
 /**
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - as from inside, whichever way the camera
@@ -207,28 +216,37 @@ export class Sound {
   }
 
   /**
-   * A hit, `intensity` its closing speed (m/s): as loud as it was hard (full at 30 m/s, never under 0.15). One of
-   * the recordings, at random (not the last one again), its pitch a little off each time (±4 %) and with the race's
-   * time (the finish's slow motion); without them, synthesised bursts.
+   * A hit, `intensity` its closing speed (m/s): as loud as it was hard (full at 30 m/s, never under 0.15). Two of
+   * the recordings at random, layered: the first (not the last hit's again), and another under it - CRASH_LAYER_DB
+   * down, 0-30 ms later (in step it's one hit, fuller; as loud, or further apart, it'd be two). Their pitch a little
+   * off each time (±4 %) and with the race's time (the finish's slow motion). Without them, synthesised bursts.
    */
   crash(intensity: number): void {
     const k = Math.min(1, Math.max(0.15, intensity / 30));
     const ctx = this.ctx, clips = this.crashes;
     if (ctx && clips) {
-      let i = Math.floor(Math.random() * clips.length);
-      if (i === this.lastCrash && clips.length > 1) i = (i + 1 + Math.floor(Math.random() * (clips.length - 1))) % clips.length;
-      this.lastCrash = i;
-      const src = ctx.createBufferSource(), g = ctx.createGain();
-      src.buffer = clips[i].buffer;
-      src.playbackRate.value = (0.96 + Math.random() * 0.08) * this.timeScale;
-      g.gain.value = k * CRASH_VOLUME * clips[i].gain;
-      src.connect(g).connect(this.master);
-      src.onended = () => g.disconnect();
-      src.start();
+      const first = pickNoRepeat(clips.length, this.lastCrash);
+      this.lastCrash = first;
+      const rate = (0.96 + Math.random() * 0.08) * this.timeScale;
+      this.playCrash(clips[first], k, rate, 0);
+      if (clips.length > 1) {
+        this.playCrash(clips[pickNoRepeat(clips.length, first)], k * 10 ** (CRASH_LAYER_DB / 20), rate, Math.random() * 0.03);
+      }
       return;
     }
     this.burst(0.25 + k * 0.5, 700, 'lowpass', 0.9 * k);
     this.burst(0.15, 2500, 'bandpass', 0.4 * k);
+  }
+
+  private playCrash(clip: CrashClip, k: number, rate: number, delay: number): void {
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = clip.buffer;
+    src.playbackRate.value = rate;
+    g.gain.value = k * CRASH_VOLUME * clip.gain;
+    src.connect(g).connect(this.master);
+    src.onended = () => g.disconnect();
+    src.start(ctx.currentTime + delay);
   }
 
   whoosh(): void {
