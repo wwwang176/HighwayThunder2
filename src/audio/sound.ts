@@ -43,8 +43,8 @@ function pickNoRepeat(size: number, last: number): number {
 }
 
 /**
- * Web Audio: the engines (recorded, engineVoice: the player's unplaced - as from inside, whichever way the camera
- * looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
+ * Web Audio: the engines (recorded, engineVoice: the player's unplaced - straight into the mix, whichever way the
+ * camera looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
  * (recorded, crashBank; silent without their bundle), the tyre squeal (the pack's, with the engines), the nitro
  * (recorded: effects.bin; silent without it) and the near-miss whoosh. All of it through a lookahead limiter (limiter.worklet.js).
  */
@@ -62,9 +62,8 @@ export class Sound {
   private skidLoop: AudioBufferSourceNode | null = null;
   private nitroLoop: AudioBufferSourceNode | null = null;
   private nitroOn = false;
-  /** The crackles last played (inside, outside): not the same one twice running. */
-  private lastCrackleIn = -1;
-  private lastCrackleOut = -1;
+  /** The crackle last played: not the same one twice running. */
+  private lastCrackle = -1;
   /** The engine clips (null: none to be had - no bundle - or not loaded yet). */
   private bank: Map<string, AudioBuffer> | null = null;
   /** The clips' loading (resolved once they're in, or known not to be had). */
@@ -211,14 +210,14 @@ export class Sound {
 
   /**
    * A backfire's crackle (one for its run of pops), one of the pack's at random (not the last one again), its pitch
-   * ±3 % and with the race's time: the player's (`at` null) as from inside, unplaced, as its engine; another car's
-   * (`at` its place) from outside, placed from `ear` as the engines are (panned, fading with distance; none past
+   * ±3 % and with the race's time: the player's (`at` null) unplaced, as its engine; another car's (`at` its place)
+   * placed from `ear` as the engines are (panned, fading with distance; none past
    * BACKFIRE_RANGE). Silent without the clips.
    */
   backfire(at: { x: number; y: number; z: number } | null, ear?: EarPose): void {
     const ctx = this.ctx, bank = this.bank;
     if (!ctx || !bank) return;
-    const inside = at === null;
+    const own = at === null;
     let gain = BACKFIRE_VOLUME;
     if (at) {
       if (!ear) return;
@@ -227,10 +226,9 @@ export class Sound {
       equalPowerMono(azimuthDeg(at.x, at.y, at.z, ear), inverseDistanceGain(d, BACKFIRE_REF, 1) * BACKFIRE_OTHERS_VOLUME, BACKFIRE_PAN);
       gain = 1;
     }
-    const k = pickNoRepeat(CRACKLE_COUNT, inside ? this.lastCrackleIn : this.lastCrackleOut);
-    if (inside) this.lastCrackleIn = k;
-    else this.lastCrackleOut = k;
-    const buffer = bank.get(crackleClip(inside, k + 1).id);
+    const k = pickNoRepeat(CRACKLE_COUNT, this.lastCrackle);
+    this.lastCrackle = k;
+    const buffer = bank.get(crackleClip(k + 1).id);
     if (!buffer) return;
     const src = ctx.createBufferSource();
     src.buffer = buffer;
@@ -239,7 +237,7 @@ export class Sound {
     g.gain.value = gain;
     src.connect(g);
     const nodes: AudioNode[] = [g];
-    if (inside) g.connect(this.master);
+    if (own) g.connect(this.master);
     else {
       const l = ctx.createGain(), r = ctx.createGain(), merge = ctx.createChannelMerger(2);
       l.gain.value = BACKFIRE_PAN[0];
@@ -294,7 +292,7 @@ export class Sound {
   /**
    * The engines around the player (the rivals', the traffic's: the first `count` of `sources`), each heard from
    * where it is from `ear` (the camera; `dt` the race's time since the last frame): the nearest, panned, fading with
-   * distance, Doppler-shifted. The player's own isn't among them: heard as from inside, never panned.
+   * distance, Doppler-shifted. The player's own isn't among them: straight into the mix, never panned.
    */
   setOtherEngines(sources: readonly EngineSource[], count: number, ear: EarPose, dt: number, active: boolean): void {
     this.others?.update(sources, count, ear, dt, this.timeScale, active);
