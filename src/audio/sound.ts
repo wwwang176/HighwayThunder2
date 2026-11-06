@@ -1,5 +1,6 @@
 import { ENGINE_SETS, type EngineKind } from './engineCatalog';
 import { loadEngineBank } from './engineBank';
+import { loadCrashBank, type CrashClip } from './crashBank';
 import { EngineVoice } from './engineVoice';
 import { OtherEngines, type EngineSource } from './otherEngines';
 import type { EarPose } from './pan';
@@ -16,11 +17,14 @@ const RESUME_FADE = 0.8;
 /** The start-up this loud (on the engine's own volume); played only if its clips are in within this (s). */
 const STARTUP_VOLUME = 1;
 const STARTUP_WAIT = 1;
+/** A crash recording at full force (k = 1) this loud: -4 dB on its -12 LUFS. */
+const CRASH_VOLUME = 10 ** (-4 / 20);
 
 /**
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - as from inside, whichever way the camera
- * looks - the others' each from where it is, otherEngines; silent without the built sound bundle), procedural crash
- * bursts, tyre squeal and the near-miss whoosh. All of it through a lookahead limiter (limiter.worklet.js).
+ * looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
+ * (recorded, crashBank; synthesised bursts without their bundle), tyre squeal and the near-miss whoosh. All of it
+ * through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -37,6 +41,9 @@ export class Sound {
   private engine: EngineVoice | null = null;
   private others: OtherEngines | null = null;
   private othersBus!: GainNode;
+  /** The crash recordings (null: none to be had, or not loaded yet), and the last one played (not twice running). */
+  private crashes: CrashClip[] | null = null;
+  private lastCrash = -1;
   /** How fast the race's time runs (the finish's slow motion): every engine's rate by it. */
   private timeScale = 1;
   muted = false;
@@ -79,6 +86,7 @@ export class Sound {
       this.bank = bank;
       if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
     });
+    void loadCrashBank(ctx).then((clips) => { this.crashes = clips; });
 
     const len = ctx.sampleRate;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -198,8 +206,27 @@ export class Sound {
     src.stop(t + duration);
   }
 
+  /**
+   * A hit, `intensity` its closing speed (m/s): as loud as it was hard (full at 30 m/s, never under 0.15). One of
+   * the recordings, at random (not the last one again), its pitch a little off each time (±4 %) and with the race's
+   * time (the finish's slow motion); without them, synthesised bursts.
+   */
   crash(intensity: number): void {
     const k = Math.min(1, Math.max(0.15, intensity / 30));
+    const ctx = this.ctx, clips = this.crashes;
+    if (ctx && clips) {
+      let i = Math.floor(Math.random() * clips.length);
+      if (i === this.lastCrash && clips.length > 1) i = (i + 1 + Math.floor(Math.random() * (clips.length - 1))) % clips.length;
+      this.lastCrash = i;
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      src.buffer = clips[i].buffer;
+      src.playbackRate.value = (0.96 + Math.random() * 0.08) * this.timeScale;
+      g.gain.value = k * CRASH_VOLUME * clips[i].gain;
+      src.connect(g).connect(this.master);
+      src.onended = () => g.disconnect();
+      src.start();
+      return;
+    }
     this.burst(0.25 + k * 0.5, 700, 'lowpass', 0.9 * k);
     this.burst(0.15, 2500, 'bandpass', 0.4 * k);
   }

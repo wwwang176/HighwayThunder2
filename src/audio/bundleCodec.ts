@@ -5,13 +5,17 @@
  * (XOR with a fixed keystream: a deterrent against lifting the files whole, not encryption).
  */
 
-/** One clip in the bundle: its id, its bytes' place, and its loop: `n` samples (at RATE), after `pad` of lead-in. */
+/**
+ * One clip in the bundle: its id, its bytes' place, and its loop: `n` samples (at RATE), after `pad` of lead-in (a
+ * one-shot: `n` its length, `pad` 0). `gain`: what brings it to its set's common loudness, if it isn't there already.
+ */
 export interface BundleEntry {
   id: string;
   offset: number;
   bytes: number;
   n: number;
   pad: number;
+  gain?: number;
 }
 
 /** The rate the clips were encoded at (their n and pad count samples at this rate). */
@@ -30,11 +34,11 @@ function scramble(data: Uint8Array, from: number): void {
 }
 
 /** The bundle file for these clips (each its encoded bytes, its loop length and lead-in). */
-export function packBundle(clips: { id: string; data: Uint8Array; n: number; pad: number }[]): Uint8Array {
+export function packBundle(clips: { id: string; data: Uint8Array; n: number; pad: number; gain?: number }[]): Uint8Array {
   const entries: BundleEntry[] = [];
   let offset = 0;
   for (const c of clips) {
-    entries.push({ id: c.id, offset, bytes: c.data.length, n: c.n, pad: c.pad });
+    entries.push({ id: c.id, offset, bytes: c.data.length, n: c.n, pad: c.pad, ...(c.gain !== undefined && { gain: c.gain }) });
     offset += c.data.length;
   }
   const index = new TextEncoder().encode(JSON.stringify(entries));
