@@ -11,7 +11,7 @@ export interface CrashClip {
 
 /**
  * The crash recordings, decoded. Null when there's no bundle (a checkout without the recordings built) or it can't
- * be read: the crashes then sound as before, synthesised.
+ * be read: the crashes are then silent.
  */
 export async function loadCrashBank(ctx: BaseAudioContext): Promise<CrashClip[] | null> {
   try {

@@ -32,7 +32,7 @@ function pickNoRepeat(size: number, last: number): number {
 /**
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - as from inside, whichever way the camera
  * looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
- * (recorded, crashBank; synthesised bursts without their bundle), tyre squeal and the near-miss whoosh. All of it
+ * (recorded, crashBank; silent without their bundle), tyre squeal and the near-miss whoosh. All of it
  * through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
@@ -219,23 +219,19 @@ export class Sound {
    * A hit, `intensity` its closing speed (m/s): as loud as it was hard (full at 30 m/s, never under 0.15). Two of
    * the recordings at random, layered: the first (not the last hit's again), and another under it - CRASH_LAYER_DB
    * down, 0-30 ms later (in step it's one hit, fuller; as loud, or further apart, it'd be two). Their pitch a little
-   * off each time (±4 %) and with the race's time (the finish's slow motion). Without them, synthesised bursts.
+   * off each time (±4 %) and with the race's time (the finish's slow motion). Silent without them.
    */
   crash(intensity: number): void {
-    const k = Math.min(1, Math.max(0.15, intensity / 30));
     const ctx = this.ctx, clips = this.crashes;
-    if (ctx && clips) {
-      const first = pickNoRepeat(clips.length, this.lastCrash);
-      this.lastCrash = first;
-      const rate = (0.96 + Math.random() * 0.08) * this.timeScale;
-      this.playCrash(clips[first], k, rate, 0);
-      if (clips.length > 1) {
-        this.playCrash(clips[pickNoRepeat(clips.length, first)], k * 10 ** (CRASH_LAYER_DB / 20), rate, Math.random() * 0.03);
-      }
-      return;
+    if (!ctx || !clips) return;
+    const k = Math.min(1, Math.max(0.15, intensity / 30));
+    const first = pickNoRepeat(clips.length, this.lastCrash);
+    this.lastCrash = first;
+    const rate = (0.96 + Math.random() * 0.08) * this.timeScale;
+    this.playCrash(clips[first], k, rate, 0);
+    if (clips.length > 1) {
+      this.playCrash(clips[pickNoRepeat(clips.length, first)], k * 10 ** (CRASH_LAYER_DB / 20), rate, Math.random() * 0.03);
     }
-    this.burst(0.25 + k * 0.5, 700, 'lowpass', 0.9 * k);
-    this.burst(0.15, 2500, 'bandpass', 0.4 * k);
   }
 
   private playCrash(clip: CrashClip, k: number, rate: number, delay: number): void {
