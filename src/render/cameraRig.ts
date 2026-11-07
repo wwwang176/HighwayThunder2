@@ -152,6 +152,26 @@ export class CameraRig {
     // The shake in the view's terms, for the HUD (across: along the view's right, (-fz, 0, fx)).
     this.shaken = { right: o.x * -fz + o.z * fx, up: o.y, roll };
 
+    this.widen(vForward, maxSpeed);
+  }
+
+  /**
+   * The hood camera: fixed on the car (`car`, drawn where it is), at `eye` in its own terms, looking ahead along it
+   * (HOOD_PITCH down), turning, pitching and rolling with it; its view widening with speed as the chase camera's.
+   */
+  updateHood(car: THREE.Object3D, eye: THREE.Vector3, vForward: number, maxSpeed: number): void {
+    const cam = this.camera;
+    car.updateMatrixWorld();
+    cam.position.copy(eye).applyMatrix4(car.matrixWorld);
+    cam.quaternion.copy(car.quaternion).multiply(HOOD_TILT);
+    this.shaken = { right: 0, up: 0, roll: 0 };
+    this.initialized = false; // (back to the chase camera: it starts behind the car, not swinging round)
+    this.widen(vForward, maxSpeed);
+  }
+
+  /** The view wider with speed: fovMin standing, fovMax at top speed. */
+  private widen(vForward: number, maxSpeed: number): void {
+    const p = this.params, cam = this.camera;
     const speed = Math.abs(vForward);
     const fov = p.fovMin + (p.fovMax - p.fovMin) * Math.min(1, speed / maxSpeed) ** 1.5;
     if (Math.abs(cam.fov - fov) > 0.01) {
@@ -160,3 +180,7 @@ export class CameraRig {
     }
   }
 }
+
+/** The hood camera looks this far down from the car's own level (rad). */
+const HOOD_PITCH = THREE.MathUtils.degToRad(3);
+const HOOD_TILT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -HOOD_PITCH);

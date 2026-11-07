@@ -75,6 +75,16 @@ function headingYaw(q: { x: number; y: number; z: number; w: number }): number {
 type WheelState = ChassisWheel;
 
 /**
+ * The hood camera on each body (its own terms, m: up from its middle, along it - the nose -z): over the back of its
+ * hood (36 % of its length back from the nose), 0.3 m above the hood there - measured on the models.
+ */
+const HOOD_EYE: Record<CarStyle, [y: number, z: number]> = {
+  super: [0.6, -0.65], // (0.15 m over its hood: its short sloping hood seen at all)
+  muscle: [0.68, -0.51],
+  jdm: [0.78, -0.53],
+};
+
+/**
  * The player's car: a Rapier chassis on four ray-cast wheels with our own
  * spring/damper suspension, anti-roll bars, rear-wheel drive and a tyre model
  * with a friction limit (wheelspin, lock-up, slides, oversteer).
@@ -84,6 +94,8 @@ export class PlayerCar {
   /** The body's collision shape: a box, or its spec's convex pieces (none for ghosts). */
   readonly colliders: RAPIER.Collider[];
   readonly mesh: THREE.Group;
+  /** The hood camera's place on the car (its own terms: HOOD_EYE). */
+  readonly hoodEye = new THREE.Vector3();
   private readonly lights: VehicleLights;
   private flames: ExhaustFlames | null = null;
   private held = false;
@@ -224,6 +236,7 @@ export class PlayerCar {
     }
     this.setHighBeam(false);
     this.mesh = model.root;
+    this.hoodEye.set(0, ...HOOD_EYE[spec.style]);
     this.lights = model.lights;
     const tips = (model.root.userData.exhausts ?? []) as THREE.Vector3[];
     if (tips.length) this.flames = new ExhaustFlames(this.mesh, tips);

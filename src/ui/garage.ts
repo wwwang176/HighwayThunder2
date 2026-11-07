@@ -43,6 +43,7 @@ const KEYS: [string, Key][] = [
   ['A D / ← →', 'keys.steer'],
   ['Shift', 'keys.nitro'],
   ['C', 'keys.look'],
+  ['V', 'keys.view'],
   ['R', 'keys.reset'],
   ['I', 'keys.ai'],
   ['X', 'keys.highBeam'],
