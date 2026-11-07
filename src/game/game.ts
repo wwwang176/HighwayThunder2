@@ -12,7 +12,7 @@ import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
 import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
-import { Sound } from '../audio/sound';
+import { Sound, type SkidSource } from '../audio/sound';
 import { createTuningPanel } from '../debug/tuning';
 import { Keyboard } from '../input/keyboard';
 import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
@@ -121,6 +121,8 @@ export class Game {
   readonly sound = new Sound();
   /** The engines heard from outside, this frame's (heardEngines; reused). */
   private readonly engineSources: EngineSource[] = [];
+  /** The rivals' tyres as heard this frame (its entries reused). */
+  private readonly skidSources: SkidSource[] = [];
   private readonly earPose: EarPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 };
   readonly hud: Hud;
   /** The garage: the title screen, where the car and the race are picked. */
@@ -354,6 +356,7 @@ export class Game {
     // The world (and its render, which drives the engine and tyre sounds) stops: no engine left running in the garage.
     this.sound.silenceEngine();
     this.sound.setSkid(0);
+    this.sound.setOtherSkids(this.skidSources, this.ear(), false);
     this.sound.setNitro(false);
     this.hud.hide();
     this.garage.open(loadSelection(localStorage), title);
@@ -979,6 +982,18 @@ export class Game {
     return n;
   }
 
+  /** The rivals' tyres this frame, into `this.skidSources` (where each is drawn, its strongest slide). */
+  private heardSkids(): SkidSource[] {
+    const list = this.rivals.list, out = this.skidSources;
+    for (let i = 0; i < list.length; i++) {
+      const s = (out[i] ??= { pos: { x: 0, y: 0, z: 0 }, slip: 0 }), p = list[i].car.mesh.position;
+      s.pos.x = p.x; s.pos.y = p.y; s.pos.z = p.z;
+      s.slip = list[i].car.maxSlip;
+    }
+    out.length = list.length;
+    return out;
+  }
+
   /** Where the sound is heard from, facing which way: the camera (looking back too: the others swing round it). */
   private ear(): EarPose {
     const c = this.camera, e = this.earPose;
@@ -1069,6 +1084,7 @@ export class Game {
       rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
+    this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);

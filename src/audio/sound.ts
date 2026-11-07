@@ -26,6 +26,23 @@ const SKID_VOLUME = 0.6;
 const NITRO_VOLUME = 0.5;
 const NITRO_START_VOLUME = 0.53;
 /**
+ * A rival's tyre squeal at its fullest within SKID_OTHERS_REF m (fading beyond it, inversely with distance, as the
+ * engines), none past SKID_OTHERS_RANGE m.
+ */
+const SKID_OTHERS_VOLUME = 0.6;
+const SKID_OTHERS_REF = 10;
+const SKID_OTHERS_RANGE = 220;
+const SKID_PAN = new Float32Array(2);
+
+/** A car whose tyres may squeal: where it is, its strongest sliding tyre's slip (m/s). */
+export interface SkidSource {
+  pos: { x: number; y: number; z: number };
+  slip: number;
+}
+
+/** The squeal's loudness for a slip (m/s): from 1.5, full at 11.5. */
+const squeal = (slip: number): number => Math.min(1, Math.max(0, (slip - 1.5) / 10));
+/**
  * A backfire's pop (cut from crackles brought to -16 LUFS): the player's; another car's within BACKFIRE_REF m
  * (fading beyond it, inversely with distance, as the engines), none past BACKFIRE_RANGE m.
  */
@@ -70,6 +87,8 @@ export class Sound {
   /** The nitro's clips (null: none to be had, or not loaded yet); its loop and the squeal's, once going. */
   private effects: Map<string, AudioBuffer> | null = null;
   private skidLoop: AudioBufferSourceNode | null = null;
+  /** The rivals' squeals: a loop each (made as first heard), its left and right gains. */
+  private readonly otherSkids: { src: AudioBufferSourceNode; l: GainNode; r: GainNode }[] = [];
   private nitroLoop: AudioBufferSourceNode | null = null;
   private nitroOn = false;
   /** How many pops the bank holds; the one last played (not the same one twice running). */
@@ -163,9 +182,49 @@ export class Sound {
    */
   setSkid(slip: number): void {
     if (!this.ctx) return;
-    const k = Math.min(1, Math.max(0, (slip - 1.5) / 10));
-    this.skidGain.gain.setTargetAtTime(k * SKID_VOLUME, this.ctx.currentTime, 0.04);
+    this.skidGain.gain.setTargetAtTime(squeal(slip) * SKID_VOLUME, this.ctx.currentTime, 0.04);
     if (this.skidLoop) this.skidLoop.playbackRate.value = this.timeScale;
+  }
+
+  /**
+   * The rivals' tyres (`sources`, one voice each, kept by its place in the list): each squeals as the player's does
+   * on its slip, heard from `ear` as the engines are (panned, full within SKID_OTHERS_REF m, fading with distance;
+   * none past SKID_OTHERS_RANGE), pitched with the race's time. Each its own loop of the pack's (from its own random
+   * point, so two never sound as one). `active` false: all silent. Silent without the recording.
+   */
+  setOtherSkids(sources: readonly SkidSource[], ear: EarPose, active: boolean): void {
+    const ctx = this.ctx, buffer = this.bank?.get(SKID_CLIP.id);
+    if (!ctx || !buffer) return;
+    const t = ctx.currentTime;
+    for (let i = 0; i < Math.max(sources.length, this.otherSkids.length); i++) {
+      const s = sources[i];
+      let gain = 0;
+      if (active && s) {
+        const d = Math.hypot(s.pos.x - ear.px, s.pos.y - ear.py, s.pos.z - ear.pz);
+        if (d <= SKID_OTHERS_RANGE) gain = squeal(s.slip) * SKID_OTHERS_VOLUME * inverseDistanceGain(d, SKID_OTHERS_REF, 1);
+        if (gain > 0) equalPowerMono(azimuthDeg(s.pos.x, s.pos.y, s.pos.z, ear), gain, SKID_PAN);
+      }
+      if (gain === 0) SKID_PAN[0] = SKID_PAN[1] = 0;
+      let v = this.otherSkids[i];
+      if (!v) {
+        if (gain === 0) continue;
+        const l = ctx.createGain(), r = ctx.createGain(), merge = ctx.createChannelMerger(2);
+        l.gain.value = r.gain.value = 0;
+        l.connect(merge, 0, 0);
+        r.connect(merge, 0, 1);
+        merge.connect(this.master);
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        src.loop = true;
+        src.connect(l);
+        src.connect(r);
+        src.start(t, Math.random() * buffer.duration);
+        v = this.otherSkids[i] = { src, l, r };
+      }
+      v.l.gain.setTargetAtTime(SKID_PAN[0], t, 0.04);
+      v.r.gain.setTargetAtTime(SKID_PAN[1], t, 0.04);
+      v.src.playbackRate.value = this.timeScale;
+    }
   }
 
   /**
