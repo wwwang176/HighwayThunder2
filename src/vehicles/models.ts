@@ -56,7 +56,8 @@ function glowMat(r: number, g: number, b: number, extra: THREE.MeshBasicMaterial
 // lamps glowing too.
 export const BRAKE_DIM = glowMat(0.45, 0.01, 0.01);
 export const BRAKE_ON = glowMat(9, 0.45, 0.3);
-const INDICATOR = glowMat(1, 0.55, 0.05);
+// An indicator on: its glow the bloom's alone (no flare), well past its threshold (luminance ~3.05 against 2.05).
+const INDICATOR = glowMat(5, 2.75, 0.25);
 const GLASS = std(0x1a2430, 0.15, 0.6);
 const TIRE = std(0x151515, 0.9);
 const RIM = std(0x9a9a9a, 0.4, 0.6);
@@ -302,8 +303,6 @@ function fromTemplate(
     for (const end of ['F', 'R']) {
       const ind = lamp(`ind_${end}${side}`, INDICATOR);
       if (!ind) continue;
-      ind.box.getCenter(c);
-      ind.mesh.userData.flare = { x: c.x, y: c.y, z: c.z }; // its glow (model space: the mesh itself sits at the file's origin)
       ind.mesh.visible = false;
       (side === 'L' ? lights.left : lights.right).push(ind.mesh);
     }
