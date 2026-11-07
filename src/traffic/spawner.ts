@@ -121,9 +121,11 @@ function fill(
  * Decide which vehicles to add. Initial fill populates the whole stretch ahead
  * (never closer than 60 m, never behind); afterwards new traffic appears only at
  * the far edge, and behind the player only once they are slow after 5 s of racing.
- * `bothWays` (the game): behind the last racer (`tailS`) as ahead of the first - the whole stretch filled at
- * first, then new traffic only at its far edge, in the fog as ahead - whichever way the player goes (backing up,
- * turned round), traffic comes out of the fog, never out of nowhere (and goes past FAR_DESPAWN both ways).
+ * `bothWays` (the game): behind the last racer (`tailS`) as ahead of the first - new traffic only at its far
+ * edge, in the fog as ahead (none put there at first: the grid has no crowd behind it at the start; it comes up
+ * from the fog) - whichever way the player goes (backing up, turned round), traffic comes out of the fog, never
+ * out of nowhere (and goes past FAR_DESPAWN both ways).
+ * `edge`: the far edge new traffic appears in, [from, to] m out (the stretch kept full: 60 m to its `to`).
  */
 export function planSpawns(o: {
   playerS: number;
@@ -138,27 +140,30 @@ export function planSpawns(o: {
   /** Traffic kept behind the last racer (`tailS`; `playerS` the first) as ahead of the first. */
   bothWays?: boolean;
   tailS?: number;
+  edge?: [number, number];
 }): SpawnRequest[] {
   const out: SpawnRequest[] = [];
   const occ = o.occupied.slice();
   const spacing = o.spacing ?? DEFAULT_SPACING;
   const f = o.facing ?? 1;
+  const [edgeFrom, edgeTo] = o.edge ?? [FAR_EDGE, AHEAD_MAX];
   const win = (a: number, b: number): [number, number] => {
     const x = o.playerS + f * a;
     const y = o.playerS + f * b;
     return [Math.min(x, y), Math.max(x, y)];
   };
-  const ahead = win(AHEAD_MIN, AHEAD_MAX);
-  fill(out, occ, o.rng, ahead, o.initial ? ahead : win(FAR_EDGE, AHEAD_MAX), spacing);
+  const ahead = win(AHEAD_MIN, edgeTo);
+  fill(out, occ, o.rng, ahead, o.initial ? ahead : win(edgeFrom, edgeTo), spacing);
   if (o.bothWays) {
-    const t = o.tailS ?? o.playerS;
-    const back = (a: number, b: number): [number, number] => {
-      const x = t - f * a;
-      const y = t - f * b;
-      return [Math.min(x, y), Math.max(x, y)];
-    };
-    const behind = back(AHEAD_MIN, AHEAD_MAX);
-    fill(out, occ, o.rng, behind, o.initial ? behind : back(FAR_EDGE, AHEAD_MAX), spacing);
+    if (!o.initial) {
+      const t = o.tailS ?? o.playerS;
+      const back = (a: number, b: number): [number, number] => {
+        const x = t - f * a;
+        const y = t - f * b;
+        return [Math.min(x, y), Math.max(x, y)];
+      };
+      fill(out, occ, o.rng, back(AHEAD_MIN, edgeTo), back(edgeFrom, edgeTo), spacing);
+    }
   } else if (f === 1 && !o.initial && o.raceTime >= REAR_START_TIME && o.playerV < REAR_MAX_PLAYER_V) {
     fill(
       out,

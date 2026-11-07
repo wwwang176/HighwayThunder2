@@ -52,7 +52,7 @@ export class TrafficWorld {
   constructor(
     private readonly physics: PhysicsWorld,
     public rng: Rng,
-    private readonly opts: { oncoming: boolean; bothWays?: boolean },
+    private readonly opts: { oncoming: boolean; bothWays?: boolean; edge?: [number, number] },
   ) {}
 
   /** Clear all traffic and wrecks and fill the road ahead of the focus. */
@@ -204,6 +204,7 @@ export class TrafficWorld {
         spacing: this.spacing,
         facing: side.facing,
         bothWays: this.opts.bothWays,
+        edge: this.opts.edge,
         tailS: frameS(side.frame, focus.sTail),
       });
       for (const r of reqs) {
