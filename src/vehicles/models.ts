@@ -51,9 +51,10 @@ function glowMat(r: number, g: number, b: number, extra: THREE.MeshBasicMaterial
 }
 
 // Night: tail lights always on (dim), brake lights bright, headlights brightest.
-// The glow itself comes from flare sprites (render/lightFlares), so these stay in range.
+// The glow itself comes from flare sprites (render/lightFlares), so these stay in range - but a brake light on:
+// past the bloom's threshold (render/postFx POST.threshold, its luminance ~2.26 against 2.05), its lamp glowing too.
 export const BRAKE_DIM = glowMat(0.45, 0.01, 0.01);
-export const BRAKE_ON = glowMat(1, 0.1, 0.08);
+export const BRAKE_ON = glowMat(9, 0.45, 0.3);
 const INDICATOR = glowMat(1, 0.55, 0.05);
 const GLASS = std(0x1a2430, 0.15, 0.6);
 const TIRE = std(0x151515, 0.9);
