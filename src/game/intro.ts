@@ -48,7 +48,8 @@ type Ride = 'car' | 'cruise';
 /**
  * A shot: the camera from one pose to another over `seconds` (a cut into it: the shot before ends elsewhere).
  * `blip` seconds in, the engine blipped (a rev and let go: the exhaust pops). `ride` / `lookRide`: what its
- * position / where it looks ride along with (none: held to the grid).
+ * position / where it looks ride along with (none: held to the grid). `shake`: the camera shaken this much (m: a
+ * camera car's at speed).
  */
 interface Shot {
   seconds: number;
@@ -58,6 +59,7 @@ interface Shot {
   blip?: number;
   ride?: Ride;
   lookRide?: Ride;
+  shake?: number;
 }
 
 
@@ -81,16 +83,19 @@ const ARRIVE_BACK_LATER = [0.3, 0.8] as const;
 const ARRIVE_PLAYER_STOP = 3.7;
 
 /**
- * The tracking shots: the cars come up as a pack, all at one speed (m/s); the player's stops 0.5 s from the end
- * of its third shot (braking from 2.0 s, the second); the front row's later by TRACK_FRONT_LATER s (so ~7-10 m
- * behind it as they come, out of the first shot, by the camera as it drops back in the second), the back row's
- * TRACK_BACK_LATER s after the one ahead in its lane - every car still by 4.9 s (the countdown at 5).
+ * The tracking shots: the cars come up as a pack, all at one speed (m/s). The player's brakes 0.1 s into its
+ * brake light's close-up (from 2.2 s: the third shot) and stops 0.7 s into its front wheel's (4.2: the fifth); the
+ * front row's later by TRACK_FRONT_LATER s (so ~6-9 m behind it as they come: out of the shots alongside it, the
+ * one on its left past the camera in the fourth), the back row's TRACK_BACK_LATER s after the one ahead in its
+ * lane - every car still by 4.95 s (the countdown at 5).
  */
 const TRACK_SPEED = [15, 17] as const;
-const TRACK_PLAYER_STOP = 4.0;
-const TRACK_FRONT_LATER = [0.45, 0.65] as const;
-const TRACK_BACK_LATER = [0.15, 0.25] as const;
-/** The camera alongside, on the line between the player's lane and the one on its left (clear of both cars). */
+const TRACK_PLAYER_STOP = 4.2;
+const TRACK_FRONT_LATER = [0.4, 0.55] as const;
+const TRACK_BACK_LATER = [0.1, 0.2] as const;
+/** The fourth shot: the car going by the camera this far into it (s), the cut 0.55 s after (it tearing away up the road). */
+const TRACK_PASS = 0.15;
+/** The camera between the player's lane and the one on its left (clear of both cars). */
 const TRACK_X = -LANE_WIDTH / 2;
 
 /**
@@ -109,8 +114,6 @@ function arriving(speed: number, stop: number, t: number): number {
   return -(left > ARRIVE_BRAKE ? speed * (ARRIVE_BRAKE / 2 + left - ARRIVE_BRAKE) : (speed * left * left) / (2 * ARRIVE_BRAKE));
 }
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
-/** Out of a cut at its full speed (twice the shot's average), slowing to a stop. */
-const easeOutQuad = (t: number) => 1 - (1 - t) ** 2;
 const linear = (t: number) => t;
 
 /**
@@ -225,8 +228,14 @@ export class Intro {
     const s = this.shots[Math.min(this.shot, this.shots.length - 1)];
     const car = this.scene.player;
     if (this.drawnArriving) {
+      // Drawn arriving, their brake lights on while they brake.
+      const braking = (a: { stop: number }) => a.stop - this.elapsed > 0 && a.stop - this.elapsed <= ARRIVE_BRAKE;
       car.showOffset = arriving(this.playerArrival.speed, this.playerArrival.stop, this.elapsed);
-      this.scene.rivals.forEach((r, i) => (r.showOffset = arriving(this.arrivals[i].speed, this.arrivals[i].stop, this.elapsed)));
+      car.showBrake = braking(this.playerArrival);
+      this.scene.rivals.forEach((r, i) => {
+        r.showOffset = arriving(this.arrivals[i].speed, this.arrivals[i].stop, this.elapsed);
+        r.showBrake = braking(this.arrivals[i]);
+      });
     }
     if (!done && s.blip !== undefined && this.t >= s.blip && this.blipAt === null) this.blipAt = 0;
     else if (this.blipAt !== null) this.blipAt += dt;
@@ -269,6 +278,12 @@ export class Intro {
     const look = lerp(s.from.look, s.to.look);
     pos[2] += this.along(s.ride);
     look[2] += this.along(s.lookRide);
+    if (s.shake) {
+      // A camera car's shake: a few quick sines out of step (never the same twice in a second).
+      const e = this.elapsed;
+      pos[0] += s.shake * (Math.sin(e * 29) + 0.6 * Math.sin(e * 47 + 1.3) + 0.3 * Math.sin(e * 83 + 2.1)) / 1.9;
+      pos[1] += s.shake * (Math.sin(e * 37 + 0.7) + 0.6 * Math.sin(e * 59 + 2.4) + 0.3 * Math.sin(e * 97 + 0.4)) / 1.9;
+    }
     const cam = this.scene.camera;
     cam.position.copy(this.world(pos));
     cam.lookAt(this.world(look));
@@ -284,7 +299,11 @@ export class Intro {
     const car = this.scene.player;
     car.showOffset = 0;
     car.showRev = null;
-    for (const r of this.scene.rivals) r.showOffset = 0;
+    car.showBrake = null;
+    for (const r of this.scene.rivals) {
+      r.showOffset = 0;
+      r.showBrake = null;
+    }
   }
 
   /** The blip `t` s in: the rpm up fast and the throttle held, then let go and the rpm falling back. */
@@ -352,41 +371,70 @@ export class Intro {
       ];
     }
     if (kind === 'tracking') {
-      // Tracking: low alongside the player's car's left rear as the pack comes (the road streaming by); dropping
-      // back, the rivals coming by on both sides; cut back, the camera running up its side as it brakes, up to its
-      // front wheel as it stops; then up behind it. (On the line between its lane and the left one's: clear of
-      // both cars. Never ahead of a car looking back: its headlights white the picture out; past the wheel, the
-      // way round behind it cut through its side.)
-      const stopped: Pose = { pos: [-track - 1.15, 0.5, half - 0.8], look: [-track + 0.2, 0.55, half + 0.2], fov: 36 };
+      // Tracking, cut as a film's: long lenses close in, short shots cut on what happens. The pack from far back
+      // and up (its tail lights in a row on the dark road); low on the player's rear wheel, riding along (the road
+      // streaming by, the camera car shaking); its brake light, coming on; a rival tearing past the camera, the
+      // player's car braking ahead; its front wheel rolling to a stop as its nose dives; then up behind it.
+      // (Never ahead of a car looking back: its headlights white the picture out.)
+      const L = p.length / 2;
+      // The car tearing past in the fourth shot: the rival in the front row nearest the player's left (else right),
+      // else the player's; the camera between its lane and the player's, still, where it is TRACK_PASS s in.
+      const front = this.rivalsAt.map((g, i) => ({ x: g[0], z: g[2], ...this.arrivals[i] })).filter((g) => g.z >= -1);
+      const left = front.filter((g) => g.x < 0).sort((a, b) => b.x - a.x);
+      const right = front.filter((g) => g.x > 0).sort((a, b) => a.x - b.x);
+      const passer = left[0] ?? right[0] ?? { x: 0, z: 0, ...this.playerArrival };
+      const passAt = 1.3 + 0.8 + 0.7 + TRACK_PASS;
+      const passZ = passer.z + arriving(passer.speed, passer.stop, passAt);
+      const passX = passer.x === 0 ? TRACK_X : passer.x / 2;
+      const wheelStop: Pose = { pos: [-track - 1.2, 0.33, half - 1.1], look: [-track, r + 0.05, half], fov: 30 };
       return [
         {
-          seconds: 1.5,
-          from: { pos: [TRACK_X, 0.5, -4.4], look: [-0.2, 0.7, 1.0], fov: 42 },
-          to: { pos: [TRACK_X + 0.1, 0.55, -3.6], look: [-0.2, 0.7, 1.2], fov: 40 },
+          // From far back and up, on a long lens, riding along with the pack.
+          seconds: 1.3,
+          from: { pos: [-8, 5, -46], look: [1.5, 0.4, -9], fov: 18 },
+          to: { pos: [-7.2, 4.6, -43], look: [1.5, 0.4, -7], fov: 17 },
           ease: linear, // (still moving at the cut)
           ride: 'cruise',
           lookRide: 'cruise',
         },
         {
-          seconds: 1.5,
-          from: { pos: [TRACK_X, 0.75, -6.5], look: [0, 0.6, 0.5], fov: 44 },
-          to: { pos: [TRACK_X, 1.4, -22], look: [1.5, 0.6, 0.5], fov: 48 },
-          ease: linear, // (still moving at the cut)
-          ride: 'cruise',
+          // Low on its left rear wheel, riding along (between its lane and the left one's rival, behind).
+          seconds: 0.8,
+          from: { pos: [-2.0, 0.3, -4.6], look: [-track, r + 0.05, -half + 0.2], fov: 24 },
+          to: { pos: [-1.95, 0.32, -4.2], look: [-track, r + 0.05, -half + 0.2], fov: 23 },
+          ease: linear,
+          ride: 'car',
           lookRide: 'car',
+          shake: 0.01,
         },
         {
-          // Out of the cut fast (the car braking: the camera gains on it), slowing to a stop just behind its
-          // front wheel as it stops.
-          seconds: 1.5,
-          from: { pos: [TRACK_X, 0.45, -9], look: [-track + 0.2, 0.55, half + 0.2], fov: 40 },
-          to: stopped,
-          ease: easeOutQuad,
+          // Its left brake light close up, coming on 0.1 s in.
+          seconds: 0.7,
+          from: { pos: [-1.25, 0.85, -L - 1.9], look: [-0.55, 0.72, -L + 0.1], fov: 22 },
+          to: { pos: [-1.15, 0.83, -L - 1.55], look: [-0.55, 0.72, -L + 0.1], fov: 21 },
+          ease: linear,
+          ride: 'car',
           lookRide: 'car',
+          shake: 0.006,
+        },
+        {
+          // Low and wide, still, looking up the road: the rival tearing past (the player's car braking ahead).
+          seconds: 0.7,
+          from: { pos: [passX, 0.5, passZ - 0.3], look: [passer.x * 0.75, 0.7, passZ + 14], fov: 52 },
+          to: { pos: [passX, 0.52, passZ - 0.2], look: [passer.x * 0.75, 0.7, passZ + 14], fov: 50 },
+          ease: linear,
+          shake: 0.012,
+        },
+        {
+          // Low beside and behind where its front wheel stops: the wheel rolling in, its nose diving, still.
+          seconds: 1.0,
+          from: { pos: [-track - 1.35, 0.3, half - 1.4], look: [-track, r, half], fov: 32 },
+          to: wheelStop,
+          ease: linear, // (still moving at the cut)
         },
         {
           seconds: LAST_SHOT,
-          from: stopped,
+          from: wheelStop,
           to: chase,
           ease: easeOut, // (in moving, settling where the chase camera starts)
         },

@@ -103,10 +103,12 @@ export class PlayerCar {
   private readonly visuals: ReturnType<typeof buildWheel>[] = [];
   /**
    * For show (the race's intro, game/intro): drawn this far ahead of where it is (m; behind: < 0), its wheels
-   * rolled to it; and the engine's rpm and throttle as heard and seen at the exhaust (null: its own).
+   * rolled to it; the engine's rpm and throttle as heard and seen at the exhaust, and its brake lights (null: its
+   * own).
    */
   showOffset = 0;
   showRev: { rpm: number; throttle: number } | null = null;
+  showBrake: boolean | null = null;
   readonly chassis: TyreChassis;
   readonly wheels: WheelState[];
   params: CarParams;
@@ -356,7 +358,7 @@ export class PlayerCar {
     // A burnout (both keys, stopped): the front brakes hold it, the driven rear wheels spin free of theirs.
     const brakeTorqueRear = cmd.burnout ? 0 : (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * p.wheelRadius;
     const driveTorqueRear = cmd.engineForce * 0.5 * p.wheelRadius;
-    setBrake(this.lights, cmd.brake > 0 && (Math.abs(this.vLong) > 0.5 || !!cmd.burnout));
+    setBrake(this.lights, this.showBrake ?? (cmd.brake > 0 && (Math.abs(this.vLong) > 0.5 || !!cmd.burnout)));
 
     // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,
     // so both rears light up (and hook up) together instead of one-wheel peel.
