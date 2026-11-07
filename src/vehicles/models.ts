@@ -57,7 +57,7 @@ function glowMat(r: number, g: number, b: number, extra: THREE.MeshBasicMaterial
 export const BRAKE_DIM = glowMat(0.45, 0.01, 0.01);
 export const BRAKE_ON = glowMat(9, 0.45, 0.3);
 // An indicator on: its glow the bloom's alone (no flare), well past its threshold (luminance ~3.05 against 2.05).
-const INDICATOR = glowMat(5, 2.75, 0.25, { side: THREE.DoubleSide }); // (as the files' lamp_ind: the trailer's face the cab)
+const INDICATOR = glowMat(5, 2.75, 0.25);
 const GLASS = std(0x1a2430, 0.15, 0.6);
 const TIRE = std(0x151515, 0.9);
 const RIM = std(0x9a9a9a, 0.4, 0.6);

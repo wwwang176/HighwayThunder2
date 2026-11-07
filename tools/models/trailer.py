@@ -126,10 +126,16 @@ def chassis(bm):
 
 
 def lamp(name, x0, x1, z0, z1, mat):
-    """A plate on the rear bumper's back face (a few mm off it)."""
+    """A plate on the rear bumper's back face (a few mm off it), facing back."""
     y = -L / 2 - kit.LIFT
     verts = [(x0, y, z0), (x1, y, z0), (x1, y, z1), (x0, y, z1)]
-    return kit.mesh_object(name, verts, [(0, 3, 2, 1)], [mat])
+    ob = kit.mesh_object(name, verts, [(0, 3, 2, 1)], [mat])
+    # (mesh_object turns its faces outward, but a lone plate has no outside: either way it may come - the
+    # indicators' came facing the cab, unseen from behind)
+    if ob.data.polygons[0].normal.y > 0:
+        ob.data.flip_normals()
+        ob.data.update()
+    return ob
 
 
 def preview(out_dir, objs):
