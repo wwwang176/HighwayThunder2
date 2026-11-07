@@ -20,6 +20,7 @@ import { CameraRig } from '../render/cameraRig';
 import { TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { pixelRatioFor, readQuality } from '../render/quality';
 import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
 import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
@@ -68,6 +69,11 @@ const RIVAL_CSS = RIVAL_COLORS.map((c) => `#${c.toString(16).padStart(6, '0')}`)
 const TRAFFIC_EDGE: [number, number] = [500, 580];
 /** Traffic gone this far out (m), either way: just past where it appears (none kept out in the fog unseen). */
 const TRAFFIC_GONE = 600;
+/**
+ * The traffic farther than this from every racer (m) moved by its planner alone, its bodies kinematic (NpcVehicle
+ * asleep): nobody near to touch it, nor to see its wheels. Simulated in full it was over half the physics' time.
+ */
+const TRAFFIC_AWAKE = 200;
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
 const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
@@ -104,6 +110,8 @@ const INTRO_BAG_KEY = 'ht2.introBag';
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
+  /** The picture's quality (render/quality: the settings' pixel ratio). */
+  private quality = readQuality();
   private readonly post: PostFx;
   private flares!: LightFlares;
   readonly npcBeams = new NpcBeams();
@@ -202,7 +210,7 @@ export class Game {
     physics.timestep = PHYSICS_DT;
     // (No antialiasing of its own: the picture's edges are smoothed in render/postFx.)
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setPixelRatio(pixelRatioFor(this.quality, devicePixelRatio));
     // Night: lights glow through flare sprites (steady however far), and through a gentle
     // bloom over them (render/postFx: only what is brighter than white). Only the player's
     // headlights cast shadows (needed for their low-beam cookie).
@@ -222,7 +230,7 @@ export class Game {
     this.planPath = new PlanPath(this.scene);
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.rivalCars.map(specOf));
     this.rivalLights = new RivalLightPool(this.scene);
-    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true, edge: TRAFFIC_EDGE, gone: TRAFFIC_GONE }); // (any way the player goes)
+    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true, edge: TRAFFIC_EDGE, gone: TRAFFIC_GONE, awake: TRAFFIC_AWAKE }); // (any way the player goes)
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
@@ -239,6 +247,7 @@ export class Game {
       saveSelection(localStorage, cars);
       this.startRace(cars, true);
     });
+    this.garage.onQuality = (pr) => this.setQuality(pr);
     this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
@@ -324,11 +333,11 @@ export class Game {
     });
     // ↑ ↓ the car, ← → its paint, E the race setup, H the controls, O the settings: in the garage (not at the title:
     // its picks are not shown there). The setup open, the arrows walk its rows and change them, 0-5 set how many
-    // rivals; the settings open, ← → their language. On the pause and the finish, the arrows move the menu's cursor.
+    // rivals; the settings open, the same (language, quality). On the pause and the finish, the arrows move the menu's cursor.
     const picking = () => g.isOpen && !g.popOpen && !g.onTitle;
     const setup = () => g.isOpen && g.setupOpen;
     const arrow = (dy: number, dx: number) => {
-      if (g.isOpen && g.settingsOpen) return dx && g.settingsAdjust(dx);
+      if (g.isOpen && g.settingsOpen) return dy ? g.settingsMove(dy) : g.settingsAdjust(dx);
       if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
       if (picking()) return dy ? g.step(dy) : g.stepPaint(dx);
       if (menu()) this.hud.menuMove(dy || dx);
@@ -354,7 +363,15 @@ export class Game {
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
   }
 
+  /** The picture's quality (render/quality: the settings' pixel ratio), kept; drawn at it from now on. */
+  setQuality(pixelRatio: number): void {
+    this.quality = pixelRatio;
+    this.resize();
+  }
+
   private resize(): void {
+    // (Its screen's ratio too: moved onto another screen, a level it can't show there is drawn as its finest.)
+    this.renderer.setPixelRatio(pixelRatioFor(this.quality, devicePixelRatio));
     this.renderer.setSize(innerWidth, innerHeight);
     this.post.setSize(innerWidth, innerHeight);
     this.camera.aspect = innerWidth / innerHeight;
@@ -739,6 +756,7 @@ export class Game {
 
     // Traffic AI on both carriageways (the player, the rivals and every wreck are
     // obstacles to both), then drive the NPC bodies along the planned paths.
+    this.trafficWorld.rouse([this.player.s, ...this.rivals.list.map((r) => r.car.s)]);
     this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
 
     this.player.holdInPlace(this.flow.phase === 'countdown' || this.flow.phase === 'intro'); // (on the grid a burnout goes nowhere)

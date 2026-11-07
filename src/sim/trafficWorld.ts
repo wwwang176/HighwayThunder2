@@ -9,6 +9,8 @@ import type { TrafficBox } from '../ai/sensors';
 import type { Rng } from '../ai/rng';
 
 const SPAWN_INTERVAL = 0.25;
+/** Asleep NPCs wake within opts.awake of a racer; awake ones sleep only this much farther out (no flicking to and fro). */
+const SLEEP_MARGIN = 40;
 const ONCOMING_FIRST_ID = 1_000_000;
 
 /** One carriageway: its traffic planner, coordinate frame and direction relative to us. */
@@ -56,7 +58,8 @@ export class TrafficWorld {
   constructor(
     private readonly physics: PhysicsWorld,
     public rng: Rng,
-    private readonly opts: { oncoming: boolean; bothWays?: boolean; edge?: [number, number]; gone?: number },
+    /** `awake`: NPCs farther than this (m) from every racer asleep (NpcVehicle.asleep; none: all awake). */
+    private readonly opts: { oncoming: boolean; bothWays?: boolean; edge?: [number, number]; gone?: number; awake?: number },
   ) {}
 
   /** Clear all traffic and wrecks and fill the road ahead of the focus. */
@@ -84,14 +87,33 @@ export class TrafficWorld {
       const obs = obstacles(side.frame);
       for (const npc of this.npcs.values()) {
         if (npc.wrecked) obs.push(...npc.obstacles(side.frame));
-        else if (this.side.get(npc.id) === side) npc.syncAgent(side.sim.agents.get(npc.id)!);
+        else if (this.side.get(npc.id) === side && !npc.asleep) npc.syncAgent(side.sim.agents.get(npc.id)!);
       }
       side.sim.step(dt, obs, this.rng, false);
     }
     for (const npc of this.npcs.values()) {
       npc.savePrev();
       if (npc.wrecked) npc.updateWreck(dt, simTime);
+      else if (npc.asleep) npc.follow(this.agentOf(npc.id)!, simTime);
       else npc.drive(this.agentOf(npc.id)!, dt, simTime);
+    }
+  }
+
+  /**
+   * Wake the NPCs within opts.awake of a racer (`racers`: where each is along our carriageway, s), put those
+   * farther than that (and SLEEP_MARGIN) to sleep (call before stepAI). Without opts.awake, all stay awake.
+   */
+  rouse(racers: number[]): void {
+    const near = this.opts.awake;
+    if (near === undefined) return;
+    for (const npc of this.npcs.values()) {
+      if (npc.wrecked) continue;
+      const s = npc.s;
+      let gap = Infinity;
+      for (const r of racers) gap = Math.min(gap, Math.abs(r - s));
+      const agent = this.agentOf(npc.id);
+      if (npc.asleep && gap < near) npc.wake(agent);
+      else if (!npc.asleep && agent && gap > near + SLEEP_MARGIN) npc.sleep(agent);
     }
   }
 
@@ -128,6 +150,7 @@ export class TrafficWorld {
   wreck(id: number): void {
     const npc = this.npcs.get(id);
     if (!npc || npc.wrecked) return;
+    npc.wake(this.agentOf(id)); // (asleep: on at its speed, a body again)
     npc.wreck();
     this.side.get(id)?.sim.removeAgent(id);
   }

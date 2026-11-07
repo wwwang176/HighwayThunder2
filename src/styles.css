@@ -368,14 +368,19 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .compact .s-chip, #garage .compact .s-badge { height: 1.8vw; }
 #garage .compact .s-go { height: 3.3vw; margin-top: 0.8vw; }
 /* The settings pop-up: nothing in it counts till OK; its language shown in itself at once (Garage.drawSettings). */
-#garage .g-settings { width: 30vw; }
+#garage .g-settings { width: 36vw; }
 #garage .g-settings h2 { margin: 0.4vw 0 1.4vw; font: italic 900 2.3vw/1 var(--f-title); letter-spacing: 0.21vw; }
 #garage .g-settings .s-sub { padding: 0.31vw 0.42vw; margin-bottom: 0; }
+#garage .g-settings .s-sub + .s-sub { margin-top: 0.52vw; }
 #garage .g-settings .s-sub > .lbl { width: 4.6vw; }
 #garage .g-settings .keys { margin-left: auto; display: inline-flex; }
+#garage .g-settings .s-sub:not(.focus) .keys { visibility: hidden; } /* (the arrows on the row they are on: ↑ ↓ between them) */
 #garage .s-langs { display: flex; gap: 0.42vw; }
 #garage .s-langs .s-btn { min-width: 6.3vw; }
 #garage .s-langs .s-btn.sel::after { display: none; }
+#garage .s-quality { display: flex; gap: 0.31vw; }
+#garage .s-quality .s-btn { padding: 0 0.55vw; font-size: 0.85vw; }
+#garage .s-quality .s-btn.sel::after { display: none; }
 #garage .g-settings .btns { display: flex; gap: 1.15vw; margin-top: 2.1vw; }
 #garage .g-settings .btns .opt { flex: 1; height: 3.1vw; font-size: 1.15vw; }
 /* The controls pop-up. */

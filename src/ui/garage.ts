@@ -3,6 +3,7 @@ import { DIFFICULTIES } from '../game/difficulty';
 import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
 import { GarageScene, VIEW } from './garageScene';
+import { QUALITY_LEVELS, qualityAvailable, readQuality, saveQuality } from '../render/quality';
 import { applyLang, getLang, onLangChange, saveSettings, setLang, t, tx, type Key, type Lang } from './i18n';
 import { installTooltips } from './tooltip';
 
@@ -250,12 +251,19 @@ export class Garage {
 
   /** The settings' language picked but not yet the game's (OK takes it; cancel drops it): the pop-up shows itself in it. */
   private pendingLang: Lang = 'zh';
+  /** The settings' quality picked (render/quality's pixel ratio; OK takes it), and the row the keys are on (0 language, 1 quality). */
+  private pendingQuality = readQuality();
+  private settingsRow = 0;
+  /** The quality taken (the settings' OK): the game draws at it. */
+  onQuality: (pixelRatio: number) => void = () => {};
 
   /** The settings pop-up (its button, or O): nothing it sets counts till OK. */
   openSettings(): void {
     if (this.titleOn) return;
     this.closePop();
     this.pendingLang = getLang();
+    this.pendingQuality = readQuality();
+    this.settingsRow = 0;
     this.drawSettings();
     this.q('[data-pop="settings"]').classList.add('open');
     (document.activeElement as HTMLElement | null)?.blur();
@@ -267,10 +275,25 @@ export class Garage {
     else this.openSettings();
   }
 
-  /** ← → on the settings: the other language (the pop-up in it at once, the game only on OK). */
+  /** ↑ ↓ on the settings: the keys onto the other row. */
+  settingsMove(d: number): void {
+    this.settingsRow = Math.max(0, Math.min(1, this.settingsRow + d));
+    this.drawSettings();
+  }
+
+  /**
+   * ← → on the settings: the row's next choice - the other language (the pop-up in it at once, the game only on
+   * OK), or a finer or coarser quality (← finer; none this screen can't show).
+   */
   settingsAdjust(d: number): void {
-    const i = LANGS.findIndex(([l]) => l === this.pendingLang);
-    this.pendingLang = LANGS[Math.max(0, Math.min(LANGS.length - 1, i + d))][0];
+    if (this.settingsRow === 0) {
+      const i = LANGS.findIndex(([l]) => l === this.pendingLang);
+      this.pendingLang = LANGS[Math.max(0, Math.min(LANGS.length - 1, i + d))][0];
+    } else {
+      const shown = QUALITY_LEVELS.filter((q) => qualityAvailable(q.pixelRatio, devicePixelRatio));
+      const i = shown.findIndex((q) => q.pixelRatio === this.pendingQuality);
+      this.pendingQuality = shown[Math.max(0, Math.min(shown.length - 1, (i < 0 ? 0 : i) + d))].pixelRatio;
+    }
     this.drawSettings();
   }
 
@@ -279,18 +302,27 @@ export class Garage {
     this.closePop();
     saveSettings(localStorage, { lang: this.pendingLang });
     if (this.pendingLang !== getLang()) setLang(this.pendingLang);
+    if (this.pendingQuality !== readQuality()) {
+      saveQuality(this.pendingQuality);
+      this.onQuality(this.pendingQuality);
+    }
   }
 
-  /** The settings pop-up, in the language picked in it: its language row, OK (Enter) and cancel (Esc). */
+  /**
+   * The settings pop-up, in the language picked in it: its language and quality rows (the keys' one lit; a quality
+   * this screen can't show greyed), OK (Enter) and cancel (Esc).
+   */
   private drawSettings(): void {
     const l = this.pendingLang;
     const box = this.q('.g-settings');
     box.setAttribute('aria-label', t('settings.title', {}, l));
     box.innerHTML = html`
       <div class="lbl dash">${t('settings.kicker', {}, l)}</div><h2>${t('settings.title', {}, l)}</h2>
-      <div class="s-sub focus"><span class="lbl">${t('settings.lang', {}, l)}</span><div class="s-langs">${LANGS.map(([k, name]) => `<button class="s-btn ${k === l ? 'sel' : ''}" data-lang="${k}"><span>${name}</span></button>`).join('')}</div><span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>
+      <div class="s-sub ${this.settingsRow === 0 ? 'focus' : ''}"><span class="lbl">${t('settings.lang', {}, l)}</span><div class="s-langs">${LANGS.map(([k, name]) => `<button class="s-btn ${k === l ? 'sel' : ''}" data-lang="${k}"><span>${name}</span></button>`).join('')}</div><span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>
+      <div class="s-sub ${this.settingsRow === 1 ? 'focus' : ''}"><span class="lbl">${t('settings.quality', {}, l)}</span><div class="s-quality">${QUALITY_LEVELS.map((q) => (qualityAvailable(q.pixelRatio, devicePixelRatio) ? `<button class="s-btn ${q.pixelRatio === this.pendingQuality ? 'sel' : ''}" data-quality="${q.pixelRatio}"><span>${t(q.label, {}, l)}</span></button>` : `<button class="s-btn soon" disabled><span>${t(q.label, {}, l)}</span></button>`)).join('')}</div><span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>
       <div class="btns"><button class="opt sel" data-act="ok"><span>${t('settings.ok', {}, l)}</span><kbd>Enter</kbd></button><button class="opt" data-act="cancel"><span>${t('settings.cancel', {}, l)}</span><kbd>Esc</kbd></button></div>`;
-    box.querySelectorAll<HTMLElement>('[data-lang]').forEach((b) => (b.onclick = () => ((this.pendingLang = b.dataset.lang as Lang), this.drawSettings())));
+    box.querySelectorAll<HTMLElement>('[data-lang]').forEach((b) => (b.onclick = () => ((this.pendingLang = b.dataset.lang as Lang), (this.settingsRow = 0), this.drawSettings())));
+    box.querySelectorAll<HTMLElement>('[data-quality]').forEach((b) => (b.onclick = () => ((this.pendingQuality = Number(b.dataset.quality)), (this.settingsRow = 1), this.drawSettings())));
     box.querySelector<HTMLElement>('[data-act="ok"]')!.onclick = () => this.confirmSettings();
     box.querySelector<HTMLElement>('[data-act="cancel"]')!.onclick = () => this.closePop();
   }

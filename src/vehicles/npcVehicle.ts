@@ -508,7 +508,60 @@ export class NpcVehicle {
       });
       vc.updateVehicle(dt, undefined, WHEEL_RAY_GROUPS);
     }
+    this.lamps(agent, time);
+  }
 
+  /**
+   * Far from every racer (nobody near to touch it, nor to see it closely): its bodies kinematic, moved where its
+   * planner moves it (`follow`, the agent moving itself: Agent.free) - no wheels' rays, no forces, no solving.
+   */
+  asleep = false;
+
+  /** To sleep (see `asleep`): its planner moving it from here. */
+  sleep(agent: Agent): void {
+    if (this.asleep || this.wrecked) return;
+    this.asleep = true;
+    agent.free = true;
+    for (const p of this.parts) p.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+  }
+
+  /** Awake again (a racer near, or it hit): its bodies dynamic, driving on at its planner's speed. */
+  wake(agent: Agent | undefined): void {
+    if (!this.asleep) return;
+    this.asleep = false;
+    if (agent) agent.free = false;
+    const v = agent?.v ?? 0;
+    const f = this.frame.forwardWorld(agent?.yaw ?? 0);
+    for (const p of this.parts) {
+      p.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      p.body.setLinvel({ x: f.x * v, y: 0, z: f.z * v }, true);
+      p.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
+  }
+
+  /**
+   * Asleep: its bodies where its planner has it after this step (call before world.step) - on its springs' rest
+   * height, level, along its heading; a trailer straight behind its cab's hitch (as it hangs on waking).
+   */
+  follow(agent: Agent, time: number): void {
+    const cab = this.parts[0];
+    const ry = this.frame.rotationY(agent.yaw);
+    const q = { x: 0, y: Math.sin(ry / 2), z: 0, w: Math.cos(ry / 2) };
+    const c = this.frame.toWorld(agent.s + agent.length / 2 - cab.spec.l / 2, agent.d);
+    cab.body.setNextKinematicTranslation({ x: c.x, y: cab.spec.h / 2, z: c.z });
+    cab.body.setNextKinematicRotation(q);
+    if (this.parts.length === 2) {
+      const f = this.frame.forwardWorld(agent.yaw);
+      const back = HITCH_FROM_CAB_CENTER + KINGPIN_FROM_TRAILER_CENTER;
+      const trailer = this.parts[1];
+      trailer.body.setNextKinematicTranslation({ x: c.x - f.x * back, y: trailer.spec.h / 2, z: c.z - f.z * back });
+      trailer.body.setNextKinematicRotation(q);
+    }
+    this.lamps(agent, time);
+  }
+
+  /** Its indicators (changing lanes) and brake lights (braking) from its planner. */
+  private lamps(agent: Agent, time: number): void {
     const ind =
       agent.lcState !== 'none' && agent.targetLane !== null && agent.targetLane !== agent.lane
         ? agent.targetLane < agent.lane
@@ -525,6 +578,7 @@ export class NpcVehicle {
   /** Become a wreck: no more AI; the driver stands on the brakes. */
   wreck(): void {
     if (this.wrecked) return;
+    this.wake(undefined); // (asleep: TrafficWorld.wreck has woken it at its speed first)
     this.wrecked = true;
     this.wreckTime = 0;
     for (const p of this.parts) {
