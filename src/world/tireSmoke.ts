@@ -78,8 +78,9 @@ const vec4s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4()
  * Tyre smoke: grey puffs (a grainy smoke picture, each turned its own way and turning) emitted where a tyre is
  * sliding hard (burnouts, lock-ups, slides). One Points draw call; particles grow, rise and fade.
  *
- * Lit as grok-aircraft2 lights its smoke: each puff by the lights around it (three.js's punctual-light
- * falloff, spot cones, the low-beam pattern) once, at its centre (the vertex shader: per pixel, with a dozen
+ * Lit as grok-aircraft2 lights its smoke: each puff by the lights around it (spot cones, the low-beam pattern;
+ * falling off as the inverse square of the distance - not the lights' own decay: the headlights' 1 lights the road
+ * far ahead, but a puff 50 m off lit as one 5 m off read the same in the picture, near white) once, at its centre (the vertex shader: per pixel, with a dozen
  * lights, it cost most of a frame in a thick cloud); per pixel only a fake volume: the puff a ball (a normal
  * from where on it the pixel is), its side toward the light (their weighted direction) lit, the far side and
  * its dense core (the picture's alpha: the light's way through it) darker.
@@ -151,7 +152,7 @@ export class TireSmoke {
             vec3 l = p - lightPos[i];
             float dist = length(l);
             vec4 prm = lightParams[i];
-            float k = 1.0 / max(pow(dist, prm.x), 0.01);
+            float k = 1.0 / max(dist * dist, 0.01); // (inverse square, whatever the light's own decay: see above)
             if (prm.y > 0.0) {
               float r = clamp(1.0 - pow(dist / prm.y, 4.0), 0.0, 1.0);
               k *= r * r;
