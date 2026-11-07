@@ -14,6 +14,8 @@ export interface VehicleLights {
   left: THREE.Object3D[];
   right: THREE.Object3D[];
   brake: THREE.Mesh[];
+  /** The third brake light (`brake_C`): a dark red lens, lit only braking. */
+  third: THREE.Mesh[];
 }
 
 export interface VehicleModel {
@@ -56,6 +58,8 @@ function glowMat(r: number, g: number, b: number, extra: THREE.MeshBasicMaterial
 // lamps glowing too.
 export const BRAKE_DIM = glowMat(0.45, 0.01, 0.01);
 export const BRAKE_ON = glowMat(9, 0.45, 0.3);
+/** The third brake light off: its lens a dark red, seen but not glowing (on: BRAKE_ON). */
+export const BRAKE3_OFF = glowMat(0.12, 0.008, 0.008);
 // An indicator on: its glow the bloom's alone (no flare), far past its threshold (luminance ~7.8 against 2.05: a wide halo),
 // its green held down so it stays amber (the tone mapping whitens what is this bright).
 const INDICATOR = glowMat(20, 5, 0.2);
@@ -175,7 +179,7 @@ export function buildCar(
   if (style === 'jdm') return buildJdmCar(w, h, l, color, withWheels, beam);
   const sporty = style !== false;
   const root = new THREE.Group();
-  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
   const g = -h / 2;
   const paint = std(color, sporty ? 0.25 : 0.45, sporty ? 0.5 : 0.25);
   const bodyH = sporty ? 0.55 : 0.62;
@@ -256,7 +260,7 @@ function fromTemplate(
   barFlares = false,
 ): VehicleModel {
   const root = new THREE.Group();
-  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
   const g = -h / 2;
   const body = t.body.clone(true);
   body.position.set(0, g + MODEL_GROUND, z);
@@ -308,6 +312,9 @@ function fromTemplate(
       (side === 'L' ? lights.left : lights.right).push(ind.mesh);
     }
   }
+  // The third brake light, up at the rear window's top (the cars'; none on the trucks): dark till braking, no flare.
+  const third = lamp('brake_C', BRAKE3_OFF);
+  if (third) lights.third.push(third.mesh);
   // Its exhaust pipes' tips (root space), where the flames come out (exhaustFlames.ts).
   const exhausts: THREE.Vector3[] = (root.userData.exhausts = []);
   body.traverse((o) => {
@@ -352,7 +359,7 @@ function templateCaliper(t: CarTemplate, r: number, left: boolean): THREE.Object
 /** Muscle car: a tall slab of a body, long hood with a scoop, small cabin set back, twin stripes, a ducktail. (The nose is -z.) */
 function buildMuscleCar(w: number, h: number, l: number, color: number, withWheels: boolean, beam: boolean): VehicleModel {
   const root = new THREE.Group();
-  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
   const g = -h / 2;
   const paint = std(color, 0.3, 0.45);
   const bodyH = 0.64;
@@ -377,7 +384,7 @@ function buildMuscleCar(w: number, h: number, l: number, color: number, withWhee
 /** Tuned JDM coupe: low and wide (fender flares), a rounded-off cabin mid-car, a front lip and a tall rear wing. (The nose is -z.) */
 function buildJdmCar(w: number, h: number, l: number, color: number, withWheels: boolean, beam: boolean): VehicleModel {
   const root = new THREE.Group();
-  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
   const g = -h / 2;
   const paint = std(color, 0.22, 0.55);
   const bodyH = 0.5;
@@ -403,7 +410,7 @@ function buildJdmCar(w: number, h: number, l: number, color: number, withWheels:
 
 export function buildTruck(w: number, h: number, l: number, color: number, withWheels = true): VehicleModel {
   const root = new THREE.Group();
-  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
   const g = -h / 2;
   const cabL = 2.3;
   const cab = std(color, 0.5);
@@ -421,7 +428,7 @@ export function buildTruck(w: number, h: number, l: number, color: number, withW
 /** Container truck: separate cab and trailer models (each centered on its own body). */
 export function buildContainerCab(w: number, h: number, cabL: number, color: number, withWheels = true): VehicleModel {
   const root = new THREE.Group();
-  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
   const g = -h / 2;
   const paint = std(color, 0.4, 0.3);
   box(root, w * 0.9, 0.5, cabL, DARK, 0, g + 0.8, 0); // frame
@@ -437,7 +444,7 @@ export function buildContainerCab(w: number, h: number, cabL: number, color: num
 
 export function buildContainerTrailer(w: number, h: number, trailerL: number, color: number, withWheels = true): VehicleModel {
   const root = new THREE.Group();
-  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
   const g = -h / 2;
   box(root, w * 0.9, 0.35, trailerL, DARK, 0, g + 1.2, 0); // chassis
   const ch = h - 1.4;
@@ -505,6 +512,7 @@ export function setIndicators(lights: VehicleLights, left: boolean, right: boole
 
 export function setBrake(lights: VehicleLights, on: boolean): void {
   for (const m of lights.brake) m.material = on ? BRAKE_ON : BRAKE_DIM;
+  for (const m of lights.third) m.material = on ? BRAKE_ON : BRAKE3_OFF;
 }
 
 /**
@@ -513,10 +521,11 @@ export function setBrake(lights: VehicleLights, on: boolean): void {
  */
 export function compactModel(model: VehicleModel): VehicleModel {
   const { root, lights } = model;
-  const keep = new Set<THREE.Object3D>([...lights.left, ...lights.right, ...lights.brake]);
+  const keep = new Set<THREE.Object3D>([...lights.left, ...lights.right, ...lights.brake, ...lights.third]);
   for (const m of lights.left) m.userData.role = 'L';
   for (const m of lights.right) m.userData.role = 'R';
   for (const m of lights.brake) m.userData.role = 'B';
+  for (const m of lights.third) m.userData.role = 'C';
   const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
   for (const child of [...root.children]) {
     const mesh = child as THREE.Mesh;
@@ -540,12 +549,13 @@ export function compactModel(model: VehicleModel): VehicleModel {
 /** Clone a (compacted) template, re-collecting its light meshes. */
 export function cloneModel(template: VehicleModel): VehicleModel {
   const root = template.root.clone(true);
-  const lights: VehicleLights = { left: [], right: [], brake: [] };
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
   root.traverse((o) => {
     const role = o.userData.role;
     if (role === 'L') lights.left.push(o);
     else if (role === 'R') lights.right.push(o);
     else if (role === 'B') lights.brake.push(o as THREE.Mesh);
+    else if (role === 'C') lights.third.push(o as THREE.Mesh);
   });
   return { root, lights };
 }

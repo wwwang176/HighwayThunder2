@@ -97,7 +97,7 @@ function npcWheel(): THREE.Mesh {
   }
   return wheelModel;
 }
-const NO_LAMPS: VehicleLights = { left: [], right: [], brake: [] };
+const NO_LAMPS: VehicleLights = { left: [], right: [], brake: [], third: [] };
 
 /** World-space forward (nose) direction of a body on the ground plane. */
 function forwardOf(q: { x: number; y: number; z: number; w: number }): { x: number; z: number } {

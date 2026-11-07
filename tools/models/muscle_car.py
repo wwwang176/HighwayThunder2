@@ -103,7 +103,7 @@ def lamps(body, px, s):
         z0, z1 = min(z for x, z in fog), max(z for x, z in fog)
         out.append(kit.surface_plate(f"ind_F{side}", s.tree, x0, x1, z0, z1, "ind", back=False, nx=2, nz=1))
         kit.clear_of(out[-1], [body], Vector((0, 1, 0)))
-    return out + kit.tail_lamps(s, body)
+    return out + kit.tail_lamps(s, body) + [kit.third_brake(s, body, seam=(-1.01, 1.105), half=0.25)]
 
 
 CAR = kit.Car(

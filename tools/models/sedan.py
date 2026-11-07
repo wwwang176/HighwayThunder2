@@ -68,7 +68,7 @@ def lamps(body, px, s):
                                      nx=1, nz=1, lift=kit.LIFT * 2.5)
             kit.clear_of(sign, [body, main], d[back])
             out += [main, sign]
-    return out + kit.tail_lamps(s, body, most_x=0.70)  # (its tail lights wrap round the corners)
+    return out + kit.tail_lamps(s, body, most_x=0.70) + [kit.third_brake(s, body, seam=(-1.15, 1.331), half=0.25)]  # (its tail lights wrap round the corners)
 
 
 CAR = kit.Car(

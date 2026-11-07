@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
+import { BRAKE3_OFF, BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
 
 /** The layer only shadow-casting lights' cameras see (BodyInstances' shadow casters; the view's camera doesn't). */
 export const SHADOW_LAYER = 1;
@@ -22,7 +22,7 @@ interface Piece {
   pool: Pool;
   on?: Pool;
   shadow?: Pool;
-  role: 'body' | 'L' | 'R' | 'B';
+  role: 'body' | 'L' | 'R' | 'B' | 'C';
 }
 
 interface Template {
@@ -89,7 +89,7 @@ export class BodyInstances {
     for (const p of t.pieces) {
       if (casts && p.shadow) this.put(p.shadow, matrix, p.local);
       if (!seen || (p.role === 'L' && !left) || (p.role === 'R' && !right)) continue;
-      this.put(p.role === 'B' && braking ? p.on! : p.pool, matrix, p.local);
+      this.put((p.role === 'B' || p.role === 'C') && braking ? p.on! : p.pool, matrix, p.local);
     }
     return true;
   }
@@ -124,8 +124,8 @@ export class BodyInstances {
       const material = m.material as THREE.Material;
       pieces.push({
         local,
-        pool: this.pool(m.geometry, role === 'B' ? BRAKE_DIM : material, false),
-        on: role === 'B' ? this.pool(m.geometry, BRAKE_ON, false) : undefined,
+        pool: this.pool(m.geometry, role === 'B' ? BRAKE_DIM : role === 'C' ? BRAKE3_OFF : material, false),
+        on: role === 'B' || role === 'C' ? this.pool(m.geometry, BRAKE_ON, false) : undefined,
         shadow: role === 'body' && m.castShadow ? this.pool(m.geometry, material, true) : undefined,
         role,
       });

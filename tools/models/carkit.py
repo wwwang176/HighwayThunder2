@@ -160,6 +160,7 @@ def make_materials():
     MAT["head"] = material("lamp_head", srgb(0xFFD890), 0.2, 0, 1.0)  # warm (the game swaps in its own glow)
     MAT["tail"] = material("lamp_tail", srgb(0xE00808), 0.2, 0, 1.2)  # (the game swaps in its own: dim, bright braking)
     MAT["ind"] = material("lamp_ind", srgb(0xFF9A10), 0.2, 0, 2)
+    MAT["brake"] = material("lamp_brake", srgb(0x4A0606), 0.2, 0)  # the third brake light (the game: dark, bright braking)
     MAT["steel"] = material("exhaust", srgb(0xA8ACB2), 0.3, 0.9)
     MAT["soot"] = material("soot", srgb(0x050505), 1.0, 0)
 
@@ -979,6 +980,38 @@ def exhaust_pipes(ex):
         ob.location = (x, -ex["back"], h - GROUND)
         out.append(ob)
     return out
+
+
+def third_brake(s, body, seam, half, height=0.04):
+    """The third brake light (`brake_C`: the game lights it braking only): a plate across the middle (|x| up to
+    `half`) lying on the rear window, its top at `seam` - (y, z) down the middle where the roof meets the window,
+    measured on each car (they don't change) - and `height` down the glass from it, just clear of it."""
+    y, z = seam
+    p = Vector((0, y, z))
+    n = s.tree.ray_cast(Vector((0, y - 0.03, 5)), Vector((0, 0, -1)))[1]  # the glass just behind the seam
+    n = Vector((0, n.y, n.z)).normalized()  # (square across: the mirrored halves meet at a crease down the middle)
+    across = Vector((1, 0, 0))
+    down = n.cross(across).normalized()  # along the glass, square to the middle line
+    if down.z > 0:
+        down = -down
+    nx, nz = 8, 1
+    verts = []
+    for k in range(nz + 1):
+        for i in range(nx + 1):
+            q = p + across * (half * (2 * i / nx - 1)) + down * (height * k / nz)
+            hit = s.tree.ray_cast(q + n * 0.3, -n)[0]
+            assert hit is not None, f"third brake light: nothing under {tuple(round(c, 3) for c in q)}"
+            verts.append(tuple(hit + n * LIFT))
+    faces = [(k * (nx + 1) + i, (k + 1) * (nx + 1) + i, (k + 1) * (nx + 1) + i + 1, k * (nx + 1) + i + 1)
+             for k in range(nz) for i in range(nx)]
+    ob = mesh_object("brake_C", verts, faces, ["brake"])
+    if ob.data.polygons[0].normal.dot(n) < 0:  # (a lone plate has no outside for mesh_object to find: it faces out)
+        ob.data.flip_normals()
+        ob.data.update()
+    moved = clear_of(ob, [body], n)
+    print(f"[{CAR.log}] third brake light: from y {y:.2f} z {z:.3f} {height * 100:.1f} cm down the glass"
+          f" (its normal {tuple(round(c, 2) for c in n)}), |x| to {half:.2f}, {moved * 1000:.0f} mm off it to clear the body")
+    return ob
 
 
 def run(car):
