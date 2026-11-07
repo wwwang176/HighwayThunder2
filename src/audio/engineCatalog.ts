@@ -126,6 +126,15 @@ export const crackleClip = (n: number): { pack: string; file: string } =>
 export const popId = (n: number): string => `pop-${n}`;
 
 /**
+ * A near miss's rush of air: the pack's wind (steady loops, as heard from outside), a WIND_PIECE s stretch of the
+ * middle of each cut out by tools/build-engine-audio.ts, its ids `wind-1`, ...; src/audio/sound.ts swells and fades it.
+ */
+export const WIND_COUNT = 6;
+export const WIND_PIECE = 0.8; // s
+export const windClip = (n: number): { pack: string; file: string } => ({});
+export const windId = (n: number): string => `wind-${n}`;
+
+/**
  * The player's tyre squeal: one of the pack's skid loops, as heard from outside (9.5 s, the steadiest of its four).
  * Built with the engines, a loop as they are.
  */

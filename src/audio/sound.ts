@@ -1,4 +1,4 @@
-import { ENGINE_SETS, popId, SKID_CLIP, type EngineKind } from './engineCatalog';
+import { ENGINE_SETS, popId, SKID_CLIP, WIND_COUNT, windId, type EngineKind } from './engineCatalog';
 import { EFFECTS_BUNDLE_URL, loadEngineBank, loadSoundBank } from './engineBank';
 import { loadCrashBank, type CrashClip } from './crashBank';
 import { EngineVoice } from './engineVoice';
@@ -34,6 +34,17 @@ const BACKFIRE_OTHERS_VOLUME = 0.8;
 const BACKFIRE_REF = 10;
 const BACKFIRE_RANGE = 220;
 const BACKFIRE_PAN = new Float32Array(2);
+/**
+ * A near miss's rush of air (the pack's wind, its clips -16 LUFS): at its loudest this loud, NEAR_MISS_RISE s in,
+ * dying away (time constant NEAR_MISS_FALL s); its pitch falling NEAR_MISS_PITCH[0] to [1] over NEAR_MISS_SWEEP s
+ * (the car going by).
+ */
+const NEAR_MISS_VOLUME = 0.9;
+const NEAR_MISS_RISE = 0.12;
+const NEAR_MISS_FALL = 0.15;
+const NEAR_MISS_PITCH = [1.15, 0.85] as const;
+const NEAR_MISS_SWEEP = 0.5;
+const NEAR_MISS_PAN = new Float32Array(2);
 
 /** One of `size`, at random: not `last` (the same recording twice running is heard as one). */
 function pickNoRepeat(size: number, last: number): number {
@@ -64,6 +75,8 @@ export class Sound {
   /** How many pops the bank holds; the one last played (not the same one twice running). */
   private popCount = 0;
   private lastPop = -1;
+  /** The wind clip a near miss last played (not the same one twice running). */
+  private lastWind = -1;
   /** The engine clips (null: none to be had - no bundle - or not loaded yet). */
   private bank: Map<string, AudioBuffer> | null = null;
   /** The clips' loading (resolved once they're in, or known not to be had). */
@@ -322,5 +335,38 @@ export class Sound {
     src.connect(g).connect(this.master);
     src.onended = () => g.disconnect();
     src.start(ctx.currentTime + delay);
+  }
+
+  /**
+   * A near miss: a rush of air, from `at` (the car gone by) as heard from `ear` (panned; it's close: full). One of
+   * the wind clips at random (not the last one again), swelling and dying away, its pitch falling, with the race's
+   * time. Silent without the clips.
+   */
+  nearMiss(at: { x: number; y: number; z: number }, ear: EarPose): void {
+    const ctx = this.ctx, bank = this.bank;
+    if (!ctx || !bank) return;
+    const k = pickNoRepeat(WIND_COUNT, this.lastWind);
+    this.lastWind = k;
+    const buffer = bank.get(windId(k + 1));
+    if (!buffer) return;
+    const t = ctx.currentTime, ts = this.timeScale;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.setValueAtTime(NEAR_MISS_PITCH[0] * ts, t);
+    src.playbackRate.linearRampToValueAtTime(NEAR_MISS_PITCH[1] * ts, t + NEAR_MISS_SWEEP / ts);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(NEAR_MISS_VOLUME, t + NEAR_MISS_RISE / ts);
+    g.gain.setTargetAtTime(0, t + NEAR_MISS_RISE / ts, NEAR_MISS_FALL / ts);
+    equalPowerMono(azimuthDeg(at.x, at.y, at.z, ear), 1, NEAR_MISS_PAN);
+    const l = ctx.createGain(), r = ctx.createGain(), merge = ctx.createChannelMerger(2);
+    l.gain.value = NEAR_MISS_PAN[0];
+    r.gain.value = NEAR_MISS_PAN[1];
+    src.connect(g);
+    g.connect(l).connect(merge, 0, 0);
+    g.connect(r).connect(merge, 0, 1);
+    merge.connect(this.master);
+    src.onended = () => { for (const n of [g, l, r, merge]) n.disconnect(); };
+    src.start(t);
   }
 }

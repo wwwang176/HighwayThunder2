@@ -932,6 +932,7 @@ export class Game {
             this.flow.addNearMiss();
             this.player.nitro.nearMiss();
             this.hud.nearMiss();
+            this.sound.nearMiss({ x: w.x, y: p.body.translation().y, z: w.z }, this.ear());
           }
         }
       }
