@@ -17,6 +17,8 @@ const PUFF_SPIN = 0.6;
 const SHADE_GAIN = 0.8;
 /** The brightest a lit puff gets (linear; tone mapped, near white). */
 const SMOKE_WHITE = 4;
+/** A puff at its thickest (its alpha; how many puffs, as they were): at 0.45 a burnout's cloud was too dense. */
+const PUFF_OPACITY = 0.27;
 
 function puffTexture(): THREE.Texture {
   return new THREE.TextureLoader().load(PUFF_TEXTURE); // (only its alpha is read)
@@ -66,7 +68,7 @@ export function smokeLightFromSpot(l: THREE.SpotLight): SmokeLight {
 export function puffLook(age: number): { size: number; alpha: number } {
   if (age >= LIFE) return { size: 0, alpha: 0 };
   const t = age / LIFE;
-  return { size: 0.8 + t * 3.2, alpha: 0.45 * (1 - t) * Math.min(1, t * 8) };
+  return { size: 0.8 + t * 3.2, alpha: PUFF_OPACITY * (1 - t) * Math.min(1, t * 8) };
 }
 
 const vec3s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3());

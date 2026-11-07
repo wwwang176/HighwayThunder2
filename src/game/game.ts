@@ -737,6 +737,14 @@ export class Game {
       this.skids.add(i, w.contactX, w.contactZ, w.dirX, w.dirZ, k);
       this.smoke.emit(i, w.contactX, w.contactZ, sliding ? w.slip : 0, pv.x, pv.z, dt);
     });
+    // The rivals' tyres smoke as the player's (their burnouts on the grid too). (Their keys 10 on: the player's 0..3,
+    // the wrecks' 100 on.)
+    for (const r of this.rivals.list) {
+      const rv = r.car.body.linvel();
+      r.car.wheels.forEach((w, i) => {
+        this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, w.inContact && w.sliding ? w.slip : 0, rv.x, rv.z, dt);
+      });
+    }
     // Wrecks run on the same tyre model, so they leave marks and smoke too.
     for (const npc of this.npcs.values()) {
       if (!npc.wrecked) continue;
