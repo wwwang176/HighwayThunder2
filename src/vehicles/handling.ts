@@ -353,6 +353,19 @@ export function escTorque(yawRate: number, target: number, speed: number, p: Car
   return Math.max(-p.escMaxTorque, Math.min(p.escMaxTorque, p.escGain * (target - yawRate)));
 }
 
+/**
+ * Stability control trims the power once the car slides: in full up to ESC_TRIM_FROM of body slip (its motion's
+ * angle off its nose, rad), down to ESC_TRIM_LEAST of it by ESC_TRIM_FULL and past it - a slide still on the
+ * throttle, held or steered by it (at 8.6 deg to none by 20 deg, a drift had no throttle at all).
+ */
+export const ESC_TRIM_FROM = (20 * Math.PI) / 180;
+export const ESC_TRIM_FULL = (45 * Math.PI) / 180;
+export const ESC_TRIM_LEAST = 0.4;
+export function escPowerTrim(bodySlip: number): number {
+  const k = Math.min(1, Math.max(0, (bodySlip - ESC_TRIM_FROM) / (ESC_TRIM_FULL - ESC_TRIM_FROM)));
+  return 1 - (1 - ESC_TRIM_LEAST) * k;
+}
+
 const FOLLOW_FADE_LO = 3; // m/s
 const FOLLOW_FADE_HI = 8; // m/s
 

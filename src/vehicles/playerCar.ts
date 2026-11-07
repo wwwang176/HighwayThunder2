@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, steerAngle } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, steerAngle } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
@@ -350,10 +350,8 @@ export class PlayerCar {
     // the simple pedal force). The rev limiter bounds wheelspin.
     if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / p.wheelRadius;
     if (boost && this.driveMode === 'D') cmd.engineForce *= NITRO.force;
-    // Stability control also trims power once the car is sliding sideways.
-    if (p.escGain > 0 && cmd.engineForce > 0 && bodySlip > 0.15) {
-      cmd.engineForce *= Math.max(0, 1 - (bodySlip - 0.15) / 0.2);
-    }
+    // Stability control also trims power once the car is sliding sideways (never all of it: escPowerTrim).
+    if (p.escGain > 0 && cmd.engineForce > 0) cmd.engineForce *= escPowerTrim(bodySlip);
     const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * p.wheelRadius;
     // A burnout (both keys, stopped): the front brakes hold it, the driven rear wheels spin free of theirs.
     const brakeTorqueRear = cmd.burnout ? 0 : (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * p.wheelRadius;

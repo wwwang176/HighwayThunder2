@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -365,5 +365,15 @@ describe('the gauge on the rev limiter', () => {
     expect(limiterBounce(period * 0.65)).toBeCloseTo(-LIMITER_BOUNCE_RPM / 2);
     for (let t = 0; t < 1; t += 0.003) expect(limiterBounce(t)).toBeLessThanOrEqual(0);
     expect(limiterBounce(period * 1.3)).toBeCloseTo(-LIMITER_BOUNCE_RPM); // (again, the next cut)
+  });
+});
+
+describe('escPowerTrim', () => {
+  it('full power up to 20 deg of slide, down to 40 % by 45 deg, never less', () => {
+    expect(escPowerTrim(0)).toBe(1);
+    expect(escPowerTrim(ESC_TRIM_FROM)).toBe(1);
+    expect(escPowerTrim((ESC_TRIM_FROM + ESC_TRIM_FULL) / 2)).toBeCloseTo(0.7, 6);
+    expect(escPowerTrim(ESC_TRIM_FULL)).toBeCloseTo(ESC_TRIM_LEAST, 6);
+    expect(escPowerTrim(Math.PI / 2)).toBeCloseTo(ESC_TRIM_LEAST, 6);
   });
 });
