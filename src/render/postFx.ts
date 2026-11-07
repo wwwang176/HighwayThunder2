@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { FullResBloomPass } from './bloomPass';
 import { FlarePass } from './flarePass';
 import { SpeedBlurPass } from './speedBlur';
 import { ToneMapFxaaPass } from './toneMapFxaaPass';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 export type Antialias = 'fxaa' | 'smaa' | 'msaa' | 'none';
 
@@ -40,7 +40,7 @@ export const POST = {
  */
 export class PostFx {
   private readonly composer: EffectComposer;
-  private readonly bloom: UnrealBloomPass;
+  private readonly bloom: FullResBloomPass;
   private readonly output = new OutputPass();
   private readonly fxaa = new ToneMapFxaaPass(); // (tone maps too: the OutputPass off with it)
   private readonly smaa = new SMAAPass();
@@ -65,7 +65,7 @@ export class PostFx {
     this.composer.addPass(new RenderPass(scene, camera));
     this.flares = new FlarePass(camera);
     this.composer.addPass(this.flares);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), POST.strength, POST.radius, POST.threshold);
+    this.bloom = new FullResBloomPass(new THREE.Vector2(1, 1), POST.strength, POST.radius, POST.threshold);
     this.composer.addPass(this.bloom);
     // Then what is lit, not alight, however bright (tyre smoke by a headlight): over the bloom, in the same depth.
     const late = new RenderPass(this.unbloomed, camera);

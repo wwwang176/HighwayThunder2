@@ -4,7 +4,7 @@ import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { FullResBloomPass } from '../render/bloomPass';
 import { FlarePass } from '../render/flarePass';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
@@ -48,7 +48,7 @@ export class GarageScene {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(CAM.fov, 1, 0.1, 400);
   private readonly composer: EffectComposer;
-  private readonly bloom: UnrealBloomPass;
+  private readonly bloom: FullResBloomPass;
   private readonly bokeh: BokehPass;
   private readonly shadow: THREE.Mesh;
   private readonly beams = new NpcBeams();
@@ -111,7 +111,7 @@ export class GarageScene {
     this.flares = new LightFlares(flares.scene, 16, flares.depth);
     this.composer.addPass(flares);
     // Only the lights themselves bloom (over 1), not what they light.
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.5, 1.0);
+    this.bloom = new FullResBloomPass(new THREE.Vector2(1, 1), 0.3, 0.5, 1.0);
     this.composer.addPass(this.bloom);
     this.bokeh = new BokehPass(this.scene, this.camera, { focus: CAM.r, aperture: 0.0006, maxblur: 0.008 });
     this.composer.addPass(this.bokeh);
