@@ -79,7 +79,7 @@ type WheelState = ChassisWheel;
  * hood (36 % of its length back from the nose), 0.3 m above the hood there - measured on the models.
  */
 const HOOD_EYE: Record<CarStyle, [y: number, z: number]> = {
-  super: [0.75, -0.65],
+  super: [0.6, -0.65], // (0.15 m over its hood: its short sloping hood seen at all)
   muscle: [0.68, -0.51],
   jdm: [0.78, -0.53],
 };
