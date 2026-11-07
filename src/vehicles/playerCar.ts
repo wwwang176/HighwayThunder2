@@ -509,7 +509,12 @@ export class PlayerCar {
   render(alpha: number, flares?: LightFlares): void {
     this.mesh.position.lerpVectors(this.prevPos, this.currPos, alpha);
     this.mesh.quaternion.slerpQuaternions(this.prevQuat, this.currQuat, alpha);
-    if (this.showOffset !== 0) this.mesh.position.addScaledVector(SHOW_FWD.set(0, 0, -1).applyQuaternion(this.mesh.quaternion), this.showOffset);
+    // Along its heading on the ground, level (its pitch left out: a dive's few degrees over the arrival's tens of
+    // metres lifted the whole car, wheels and all, off the road).
+    if (this.showOffset !== 0) {
+      SHOW_FWD.set(0, 0, -1).applyQuaternion(this.mesh.quaternion).setY(0).normalize();
+      this.mesh.position.addScaledVector(SHOW_FWD, this.showOffset);
+    }
     const roll = this.showOffset / this.params.wheelRadius;
     if (flares) {
       this.mesh.updateMatrix();
