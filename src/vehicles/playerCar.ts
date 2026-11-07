@@ -74,6 +74,23 @@ function headingYaw(q: { x: number; y: number; z: number; w: number }): number {
 
 type WheelState = ChassisWheel;
 
+/** The hood camera: HOOD_EYE_BACK of the body's length back from its nose (the hood's back), HOOD_EYE_UP m over it. */
+const HOOD_EYE_BACK = 0.36;
+const HOOD_EYE_UP = 0.3;
+
+/**
+ * Where the hood camera sits on a body (`root`, unmoved: its own terms; the nose -z): over the hood's back - the
+ * body's top there found by a ray straight down (none hit: its box's top) - HOOD_EYE_UP above it, into `out`.
+ */
+function hoodEyeOf(root: THREE.Object3D, out: THREE.Vector3): void {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const z = box.min.z + HOOD_EYE_BACK * (box.max.z - box.min.z);
+  const ray = new THREE.Raycaster(new THREE.Vector3(0, box.max.y + 1, z), new THREE.Vector3(0, -1, 0));
+  const hit = ray.intersectObject(root, true)[0];
+  out.set(0, (hit ? hit.point.y : box.max.y) + HOOD_EYE_UP, z);
+}
+
 /**
  * The player's car: a Rapier chassis on four ray-cast wheels with our own
  * spring/damper suspension, anti-roll bars, rear-wheel drive and a tyre model
@@ -84,6 +101,8 @@ export class PlayerCar {
   /** The body's collision shape: a box, or its spec's convex pieces (none for ghosts). */
   readonly colliders: RAPIER.Collider[];
   readonly mesh: THREE.Group;
+  /** The hood camera's place on the car (its own terms): over the back of the hood, HOOD_EYE_UP above it. */
+  readonly hoodEye = new THREE.Vector3();
   private readonly lights: VehicleLights;
   private flames: ExhaustFlames | null = null;
   private held = false;
@@ -224,6 +243,7 @@ export class PlayerCar {
     }
     this.setHighBeam(false);
     this.mesh = model.root;
+    hoodEyeOf(model.root, this.hoodEye);
     this.lights = model.lights;
     const tips = (model.root.userData.exhausts ?? []) as THREE.Vector3[];
     if (tips.length) this.flames = new ExhaustFlames(this.mesh, tips);

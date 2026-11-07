@@ -177,6 +177,8 @@ export class Game {
   /** The race's intro, whether it is on; a race starting (the fade). */
   private intro: Intro | null = null;
   private introOn = false;
+  /** The hood camera instead of the chase camera (V). */
+  private hoodCam = false;
   /** The finish's show (past the line, till the next race), and the gate it is at. */
   private finishShow: FinishShow | null = null;
   private readonly gate: FinishGate;
@@ -336,6 +338,7 @@ export class Game {
     // Race keys do nothing in the garage.
     k.onPress('KeyR', () => !g.isOpen && this.tryReset());
     k.onPress('KeyM', () => this.sound.toggleMute());
+    k.onPress('KeyV', () => !g.isOpen && (this.hoodCam = !this.hoodCam));
     k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
     k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
@@ -1061,6 +1064,7 @@ export class Game {
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     if (this.introOn) this.intro!.placeCamera();
     else if (show) show.placeCamera();
+    else if (this.hoodCam && !lookBack) this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
     else this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);

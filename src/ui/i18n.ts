@@ -66,6 +66,7 @@ export const STRINGS = {
   'keys.steer': { zh: '轉向', en: 'Steer' },
   'keys.nitro': { zh: '氮氣', en: 'Nitro' },
   'keys.look': { zh: '看正後方', en: 'Look back' },
+  'keys.view': { zh: '切換引擎蓋視角', en: 'Hood camera' },
   'keys.reset': { zh: '重置到車道上', en: 'Back on the road' },
   'keys.ai': { zh: 'AI 接手駕駛', en: 'AI takes the wheel' },
   'keys.highBeam': { zh: '遠光燈（按住）', en: 'High beam (hold)' },
