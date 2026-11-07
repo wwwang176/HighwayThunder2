@@ -190,6 +190,9 @@ export class TireSmoke {
           vec2 c = gl_PointCoord - 0.5;
           float cs = cos(vTurn), sn = sin(vTurn);
           float density = texture2D(puffTex, mat2(cs, sn, -sn, cs) * c + 0.5).a;
+          // None past the round the picture fills (its square's edges hold up to 12/255, and turned, its corners
+          // reach past them, its edge stretched out: brightly lit, a faint square showed round the puff).
+          density *= 1.0 - smoothstep(0.8, 1.0, length(c) * 2.0);
           if (density < 0.004) discard;
           // The puff a ball: its normal where this pixel is (x right, y up, z toward the camera).
           vec2 xy = vec2(c.x, -c.y) * 2.0;
