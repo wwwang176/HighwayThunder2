@@ -132,6 +132,8 @@ const RESET_SPEED_RIVAL = 60 * KMH;
 /** Top speed (m/s) once past the finish: it rolls out. */
 export const FINISHED_SPEED = 40 * KMH;
 const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
+/** On the grid in the countdown: both pedals down, as the player's - a burnout on the line (held to its spot). */
+const REV_ON_GRID = { throttle: 1, brake: 1, steer: 0, handbrake: false, nitro: false };
 
 export interface Rival {
   index: number;
@@ -216,6 +218,7 @@ export class Rivals {
   drive(dt: number, view: RaceView): void {
     const p = view.player;
     for (const r of this.list) {
+      r.car.holdInPlace(false);
       const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), view.speedCap);
       r.boost += (band.boost - r.boost) * Math.min(1, dt / BAND_SMOOTH);
       this.applyBoost(r);
@@ -227,9 +230,15 @@ export class Rivals {
     }
   }
 
-  /** Before the physics step while the race has not started (countdown, title): held on the grid. */
-  hold(dt: number): void {
-    for (const r of this.list) r.car.prePhysics(HOLD, dt);
+  /**
+   * Before the physics step while the race has not started (countdown, title): held on the grid - `revving` (the
+   * countdown) its throttle held down too, a burnout going nowhere, let go of at the green.
+   */
+  hold(dt: number, revving = false): void {
+    for (const r of this.list) {
+      r.car.holdInPlace(revving);
+      r.car.prePhysics(revving ? REV_ON_GRID : HOLD, dt);
+    }
   }
 
   /**
