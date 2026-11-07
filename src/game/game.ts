@@ -190,6 +190,8 @@ export class Game {
   private readonly gate: FinishGate;
   private readonly emitSpark: SparkEmitter = (x, y, z, vx, vy, vz, life) => this.sparks.emit(x, y, z, vx, vy, vz, life);
   private starting = false;
+  /** Fading out of the race, to the garage (toTitle). */
+  private leaving = false;
   private overlay!: IntroOverlay;
   /** Overrides keyboard input when set (used by automated checks). */
   inputOverride: HandlingInput | null = null;
@@ -502,16 +504,23 @@ export class Game {
   }
 
   /** Back to the garage (from the pause or the finish). */
+  /** Back to the garage: to black, the race put away, the garage in from black (as the garage into the race). */
   toTitle(): void {
-    if (this.introOn) {
-      this.introOn = false;
-      this.intro?.end();
-      this.overlay.show(false);
-    }
-    this.flow.toTitle();
-    this.sound.suspend(false);
-    this.resetWorld();
-    this.openGarage();
+    if (this.leaving || this.starting) return;
+    this.leaving = true;
+    this.overlay.toBlack(START_FADE_OUT, () => {
+      this.leaving = false;
+      if (this.introOn) {
+        this.introOn = false;
+        this.intro?.end();
+        this.overlay.show(false);
+      }
+      this.flow.toTitle();
+      this.sound.suspend(false);
+      this.resetWorld();
+      this.openGarage();
+      this.overlay.fromBlack(START_FADE_IN);
+    });
   }
 
   togglePause(): void {
