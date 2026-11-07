@@ -64,6 +64,8 @@ import { trafficEngine, type TrafficGearing } from '../audio/spatial';
 /** The rivals' colours, for the HUD. */
 const RIVAL_CSS = RIVAL_COLORS.map((c) => `#${c.toString(16).padStart(6, '0')}`);
 
+/** Another car's tyres smoke only this near the player (m). */
+const SMOKE_RANGE = 100;
 const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
 /** Every lamp state a traffic vehicle shows (brake lights dim and on, indicators off and on): for prewarm. */
@@ -731,12 +733,25 @@ export class Game {
     this.trafficWorld.afterPhysics();
     this.rivals.after(dt, view, this.trafficWorld.ourBoxes(this.rivalTraffic), racing);
     const pv = this.player.body.linvel();
+    // Another car's tyre smokes only within SMOKE_RANGE of the player (the puffs are few: far off they'd crowd out
+    // what is near, unseen).
+    const pp = this.player.body.translation();
+    const near = (x: number, z: number) => (x - pp.x) ** 2 + (z - pp.z) ** 2 < SMOKE_RANGE ** 2;
     this.player.wheels.forEach((w, i) => {
       const sliding = w.inContact && w.sliding;
       const k = sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
       this.skids.add(i, w.contactX, w.contactZ, w.dirX, w.dirZ, k);
       this.smoke.emit(i, w.contactX, w.contactZ, sliding ? w.slip : 0, pv.x, pv.z, dt);
     });
+    // The rivals' tyres smoke as the player's (their burnouts on the grid too). (Their keys 10 on: the player's 0..3,
+    // the wrecks' 100 on.)
+    for (const r of this.rivals.list) {
+      const rv = r.car.body.linvel();
+      r.car.wheels.forEach((w, i) => {
+        const slip = w.inContact && w.sliding && near(w.contactX, w.contactZ) ? w.slip : 0;
+        this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, slip, rv.x, rv.z, dt);
+      });
+    }
     // Wrecks run on the same tyre model, so they leave marks and smoke too.
     for (const npc of this.npcs.values()) {
       if (!npc.wrecked) continue;
@@ -747,7 +762,7 @@ export class Game {
           const sliding = w.inContact && w.sliding;
           const k = sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
           this.skids.add(key, w.contactX, w.contactZ, w.dirX, w.dirZ, k);
-          this.smoke.emit(key, w.contactX, w.contactZ, sliding ? w.slip : 0, v.x, v.z, dt);
+          this.smoke.emit(key, w.contactX, w.contactZ, sliding && near(w.contactX, w.contactZ) ? w.slip : 0, v.x, v.z, dt);
         });
       }
     }

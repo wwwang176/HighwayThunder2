@@ -17,6 +17,8 @@ const PUFF_SPIN = 0.6;
 const SHADE_GAIN = 0.8;
 /** The brightest a lit puff gets (linear; tone mapped, near white). */
 const SMOKE_WHITE = 4;
+/** A puff at its thickest (its alpha; how many puffs, as they were): at 0.45 a burnout's cloud was too dense. */
+const PUFF_OPACITY = 0.27;
 
 function puffTexture(): THREE.Texture {
   return new THREE.TextureLoader().load(PUFF_TEXTURE); // (only its alpha is read)
@@ -66,7 +68,7 @@ export function smokeLightFromSpot(l: THREE.SpotLight): SmokeLight {
 export function puffLook(age: number): { size: number; alpha: number } {
   if (age >= LIFE) return { size: 0, alpha: 0 };
   const t = age / LIFE;
-  return { size: 0.8 + t * 3.2, alpha: 0.45 * (1 - t) * Math.min(1, t * 8) };
+  return { size: 0.8 + t * 3.2, alpha: PUFF_OPACITY * (1 - t) * Math.min(1, t * 8) };
 }
 
 const vec3s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3());
@@ -76,8 +78,9 @@ const vec4s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4()
  * Tyre smoke: grey puffs (a grainy smoke picture, each turned its own way and turning) emitted where a tyre is
  * sliding hard (burnouts, lock-ups, slides). One Points draw call; particles grow, rise and fade.
  *
- * Lit as grok-aircraft2 lights its smoke: each puff by the lights around it (three.js's punctual-light
- * falloff, spot cones, the low-beam pattern) once, at its centre (the vertex shader: per pixel, with a dozen
+ * Lit as grok-aircraft2 lights its smoke: each puff by the lights around it (spot cones, the low-beam pattern;
+ * falling off as the inverse square of the distance - not the lights' own decay: the headlights' 1 lights the road
+ * far ahead, but a puff 50 m off lit as one 5 m off read the same in the picture, near white) once, at its centre (the vertex shader: per pixel, with a dozen
  * lights, it cost most of a frame in a thick cloud); per pixel only a fake volume: the puff a ball (a normal
  * from where on it the pixel is), its side toward the light (their weighted direction) lit, the far side and
  * its dense core (the picture's alpha: the light's way through it) darker.
@@ -149,7 +152,7 @@ export class TireSmoke {
             vec3 l = p - lightPos[i];
             float dist = length(l);
             vec4 prm = lightParams[i];
-            float k = 1.0 / max(pow(dist, prm.x), 0.01);
+            float k = 1.0 / max(dist * dist, 0.01); // (inverse square, whatever the light's own decay: see above)
             if (prm.y > 0.0) {
               float r = clamp(1.0 - pow(dist / prm.y, 4.0), 0.0, 1.0);
               k *= r * r;
@@ -187,6 +190,9 @@ export class TireSmoke {
           vec2 c = gl_PointCoord - 0.5;
           float cs = cos(vTurn), sn = sin(vTurn);
           float density = texture2D(puffTex, mat2(cs, sn, -sn, cs) * c + 0.5).a;
+          // None past the round the picture fills (its square's edges hold up to 12/255, and turned, its corners
+          // reach past them, its edge stretched out: brightly lit, a faint square showed round the puff).
+          density *= 1.0 - smoothstep(0.8, 1.0, length(c) * 2.0);
           if (density < 0.004) discard;
           // The puff a ball: its normal where this pixel is (x right, y up, z toward the camera).
           vec2 xy = vec2(c.x, -c.y) * 2.0;
