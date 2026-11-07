@@ -10,7 +10,7 @@ import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
-import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH } from '../config';
+import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound } from '../audio/sound';
 import { createTuningPanel } from '../debug/tuning';
@@ -49,13 +49,17 @@ import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
-import { RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
+import { FINISHED_SPEED, RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
 import { Blocker, computeResetSpot } from './reset';
+import type { EngineSource } from '../audio/otherEngines';
+import type { EarPose } from '../audio/pan';
+import type { EngineKind } from '../audio/engineCatalog';
+import { trafficEngine, type TrafficGearing } from '../audio/spatial';
 
 /** The rivals' colours, for the HUD. */
 const RIVAL_CSS = RIVAL_COLORS.map((c) => `#${c.toString(16).padStart(6, '0')}`);
@@ -69,6 +73,14 @@ const PREWARM_LAMPS: VehicleLights[] = [
 ];
 const PLAYER_OBSTACLE_ID = -1;
 const BLUR_V = new THREE.Vector3();
+const EAR_FWD = new THREE.Vector3();
+const EAR_UP = new THREE.Vector3();
+/** The traffic's engines: each kind's sound, its gearing (for its rpm by its speed), how loud against a rival's. */
+const TRAFFIC_ENGINE: Record<VehicleKind, { kind: EngineKind; gearing: TrafficGearing; gain: number }> = {
+  car: { kind: 'sedan', gearing: { gears: 5, top: 55 }, gain: 0.6 },
+  truck: { kind: 'truck', gearing: { gears: 6, top: 35 }, gain: 0.8 },
+  container: { kind: 'container', gearing: { gears: 8, top: 32 }, gain: 0.9 },
+};
 const STILL = { x: 0, y: 0, z: 0 };
 /** The finish gate's mark, on the screen (render: the HUD's goal). */
 const GOAL = new THREE.Vector3();
@@ -79,6 +91,8 @@ const START_FADE_OUT = 350;
 const START_FADE_IN = 700;
 /** The race's world run this long (s) behind the black before its intro: the cars settled on their springs. */
 const SETTLE_SECONDS = 0.6;
+/** The same thing touched again within this (s of race time) isn't heard again (game.contactSound). */
+const CONTACT_SOUND_GAP = 0.3;
 /** The intros' round left (game/intro IntroBag), kept between visits. */
 const INTRO_BAG_KEY = 'ht2.introBag';
 
@@ -105,6 +119,9 @@ export class Game {
   private readonly flashers = new WeakMap<object, BeamFlasher>();
   readonly flow = new GameFlow(localStorage);
   readonly sound = new Sound();
+  /** The engines heard from outside, this frame's (heardEngines; reused). */
+  private readonly engineSources: EngineSource[] = [];
+  private readonly earPose: EarPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 };
   readonly hud: Hud;
   /** The garage: the title screen, where the car and the race are picked. */
   readonly garage: Garage;
@@ -141,6 +158,8 @@ export class Game {
   private simTime = 0;
   private prevRelS = new Map<number, number>();
   private touched = new Set<number>();
+  /** When each thing the player touched was last heard (race time, s): contactSound. */
+  private contactSoundAt = new Map<string, number>();
   private lastInput: HandlingInput = HOLD;
   /** The AI driving the player's car (I) uses the nitro as the rivals do. */
   private readonly playerNitroAi = new NitroAi();
@@ -221,6 +240,11 @@ export class Game {
     });
     this.resetWorld();
     this.openGarage(true); // (the game opens on its title)
+    // The sound woken at the first click or key (the browser lets it start only then), so its clips load in the
+    // garage, ready for the race's start.
+    const wake = (): void => this.sound.init();
+    addEventListener('pointerdown', wake, { once: true });
+    addEventListener('keydown', wake, { once: true });
     this.prewarm();
   }
 
@@ -328,8 +352,9 @@ export class Game {
   openGarage(title = false): void {
     if (!picksCars(this.flow.phase)) return;
     // The world (and its render, which drives the engine and tyre sounds) stops: no engine left running in the garage.
-    this.sound.setEngine(0, 0, false);
+    this.sound.silenceEngine();
     this.sound.setSkid(0);
+    this.sound.setNitro(false);
     this.hud.hide();
     this.garage.open(loadSelection(localStorage), title);
   }
@@ -343,6 +368,7 @@ export class Game {
     if (!picksCars(this.flow.phase) || this.starting) return;
     this.starting = true;
     this.sound.init(); // (in the click or key itself: the browser lets the sound start only there)
+    this.sound.startup(specOf((cars ?? this.cars).player).style); // (the car started up, as it heads for the grid)
     this.overlay.toBlack(START_FADE_OUT, () => {
       this.starting = false;
       this.garage.close();
@@ -414,6 +440,8 @@ export class Game {
   /** Past the line: the finish's show from here (the HUD off, the bars in; its panel after it: render). */
   private beginFinishShow(): void {
     this.finishShow = new FinishShow(this.camera, this.player);
+    // Past the line the AI takes the car (as the I key does; the next race hands it back), rolling on.
+    if (this.aiDriver && !this.aiActive) this.toggleAi();
     this.gate.shown = false; // (its fountains go on)
     this.overlay.show(true);
   }
@@ -512,6 +540,7 @@ export class Game {
   resetWorld(): void {
     this.prevRelS.clear();
     this.touched.clear();
+    this.contactSoundAt.clear();
     this.player.resetTo(-3, 1, 0);
     this.player.nitro.reset();
     this.playerNitroAi.reset();
@@ -580,6 +609,7 @@ export class Game {
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     show?.step(dt);
     const play = dt * (show ? show.timeScale : (TIME_SCALE[this.flow.phase] ?? 1));
+    this.sound.setTimeScale(dt > 0 ? play / dt : 1); // (the engines slow with it; a pause leaves it as it was)
     if (play > 0 && !this.freeze) {
       this.accumulator += play;
       let steps = 0;
@@ -617,20 +647,28 @@ export class Game {
     } else this.player.params.maxSpeed = this.humanMaxSpeed;
   }
 
+  /**
+   * The AI driving the player's car: same inputs as in training (our carriageway's traffic, the rivals), its top
+   * speed the AI's cap (the car's own when lower), no faster than `limit` (m/s).
+   */
+  private aiInput(ai: Driver, limit: number): HandlingInput {
+    const cap = Math.min(limit, aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player)));
+    this.player.params.maxSpeed = cap;
+    const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
+    for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
+    const input = ai.drive(selfStateOf(this.player, cap), seen, this.player.params);
+    return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
+  }
+
   private currentInput(): HandlingInput {
     switch (this.flow.phase) {
       case 'racing':
-        if (this.aiActive && this.aiDriver && !this.inputOverride) {
-          // Same inputs as in training: our carriageway's traffic, and its own top speed (the car's when lower).
-          const cap = aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player));
-          this.player.params.maxSpeed = cap;
-          const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
-          for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
-          const input = this.aiDriver.drive(selfStateOf(this.player, cap), seen, this.player.params);
-          return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
-        }
+        if (this.aiActive && this.aiDriver && !this.inputOverride) return this.aiInput(this.aiDriver, Infinity);
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
+        // Past the line the AI has the car (beginFinishShow hands it over), rolling on as the rivals do once
+        // finished (FINISHED_SPEED: the show's shots follow a car slowing down); without one, braked to a stop.
+        if (this.aiActive && this.aiDriver) return this.aiInput(this.aiDriver, FINISHED_SPEED);
         return this.player.speed > 1 ? ROLL_OUT : HOLD; // brake to a stop, never into reverse
       case 'countdown': {
         // On the grid the brake is held for the player, whatever else they press: with the throttle that is a
@@ -716,7 +754,6 @@ export class Game {
     const wasFinished = this.flow.phase === 'finished';
     this.flow.update(dt, this.player.s);
     if (!wasFinished && this.flow.phase === 'finished') {
-      this.sound.whoosh();
       this.beginFinishShow();
     }
   }
@@ -738,7 +775,15 @@ export class Game {
       const rv = this.rivals.list[rival.id].car.body.linvel();
       const rel = Math.hypot(pv.x - rv.x, pv.z - rv.z);
       this.crashShake(rel, normal ?? { x: pv.x - rv.x, z: pv.z - rv.z });
-      this.sound.crash(rel);
+      // (heard by how fast they closed in along the push, going into it: a side swipe little, as with the traffic)
+      const pb = this.racerVelBefore[0], rb = this.racerVelBefore[rival.id + 1];
+      this.contactSound(`rival ${rival.id}`, pb && rb ? closingSpeed(pb, rb, normal) : rel);
+      return;
+    }
+    // The player on a guardrail (the ground's contacts have no normal across it: never heard).
+    if (playerHit && (a.type === 'static' || b.type === 'static')) {
+      const v = this.racerVelBefore[0];
+      if (normal && v) this.contactSound('rail', closingSpeed(v, { x: 0, z: 0 }, normal));
       return;
     }
     // NPC pile-ups are handled by the traffic; we get the NPC the player or a rival hit.
@@ -756,7 +801,18 @@ export class Game {
     this.touched.add(id);
     this.prevRelS.delete(id);
     this.crashShake(rel, normal ?? (racerV ? { x: racerV.x - nv.x, z: racerV.z - nv.z } : null));
-    if (hard) this.sound.crash(rel);
+    this.contactSound(`npc ${id}`, rel);
+  }
+
+  /**
+   * Every touch of the player's heard, a scrape as much as a hit - only quieter, by `rel` (how fast they closed in).
+   * The same thing (`key`) not again within CONTACT_SOUND_GAP of race time: a scrape along it touching on and off.
+   */
+  private contactSound(key: string, rel: number): void {
+    const last = this.contactSoundAt.get(key);
+    if (last !== undefined && this.simTime - last < CONTACT_SOUND_GAP) return;
+    this.contactSoundAt.set(key, this.simTime);
+    this.sound.crash(rel);
   }
 
   /**
@@ -856,6 +912,7 @@ export class Game {
   private forgetRemovedNpcs(): void {
     for (const id of this.prevRelS.keys()) if (!this.npcs.has(id)) this.prevRelS.delete(id);
     for (const id of this.touched) if (!this.npcs.has(id)) this.touched.delete(id);
+    for (const key of this.contactSoundAt.keys()) if (key.startsWith('npc ') && !this.npcs.has(+key.slice(4))) this.contactSoundAt.delete(key);
   }
 
   private checkNearMisses(): void {
@@ -875,11 +932,62 @@ export class Game {
             this.flow.addNearMiss();
             this.player.nitro.nearMiss();
             this.hud.nearMiss();
-            this.sound.whoosh();
+            this.sound.nearMiss({ x: w.x, y: p.body.translation().y, z: w.z }, this.ear());
           }
         }
       }
     }
+  }
+
+  /**
+   * The engines heard from outside this frame, into `this.engineSources` (its entries reused: none made a frame):
+   * the rivals' (their own rpm and throttle; keys -1, -2, ...) and the traffic's (keys their ids). How many.
+   */
+  private heardEngines(): number {
+    let n = 0;
+    const next = (): EngineSource => (this.engineSources[n++] ??= {
+      key: 0, kind: 'sedan', pos: [0, 0, 0], vel: [0, 0, 0], rpm: 0, idle: 0, redline: 1, throttle: 0, gain: 1,
+    });
+    for (const r of this.rivals.list) {
+      const c = r.car, s = next(), p = c.mesh.position, v = c.body.linvel();
+      s.key = -1 - r.index;
+      s.kind = c.style;
+      s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.rpm = c.shownRpm;
+      s.idle = c.params.idleRpm;
+      s.redline = c.params.redline;
+      s.throttle = c.shownThrottle;
+      s.gain = 1;
+    }
+    for (const npc of this.npcs.values()) {
+      if (npc.wrecked) continue; // (its engine dead)
+      const agent = this.trafficWorld.sideOf(npc.id)?.sim.agents.get(npc.id);
+      if (!agent) continue;
+      const t = TRAFFIC_ENGINE[npc.kind], part = npc.parts[0], p = part.mesh.position, v = part.body.linvel();
+      const e = trafficEngine(agent.v, agent.accel, t.gearing), s = next();
+      s.key = npc.id;
+      s.kind = t.kind;
+      s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.rpm = e.rpm;
+      s.idle = 0;
+      s.redline = 1;
+      s.throttle = e.throttle;
+      s.gain = t.gain;
+    }
+    return n;
+  }
+
+  /** Where the sound is heard from, facing which way: the camera (looking back too: the others swing round it). */
+  private ear(): EarPose {
+    const c = this.camera, e = this.earPose;
+    c.getWorldDirection(EAR_FWD);
+    EAR_UP.set(0, 1, 0).applyQuaternion(c.quaternion);
+    e.px = c.position.x; e.py = c.position.y; e.pz = c.position.z;
+    e.fx = EAR_FWD.x; e.fy = EAR_FWD.y; e.fz = EAR_FWD.z;
+    e.ux = EAR_UP.x; e.uy = EAR_UP.y; e.uz = EAR_UP.z;
+    return e;
   }
 
   /** `play`: the race's time this frame (0 paused: frame()), what everything here moves by. */
@@ -914,8 +1022,9 @@ export class Game {
     this.gate.spray(play, this.camera.position.z, this.emitSpark);
     const standing = this.flow.phase === 'finished' && this.finishShow?.standing;
     this.sparks.update(play, standing ? STILL : this.player.body.linvel());
-    this.player.exhaust(play);
-    for (const r of this.rivals.list) r.car.exhaust(play);
+    // (each flame pops: the player's unplaced, the rivals' from where they are)
+    if (this.player.exhaust(play)) this.sound.backfire(null);
+    for (const r of this.rivals.list) if (r.car.exhaust(play)) this.sound.backfire(r.car.body.translation(), this.ear());
     this.smoke.update(play, [
       ...this.road.activeLights().map(smokeLightFromSpot),
       ...this.player.smokeLights(),
@@ -955,8 +1064,12 @@ export class Game {
     this.bodies.end();
     // (Mid-upshift the engine is let go of: it sounds off the throttle. The intro's blip, as it is put on.)
     const rev = this.player.showRev;
-    this.sound.setEngine(this.player.shownRpm, rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
+    const car = this.player.params;
+    this.sound.setEngine(this.player.style, this.player.shownRpm, car.idleRpm, car.redline,
+      rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
+    this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
+    this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);
     const q = this.player.body.rotation();
@@ -972,7 +1085,7 @@ export class Game {
       upY: 1 - 2 * (q.x * q.x + q.z * q.z), // (the car's up axis, its world y)
       muted: this.sound.muted,
       gear: this.player.gearbox.gear,
-      rpm: this.player.rpm,
+      rpm: this.player.gaugeRpm,
       nitro: this.player.nitro.level,
       nitroOn: this.player.nitro.active,
       aiDriving: this.aiActive && this.flow.phase === 'racing',

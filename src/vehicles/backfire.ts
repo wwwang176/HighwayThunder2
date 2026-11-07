@@ -24,11 +24,14 @@ export class Backfire {
   private wait = 0;
   private left = 0;
   private flame = 0;
+  /** Whether the last update lit a flame (its pop's sound: one for each). */
+  lit = false;
 
   constructor(private readonly rng: () => number = Math.random) {}
 
   /** A step of `dt` s: the throttle (0..1) and the engine's share of its redline; whether a flame shows. */
   update(dt: number, throttle: number, rpmShare: number): boolean {
+    this.lit = false;
     if (throttle >= BACKFIRE.from) {
       this.armed = true;
       this.left = 0;
@@ -50,6 +53,7 @@ export class Backfire {
       if (this.wait <= 0) {
         this.left--;
         this.flame = BACKFIRE.pop;
+        this.lit = true;
         return true;
       }
     }
@@ -57,6 +61,7 @@ export class Backfire {
   }
 
   reset(): void {
+    this.lit = false;
     this.armed = false;
     this.left = 0;
     this.flame = 0;

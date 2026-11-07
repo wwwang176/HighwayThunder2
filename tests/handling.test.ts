@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -320,5 +320,50 @@ describe('rollInfluenceAt', () => {
     const at280 = rollInfluenceAt(280 / 3.6, p);
     expect(at280).toBeLessThan(1);
     expect(at280 * effectiveMu(280 / 3.6, p)).toBeCloseTo(effectiveMu(150 / 3.6, p), 5);
+  });
+});
+
+describe('the engine winding down', () => {
+  it('rises at once, falls no faster than its rate', () => {
+    expect(revsFalling(1000, 6000, 0.01)).toBe(6000);
+    expect(revsFalling(6000, 900, 0.1)).toBeCloseTo(6000 - ENGINE_FALL_RATE * 0.1);
+    // a blip let go: back at the idle in about a second, not at once
+    let rpm = 6000, t = 0;
+    while (rpm > 900) { rpm = revsFalling(rpm, 900, 1 / 60); t += 1 / 60; }
+    expect(t).toBeGreaterThan(0.9);
+    expect(t).toBeLessThan(1.2);
+  });
+
+  it('never falls past the target', () => {
+    expect(revsFalling(1000, 900, 1)).toBe(900);
+  });
+});
+
+describe('the shunt as an upshift bites', () => {
+  it('dips first, bounces back, and dies away', () => {
+    expect(shuntRevs(0, 1)).toBeCloseTo(0);
+    expect(shuntRevs(0.03, 1)).toBeLessThan(-50); // (the dip)
+    expect(shuntRevs(0.15, 1)).toBeGreaterThan(0); // (the bounce)
+    let peak = 0;
+    for (let t = 0; t < SHUNT_TIME; t += 0.001) peak = Math.max(peak, Math.abs(shuntRevs(t, 1)));
+    expect(peak).toBeLessThan(SHUNT_RPM);
+    for (let t = 0.45; t < SHUNT_TIME; t += 0.01) expect(Math.abs(shuntRevs(t, 1))).toBeLessThan(SHUNT_RPM * 0.05);
+    expect(shuntRevs(SHUNT_TIME + 0.01, 1)).toBe(0);
+  });
+
+  it('is as hard as the throttle: none off it', () => {
+    expect(shuntRevs(0.03, 0)).toBeCloseTo(0);
+    expect(shuntRevs(0.03, 0.5)).toBeCloseTo(shuntRevs(0.03, 1) / 2);
+  });
+});
+
+describe('the gauge on the rev limiter', () => {
+  it('drops quickly and climbs back, each cut, never above the revs', () => {
+    const period = 1 / LIMITER_BOUNCE_HZ;
+    expect(limiterBounce(0)).toBeCloseTo(0);
+    expect(limiterBounce(period * 0.3)).toBeCloseTo(-LIMITER_BOUNCE_RPM);
+    expect(limiterBounce(period * 0.65)).toBeCloseTo(-LIMITER_BOUNCE_RPM / 2);
+    for (let t = 0; t < 1; t += 0.003) expect(limiterBounce(t)).toBeLessThanOrEqual(0);
+    expect(limiterBounce(period * 1.3)).toBeCloseTo(-LIMITER_BOUNCE_RPM); // (again, the next cut)
   });
 });
