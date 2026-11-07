@@ -48,7 +48,7 @@ def lamps(body, px, s):
                         for i, bar in enumerate(TAIL_BARS)], f"ind_R{side}")
         kit.clear_of(ind, [body, tail], Vector((0, -1, 0)))
         out += [tail, ind]
-    return out
+    return out + [kit.third_brake(s, body, seam=(-1.13, 1.190), half=0.25)]
 
 
 CAR = kit.Car(

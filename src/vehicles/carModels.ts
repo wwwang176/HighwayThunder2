@@ -9,7 +9,8 @@ import type { CarStyle } from './cars/types';
  *
  * What a file holds (by node name): `body` (materials `paint`, `glass`); lamps
  * `head_L` `head_R`, `tail_L` `tail_R` (also the brake lights; extras `bar`: a
- * light bar), `ind_FL` `ind_FR` `ind_RL` `ind_RR`; and one `wheel` at the
+ * light bar), `ind_FL` `ind_FR` `ind_RL` `ind_RR`, maybe `brake_C` (the third brake light, at the
+ * rear window's top: the cars, not the trucks); and one `wheel` at the
  * origin, axle along X, its rim facing +X (extras: where the wheels go, `x`,
  * `front`, `rear` along the nose, and its radius `r`); maybe a `caliper`, where
  * it sits on that wheel (it steers with the wheel but doesn't roll; mirrored on

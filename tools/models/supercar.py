@@ -51,7 +51,7 @@ def lamps(body, px, s):
         ind = kit.cell_lamp(f"ind_F{side}", s, body, [(x, z) for x, z in strip if abs(x) >= outer], "ind",
                             lift=kit.LIFT * 2.5, others=[head])
         out += [head, ind]
-    return out + kit.tail_lamps(s, body, min_height=0.04)
+    return out + kit.tail_lamps(s, body, min_height=0.04) + [kit.third_brake(s, body, seam=(-0.58, 0.997), half=0.2, height=0.03)]
 
 
 CAR = kit.Car(

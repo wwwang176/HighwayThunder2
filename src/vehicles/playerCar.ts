@@ -43,7 +43,7 @@ const CONNECTION_Y = 0; // suspension hard points, chassis space
 const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
 /** A wheel has no lamps. */
-const NO_LIGHTS: VehicleLights = { left: [], right: [], brake: [] };
+const NO_LIGHTS: VehicleLights = { left: [], right: [], brake: [], third: [] };
 const SHOW_FWD = new THREE.Vector3();
 const LOAD_AXIS = new THREE.Vector3();
 const LOAD_Q = new THREE.Quaternion();
@@ -215,7 +215,7 @@ export class PlayerCar {
 
     if (scene === null) {
       this.mesh = new THREE.Group();
-      this.lights = { left: [], right: [], brake: [] };
+      this.lights = { left: [], right: [], brake: [], third: [] };
       this.readBack();
       this.snapInterpolation();
       return;

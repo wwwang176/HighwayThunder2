@@ -68,8 +68,8 @@ const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true }
 const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
 /** Every lamp state a traffic vehicle shows (brake lights dim and on, indicators off and on): for prewarm. */
 const PREWARM_LAMPS: VehicleLights[] = [
-  { left: [], right: [], brake: [new THREE.Mesh(undefined, BRAKE_DIM)] },
-  { left: [new THREE.Object3D()], right: [new THREE.Object3D()], brake: [new THREE.Mesh(undefined, BRAKE_ON)] },
+  { left: [], right: [], brake: [new THREE.Mesh(undefined, BRAKE_DIM)], third: [] },
+  { left: [new THREE.Object3D()], right: [new THREE.Object3D()], brake: [new THREE.Mesh(undefined, BRAKE_ON)], third: [] },
 ];
 const PLAYER_OBSTACLE_ID = -1;
 const BLUR_V = new THREE.Vector3();

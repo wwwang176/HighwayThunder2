@@ -23,7 +23,7 @@ const lights = (brakeOn: boolean, left: boolean): VehicleLights => {
   const b = new THREE.Mesh(undefined, brakeOn ? BRAKE_ON : BRAKE_DIM);
   const l = new THREE.Object3D();
   l.visible = left;
-  return { left: [l], right: [], brake: [b] };
+  return { left: [l], right: [], brake: [b], third: [] };
 };
 
 const meshes = (scene: THREE.Scene) => scene.children.filter((o) => (o as THREE.InstancedMesh).isInstancedMesh) as THREE.InstancedMesh[];
