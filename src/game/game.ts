@@ -64,6 +64,10 @@ import { trafficEngine, type TrafficGearing } from '../audio/spatial';
 /** The rivals' colours, for the HUD. */
 const RIVAL_CSS = RIVAL_COLORS.map((c) => `#${c.toString(16).padStart(6, '0')}`);
 
+/** Where new traffic appears, ahead of the first racer and behind the last (m out): in the fog. */
+const TRAFFIC_EDGE: [number, number] = [500, 580];
+/** Traffic gone this far out (m), either way: just past where it appears (none kept out in the fog unseen). */
+const TRAFFIC_GONE = 600;
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
 const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
@@ -216,7 +220,7 @@ export class Game {
     this.planPath = new PlanPath(this.scene);
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.rivalCars.map(specOf));
     this.rivalLights = new RivalLightPool(this.scene);
-    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true });
+    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true, edge: TRAFFIC_EDGE, gone: TRAFFIC_GONE }); // (any way the player goes)
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);

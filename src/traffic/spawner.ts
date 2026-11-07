@@ -28,6 +28,9 @@ const REAR_WINDOW: [number, number] = [-260, -60];
 const REAR_SPACING = 120;
 const REAR_START_TIME = 5;
 const REAR_MAX_PLAYER_V = 25;
+/** Gone this far behind the last racer (the plain rule), and ahead of the first (both ways: behind the last too). */
+export const BEHIND_DESPAWN = 260;
+export const FAR_DESPAWN = 900;
 
 export function pickKind(rng: () => number): VehicleKind {
   const r = rng();
@@ -57,8 +60,15 @@ export function shouldDespawn(agentS: number, playerS: number, facing: 1 | -1 = 
  * Same rule for a spread-out group of drivers (AI training): gone once far
  * behind the last one (`tailS`) or far ahead of the first one (`leadS`).
  */
-export function shouldDespawnRange(agentS: number, tailS: number, leadS: number, facing: 1 | -1 = 1): boolean {
-  return (agentS - tailS) * facing < -260 || (agentS - leadS) * facing > 900;
+export function shouldDespawnRange(
+  agentS: number,
+  tailS: number,
+  leadS: number,
+  facing: 1 | -1 = 1,
+  behind = BEHIND_DESPAWN,
+  ahead = FAR_DESPAWN,
+): boolean {
+  return (agentS - tailS) * facing < -behind || (agentS - leadS) * facing > ahead;
 }
 
 function canPlace(s: number, lane: number, len: number, occ: Occupant[]): boolean {
@@ -118,6 +128,11 @@ function fill(
  * Decide which vehicles to add. Initial fill populates the whole stretch ahead
  * (never closer than 60 m, never behind); afterwards new traffic appears only at
  * the far edge, and behind the player only once they are slow after 5 s of racing.
+ * `bothWays` (the game): behind the last racer (`tailS`) as ahead of the first - new traffic only at its far
+ * edge, in the fog as ahead (none put there at first: the grid has no crowd behind it at the start; it comes up
+ * from the fog) - whichever way the player goes (backing up, turned round), traffic comes out of the fog, never
+ * out of nowhere (and goes past FAR_DESPAWN both ways).
+ * `edge`: the far edge new traffic appears in, [from, to] m out (the stretch kept full: 60 m to its `to`).
  */
 export function planSpawns(o: {
   playerS: number;
@@ -129,19 +144,34 @@ export function planSpawns(o: {
   spacing?: number;
   /** +1: traffic goes the player's way. -1: oncoming (spawn ahead of the player in world terms, i.e. at smaller s). */
   facing?: 1 | -1;
+  /** Traffic kept behind the last racer (`tailS`; `playerS` the first) as ahead of the first. */
+  bothWays?: boolean;
+  tailS?: number;
+  edge?: [number, number];
 }): SpawnRequest[] {
   const out: SpawnRequest[] = [];
   const occ = o.occupied.slice();
   const spacing = o.spacing ?? DEFAULT_SPACING;
   const f = o.facing ?? 1;
+  const [edgeFrom, edgeTo] = o.edge ?? [FAR_EDGE, AHEAD_MAX];
   const win = (a: number, b: number): [number, number] => {
     const x = o.playerS + f * a;
     const y = o.playerS + f * b;
     return [Math.min(x, y), Math.max(x, y)];
   };
-  const ahead = win(AHEAD_MIN, AHEAD_MAX);
-  fill(out, occ, o.rng, ahead, o.initial ? ahead : win(FAR_EDGE, AHEAD_MAX), spacing);
-  if (f === 1 && !o.initial && o.raceTime >= REAR_START_TIME && o.playerV < REAR_MAX_PLAYER_V) {
+  const ahead = win(AHEAD_MIN, edgeTo);
+  fill(out, occ, o.rng, ahead, o.initial ? ahead : win(edgeFrom, edgeTo), spacing);
+  if (o.bothWays) {
+    if (!o.initial) {
+      const t = o.tailS ?? o.playerS;
+      const back = (a: number, b: number): [number, number] => {
+        const x = t - f * a;
+        const y = t - f * b;
+        return [Math.min(x, y), Math.max(x, y)];
+      };
+      fill(out, occ, o.rng, back(AHEAD_MIN, edgeTo), back(edgeFrom, edgeTo), spacing);
+    }
+  } else if (f === 1 && !o.initial && o.raceTime >= REAR_START_TIME && o.playerV < REAR_MAX_PLAYER_V) {
     fill(
       out,
       occ,

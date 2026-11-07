@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planSpawns, shouldDespawn, pickKind, MIN_CLEAR_GAP } from '../src/traffic/spawner';
+import { planSpawns, shouldDespawn, shouldDespawnRange, pickKind, MIN_CLEAR_GAP, FAR_DESPAWN } from '../src/traffic/spawner';
 import { VEHICLE_SPECS } from '../src/config';
 
 function rngFrom(seed: number) {
@@ -108,6 +108,43 @@ describe('pickKind / shouldDespawn', () => {
     expect(shouldDespawn(700, 1000)).toBe(true);
     expect(shouldDespawn(800, 1000)).toBe(false);
     expect(shouldDespawn(1950, 1000)).toBe(true);
+  });
+});
+
+describe('both ways (the game)', () => {
+  const both = { playerV: 80, raceTime: 30, bothWays: true, edge: [500, 580] as [number, number] } as const;
+  it('initial fill: ahead of the first racer only (none behind at the start), 60 m to the edge', () => {
+    const reqs = planSpawns({ ...both, playerS: 1000, tailS: 900, occupied: [], rng: rngFrom(1), initial: true });
+    expect(reqs.length).toBeGreaterThan(10);
+    for (const r of reqs) {
+      expect(r.s - VEHICLE_SPECS[r.kind].length / 2).toBeGreaterThanOrEqual(1000 + 60);
+      expect(r.s).toBeLessThanOrEqual(1000 + 580);
+    }
+  });
+  it('later: only at the far edges, 500-580 m beyond the last racer and the first', () => {
+    let behind = 0;
+    for (let seed = 1; seed < 40; seed++) {
+      const reqs = planSpawns({ ...both, playerS: 1000, tailS: 900, occupied: [], rng: rngFrom(seed), initial: false });
+      for (const r of reqs) expect((r.s >= 320 && r.s <= 400) || (r.s >= 1500 && r.s <= 1580)).toBe(true);
+      behind += reqs.filter((r) => r.s < 900).length;
+    }
+    expect(behind).toBeGreaterThan(0);
+  });
+  it('oncoming: behind in world terms is larger frame s', () => {
+    for (let seed = 1; seed < 20; seed++) {
+      const reqs = planSpawns({ ...both, playerS: -500, tailS: -400, occupied: [], rng: rngFrom(seed), initial: false, facing: -1 });
+      for (const r of reqs) expect((r.s >= -1080 && r.s <= -1000) || (r.s >= 100 && r.s <= 180)).toBe(true);
+    }
+  });
+  it('gone only past 900 m behind the last racer', () => {
+    expect(shouldDespawnRange(200, 900, 1000, 1, FAR_DESPAWN)).toBe(false);
+    expect(shouldDespawnRange(-10, 900, 1000, 1, FAR_DESPAWN)).toBe(true);
+  });
+  it('a nearer reach both ways (the game: 600 m)', () => {
+    expect(shouldDespawnRange(1590, 900, 1000, 1, 600, 600)).toBe(false);
+    expect(shouldDespawnRange(1610, 900, 1000, 1, 600, 600)).toBe(true);
+    expect(shouldDespawnRange(310, 900, 1000, 1, 600, 600)).toBe(false);
+    expect(shouldDespawnRange(290, 900, 1000, 1, 600, 600)).toBe(true);
   });
 });
 
