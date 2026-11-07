@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planSpawns, shouldDespawn, pickKind, MIN_CLEAR_GAP } from '../src/traffic/spawner';
+import { planSpawns, shouldDespawn, shouldDespawnRange, pickKind, MIN_CLEAR_GAP, FAR_DESPAWN } from '../src/traffic/spawner';
 import { VEHICLE_SPECS } from '../src/config';
 
 function rngFrom(seed: number) {
@@ -108,6 +108,36 @@ describe('pickKind / shouldDespawn', () => {
     expect(shouldDespawn(700, 1000)).toBe(true);
     expect(shouldDespawn(800, 1000)).toBe(false);
     expect(shouldDespawn(1950, 1000)).toBe(true);
+  });
+});
+
+describe('both ways (the game)', () => {
+  const both = { playerV: 80, raceTime: 30, bothWays: true } as const;
+  it('initial fill: ahead of the first racer and behind the last, never within 60 m of them', () => {
+    const reqs = planSpawns({ ...both, playerS: 1000, tailS: 900, occupied: [], rng: rngFrom(1), initial: true });
+    expect(reqs.some((r) => r.s < 900)).toBe(true);
+    expect(reqs.some((r) => r.s > 1000)).toBe(true);
+    for (const r of reqs) {
+      const half = VEHICLE_SPECS[r.kind].length / 2;
+      if (r.s < 950) expect(r.s + half).toBeLessThanOrEqual(900 - 60);
+      else expect(r.s - half).toBeGreaterThanOrEqual(1000 + 60);
+    }
+  });
+  it('later: only at the far edges, 600-700 m beyond the last racer and the first', () => {
+    for (let seed = 1; seed < 40; seed++) {
+      const reqs = planSpawns({ ...both, playerS: 1000, tailS: 900, occupied: [], rng: rngFrom(seed), initial: false });
+      for (const r of reqs) expect((r.s >= 200 && r.s <= 300) || (r.s >= 1600 && r.s <= 1700)).toBe(true);
+    }
+  });
+  it('oncoming: behind in world terms is larger frame s', () => {
+    for (let seed = 1; seed < 20; seed++) {
+      const reqs = planSpawns({ ...both, playerS: -500, tailS: -400, occupied: [], rng: rngFrom(seed), initial: false, facing: -1 });
+      for (const r of reqs) expect((r.s >= -1200 && r.s <= -1100) || (r.s >= 200 && r.s <= 300)).toBe(true);
+    }
+  });
+  it('gone only past 900 m behind the last racer', () => {
+    expect(shouldDespawnRange(200, 900, 1000, 1, FAR_DESPAWN)).toBe(false);
+    expect(shouldDespawnRange(-10, 900, 1000, 1, FAR_DESPAWN)).toBe(true);
   });
 });
 

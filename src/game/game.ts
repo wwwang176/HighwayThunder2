@@ -216,7 +216,7 @@ export class Game {
     this.planPath = new PlanPath(this.scene);
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.rivalCars.map(specOf));
     this.rivalLights = new RivalLightPool(this.scene);
-    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true });
+    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true }); // (any way the player goes)
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
