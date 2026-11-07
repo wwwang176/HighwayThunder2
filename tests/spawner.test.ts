@@ -140,6 +140,12 @@ describe('both ways (the game)', () => {
     expect(shouldDespawnRange(200, 900, 1000, 1, FAR_DESPAWN)).toBe(false);
     expect(shouldDespawnRange(-10, 900, 1000, 1, FAR_DESPAWN)).toBe(true);
   });
+  it('a nearer reach both ways (the game: 600 m)', () => {
+    expect(shouldDespawnRange(1590, 900, 1000, 1, 600, 600)).toBe(false);
+    expect(shouldDespawnRange(1610, 900, 1000, 1, 600, 600)).toBe(true);
+    expect(shouldDespawnRange(310, 900, 1000, 1, 600, 600)).toBe(false);
+    expect(shouldDespawnRange(290, 900, 1000, 1, 600, 600)).toBe(true);
+  });
 });
 
 describe('oncoming (facing = -1)', () => {

@@ -42,9 +42,13 @@ export class TrafficWorld {
   readonly npcs = new Map<number, NpcVehicle>();
   sides: TrafficSide[] = [];
   spacing = DEFAULT_SPACING;
-  /** How far behind the last racer traffic goes (both ways: as far as ahead; else the plain rule's). */
+  /** How far ahead of the first racer traffic goes (opts.gone, else FAR_DESPAWN). */
+  private get ahead(): number {
+    return this.opts.gone ?? FAR_DESPAWN;
+  }
+  /** How far behind the last racer (both ways: as far as ahead; else the plain rule's). */
   private get behind(): number {
-    return this.opts.bothWays ? FAR_DESPAWN : BEHIND_DESPAWN;
+    return this.opts.bothWays ? this.ahead : BEHIND_DESPAWN;
   }
   private readonly side = new Map<number, TrafficSide>();
   private spawnTimer = 0;
@@ -52,7 +56,7 @@ export class TrafficWorld {
   constructor(
     private readonly physics: PhysicsWorld,
     public rng: Rng,
-    private readonly opts: { oncoming: boolean; bothWays?: boolean; edge?: [number, number] },
+    private readonly opts: { oncoming: boolean; bothWays?: boolean; edge?: [number, number]; gone?: number },
   ) {}
 
   /** Clear all traffic and wrecks and fill the road ahead of the focus. */
@@ -166,12 +170,12 @@ export class TrafficWorld {
     const wrecks: NpcVehicle[] = [];
     for (const npc of [...this.npcs.values()]) {
       if (npc.wrecked) {
-        if (npc.wreckTime > WRECK_LIFETIME || npc.s < focus.sTail - this.behind || npc.s > focus.sLead + FAR_DESPAWN) this.removeNpc(npc);
+        if (npc.wreckTime > WRECK_LIFETIME || npc.s < focus.sTail - this.behind || npc.s > focus.sLead + this.ahead) this.removeNpc(npc);
         else wrecks.push(npc);
       } else {
         const side = this.side.get(npc.id)!;
         const agent = side.sim.agents.get(npc.id);
-        if (!agent || shouldDespawnRange(agent.s, frameS(side.frame, focus.sTail), frameS(side.frame, focus.sLead), side.facing, this.behind)) this.removeNpc(npc);
+        if (!agent || shouldDespawnRange(agent.s, frameS(side.frame, focus.sTail), frameS(side.frame, focus.sLead), side.facing, this.behind, this.ahead)) this.removeNpc(npc);
       }
     }
     if (wrecks.length > MAX_WRECKS) {

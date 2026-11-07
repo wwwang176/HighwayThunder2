@@ -60,8 +60,15 @@ export function shouldDespawn(agentS: number, playerS: number, facing: 1 | -1 = 
  * Same rule for a spread-out group of drivers (AI training): gone once far
  * behind the last one (`tailS`) or far ahead of the first one (`leadS`).
  */
-export function shouldDespawnRange(agentS: number, tailS: number, leadS: number, facing: 1 | -1 = 1, behind = BEHIND_DESPAWN): boolean {
-  return (agentS - tailS) * facing < -behind || (agentS - leadS) * facing > FAR_DESPAWN;
+export function shouldDespawnRange(
+  agentS: number,
+  tailS: number,
+  leadS: number,
+  facing: 1 | -1 = 1,
+  behind = BEHIND_DESPAWN,
+  ahead = FAR_DESPAWN,
+): boolean {
+  return (agentS - tailS) * facing < -behind || (agentS - leadS) * facing > ahead;
 }
 
 function canPlace(s: number, lane: number, len: number, occ: Occupant[]): boolean {
