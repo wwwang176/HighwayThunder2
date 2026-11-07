@@ -28,6 +28,7 @@ import type { LightFlares } from '../render/lightFlares';
 import type { BodyInstances } from '../render/bodyInstances';
 import { BRAKE_ON, FlareSpot } from './models';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
+import { SEDAN_COLLIDER } from './sedanCollider';
 import type { TireParams } from './tireModel';
 
 // Container geometry (see config: total 16.94 m).
@@ -45,7 +46,9 @@ const TRAILER_TAIL_START = -KINGPIN_FROM_TRAILER_CENTER + 3.0;
 // (midway between its axles) sits along the physics box (centred on the body, nose to tail), its axles
 // either side of it, the wheels' x, radius and width (tyres 185/60 R15, 275/80 R22.5).
 const SEDAN = { z: -0.078, axle: 1.224, x: 0.74, r: 0.301, width: 0.18 };
-const SEDAN_FRONT_SHARE = 0.6; // engine up front: 60 % of the weight on the front tyres
+// Engine up front: 68 % of the weight on the front tyres - its centre of mass past the roof's front edge, so rolled
+// onto its back it tips onto its hood (at 60 % it lay on its roof).
+const SEDAN_FRONT_SHARE = 0.68;
 const BOX_TRUCK = { z: -0.108, axle: 2.158, x: 1.109, r: 0.506, width: 0.26 };
 // The container truck's cab (cab.glb, tyres 295/80 R22.5): its origin midway between its front and last axles,
 // its axles from the box's centre (front, then the two at the back, on twin tyres), its cabin's back wall.
@@ -127,6 +130,8 @@ interface PartSpec {
   comZ?: number; // centre of mass along the body (local z, front negative); default its box's middle
   /** Explicit collision boxes (heights above ground, local z); the first one carries the mass. */
   boxes?: { y0: number; y1: number; z0: number; z1: number }[];
+  /** Instead of boxes, convex pieces (points x, y, z in the body's space, its middle; the model's shape); the first carries the mass. */
+  hull?: number[][];
 }
 
 interface Wheel {
@@ -267,6 +272,7 @@ function partSpecs(kind: VehicleKind, sp: Agent['spec']): PartSpec[] {
         axles: [m.z - m.axle, m.z + m.axle], steerAxles: 1, driven: [false, true],
         wheelR: m.r, wheelW: m.width, halfTrack: m.x, rest: 0.3, frictionSlip: 2.2,
         comZ: m.z - (SEDAN_FRONT_SHARE - 0.5) * 2 * m.axle,
+        hull: SEDAN_COLLIDER,
       },
     ];
   }
@@ -368,7 +374,18 @@ export class NpcVehicle {
       ...(s.clearance > 0.45 ? [{ y0: 0.3, y1: s.clearance, z0: -s.l / 2, z1: s.l / 2 }] : []),
     ];
     const comY = -s.h / 2 + s.h * 0.35; // body-local centre of mass height
-    const colliders: RAPIER.Collider[] = boxes.map((b, i) => {
+    const collide = (desc: RAPIER.ColliderDesc) => desc.setFriction(0.6).setRestitution(0.1)
+      .setCollisionGroups(NPC_LIVE_GROUPS).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+    // Convex pieces (in the body's own frame: their centre of mass given as it is), the first carrying the mass.
+    const hulls = s.hull?.map((pts, i) => {
+      const desc = collide(RAPIER.ColliderDesc.convexHull(new Float32Array(pts))!);
+      return i === 0 ? desc.setMassProperties(s.mass, { x: 0, y: comY, z: s.comZ ?? 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 }) : desc.setDensity(0);
+    });
+    const colliders: RAPIER.Collider[] = hulls ? hulls.map((desc) => {
+      const c = this.physics.world.createCollider(desc, body);
+      this.physics.register(c, { type: 'npc', id: this.id });
+      return c;
+    }) : boxes.map((b, i) => {
       const cy = -s.h / 2 + (b.y0 + b.y1) / 2;
       const cz = (b.z0 + b.z1) / 2;
       const halfW = i === 0 ? s.w / 2 : s.w / 2 - 0.05;
