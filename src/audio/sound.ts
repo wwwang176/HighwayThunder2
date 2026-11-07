@@ -46,7 +46,7 @@ function pickNoRepeat(size: number, last: number): number {
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - straight into the mix, whichever way the
  * camera looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
  * (recorded, crashBank; silent without their bundle), the tyre squeal (the pack's, with the engines), the nitro
- * (recorded: effects.bin; silent without it) and the near-miss whoosh. All of it through a lookahead limiter (limiter.worklet.js).
+ * (recorded: effects.bin; silent without it) and the backfires' pops. Nothing synthesised. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -54,7 +54,6 @@ export class Sound {
   private fade!: GainNode;
   private limiter: AudioWorkletNode | null = null;
   private engineBus!: GainNode;
-  private noise!: AudioBuffer;
   private skidGain!: GainNode;
   private nitroGain!: GainNode;
   /** The nitro's clips (null: none to be had, or not loaded yet); its loop and the squeal's, once going. */
@@ -127,11 +126,6 @@ export class Sound {
       while (bank?.has(popId(this.popCount + 1))) this.popCount++;
     });
     void loadCrashBank(ctx).then((clips) => { this.crashes = clips; });
-
-    const len = ctx.sampleRate;
-    this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = this.noise.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
 
     void loadSoundBank(ctx, EFFECTS_BUNDLE_URL).then((effects) => {
       this.effects = effects;
@@ -300,24 +294,6 @@ export class Sound {
     this.others?.update(sources, count, ear, dt, this.timeScale, active);
   }
 
-  private burst(duration: number, freq: number, type: BiquadFilterType, gain: number, sweepTo?: number): void {
-    if (!this.ctx) return;
-    const ctx = this.ctx;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    const f = ctx.createBiquadFilter();
-    f.type = type;
-    f.frequency.value = freq;
-    const t = ctx.currentTime;
-    if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, t + duration);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + duration);
-    src.connect(f).connect(g).connect(this.master);
-    src.start(t, Math.random() * 0.5);
-    src.stop(t + duration);
-  }
-
   /**
    * A hit, `intensity` its closing speed (m/s): as loud as it was hard (full at 30 m/s, never under 0.15). Two of
    * the recordings at random, layered: the first (not the last hit's again), and another under it - CRASH_LAYER_DB
@@ -346,22 +322,5 @@ export class Sound {
     src.connect(g).connect(this.master);
     src.onended = () => g.disconnect();
     src.start(ctx.currentTime + delay);
-  }
-
-  whoosh(): void {
-    this.burst(0.35, 2500, 'bandpass', 0.5, 400);
-    if (!this.ctx) return;
-    const ctx = this.ctx;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'triangle';
-    const t = ctx.currentTime;
-    o.frequency.setValueAtTime(880, t);
-    o.frequency.exponentialRampToValueAtTime(1500, t + 0.12);
-    g.gain.setValueAtTime(0.12, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-    o.connect(g).connect(this.master);
-    o.start(t);
-    o.stop(t + 0.25);
   }
 }

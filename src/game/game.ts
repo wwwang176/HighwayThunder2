@@ -754,7 +754,6 @@ export class Game {
     const wasFinished = this.flow.phase === 'finished';
     this.flow.update(dt, this.player.s);
     if (!wasFinished && this.flow.phase === 'finished') {
-      this.sound.whoosh();
       this.beginFinishShow();
     }
   }
@@ -933,7 +932,6 @@ export class Game {
             this.flow.addNearMiss();
             this.player.nitro.nearMiss();
             this.hud.nearMiss();
-            this.sound.whoosh();
           }
         }
       }
