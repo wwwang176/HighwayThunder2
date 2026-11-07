@@ -230,11 +230,12 @@ export class Game {
     this.hud = new Hud(uiRoot, this.flow, {
       onAgain: () => this.startRace(this.cars),
       onResume: () => this.togglePause(),
+      onRestart: () => this.startRace(),
       onTitle: () => this.toTitle(),
     });
     this.garage = new Garage(uiRoot, RIVAL_COLORS, (cars) => {
       saveSelection(localStorage, cars);
-      this.startRace(cars);
+      this.startRace(cars, true);
     });
     this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
@@ -316,6 +317,7 @@ export class Game {
     k.onPress('Escape', () => {
       if (g.isOpen) return g.popOpen && g.closePop();
       if (this.flow.phase === 'finished') return this.hud.finishShown && this.toTitle(); // (in its show: skips it)
+      if (this.hud.confirming) return this.hud.cancelConfirm(); // (the pause's confirm open: back to its menu)
       this.togglePause();
     });
     // ↑ ↓ the car, ← → its paint, E the race setup, H the controls, O the settings: in the garage (not at the title:
@@ -376,14 +378,24 @@ export class Game {
    * title or the finish. A fade to black (the race set up behind it, prewarm's stall unseen), then back on its
    * intro.
    */
-  startRace(cars?: CarSelection): void {
-    if (!picksCars(this.flow.phase) || this.starting) return;
+  /**
+   * A race with `cars` (none: the same as last), from the garage (`fromGarage`: the car started up, heard as it heads
+   * for the grid), after the finish, or paused (the same race again: the engine already running, no start-up).
+   */
+  startRace(cars?: CarSelection, fromGarage = false): void {
+    if (!(picksCars(this.flow.phase) || this.flow.phase === 'paused') || this.starting) return;
     this.starting = true;
     this.sound.init(); // (in the click or key itself: the browser lets the sound start only there)
-    this.sound.startup(specOf((cars ?? this.cars).player).style); // (the car started up, as it heads for the grid)
+    if (fromGarage) this.sound.startup(specOf((cars ?? this.cars).player).style);
     this.overlay.toBlack(START_FADE_OUT, () => {
       this.starting = false;
       this.garage.close();
+      // Restarted while paused: the pause's menu shut, the sound back on (and an intro still running ended).
+      if (this.introOn) {
+        this.introOn = false;
+        this.intro?.end();
+      }
+      this.sound.suspend(false);
       // Every race starts with the player driving (I hands the car to the AI again), on the car's own limiter.
       if (this.aiActive) {
         this.aiActive = false;
@@ -663,12 +675,18 @@ export class Game {
    * The AI driving the player's car: same inputs as in training (our carriageway's traffic, the rivals), its top
    * speed the AI's cap (the car's own when lower), no faster than `limit` (m/s).
    */
-  private aiInput(ai: Driver, limit: number): HandlingInput {
+  /**
+   * The AI's input for the player's car, at most `limit` (m/s). `coast` (past the line): over it the engine gives
+   * no more (driveCommand: its maxSpeed), and the AI aims at the speed it has - it rolls down to it, never brakes
+   * for it (only for what is ahead).
+   */
+  private aiInput(ai: Driver, limit: number, coast = false): HandlingInput {
     const cap = Math.min(limit, aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player)));
     this.player.params.maxSpeed = cap;
     const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
     for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
-    const input = ai.drive(selfStateOf(this.player, cap), seen, this.player.params);
+    const aim = coast ? Math.max(cap, this.player.speed) : cap;
+    const input = ai.drive(selfStateOf(this.player, aim), seen, this.player.params);
     return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
   }
 
@@ -680,7 +698,7 @@ export class Game {
       case 'finished':
         // Past the line the AI has the car (beginFinishShow hands it over), rolling on as the rivals do once
         // finished (FINISHED_SPEED: the show's shots follow a car slowing down); without one, braked to a stop.
-        if (this.aiActive && this.aiDriver) return this.aiInput(this.aiDriver, FINISHED_SPEED);
+        if (this.aiActive && this.aiDriver) return this.aiInput(this.aiDriver, FINISHED_SPEED, true);
         return this.player.speed > 1 ? ROLL_OUT : HOLD; // brake to a stop, never into reverse
       case 'countdown': {
         // On the grid the brake is held for the player, whatever else they press: with the throttle that is a

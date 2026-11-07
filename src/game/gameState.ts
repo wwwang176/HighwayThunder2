@@ -23,9 +23,9 @@ export class GameFlow {
     this.best = Number.isFinite(raw) && raw > 0 ? raw : null;
   }
 
-  /** Start (or restart) a race: its intro first (beginCountdown ends it). Valid from title or finished. */
+  /** Start (or restart) a race: its intro first (beginCountdown ends it). Valid from title, finished or paused. */
   start(): void {
-    if (this.phase !== 'title' && this.phase !== 'finished') return;
+    if (this.phase !== 'title' && this.phase !== 'finished' && this.phase !== 'paused') return; // (paused: started again)
     this.phase = 'intro';
     this.countdown = COUNTDOWN_SECONDS;
     this.raceTime = 0;

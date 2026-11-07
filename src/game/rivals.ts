@@ -225,7 +225,10 @@ export class Rivals {
       const top = aiTopSpeed(band.speedCap, r.spec); // its own top speed when lower than the AI's cap
       const cap = r.finishTime === null ? top : Math.min(top, FINISHED_SPEED);
       r.car.params.maxSpeed = cap;
-      const input = r.driver.drive(selfStateOf(r.car, cap), this.othersAsBoxes(r, view), r.car.params);
+      // Past the line it coasts down to FINISHED_SPEED: no more push over it (maxSpeed), the AI aiming at the speed
+      // it has - never braking for it (only for what is ahead).
+      const aim = r.finishTime === null ? cap : Math.max(cap, r.car.speed);
+      const input = r.driver.drive(selfStateOf(r.car, aim), this.othersAsBoxes(r, view), r.car.params);
       r.car.prePhysics({ ...input, nitro: r.nitroAi.want(dt, input.throttle, r.car.nitro) }, dt);
     }
   }

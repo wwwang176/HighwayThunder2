@@ -167,6 +167,13 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 .menu .status > div { display: flex; flex-direction: column; gap: 0.42vw; }
 .menu .status b { font-size: 1.56vw; font-weight: 600; }
 .menu .opt + .opt { margin-top: 0.73vw; }
+/* The pause's confirm (restart, the garage): the panel nothing but it - no title, no race's status. */
+#pause .confirm { display: none; }
+#pause.confirming .confirm { display: block; }
+#pause.confirming .menu > :not(.confirm) { display: none; }
+#pause .confirm .msg { margin: 1.04vw 0 1.77vw; font-size: 1.46vw; font-weight: 600; line-height: 1.5; color: #fff; }
+#pause .confirm .btns { display: flex; gap: 1.15vw; }
+#pause .confirm .btns .opt { flex: 1; margin-top: 0; }
 .result { width: 46.9vw; padding: 2.3vw 2.9vw 2.5vw; --c: 1.56vw; }
 .result h2 { margin-bottom: 1.46vw; letter-spacing: 0.21vw; font-size: 2.92vw; }
 .result .main { display: grid; grid-template-columns: 10.4vw 1fr; gap: 2.3vw; align-items: center; }
