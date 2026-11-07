@@ -23,7 +23,7 @@ const CRASH_VOLUME = 10 ** (-4 / 20);
 const CRASH_LAYER_DB = -6;
 /** The tyre squeal at its fullest; the nitro's hiss while it burns, its start as it lights (each clip -16 LUFS). */
 const SKID_VOLUME = 0.6;
-const NITRO_VOLUME = 0.25;
+const NITRO_VOLUME = 0.125;
 const NITRO_START_VOLUME = 0.265;
 /**
  * A rival's tyre squeal at its fullest within SKID_OTHERS_REF m (fading beyond it, inversely with distance, as the
