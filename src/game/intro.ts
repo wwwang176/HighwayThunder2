@@ -82,14 +82,14 @@ const ARRIVE_PLAYER_STOP = 3.7;
 
 /**
  * The tracking shots: the cars come up as a pack, all at one speed (m/s); the player's stops 0.5 s from the end
- * of its third shot (braking from 2.0 s, the second); the front row's later by TRACK_FRONT_LATER s (so ~8-11 m
+ * of its third shot (braking from 2.0 s, the second); the front row's later by TRACK_FRONT_LATER s (so ~7-10 m
  * behind it as they come, out of the first shot, by the camera as it drops back in the second), the back row's
- * TRACK_BACK_LATER s after the one ahead in its lane - every car still by the countdown (5 s).
+ * TRACK_BACK_LATER s after the one ahead in its lane - every car still by 4.9 s (the countdown at 5).
  */
 const TRACK_SPEED = [15, 17] as const;
 const TRACK_PLAYER_STOP = 4.0;
-const TRACK_FRONT_LATER = [0.5, 0.7] as const;
-const TRACK_BACK_LATER = [0.2, 0.3] as const;
+const TRACK_FRONT_LATER = [0.45, 0.65] as const;
+const TRACK_BACK_LATER = [0.15, 0.25] as const;
 /** The camera alongside, on the line between the player's lane and the one on its left (clear of both cars). */
 const TRACK_X = -LANE_WIDTH / 2;
 
@@ -369,8 +369,8 @@ export class Intro {
         },
         {
           seconds: 1.5,
-          from: { pos: [TRACK_X, 0.75, -6.5], look: [0, 0.6, 0.5], fov: 40 },
-          to: { pos: [TRACK_X, 1.1, -18], look: [0, 0.6, 0.5], fov: 30 },
+          from: { pos: [TRACK_X, 0.75, -6.5], look: [0, 0.6, 0.5], fov: 44 },
+          to: { pos: [TRACK_X, 1.4, -22], look: [1.5, 0.6, 0.5], fov: 48 },
           ease: linear, // (still moving at the cut)
           ride: 'cruise',
           lookRide: 'car',
