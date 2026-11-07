@@ -7,6 +7,8 @@ export interface HudHandlers {
   /** After the finish: the same race again. */
   onAgain(): void;
   onResume(): void;
+  /** Paused: the same race again from the start. */
+  onRestart(): void;
   /** Back to the garage. */
   onTitle(): void;
 }
@@ -176,7 +178,16 @@ export class Hud {
             <div><span class="lbl">To go</span><b class="num" data-id="pRemain"></b></div>
           </div>
           <button class="opt" data-id="resumeBtn"><span class="no">01</span>${tx('pause.resume')}<kbd>Esc</kbd></button>
-          <button class="opt" data-id="pauseTitleBtn"><span class="no">02</span>${tx('pause.garage')}</button>
+          <button class="opt" data-id="restartBtn"><span class="no">02</span>${tx('pause.restart')}</button>
+          <button class="opt" data-id="pauseTitleBtn"><span class="no">03</span>${tx('pause.garage')}</button>
+          <div class="confirm">
+            ${tx('confirm.kicker', 'div', 'lbl dash')}
+            ${tx('confirm.lost', 'p', 'msg')}
+            <div class="btns">
+              <button class="opt" data-id="confirmYes">${tx('confirm.yes')}</button>
+              <button class="opt" data-id="confirmNo">${tx('confirm.no')}<kbd>Esc</kbd></button>
+            </div>
+          </div>
         </div>
       </div>
       <div id="finish" class="center bracketed">
@@ -208,10 +219,18 @@ export class Hud {
     this.nitroBlocks = [...root.querySelectorAll<SVGPolygonElement>('[data-nitro]')];
     this.el.againBtn.onclick = () => handlers.onAgain();
     this.el.resumeBtn.onclick = () => handlers.onResume();
-    this.el.pauseTitleBtn.onclick = () => handlers.onTitle();
+    // Restart and the garage throw the race away: each asks first (OK / Cancel).
+    this.el.restartBtn.onclick = () => this.ask(() => handlers.onRestart());
+    this.el.pauseTitleBtn.onclick = () => this.ask(() => handlers.onTitle());
+    this.el.confirmYes.onclick = () => {
+      const then = this.confirmThen;
+      this.closeConfirm();
+      then?.();
+    };
+    this.el.confirmNo.onclick = () => this.cancelConfirm();
     this.el.finishTitleBtn.onclick = () => handlers.onTitle();
     // The pointer moves the menus' cursor too; a click leaves no focus behind (Enter is the cursor's, not a clicked button's).
-    for (const id of ['resumeBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn'])
+    for (const id of ['resumeBtn', 'restartBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn', 'confirmYes', 'confirmNo'])
       this.el[id].addEventListener('pointerenter', () => this.menu.includes(this.el[id]) && this.point(this.menu.indexOf(this.el[id])));
     root.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
     onLangChange(() => applyLang(root)); // (another language: the fixed words redone; the rest are set as they show)
@@ -222,7 +241,39 @@ export class Hud {
   private menu: HTMLElement[] = [];
   private cursor = 0;
 
+  /** The pause's confirm open: what its OK does (null: not open); where the cursor was on the menu under it. */
+  private confirmThen: (() => void) | null = null;
+  private confirmFrom = 0;
+
+  /** Whether the pause's confirm is open (Esc then cancels it, not the pause). */
+  get confirming(): boolean {
+    return this.confirmThen !== null;
+  }
+
+  /** The pause's confirm (the race thrown away - sure?): `then` on OK; the cursor on Cancel. */
+  private ask(then: () => void): void {
+    this.confirmFrom = this.cursor;
+    this.confirmThen = then;
+    this.el.pause.classList.add('confirming');
+    this.openMenu([this.el.confirmYes, this.el.confirmNo]);
+    this.point(1);
+  }
+
+  private closeConfirm(): void {
+    this.confirmThen = null;
+    this.el.pause.classList.remove('confirming');
+  }
+
+  /** Cancel (Esc too): back to the pause's menu, its cursor where it was. */
+  cancelConfirm(): void {
+    if (!this.confirming) return;
+    this.closeConfirm();
+    this.openMenu([this.el.resumeBtn, this.el.restartBtn, this.el.pauseTitleBtn]);
+    this.point(this.confirmFrom);
+  }
+
   private openMenu(options: HTMLElement[]): void {
+    for (const b of this.menu) b.classList.remove('sel'); // (the one it replaces: none of it left lit)
     this.menu = options;
     this.point(0);
   }
@@ -305,7 +356,8 @@ export class Hud {
         this.el.hud.classList.add('enter');
       }
       this.menu = [];
-      if (phase === 'paused') this.openMenu([this.el.resumeBtn, this.el.pauseTitleBtn]);
+      this.closeConfirm();
+      if (phase === 'paused') this.openMenu([this.el.resumeBtn, this.el.restartBtn, this.el.pauseTitleBtn]);
       if (phase === 'paused') {
         this.el.pTime.innerHTML = timeHtml(flow.raceTime);
         this.el.pPlaceBox.style.display = many ? '' : 'none';
