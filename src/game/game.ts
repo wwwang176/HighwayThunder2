@@ -419,9 +419,9 @@ export class Game {
     });
   }
 
-  /** The race's intro: the next of its shuffled round (none twice in a row, all three in any three races). */
+  /** The race's intro: the next of its shuffled round (none twice in a row, every one once in each round). */
   private beginIntro(): void {
-    // From the shuffled round kept between visits (game/intro nextIntro: all three in any three races running).
+    // From the shuffled round kept between visits (game/intro nextIntro: every one once in each round).
     let bag: IntroBag = { left: [], last: null };
     try {
       bag = { ...bag, ...JSON.parse(localStorage.getItem(INTRO_BAG_KEY) ?? '{}') };

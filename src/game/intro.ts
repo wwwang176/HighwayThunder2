@@ -4,8 +4,8 @@ import type { CameraParams } from '../render/cameraRig';
 import type { PlayerCar } from '../vehicles/playerCar';
 
 /** The race's intro shot lists (one picked at random each race, Game.startRace). */
-export type IntroKind = 'arrival' | 'grid' | 'details';
-export const INTRO_KINDS: IntroKind[] = ['arrival', 'grid', 'details'];
+export type IntroKind = 'arrival' | 'grid' | 'details' | 'tracking';
+export const INTRO_KINDS: IntroKind[] = ['arrival', 'grid', 'details', 'tracking'];
 
 /** The intros left in this round (shuffled), and the last one shown (the next round never starts with it). */
 export interface IntroBag {
@@ -15,7 +15,7 @@ export interface IntroBag {
 
 /**
  * The next race's intro: from a shuffled round of all of them, a new round once one is used up (its first not
- * the one just shown) - every one seen in any three races running, none twice in a row. A bag with something
+ * the one just shown) - every one seen once in each round, none twice in a row. A bag with something
  * unknown in it (read back from an older game) starts a fresh round.
  */
 export function nextIntro(bag: IntroBag, rng: () => number = Math.random): { kind: IntroKind; bag: IntroBag } {
@@ -40,8 +40,15 @@ interface Pose {
 }
 
 /**
+ * What a camera rides along with (its pose's z from there, not from the grid): the player's car as drawn
+ * arriving ('car'), or where it would be had it not braked ('cruise': on at its even speed).
+ */
+type Ride = 'car' | 'cruise';
+
+/**
  * A shot: the camera from one pose to another over `seconds` (a cut into it: the shot before ends elsewhere).
- * `blip` seconds in, the engine blipped (a rev and let go: the exhaust pops).
+ * `blip` seconds in, the engine blipped (a rev and let go: the exhaust pops). `ride` / `lookRide`: what its
+ * position / where it looks ride along with (none: held to the grid).
  */
 interface Shot {
   seconds: number;
@@ -49,6 +56,8 @@ interface Shot {
   to: Pose;
   ease: (t: number) => number;
   blip?: number;
+  ride?: Ride;
+  lookRide?: Ride;
 }
 
 
@@ -72,6 +81,19 @@ const ARRIVE_BACK_LATER = [0.3, 0.8] as const;
 const ARRIVE_PLAYER_STOP = 3.7;
 
 /**
+ * The tracking shots: the cars come up as a pack, all at one speed (m/s); the player's stops 0.5 s from the end
+ * of its third shot (braking from 2.0 s, the second); the front row's later by TRACK_FRONT_LATER s (so ~8-11 m
+ * behind it as they come, out of the first shot, by the camera as it drops back in the second), the back row's
+ * TRACK_BACK_LATER s after the one ahead in its lane - every car still by the countdown (5 s).
+ */
+const TRACK_SPEED = [15, 17] as const;
+const TRACK_PLAYER_STOP = 4.0;
+const TRACK_FRONT_LATER = [0.5, 0.7] as const;
+const TRACK_BACK_LATER = [0.2, 0.3] as const;
+/** The camera alongside, on the line between the player's lane and the one on its left (clear of both cars). */
+const TRACK_X = -LANE_WIDTH / 2;
+
+/**
  * The braking's load on an arriving car `t` s in (as m/s² of deceleration): its speed shed evenly over
  * ARRIVE_BRAKE s, the load building up over ARRIVE_LOAD_RISE s of it; then none (stopped: it comes back).
  */
@@ -87,6 +109,8 @@ function arriving(speed: number, stop: number, t: number): number {
   return -(left > ARRIVE_BRAKE ? speed * (ARRIVE_BRAKE / 2 + left - ARRIVE_BRAKE) : (speed * left * left) / (2 * ARRIVE_BRAKE));
 }
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
+/** Out of a cut at its full speed (twice the shot's average), slowing to a stop. */
+const easeOutQuad = (t: number) => 1 - (1 - t) ** 2;
 const linear = (t: number) => t;
 
 /**
@@ -147,23 +171,28 @@ export class Intro {
     this.idle = scene.player.params.idleRpm;
     this.redline = scene.player.params.redline;
     this.rivalsAt = scene.rivals.map((r) => this.grid(at(r)));
-    // Each lane's speed; the front row's stops (the player's: the end of the first two shots), then the back row's.
+    // Each lane's speed (the tracking shots: the pack's one); the front row's stops (the player's: the end of the
+    // first two shots; tracking, into the third), then the back row's.
     const within = ([lo, hi]: readonly [number, number]) => lo + Math.random() * (hi - lo);
     const lane = (x: number) => Math.round(x / LANE_WIDTH);
+    const tracking = kind === 'tracking';
+    const pack = within(TRACK_SPEED);
     const speeds = new Map<number, number>();
-    const speedOf = (x: number) => speeds.get(lane(x)) ?? speeds.set(lane(x), within(ARRIVE_SPEED)).get(lane(x))!;
-    const stops = new Map<number, number>([[0, ARRIVE_PLAYER_STOP]]); // the front row's, by lane
-    this.playerArrival = { speed: speedOf(0), stop: ARRIVE_PLAYER_STOP };
+    const speedOf = (x: number) => (tracking ? pack : (speeds.get(lane(x)) ?? speeds.set(lane(x), within(ARRIVE_SPEED)).get(lane(x))!));
+    const playerStop = tracking ? TRACK_PLAYER_STOP : ARRIVE_PLAYER_STOP;
+    const frontStop = () => (tracking ? playerStop + within(TRACK_FRONT_LATER) : within(ARRIVE_FRONT_STOP));
+    const stops = new Map<number, number>([[0, playerStop]]); // the front row's, by lane
+    this.playerArrival = { speed: speedOf(0), stop: playerStop };
     const front = this.rivalsAt.map((g, i) => [g, i] as const).filter(([g]) => g[2] >= -1);
     const back = this.rivalsAt.map((g, i) => [g, i] as const).filter(([g]) => g[2] < -1);
     this.arrivals = [];
     for (const [g, i] of front) {
-      this.arrivals[i] = { speed: speedOf(g[0]), stop: within(ARRIVE_FRONT_STOP) };
+      this.arrivals[i] = { speed: speedOf(g[0]), stop: frontStop() };
       stops.set(lane(g[0]), this.arrivals[i].stop);
     }
     for (const [g, i] of back) {
-      const ahead = stops.get(lane(g[0])) ?? ARRIVE_FRONT_STOP[1];
-      this.arrivals[i] = { speed: speedOf(g[0]), stop: ahead + within(ARRIVE_BACK_LATER) };
+      const ahead = stops.get(lane(g[0])) ?? (tracking ? playerStop + TRACK_FRONT_LATER[1] : ARRIVE_FRONT_STOP[1]);
+      this.arrivals[i] = { speed: speedOf(g[0]), stop: ahead + within(tracking ? TRACK_BACK_LATER : ARRIVE_BACK_LATER) };
     }
     this.shots = this.script(kind, car.y);
   }
@@ -195,7 +224,7 @@ export class Intro {
     const done = this.shot >= this.shots.length;
     const s = this.shots[Math.min(this.shot, this.shots.length - 1)];
     const car = this.scene.player;
-    if (this.kind === 'arrival') {
+    if (this.drawnArriving) {
       car.showOffset = arriving(this.playerArrival.speed, this.playerArrival.stop, this.elapsed);
       this.scene.rivals.forEach((r, i) => (r.showOffset = arriving(this.arrivals[i].speed, this.arrivals[i].stop, this.elapsed)));
     }
@@ -211,12 +240,24 @@ export class Intro {
    * their own springs (PlayerCar.brakeLoad, before each physics step) - drawn arriving, held on the grid.
    */
   braking(): [PlayerCar, number][] {
-    if (this.kind !== 'arrival') return [];
+    if (!this.drawnArriving) return [];
     const t = this.elapsed;
     return [
       [this.scene.player, arrivalBraking(this.playerArrival.speed, this.playerArrival.stop, t)],
       ...this.scene.rivals.map((r, i) => [r, arrivalBraking(this.arrivals[i].speed, this.arrivals[i].stop, t)] as [PlayerCar, number]),
     ];
+  }
+
+  /** Whether the cars are drawn arriving (and braking to their places). */
+  private get drawnArriving(): boolean {
+    return this.kind === 'arrival' || this.kind === 'tracking';
+  }
+
+  /** How far a camera riding along with `ride` is from the grid now (m ahead: < 0 behind). */
+  private along(ride: Ride | undefined): number {
+    if (!ride) return 0;
+    const { speed, stop } = this.playerArrival;
+    return ride === 'car' ? arriving(speed, stop, this.elapsed) : -speed * (stop - ARRIVE_BRAKE / 2 - this.elapsed);
   }
 
   /** The camera where this frame's shot has it. */
@@ -226,6 +267,8 @@ export class Intro {
     const lerp = (a: number[], b: number[]) => [0, 1, 2].map((i) => THREE.MathUtils.lerp(a[i], b[i], k));
     const pos = lerp(s.from.pos, s.to.pos);
     const look = lerp(s.from.look, s.to.look);
+    pos[2] += this.along(s.ride);
+    look[2] += this.along(s.lookRide);
     const cam = this.scene.camera;
     cam.position.copy(this.world(pos));
     cam.lookAt(this.world(look));
@@ -303,6 +346,47 @@ export class Intro {
         {
           seconds: LAST_SHOT,
           from: { pos: [wheel[0] - 1.15, 0.45, wheel[2] - 0.8], look: [wheel[0] + 0.2, r + 0.1, wheel[2]], fov: 34 },
+          to: chase,
+          ease: easeOut, // (in moving, settling where the chase camera starts)
+        },
+      ];
+    }
+    if (kind === 'tracking') {
+      // Tracking: low alongside the player's car's left rear as the pack comes (the road streaming by); dropping
+      // back, the rivals coming by on both sides; cut back, the camera running up its side as it brakes, up to its
+      // front wheel as it stops; then up behind it. (On the line between its lane and the left one's: clear of
+      // both cars. Never ahead of a car looking back: its headlights white the picture out; past the wheel, the
+      // way round behind it cut through its side.)
+      const stopped: Pose = { pos: [-track - 1.15, 0.5, half - 0.8], look: [-track + 0.2, 0.55, half + 0.2], fov: 36 };
+      return [
+        {
+          seconds: 1.5,
+          from: { pos: [TRACK_X, 0.5, -4.4], look: [-0.2, 0.7, 1.0], fov: 42 },
+          to: { pos: [TRACK_X + 0.1, 0.55, -3.6], look: [-0.2, 0.7, 1.2], fov: 40 },
+          ease: linear, // (still moving at the cut)
+          ride: 'cruise',
+          lookRide: 'cruise',
+        },
+        {
+          seconds: 1.5,
+          from: { pos: [TRACK_X, 0.75, -6.5], look: [0, 0.6, 0.5], fov: 40 },
+          to: { pos: [TRACK_X, 1.1, -18], look: [0, 0.6, 0.5], fov: 30 },
+          ease: linear, // (still moving at the cut)
+          ride: 'cruise',
+          lookRide: 'car',
+        },
+        {
+          // Out of the cut fast (the car braking: the camera gains on it), slowing to a stop just behind its
+          // front wheel as it stops.
+          seconds: 1.5,
+          from: { pos: [TRACK_X, 0.45, -9], look: [-track + 0.2, 0.55, half + 0.2], fov: 40 },
+          to: stopped,
+          ease: easeOutQuad,
+          lookRide: 'car',
+        },
+        {
+          seconds: LAST_SHOT,
+          from: stopped,
           to: chase,
           ease: easeOut, // (in moving, settling where the chase camera starts)
         },

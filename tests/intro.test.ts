@@ -44,7 +44,7 @@ describe('a car held on the grid, put under a braking load (the intro\'s arrival
 });
 
 describe('nextIntro', () => {
-  it('all three in a shuffled round before any again, never the same twice running, round after round', () => {
+  it('all of them in a shuffled round before any again, never the same twice running, round after round', () => {
     let seed = 7;
     const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     let bag: IntroBag = { left: [], last: null };
@@ -54,9 +54,10 @@ describe('nextIntro', () => {
       picks.push(next.kind);
       bag = next.bag;
     }
-    for (let i = 0; i < 60; i += 3) expect(new Set(picks.slice(i, i + 3)).size).toBe(3); // each round all three
+    const n = INTRO_KINDS.length;
+    for (let i = 0; i < 60; i += n) expect(new Set(picks.slice(i, i + n)).size).toBe(n); // each round all of them
     for (let i = 1; i < 60; i++) expect(picks[i]).not.toBe(picks[i - 1]); // across rounds too
-    expect(new Set(picks.slice(0, 30).map((_, i) => picks.slice(i * 3, i * 3 + 3).join())).size).toBeGreaterThan(1); // shuffled
+    expect(new Set(picks.slice(0, 60 / n).map((_, i) => picks.slice(i * n, i * n + n).join())).size).toBeGreaterThan(1); // shuffled
   });
 
   it('a bag read back with junk in it starts a fresh round', () => {
