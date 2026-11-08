@@ -55,18 +55,27 @@ describe('computeResetSpot', () => {
 });
 
 describe('clearResetSpot (a rival put back)', () => {
-  it('the start just behind and its spot taken: forward, never on top of the car there', () => {
-    const grid = [0, 1, 2, 3].map((l) => car(2, l));
-    const spot = clearResetSpot(0, laneCenter(1), grid)!;
-    expect(spot).not.toBeNull();
-    expect(spot.s - 2.2 - (2 + 2.25)).toBeGreaterThanOrEqual(12);
+  // A wall of cars across every lane at s 500 (none clear within 20 m of it).
+  const wall = [0, 1, 2, 3].map((l) => car(500, l));
+  it('ahead of the player: looks on down the road, never back', () => {
+    const spot = clearResetSpot(500, laneCenter(1), wall, 0, 1)!;
+    expect(spot.s).toBeGreaterThan(500);
+    expect(spot.s - 2.2 - (500 + 2.25)).toBeGreaterThanOrEqual(12);
   });
-  it('no room either way: none (not put back yet)', () => {
+  it('behind the player: looks back, never on (no rival put back past the player into the lead)', () => {
+    const spot = clearResetSpot(500, laneCenter(1), wall, 0, -1)!;
+    expect(spot.s).toBeLessThan(500);
+    expect(500 - 2.25 - (spot.s + 2.2)).toBeGreaterThanOrEqual(12);
+  });
+  it('behind, the start just behind and its spot taken: none (not put back yet), not forward', () => {
+    expect(clearResetSpot(0, laneCenter(1), [0, 1, 2, 3].map((l) => car(2, l)), 0, -1)).toBeNull();
+  });
+  it('no room that way: none', () => {
     const packed = [];
-    for (let s = -400; s <= 400; s += 10) for (const l of [0, 1, 2, 3]) packed.push(car(500 + s, l));
-    expect(clearResetSpot(500, laneCenter(1), packed)).toBeNull();
+    for (let s = 0; s <= 400; s += 10) for (const l of [0, 1, 2, 3]) packed.push(car(500 + s, l));
+    expect(clearResetSpot(500, laneCenter(1), packed, 0, 1)).toBeNull();
   });
-  it('where computeResetSpot finds room, the same spot', () => {
-    expect(clearResetSpot(500, laneCenter(1), [car(503, 1)])).toEqual(computeResetSpot(500, laneCenter(1), [car(503, 1)]));
+  it('looking back, where computeResetSpot finds room: the same spot', () => {
+    expect(clearResetSpot(500, laneCenter(1), [car(503, 1)], 0, -1)).toEqual(computeResetSpot(500, laneCenter(1), [car(503, 1)]));
   });
 });

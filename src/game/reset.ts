@@ -49,33 +49,29 @@ export function computeResetSpot(
   blockers: Blocker[],
   resetSpeed = 0,
 ): { s: number; lane: number } {
-  return clearSpot(playerS, playerD, blockers, resetSpeed, false) ?? { s: Math.max(0, playerS), lane: laneAt(playerD) };
+  return clearSpot(playerS, playerD, blockers, resetSpeed, -1) ?? { s: Math.max(0, playerS), lane: laneAt(playerD) };
 }
 
 /**
- * A clear spot only (a rival put back): as computeResetSpot, and failing that forward as far; none either way (the
- * road packed, or the start just behind): null - not put back yet. Dropped where it was anyway, two rivals came down
- * on one another: the physics blew up, its NaN spreading through the traffic.
+ * A clear spot only (a rival put back), looking `way` from `s` (+1 on down the road, -1 back): a rival put back
+ * ahead of the player looks on, one behind it looks back - never past the player into the lead, nor back behind it.
+ * None that way as far (the road packed, the start just behind): null - not put back yet. Dropped where it was
+ * anyway, two rivals came down on one another: the physics blew up, its NaN spreading through the traffic.
  */
-export function clearResetSpot(s: number, d: number, blockers: Blocker[], resetSpeed = 0): { s: number; lane: number } | null {
-  return clearSpot(s, d, blockers, resetSpeed, true);
+export function clearResetSpot(s: number, d: number, blockers: Blocker[], resetSpeed = 0, way: 1 | -1 = -1): { s: number; lane: number } | null {
+  return clearSpot(s, d, blockers, resetSpeed, way);
 }
 
-function clearSpot(s0: number, d: number, blockers: Blocker[], resetSpeed: number, forwardToo: boolean): { s: number; lane: number } | null {
+function clearSpot(s0: number, d: number, blockers: Blocker[], resetSpeed: number, way: 1 | -1): { s: number; lane: number } | null {
   const start = Math.max(0, s0);
   const preferred = laneAt(d);
   const lanes = Array.from({ length: LANE_COUNT }, (_, i) => i).sort(
     (a, b) => Math.abs(a - preferred) - Math.abs(b - preferred),
   );
-  for (let back = 0; back <= MAX_BACK; back += STEP) {
-    const s = start - back;
+  for (let k = 0; k <= MAX_BACK; k += STEP) {
+    const s = start + way * k;
     if (s < 0) break;
     for (const lane of lanes) if (isClear(s, lane, blockers, resetSpeed)) return { s, lane };
-  }
-  if (forwardToo) {
-    for (let on = STEP; on <= MAX_BACK; on += STEP) {
-      for (const lane of lanes) if (isClear(start + on, lane, blockers, resetSpeed)) return { s: start + on, lane };
-    }
   }
   return null;
 }

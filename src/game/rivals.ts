@@ -342,8 +342,9 @@ export class Rivals {
     const at = putBackAt(why, r.car.s, p);
     const all: Blocker[] = [...blockers, { ...p.footprint(), v: Math.max(0, p.speed) }];
     for (const o of this.list) if (o !== r) all.push({ ...o.car.footprint(), v: Math.max(0, o.car.speed) });
-    // (Only somewhere clear - never on top of another car: no room yet, it waits a little and tries again.)
-    const spot = clearResetSpot(at.s, r.car.d, all, at.speed);
+    // Only somewhere clear - never on top of another car - looking on from a spot ahead of the player, back from one
+    // behind it (never past the player into the lead, nor back behind it). No room yet: it waits and tries again.
+    const spot = clearResetSpot(at.s, r.car.d, all, at.speed, at.s >= p.s ? 1 : -1);
     if (!spot) {
       r.resetWait = RESET_RETRY;
       return;
