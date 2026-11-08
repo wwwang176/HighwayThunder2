@@ -39,14 +39,46 @@ describe('netTracker', () => {
     const before = [TRACKER_INPUTS - 3, 12, 12, 2];
     const old = Array.from({ length: weightCount(before) }, () => rng() * 2 - 1);
     const b = trackerFrom(old)!;
-    expect(b.layers).toEqual([TRACKER_INPUTS, 12, 12, 2]);
+    expect(b.layers).toEqual([TRACKER_INPUTS, 12, 12, 3]);
     for (let n = 0; n < 20; n++) {
       const x = Array.from({ length: TRACKER_INPUTS }, () => rng() * 4 - 2);
       const want = forward({ layers: before, weights: Float32Array.from(old) }, x.slice(0, TRACKER_INPUTS - 3));
       const got = forward(b, x);
       expect(got[0]).toBeCloseTo(want[0], 6);
       expect(got[1]).toBeCloseTo(want[1], 6);
+      expect(got[2]).toBe(0); // it never backs up
     }
+  });
+
+  it('a network from before the reverse output drives exactly as it did, never backing up', () => {
+    const rng = mulberry32(5);
+    const before = [TRACKER_INPUTS, 12, 12, 2];
+    const old = Array.from({ length: weightCount(before) }, () => rng() * 2 - 1);
+    const b = trackerFrom(old)!;
+    expect(b.layers).toEqual([TRACKER_INPUTS, 12, 12, 3]);
+    for (let n = 0; n < 20; n++) {
+      const x = Array.from({ length: TRACKER_INPUTS }, () => rng() * 4 - 2);
+      const want = forward({ layers: before, weights: Float32Array.from(old) }, x);
+      const got = forward(b, x);
+      expect(got[0]).toBeCloseTo(want[0], 6);
+      expect(got[1]).toBeCloseTo(want[1], 6);
+    }
+    const across = { ...self, yaw: 2, vLong: 0 };
+    expect(netDrive(b, plan, 0, across, DEFAULT_CAR, 1).reverse).toBe(0);
+  });
+
+  it('backs up only standing across the road, steering the other way round', () => {
+    const b = quietTracker(mulberry32(2));
+    const L = b.layers;
+    b.weights[b.weights.length - 1] = 5; // the reverse output's bias: all the way on
+    expect(netDrive(b, plan, 0, self, DEFAULT_CAR, 1).reverse).toBe(0); // racing: never
+    expect(netDrive(b, plan, 0, { ...self, vLong: 0 }, DEFAULT_CAR, 1).reverse).toBe(0); // the standing start: never
+    const across = { ...self, yaw: 2, vLong: 0 };
+    const r = netDrive(b, plan, 0, across, DEFAULT_CAR, 1);
+    expect(r.reverse).toBeGreaterThan(0.99);
+    expect(r.throttle).toBe(0);
+    expect(r.steer).toBeCloseTo(-baseSteer(plan, 0, across, DEFAULT_CAR), 6);
+    expect(L[L.length - 1]).toBe(3);
   });
 
   it('a steering-only network comes in steering the same and taking no throttle back', () => {

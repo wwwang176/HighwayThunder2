@@ -179,10 +179,12 @@ export class PlannerDriver implements Driver {
     const pedals = planPedals(this.plan, age, self.vLong, this.accelTable());
     // The car type's network steers, and takes back some of the throttle (wheelspin, a sliding tail).
     let steer: number;
+    let reverse = 0;
     if (DRIVER_TUNING.netTracker && this.tracker) {
       const net = netDrive(this.tracker, this.plan, age, self, p, pedals.throttle);
       steer = net.steer;
       pedals.throttle = net.throttle;
+      reverse = net.reverse; // (standing across the road after a crash: backing up to turn)
     } else steer = baseSteer(this.plan, age, self, p);
     // Sideways rate the plan has now, or (`steerClear`) where the steering already aims, if more: it is on its way out.
     const now = planAt(this.plan, age).dRate;
@@ -192,6 +194,7 @@ export class PlannerDriver implements Driver {
       this.tracking?.speedAtOverride.push(self.vLong - planAt(this.plan, age).v);
       return { steer, throttle: 0, brake };
     }
+    if (reverse > 0) return { steer, throttle: 0, brake: reverse }; // (the brake pedal, stopped: reverse)
     return { steer, ...pedals };
   }
 

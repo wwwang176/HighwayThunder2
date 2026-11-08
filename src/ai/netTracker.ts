@@ -22,10 +22,21 @@ export const TRACKER_LOOK = [0, 0.15, 0.3, 0.5];
  */
 const HEADING_INPUTS = 3;
 export const TRACKER_INPUTS = 2 * TRACKER_LOOK.length + 9 + HEADING_INPUTS;
-/** Outputs: a steering correction, and how much of the plan's throttle to take back (0..1: none..all). */
-export const TRACKER_LAYERS = [TRACKER_INPUTS, 12, 12, 2];
+/**
+ * Outputs: a steering correction, how much of the plan's throttle to take back (0..1: none..all), and whether to
+ * back up (only where REVERSE_V and REVERSE_YAW let it: standing across the road after a crash).
+ */
+export const TRACKER_LAYERS = [TRACKER_INPUTS, 12, 12, 3];
+/** The layout before the reverse output. */
+const TWO_OUT_LAYERS = [TRACKER_INPUTS, 12, 12, 2];
 /** The layout before the heading inputs. */
 const NO_HEADING_LAYERS = [TRACKER_INPUTS - HEADING_INPUTS, 12, 12, 2];
+/** It may back up only slower than this (m/s)... */
+export const REVERSE_V = 3;
+/** ...and heading off the road's by more than this (rad): never in a race, only after a crash (put back at 60 km/h). */
+export const REVERSE_YAW = 0.4;
+/** Of its reverse output, this much is nothing (so a slightly-off weight does not back it up). */
+const REVERSE_DEAD = 0.1;
 /** The layout before the throttle: steering only, without the wheelspin and throttle inputs. */
 const STEER_ONLY_LAYERS = [TRACKER_INPUTS - HEADING_INPUTS - 2, 12, 12, 1];
 
@@ -62,13 +73,20 @@ export function trackerInputs(plan: Plan, age: number, self: SelfState, base: nu
 }
 
 const inputs = new Float32Array(TRACKER_INPUTS);
-const output = new Float32Array(2);
+const output = new Float32Array(3);
 
-/** Steering (-1..1) along `plan`, `age` s after it was made, and the plan's `throttle` with some taken back. */
-export function netDrive(b: Brain, plan: Plan, age: number, self: SelfState, p: CarParams, throttle: number): { steer: number; throttle: number } {
+/**
+ * Steering (-1..1) along `plan`, `age` s after it was made, the plan's `throttle` with some taken back, and how hard
+ * to back up (0..1; the brake pedal: it stops the car, then reverses it). Backing up it steers the other way round
+ * (the plain tracker's steering mirrored: the same turn of the car, going backwards) plus its correction.
+ */
+export function netDrive(b: Brain, plan: Plan, age: number, self: SelfState, p: CarParams, throttle: number): { steer: number; throttle: number; reverse: number } {
   const base = baseSteer(plan, age, self, p);
   forward(b, trackerInputs(plan, age, self, base, throttle, inputs), output);
-  return { steer: Math.max(-1, Math.min(1, base + output[0])), throttle: throttle * Math.max(0, Math.min(1, 1 + output[1])) };
+  const may = self.vLong < REVERSE_V && Math.abs(self.yaw) > REVERSE_YAW;
+  const reverse = may && b.layers[b.layers.length - 1] > 2 ? Math.max(0, Math.min(1, (output[2] - REVERSE_DEAD) / (1 - REVERSE_DEAD))) : 0;
+  const steer = (reverse > 0 ? -base : base) + output[0];
+  return { steer: Math.max(-1, Math.min(1, steer)), throttle: reverse > 0 ? 0 : throttle * Math.max(0, Math.min(1, 1 + output[1])), reverse };
 }
 
 /** Steering (-1..1) along `plan` (the throttle left as the plan has it). */
@@ -92,7 +110,9 @@ export function quietTracker(rng: Rng): Brain {
 export function trackerFrom(weights: number[] | undefined): Brain | null {
   if (!weights) return null;
   if (weights.length === weightCount(TRACKER_LAYERS)) return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(weights) };
-  if (weights.length === weightCount(NO_HEADING_LAYERS)) return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(widen(weights, NO_HEADING_LAYERS, HEADING_INPUTS)) };
+  // (one that never backs up: a reverse output row of zeros)
+  if (weights.length === weightCount(TWO_OUT_LAYERS)) return trackerFrom([...weights, ...new Array(TWO_OUT_LAYERS[2] + 1).fill(0)]);
+  if (weights.length === weightCount(NO_HEADING_LAYERS)) return trackerFrom(widen(weights, NO_HEADING_LAYERS, HEADING_INPUTS));
   const steerAndThrottle = fromSteerOnly(weights);
   return steerAndThrottle && trackerFrom(steerAndThrottle);
 }
