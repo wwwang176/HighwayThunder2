@@ -4,6 +4,10 @@ import { BRAKE3_OFF, BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles
 /** The layer only shadow-casting lights' cameras see (BodyInstances' shadow casters; the view's camera doesn't). */
 export const SHADOW_LAYER = 1;
 
+/** How BodyInstances.add drew a vehicle: in view, casting a shadow (both, either, or 0: not at all). */
+export const SEEN = 1;
+export const CASTS = 2;
+
 const AT = new THREE.Matrix4();
 const SPHERE = new THREE.Sphere();
 
@@ -75,14 +79,24 @@ export class BodyInstances {
 
   /**
    * A vehicle of model `key` (its template `root`, the first time) at `matrix`, its lights as `lights`.
-   * Whether it is drawn at all (in view, or casting a shadow).
+   * How it is drawn (SEEN: in view; CASTS: casting a shadow; 0: not at all). `as`: a part of a vehicle already
+   * added inside its bounds (a wheel) - drawn as that was, not culled itself: what is outside the view or a beam is
+   * not seen there either way.
    */
-  add(key: string, root: THREE.Object3D, matrix: THREE.Matrix4, lights: VehicleLights): boolean {
+  add(key: string, root: THREE.Object3D, matrix: THREE.Matrix4, lights: VehicleLights, as?: number): number {
     const t = this.templates.get(key) ?? this.register(key, root);
-    SPHERE.copy(t.bounds).applyMatrix4(matrix);
-    const seen = !this.cull || this.frustum.intersectsSphere(SPHERE);
-    const casts = this.lightFrusta.some((f) => f.intersectsSphere(SPHERE));
-    if (!seen && !casts) return false;
+    let seen: boolean;
+    let casts: boolean;
+    if (as === undefined) {
+      SPHERE.copy(t.bounds).applyMatrix4(matrix);
+      seen = !this.cull || this.frustum.intersectsSphere(SPHERE);
+      casts = false;
+      for (const f of this.lightFrusta) if (f.intersectsSphere(SPHERE)) { casts = true; break; }
+    } else {
+      seen = (as & SEEN) !== 0;
+      casts = (as & CASTS) !== 0;
+    }
+    if (!seen && !casts) return 0;
     const braking = lights.brake.length > 0 && lights.brake[0].material === BRAKE_ON;
     const left = lights.left.length > 0 && lights.left[0].visible;
     const right = lights.right.length > 0 && lights.right[0].visible;
@@ -91,7 +105,7 @@ export class BodyInstances {
       if (!seen || (p.role === 'L' && !left) || (p.role === 'R' && !right)) continue;
       this.put((p.role === 'B' || p.role === 'C') && braking ? p.on! : p.pool, matrix, p.local);
     }
-    return true;
+    return (seen ? SEEN : 0) | (casts ? CASTS : 0);
   }
 
   end(): void {

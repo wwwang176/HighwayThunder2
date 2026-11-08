@@ -9,8 +9,14 @@ import type { TrafficBox } from '../ai/sensors';
 import type { Rng } from '../ai/rng';
 
 const SPAWN_INTERVAL = 0.25;
-/** Asleep NPCs wake within opts.awake of a racer; awake ones sleep only this much farther out (no flicking to and fro). */
+/** Asleep NPCs wake within a racer's reach (rouse); awake ones sleep only this much farther out (no flicking to and fro). */
 const SLEEP_MARGIN = 40;
+
+/** A racer as rouse sees it: where it is along our carriageway (s), and how far round it the traffic is awake (m). */
+export interface Rouser {
+  s: number;
+  reach: number;
+}
 const ONCOMING_FIRST_ID = 1_000_000;
 
 /** One carriageway: its traffic planner, coordinate frame and direction relative to us. */
@@ -54,12 +60,18 @@ export class TrafficWorld {
   }
   private readonly side = new Map<number, TrafficSide>();
   private spawnTimer = 0;
+  /** The time, and the steps, since the traffic was last planned (stepAI). */
+  private sincePlan = 0;
+  private stepsSincePlan = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
     public rng: Rng,
-    /** `awake`: NPCs farther than this (m) from every racer asleep (NpcVehicle.asleep; none: all awake). */
-    private readonly opts: { oncoming: boolean; bothWays?: boolean; edge?: [number, number]; gone?: number; awake?: number },
+    /**
+     * `planEvery`: the traffic planned every this many steps (its lane changes and speeds held between; the bodies
+     * driven, and those asleep moved, every step). None: every step.
+     */
+    private readonly opts: { oncoming: boolean; bothWays?: boolean; edge?: [number, number]; gone?: number; planEvery?: number },
   ) {}
 
   /** Clear all traffic and wrecks and fill the road ahead of the focus. */
@@ -70,6 +82,8 @@ export class TrafficWorld {
     this.sides = [{ name: 'ours', frame: OUR_FRAME, facing: 1, sim: new TrafficSim() }];
     if (this.opts.oncoming) this.sides.push({ name: 'oncoming', frame: ONCOMING_FRAME, facing: -1, sim: new TrafficSim(ONCOMING_FIRST_ID) });
     this.spawnTimer = SPAWN_INTERVAL;
+    this.sincePlan = 0;
+    this.stepsSincePlan = 0;
     this.spawn(focus, occupants, true);
   }
 
@@ -81,15 +95,28 @@ export class TrafficWorld {
     return this.side.get(id)?.sim.agents.get(id);
   }
 
-  /** Plan traffic on every carriageway (wrecks and `obstacles` are respected), then drive the NPC bodies. */
+  /**
+   * Plan traffic on every carriageway (wrecks and `obstacles` are respected; every opts.planEvery steps: `obstacles`
+   * asked for only then), then drive the NPC bodies. The awake ones' agents read off their bodies every step (the
+   * racers' AIs see them).
+   */
   stepAI(dt: number, simTime: number, obstacles: (frame: RoadFrame) => Obstacle[]): void {
+    this.sincePlan += dt;
+    const plan = ++this.stepsSincePlan >= (this.opts.planEvery ?? 1);
     for (const side of this.sides) {
-      const obs = obstacles(side.frame);
       for (const npc of this.npcs.values()) {
-        if (npc.wrecked) obs.push(...npc.obstacles(side.frame));
-        else if (this.side.get(npc.id) === side && !npc.asleep) npc.syncAgent(side.sim.agents.get(npc.id)!);
+        if (!npc.wrecked && !npc.asleep && this.side.get(npc.id) === side) npc.syncAgent(side.sim.agents.get(npc.id)!);
       }
-      side.sim.step(dt, obs, this.rng, false);
+      if (plan) {
+        const obs = obstacles(side.frame);
+        for (const npc of this.npcs.values()) if (npc.wrecked) obs.push(...npc.obstacles(side.frame));
+        side.sim.plan(this.sincePlan, obs, this.rng);
+      }
+      side.sim.move(dt, false);
+    }
+    if (plan) {
+      this.sincePlan = 0;
+      this.stepsSincePlan = 0;
     }
     for (const npc of this.npcs.values()) {
       npc.savePrev();
@@ -100,20 +127,19 @@ export class TrafficWorld {
   }
 
   /**
-   * Wake the NPCs within opts.awake of a racer (`racers`: where each is along our carriageway, s), put those
-   * farther than that (and SLEEP_MARGIN) to sleep (call before stepAI). Without opts.awake, all stay awake.
+   * Wake the NPCs within a racer's reach, put those out of every racer's reach (and SLEEP_MARGIN past it) to sleep
+   * (call before stepAI). Never called (training): all stay awake.
    */
-  rouse(racers: number[]): void {
-    const near = this.opts.awake;
-    if (near === undefined) return;
+  rouse(racers: readonly Rouser[]): void {
     for (const npc of this.npcs.values()) {
       if (npc.wrecked) continue;
       const s = npc.s;
-      let gap = Infinity;
-      for (const r of racers) gap = Math.min(gap, Math.abs(r - s));
+      // How far inside the nearest reach it is (negative: out of every one).
+      let inside = -Infinity;
+      for (const r of racers) inside = Math.max(inside, r.reach - Math.abs(r.s - s));
       const agent = this.agentOf(npc.id);
-      if (npc.asleep && gap < near) npc.wake(agent);
-      else if (!npc.asleep && agent && gap > near + SLEEP_MARGIN) npc.sleep(agent);
+      if (npc.asleep && inside > 0) npc.wake(agent);
+      else if (!npc.asleep && agent && inside < -SLEEP_MARGIN) npc.sleep(agent);
     }
   }
 

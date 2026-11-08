@@ -70,10 +70,19 @@ const TRAFFIC_EDGE: [number, number] = [500, 580];
 /** Traffic gone this far out (m), either way: just past where it appears (none kept out in the fog unseen). */
 const TRAFFIC_GONE = 600;
 /**
- * The traffic farther than this from every racer (m) moved by its planner alone, its bodies kinematic (NpcVehicle
- * asleep): nobody near to touch it, nor to see its wheels. Simulated in full it was over half the physics' time.
+ * The traffic farther than this from the player (m), and RIVAL_AWAKE from every rival, moved by its planner alone,
+ * its bodies kinematic (NpcVehicle asleep): nobody near to touch it, nor to see its wheels. Simulated in full it was
+ * over half the physics' time.
  */
 const TRAFFIC_AWAKE = 200;
+/**
+ * A rival wakes only the traffic this near (m): what it may hit next (closing at 45 m/s, a second and more to
+ * settle on its springs). What is seen is woken by the player's TRAFFIC_AWAKE; around rivals spread down the road,
+ * 200 m each kept some 46 cars in full.
+ */
+const RIVAL_AWAKE = 60;
+/** The traffic planned every this many physics steps (60 Hz: its drivers' choices; the bodies driven at 120). */
+const TRAFFIC_PLAN_EVERY = 2;
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
 const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
@@ -230,7 +239,7 @@ export class Game {
     this.planPath = new PlanPath(this.scene);
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.rivalCars.map(specOf));
     this.rivalLights = new RivalLightPool(this.scene);
-    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true, edge: TRAFFIC_EDGE, gone: TRAFFIC_GONE, awake: TRAFFIC_AWAKE }); // (any way the player goes)
+    this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true, edge: TRAFFIC_EDGE, gone: TRAFFIC_GONE, planEvery: TRAFFIC_PLAN_EVERY }); // (any way the player goes)
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
@@ -756,7 +765,7 @@ export class Game {
 
     // Traffic AI on both carriageways (the player, the rivals and every wreck are
     // obstacles to both), then drive the NPC bodies along the planned paths.
-    this.trafficWorld.rouse([this.player.s, ...this.rivals.list.map((r) => r.car.s)]);
+    this.trafficWorld.rouse([{ s: this.player.s, reach: TRAFFIC_AWAKE }, ...this.rivals.list.map((r) => ({ s: r.car.s, reach: RIVAL_AWAKE }))]);
     this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
 
     this.player.holdInPlace(this.flow.phase === 'countdown' || this.flow.phase === 'intro'); // (on the grid a burnout goes nowhere)
