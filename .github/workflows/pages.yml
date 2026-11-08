@@ -1,0 +1,67 @@
+# The game on GitHub Pages (https://wwwang176.github.io/HighwayThunder2/), with its sound.
+#
+# The sound bundles are licensed for use inside the game only, never in a public repository (docs/audio.md): they live
+# in the private repo wwwang176/HighwayThunder2-audio, checked out here with a read-only deploy key (the secret
+# AUDIO_DEPLOY_KEY) and copied into public/audio just for the build. Run on a push to main or by hand only - never on a
+# pull request (a fork's has no secrets, and none is to be handed it).
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The sound bundles (the private audio repo, read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: wwwang176/HighwayThunder2-audio
+          ssh-key: ${{ secrets.AUDIO_DEPLOY_KEY }}
+          path: .audio
+          persist-credentials: false
+
+      - name: Into public/audio (the bundles only)
+        run: |
+          mkdir -p public/audio
+          cp .audio/audio/*.bin public/audio/
+          rm -rf .audio
+          ls -l public/audio
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+      # Served from the repo's path, not the domain's root.
+      - run: npx vite build --base=/HighwayThunder2/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
