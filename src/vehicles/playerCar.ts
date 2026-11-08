@@ -49,6 +49,22 @@ const SHOW_FWD = new THREE.Vector3();
 const LOAD_AXIS = new THREE.Vector3();
 const LOAD_Q = new THREE.Quaternion();
 
+/**
+ * The body's friction on what it touches (the road, the rails, other cars; the lesser of the two: Min), by how far
+ * over it is. Upright, 0.02: its underside grounding under a hard brake hardly slows it, and it slides along a rail
+ * or another car rather than catching (at 0.1 grounding dragged it; at 0.3 light knocks rolled it). On its side or
+ * its roof, 0.4 - metal on asphalt: at 0.02 a car rolled over at 100 km/h slid on ~1.2 km. Between, from 45 degrees
+ * over to 90, an S-curve.
+ */
+export const BODY_FRICTION = { upright: 0.02, rolled: 0.4, fromDeg: 45 };
+
+/** The body's friction with its up pointing `upY` (its roof's way, world y: 1 upright, 0 on its side, -1 on its roof). */
+export function bodyFriction(upY: number): number {
+  const from = Math.cos(THREE.MathUtils.degToRad(BODY_FRICTION.fromDeg));
+  const t = Math.min(1, Math.max(0, (from - upY) / from));
+  return BODY_FRICTION.upright + (BODY_FRICTION.rolled - BODY_FRICTION.upright) * t * t * (3 - 2 * t);
+}
+
 /** The mass one wheel carries standing still (kg): half its axle's share (comFwd puts more on the front). */
 export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, front: boolean): number {
   const frontShare = 0.5 + p.comFwd / p.wheelbase;
@@ -181,10 +197,9 @@ export class PlayerCar {
         const c = physics.world.createCollider(
           shape
             .setDensity(0)
-            // The body slides on what it touches - the road, the rails, other cars - rather than catching and
-            // tripping over (at 0.3, averaged with the road's 0.9, light knocks rolled it), and grounding under
-            // hard braking hardly slows it (at 0.1 it dragged). The tyres grip apart.
-            .setFriction(0.02)
+            // The body slides on what it touches (BODY_FRICTION: upright; rolled over, more - set each step by
+            // how far over it is, prePhysics). The tyres grip apart.
+            .setFriction(BODY_FRICTION.upright)
             .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
             .setRestitution(0.05)
             .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
@@ -309,10 +324,24 @@ export class PlayerCar {
     };
   }
 
+  /** The body's friction as it is lying now (bodyFriction: upright, or over on its side or roof). */
+  private rollFriction(): void {
+    const q = this.body.rotation();
+    const upY = 1 - 2 * (q.x * q.x + q.z * q.z); // (its up's world y)
+    const f = bodyFriction(upY);
+    // (set only as it changes - but always onto its ends, not left a little off them)
+    const end = f === BODY_FRICTION.upright || f === BODY_FRICTION.rolled;
+    if (f === this.bodyFrictionNow || (!end && Math.abs(f - this.bodyFrictionNow) < 0.002)) return;
+    this.bodyFrictionNow = f;
+    for (const c of this.colliders) c.setFriction(f);
+  }
+  private bodyFrictionNow = BODY_FRICTION.upright;
+
   /** Driver input → wheel torques → tyre forces, plus suspension and aero. Call before world.step. */
   prePhysics(input: DriveInput, dt: number): void {
     const p = this.params;
     this.readBack();
+    this.rollFriction();
 
     this.steer = smoothSteer(this.steer, input.steer, p, dt, this.vLong);
     // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
