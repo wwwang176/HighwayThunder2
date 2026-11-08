@@ -71,10 +71,11 @@ const TRAFFIC_EDGE: [number, number] = [500, 580];
 const TRAFFIC_GONE = 600;
 /**
  * The traffic farther than this from the player (m), and RIVAL_AWAKE from every rival, moved by its planner alone,
- * its bodies kinematic (NpcVehicle asleep): nobody near to touch it, nor to see its wheels. Simulated in full it was
- * over half the physics' time.
+ * its bodies kinematic (NpcVehicle asleep): nobody near to touch it (an oncoming car closing at 95 m/s: over a
+ * second to settle on its springs), its springs' play under a pixel that far (its wheels drawn rolling on still).
+ * Simulated in full it was over half the physics' time.
  */
-const TRAFFIC_AWAKE = 200;
+const TRAFFIC_AWAKE = 120;
 /**
  * A rival wakes only the traffic this near (m): what it may hit next (closing at 45 m/s, a second and more to
  * settle on its springs). What is seen is woken by the player's TRAFFIC_AWAKE; around rivals spread down the road,

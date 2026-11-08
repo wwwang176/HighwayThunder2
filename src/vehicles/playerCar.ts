@@ -5,7 +5,7 @@ import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics
 import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, steerAngle } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
-import { buildCar, buildWheel, setBrake, VehicleLights } from './models';
+import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
 import { AIM_DOWN, createHeadlight, HEADLIGHT_DECAY, HEADLIGHTS, HIGH_BEAM_DECAY } from './headlight';
 import { ExhaustFlames } from '../render/exhaustFlames';
@@ -44,6 +44,7 @@ const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
 /** A wheel has no lamps. */
 const NO_LIGHTS: VehicleLights = { left: [], right: [], brake: [], third: [] };
+const CALIPER_AT = new THREE.Matrix4();
 const SHOW_FWD = new THREE.Vector3();
 const LOAD_AXIS = new THREE.Vector3();
 const LOAD_Q = new THREE.Quaternion();
@@ -225,6 +226,7 @@ export class PlayerCar {
     const realLights = opts.realLights ?? true;
     // Without real lights it shows NPC-style glowing beams instead (rivals: real lights are expensive).
     const model = buildCar(p.width, PLAYER_H, p.length, opts.color ?? spec.color, spec.style, false, !realLights, opts.livery);
+    mergeStillParts(model); // (its lamps and pipes a draw a material)
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
     // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
@@ -530,11 +532,16 @@ export class PlayerCar {
     });
   }
 
-  /** Its file wheels into this frame's instanced drawing (after render: where they are). */
+  /** Its file wheels and their calipers into this frame's instanced drawing (after render: where they are). */
   addWheels(bodies: BodyInstances): void {
     if (!this.visuals.some((v) => v.file)) return;
     this.mesh.updateMatrixWorld(true);
-    for (const v of this.visuals) if (v.file) bodies.add(v.file.key, v.file.wheel, v.file.wheel.matrixWorld, NO_LIGHTS);
+    for (const v of this.visuals) {
+      if (!v.file) continue;
+      bodies.add(v.file.key, v.file.wheel, v.file.wheel.matrixWorld, NO_LIGHTS);
+      const c = v.file.caliper;
+      if (c) bodies.add(c.key, c.template, c.mirrored ? CALIPER_AT.multiplyMatrices(c.place.matrixWorld, MIRROR_X) : c.place.matrixWorld, NO_LIGHTS);
+    }
   }
 
   /** The high beam on (X held: the game sets it each frame): its lamps plain spots aimed level, brighter (HEADLIGHTS.high: the game sets their brightness). */

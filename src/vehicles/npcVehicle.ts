@@ -165,6 +165,8 @@ interface Part {
   currPos: THREE.Vector3;
   prevQuat: THREE.Quaternion;
   currQuat: THREE.Quaternion;
+  /** Its wheels' turn as it fell asleep (NpcVehicle.sleep): drawn rolling on from there. */
+  sleepSpin: number[];
 }
 
 export interface TrafficModelRef {
@@ -454,6 +456,7 @@ export class NpcVehicle {
       currPos: new THREE.Vector3(),
       prevQuat: new THREE.Quaternion(),
       currQuat: new THREE.Quaternion(),
+      sleepSpin: [],
     };
   }
 
@@ -513,16 +516,24 @@ export class NpcVehicle {
 
   /**
    * Far from every racer (nobody near to touch it, nor to see it closely): its bodies kinematic, moved where its
-   * planner moves it (`follow`, the agent moving itself: Agent.free) - no wheels' rays, no forces, no solving.
+   * planner moves it (`follow`, the agent moving itself: Agent.free) - no wheels' rays, no forces, no solving; its
+   * colliders off (nothing there to touch: kept out of the broad phase).
    */
   asleep = false;
+  /** Asleep: how far it has gone since it fell asleep (m) - its wheels drawn rolling on by it, from where they stood. */
+  private rolled = 0;
 
   /** To sleep (see `asleep`): its planner moving it from here. */
   sleep(agent: Agent): void {
     if (this.asleep || this.wrecked) return;
     this.asleep = true;
     agent.free = true;
-    for (const p of this.parts) p.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+    this.rolled = 0;
+    for (const p of this.parts) {
+      p.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+      for (const c of p.colliders) c.setEnabled(false);
+      p.sleepSpin = p.wheels.map((_, i) => p.vehicle?.wheelRotation(i) ?? 0);
+    }
   }
 
   /** Awake again (a racer near, or it hit): its bodies dynamic, driving on at its planner's speed. */
@@ -534,6 +545,7 @@ export class NpcVehicle {
     const f = this.frame.forwardWorld(agent?.yaw ?? 0);
     for (const p of this.parts) {
       p.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      for (const c of p.colliders) c.setEnabled(true);
       p.body.setLinvel({ x: f.x * v, y: 0, z: f.z * v }, true);
       p.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     }
@@ -543,7 +555,8 @@ export class NpcVehicle {
    * Asleep: its bodies where its planner has it after this step (call before world.step) - on its springs' rest
    * height, level, along its heading; a trailer straight behind its cab's hitch (as it hangs on waking).
    */
-  follow(agent: Agent, time: number): void {
+  follow(agent: Agent, dt: number, time: number): void {
+    this.rolled += agent.v * dt;
     const cab = this.parts[0];
     const ry = this.frame.rotationY(agent.yaw);
     const q = { x: 0, y: Math.sin(ry / 2), z: 0, w: Math.cos(ry / 2) };
@@ -695,8 +708,9 @@ export class NpcVehicle {
         const w = p.wheels[i];
         const cw = p.chassis?.wheels[i];
         const len = cw ? cw.susp : p.vehicle!.wheelSuspensionLength(i) ?? p.spec.rest;
-        const spin = cw ? cw.spin : p.vehicle!.wheelRotation(i) ?? 0;
-        const steer = cw ? -cw.steer : p.vehicle!.wheelSteering(i) ?? 0;
+        // (asleep: its controller still, the wheels rolled on by the way it has gone - Rapier's turn falls going forward)
+        const spin = cw ? cw.spin : this.asleep ? (p.sleepSpin[i] ?? 0) - this.rolled / w.r : p.vehicle!.wheelRotation(i) ?? 0;
+        const steer = cw ? -cw.steer : this.asleep ? 0 : p.vehicle!.wheelSteering(i) ?? 0;
         TMP_E.set(spin, steer, 0, 'YXZ');
         TMP_Q.setFromEuler(TMP_E);
         TMP_S.set(w.width, w.r, w.r);

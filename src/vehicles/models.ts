@@ -338,6 +338,50 @@ function fromTemplate(
   return { root, lights };
 }
 
+/** A file car's parts that never move on it nor change apart: its headlights, its tail lights, its pipes' parts. */
+const STILL_PART = /^(head|tail)_[LR]$|^exhaust_\d+_\d+$/;
+
+/**
+ * A file car's still parts (STILL_PART) of one material made one mesh each - both headlights, both tail lights
+ * (they light up together: the brake lights' list takes the one), the pipes' metal and their soot: a draw each,
+ * not one a part (the racers drawn on their own, 6 cars). Drawn the same: each part's place in the car baked into
+ * its share of the mesh. Call once the model is built (its flares' and exhausts' places read off the parts).
+ */
+export function mergeStillParts(model: VehicleModel): void {
+  const root = model.root;
+  root.updateMatrixWorld(true);
+  const toRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const sets = new Map<string, THREE.Mesh[]>();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !STILL_PART.test(m.name) || m.children.length > 0 || Array.isArray(m.material) || !m.visible) return;
+    if (m.matrixWorld.determinant() < 0) return; // (mirrored: its faces would turn inside out baked)
+    const key = `${m.material.uuid}|${m.castShadow}|${m.receiveShadow}|${m.renderOrder}`;
+    const set = sets.get(key) ?? [];
+    set.push(m);
+    sets.set(key, set);
+  });
+  for (const set of sets.values()) {
+    if (set.length < 2) continue;
+    const geos = set.map((m) => m.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(toRoot, m.matrixWorld)));
+    const merged = mergeGeometries(geos);
+    if (!merged) continue; // (parts unlike: left as they are)
+    const first = set[0];
+    const mesh = new THREE.Mesh(merged, first.material);
+    mesh.name = first.name;
+    mesh.castShadow = first.castShadow;
+    mesh.receiveShadow = first.receiveShadow;
+    mesh.renderOrder = first.renderOrder;
+    root.add(mesh);
+    for (const m of set) m.removeFromParent();
+    const lit = model.lights.brake;
+    if (set.some((m) => lit.includes(m))) {
+      model.lights.brake = lit.filter((m) => !set.includes(m));
+      model.lights.brake.push(mesh);
+    }
+  }
+}
+
 /** The file's wheel at radius `r`, its rim facing out (left wheels turned round). */
 function templateWheel(t: CarTemplate, r: number, left: boolean): THREE.Object3D {
   const w = t.wheel!.clone(true);
@@ -467,17 +511,62 @@ export function buildContainerTrailer(w: number, h: number, trailerL: number, co
  * about the axle. Spokes make the rotation visible. (A file's brake caliper
  * steers but doesn't roll.)
  */
+/** A caliper drawn instanced (FileWheel): its place in the car (hidden), the template drawn there and its key. */
+export interface FileCaliper {
+  key: string;
+  place: THREE.Object3D;
+  template: THREE.Object3D;
+  /** A left one: its place mirrored, its template the mirror itself (drawn at place × MIRROR_X). */
+  mirrored: boolean;
+}
+
+/** A file wheel's parts drawn instanced: the wheel (hidden, its place) and its caliper, if the file has one. */
+export interface FileWheel {
+  key: string;
+  wheel: THREE.Object3D;
+  caliper?: FileCaliper;
+}
+
+export const MIRROR_X = new THREE.Matrix4().makeScale(-1, 1, 1);
+
+/** Each file's caliper as drawn instanced: as it is (right), and mirrored (left). */
+const caliperTemplates = new Map<CarTemplate, { R: THREE.Mesh; L: THREE.Mesh } | null>();
+
+/**
+ * A file's caliper to draw instanced, right and left (none: not one plain indexed mesh - then drawn as it is).
+ * The left's mirror is in its geometry, its faces turned back round: an instance can't be mirrored - the double-
+ * sided caliper would be lit from inside (its faces wound the other way, taken for its back).
+ */
+function caliperTemplate(t: CarTemplate): { R: THREE.Mesh; L: THREE.Mesh } | null {
+  let c = caliperTemplates.get(t);
+  if (c !== undefined) return c;
+  const src = t.caliper as THREE.Mesh | null;
+  c = null;
+  if (src?.isMesh && src.children.length === 0 && src.geometry.index && !Array.isArray(src.material)) {
+    const geo = src.geometry.clone().applyMatrix4(MIRROR_X);
+    const index = geo.index!;
+    for (let i = 0; i + 2 < index.count; i += 3) {
+      const b = index.getX(i + 1);
+      index.setX(i + 1, index.getX(i + 2));
+      index.setX(i + 2, b);
+    }
+    c = { R: new THREE.Mesh(src.geometry, src.material), L: new THREE.Mesh(geo, src.material) };
+  }
+  caliperTemplates.set(t, c);
+  return c;
+}
+
 /**
  * A wheel: its steering pivot and, in it, what rolls. A file's wheel (`file`) is hidden, its place only: it is
  * drawn instanced with every wheel like it (render/bodyInstances, by `file.key`; 7 parts a wheel, each its own
- * material, were 28 draws a car).
+ * material, were 28 draws a car); its caliper too (`file.caliper`: the racers' 24 were 24 draws).
  */
 export function buildWheel(
   r: number,
   width: number,
   style?: CarStyle,
   left = false,
-): { steer: THREE.Group; spin: THREE.Group; file?: { key: string; wheel: THREE.Object3D } } {
+): { steer: THREE.Group; spin: THREE.Group; file?: FileWheel } {
   const steer = new THREE.Group();
   const spin = new THREE.Group();
   steer.add(spin);
@@ -487,8 +576,16 @@ export function buildWheel(
     wheel.visible = false;
     spin.add(wheel);
     const c = templateCaliper(fromFile, r, left);
-    if (c) steer.add(c);
-    return { steer, spin, file: { key: `wheel|${style}`, wheel } };
+    let caliper: FileCaliper | undefined;
+    if (c) {
+      steer.add(c);
+      const tpl = caliperTemplate(fromFile);
+      if (tpl) {
+        c.visible = false;
+        caliper = { key: `caliper|${style}|${left ? 'L' : 'R'}`, place: c, template: left ? tpl.L : tpl.R, mirrored: left };
+      }
+    }
+    return { steer, spin, file: { key: `wheel|${style}`, wheel, caliper } };
   }
   const tire = new THREE.Mesh(wheelGeo, TIRE);
   tire.scale.set(width, r, r);

@@ -121,7 +121,7 @@ export class TrafficWorld {
     for (const npc of this.npcs.values()) {
       npc.savePrev();
       if (npc.wrecked) npc.updateWreck(dt, simTime);
-      else if (npc.asleep) npc.follow(this.agentOf(npc.id)!, simTime);
+      else if (npc.asleep) npc.follow(this.agentOf(npc.id)!, dt, simTime);
       else npc.drive(this.agentOf(npc.id)!, dt, simTime);
     }
   }
