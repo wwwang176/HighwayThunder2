@@ -1,9 +1,10 @@
-import { ENGINE_SETS, popId, SKID_CLIP, WIND_COUNT, windId, type EngineKind } from './engineCatalog';
+import { ENGINE_SETS, popId, SKID_CLIP, WIND_COUNT, WIND_LOOP, windId, type EngineKind } from './engineCatalog';
 import { EFFECTS_BUNDLE_URL, loadEngineBank, loadSoundBank } from './engineBank';
 import { loadCrashBank, type CrashClip } from './crashBank';
 import { EngineVoice } from './engineVoice';
 import { OtherEngines, type EngineSource } from './otherEngines';
-import { OtherRolls, rollLevel, rollRate, type RollSource } from './rolling';
+import { OtherRolls, type RollSource } from './rolling';
+import { windLevel, windRate } from './wind';
 import { azimuthDeg, equalPowerMono, inverseDistanceGain, type EarPose } from './pan';
 // (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
 import limiterUrl from './limiter.worklet.js?url&no-inline';
@@ -35,11 +36,12 @@ const SKID_OTHERS_REF = 10;
 const SKID_OTHERS_RANGE = 220;
 const SKID_PAN = new Float32Array(2);
 /**
- * The tyres rolling (rolling.ts; the clip at -16 LUFS): the player's at the recording's speed this loud (under the
- * engine), the others' - full within their reference distance - this loud on top of their distance and speed.
+ * The traffic's tyres rolling (rolling.ts; the clip at -16 LUFS), full within their reference distance: this loud on
+ * top of their distance and speed. (The player's and the rivals' not heard: their engines are.)
  */
-const ROLL_VOLUME = 0.3;
 const ROLL_OTHERS_VOLUME = 0.6;
+/** The wind past the player's car (wind.ts; the clip at -16 LUFS) at its reference speed: this loud, under the engine. */
+const WIND_VOLUME = 0.3;
 
 /** A car whose tyres may squeal: where it is, its strongest sliding tyre's slip (m/s). */
 export interface SkidSource {
@@ -81,7 +83,7 @@ function pickNoRepeat(size: number, last: number): number {
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - straight into the mix, whichever way the
  * camera looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
  * (recorded, crashBank; silent without their bundle), the tyre squeal (the pack's, with the engines), the nitro
- * (recorded: effects.bin; silent without it), every car's tyres rolling (rolling.ts: effects.bin) and the backfires' pops. Nothing synthesised. All of it through a lookahead limiter (limiter.worklet.js).
+ * (recorded: effects.bin; silent without it), the traffic's tyres rolling (rolling.ts: effects.bin), the wind past the player's car (wind.ts) and the backfires' pops. Nothing synthesised. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -97,9 +99,9 @@ export class Sound {
   /** The rivals' squeals: a loop each (made as first heard), its left and right gains. */
   private readonly otherSkids: { src: AudioBufferSourceNode; l: GainNode; r: GainNode }[] = [];
   private nitroLoop: AudioBufferSourceNode | null = null;
-  /** The player's tyres rolling (its loop, once going) and the others' (once the recording's in). */
-  private rollGain!: GainNode;
-  private rollLoop: AudioBufferSourceNode | null = null;
+  /** The wind past the player's car (its loop, once going); the traffic's tyres rolling (once the recording's in). */
+  private windGain!: GainNode;
+  private windLoop: AudioBufferSourceNode | null = null;
   private rolls: OtherRolls | null = null;
   private rollsBus!: GainNode;
   private nitroOn = false;
@@ -172,9 +174,9 @@ export class Sound {
     this.nitroGain = ctx.createGain();
     this.nitroGain.gain.value = 0;
     this.nitroGain.connect(this.master);
-    this.rollGain = ctx.createGain();
-    this.rollGain.gain.value = 0;
-    this.rollGain.connect(this.master);
+    this.windGain = ctx.createGain();
+    this.windGain.gain.value = 0;
+    this.windGain.connect(this.master);
     this.rollsBus = ctx.createGain();
     this.rollsBus.gain.value = ROLL_OTHERS_VOLUME;
     this.rollsBus.connect(this.master);
@@ -182,6 +184,7 @@ export class Sound {
       this.bank = bank;
       if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
       this.skidLoop = this.startLoop(bank?.get(SKID_CLIP.id), this.skidGain); // (the pack's, with the engines)
+      this.windLoop = this.startLoop(bank?.get(WIND_LOOP.id), this.windGain);
       while (bank?.has(popId(this.popCount + 1))) this.popCount++;
     });
     void loadCrashBank(ctx).then((clips) => { this.crashes = clips; });
@@ -190,7 +193,6 @@ export class Sound {
       this.effects = effects;
       this.nitroLoop = this.startLoop(effects?.get('nitro'), this.nitroGain);
       const roll = effects?.get('roll');
-      this.rollLoop = this.startLoop(roll, this.rollGain);
       if (roll) this.rolls = new OtherRolls(ctx, roll, this.rollsBus);
     });
   }
@@ -263,15 +265,14 @@ export class Sound {
   }
 
   /**
-   * The player's tyres rolling at `speed` (m/s; `contact` the share of its wheels on the road: none in the air or
-   * on its roof): faster and louder with it (rolling.ts), pitched with the race's time, unplaced as its engine.
-   * Silent without the recording.
+   * The wind past the player's car at `speed` (m/s): louder and a little higher with it (wind.ts), pitched with the
+   * race's time, unplaced as its engine. Silent without the clip.
    */
-  setRoll(speed: number, contact: number): void {
-    if (!this.ctx || !this.running || !this.rollLoop) return;
-    const g = rollLevel(speed) * Math.min(1, Math.max(0, contact)) * ROLL_VOLUME, t = this.ctx.currentTime;
-    this.rollGain.gain.setTargetAtTime(Number.isFinite(g) ? g : 0, t, 0.05);
-    this.rollLoop.playbackRate.setTargetAtTime(rollRate(speed) * this.timeScale, t, 0.05);
+  setWind(speed: number): void {
+    if (!this.ctx || !this.running || !this.windLoop) return;
+    const g = windLevel(speed) * WIND_VOLUME, t = this.ctx.currentTime;
+    this.windGain.gain.setTargetAtTime(Number.isFinite(g) ? g : 0, t, 0.1);
+    this.windLoop.playbackRate.setTargetAtTime(windRate(speed) * this.timeScale, t, 0.1);
   }
 
   /**
@@ -411,7 +412,7 @@ export class Sound {
     this.engine?.update(0, 0, 1, 0, 0);
     this.others?.clear();
     this.rolls?.clear();
-    if (this.ctx) this.rollGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+    if (this.ctx) this.windGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
   }
 
   /**

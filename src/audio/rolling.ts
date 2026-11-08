@@ -4,9 +4,9 @@ import { dopplerFactor } from './spatial';
 
 /**
  * The tyres rolling on the road: one recording (a car's road noise at ROLL_RECORDED m/s: effects.bin's `roll`, a
- * seamless loop), played for every vehicle - faster with its speed (its rate the speed over the recording's, as a
- * recording at that speed would be) and louder (ROLL_POWER: about +9 dB each doubling of the speed), none at a
- * standstill. The player's unplaced, as its engine; the others' each from where it is (OtherRolls).
+ * seamless loop), played for each traffic vehicle (the player's and the rivals' not: their engines are heard) - faster
+ * with its speed (its rate the speed over the recording's, as a recording at that speed would be) and louder
+ * (ROLL_POWER: about +9 dB each doubling of the speed), none at a standstill; each from where it is (OtherRolls).
  */
 export const ROLL_RECORDED = 97 / 3.6; // m/s (60 mph)
 /** The loudness's growth with the speed: the level as (speed / ROLL_RECORDED) to this. */

@@ -131,13 +131,6 @@ const CONTACT_SOUND_GAP = 0.3;
 /** The intros' round left (game/intro IntroBag), kept between visits. */
 const INTRO_BAG_KEY = 'ht2.introBag';
 
-/** The share of a car's wheels on the road (none: in the air, or on its roof or side). */
-function wheelsDown(wheels: readonly { inContact: boolean }[]): number {
-  let k = 0;
-  for (const w of wheels) if (w.inContact) k++;
-  return wheels.length ? k / wheels.length : 0;
-}
-
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
   /** The picture's quality (render/quality: the settings' pixel ratio). */
@@ -1083,9 +1076,9 @@ export class Game {
   }
 
   /**
-   * The tyres heard rolling from outside this frame, into `this.rollSources` (its entries reused): each rival's
-   * (keys -1, -2, ...: its wheels on the road), each traffic vehicle's (keys twice its id; a container's trailer the
-   * next, from its rear axles). Wrecks left out (theirs is the crash). How many.
+   * The tyres heard rolling from outside this frame, into `this.rollSources` (its entries reused): each traffic
+   * vehicle's (keys twice its id; a container's trailer the next, from its rear axles). Not the rivals' (their engines
+   * are heard), nor wrecks' (theirs is the crash). How many.
    */
   private heardRolls(): number {
     let n = 0;
@@ -1098,10 +1091,6 @@ export class Game {
       s.gain = gain;
       s.pitch = pitch;
     };
-    for (const r of this.rivals.list) {
-      const c = r.car, p = c.mesh.position;
-      put(next(), -1 - r.index, p.x, p.y, p.z, c.body.linvel(), wheelsDown(c.wheels), 1);
-    }
     for (const npc of this.npcs.values()) {
       if (npc.wrecked) continue;
       const t = TRAFFIC_ROLL[npc.kind], cab = npc.parts[0], p = cab.mesh.position;
@@ -1221,7 +1210,7 @@ export class Game {
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);
     const pv = this.player.body.linvel();
-    this.sound.setRoll(this.flow.phase === 'title' ? 0 : Math.hypot(pv.x, pv.z), wheelsDown(this.player.wheels));
+    this.sound.setWind(this.flow.phase === 'title' ? 0 : Math.hypot(pv.x, pv.y, pv.z));
     this.sound.setOtherRolls(this.rollSources, this.heardRolls(), this.ear(), play, this.flow.phase !== 'title');
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);
