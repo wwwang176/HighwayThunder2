@@ -30,6 +30,8 @@ export interface Agent {
   accel: number;
   yaw: number;
   idm: IdmParams;
+  /** Moved by the sim itself (as in pure mode) though the sim is not integrating: no body under it to (far from every racer). */
+  free?: boolean;
 }
 
 /** Something agents must respect but do not drive: the player, wrecks. */
@@ -144,7 +146,7 @@ export class TrafficSim {
       const prevPlan = a.dPlan;
       if (a.lcState === 'move') this.updateMove(a, dt, rng);
       a.dPlanRate = (a.dPlan - prevPlan) / dt;
-      if (integrate) {
+      if (integrate || a.free) {
         a.v = Math.max(0, a.v + a.accel * dt);
         a.s += a.v * dt;
         a.d = a.dPlan;

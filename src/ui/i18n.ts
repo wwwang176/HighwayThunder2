@@ -80,6 +80,12 @@ export const STRINGS = {
   'settings.kicker': { zh: 'Settings', en: '' },
   'settings.title': { zh: '設定', en: 'Settings' },
   'settings.lang': { zh: '語言', en: 'Language' },
+  'settings.quality': { zh: '畫質', en: 'Quality' },
+  'quality.ultra': { zh: '極致', en: 'Ultra' },
+  'quality.sharp': { zh: '清晰', en: 'Sharp' },
+  'quality.balanced': { zh: '平衡', en: 'Balanced' },
+  'quality.smooth': { zh: '流暢', en: 'Smooth' },
+  'quality.fast': { zh: '極速', en: 'Fast' },
   'settings.ok': { zh: '確定', en: 'OK' },
   'settings.cancel': { zh: '取消', en: 'Cancel' },
   // The race.
