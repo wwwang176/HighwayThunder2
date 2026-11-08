@@ -133,6 +133,8 @@ export const WIND_COUNT = 6;
 export const WIND_PIECE = 0.8; // s
 export const windClip = (n: number): { pack: string; file: string } => ({});
 export const windId = (n: number): string => `wind-${n}`;
+/** The wind past the player's car (src/audio/wind.ts): one of the pack's whole, a loop as the engines'. */
+export const WIND_LOOP = { id: 'wind-loop' };
 
 /**
  * The player's tyre squeal: one of the pack's skid loops, as heard from outside (9.5 s, the steadiest of its four).
