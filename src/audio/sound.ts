@@ -3,6 +3,7 @@ import { EFFECTS_BUNDLE_URL, loadEngineBank, loadSoundBank } from './engineBank'
 import { loadCrashBank, type CrashClip } from './crashBank';
 import { EngineVoice } from './engineVoice';
 import { OtherEngines, type EngineSource } from './otherEngines';
+import { OtherRolls, rollLevel, rollRate, type RollSource } from './rolling';
 import { azimuthDeg, equalPowerMono, inverseDistanceGain, type EarPose } from './pan';
 // (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
 import limiterUrl from './limiter.worklet.js?url&no-inline';
@@ -33,6 +34,12 @@ const SKID_OTHERS_VOLUME = 0.6;
 const SKID_OTHERS_REF = 10;
 const SKID_OTHERS_RANGE = 220;
 const SKID_PAN = new Float32Array(2);
+/**
+ * The tyres rolling (rolling.ts; the clip at -16 LUFS): the player's at the recording's speed this loud (under the
+ * engine), the others' - full within their reference distance - this loud on top of their distance and speed.
+ */
+const ROLL_VOLUME = 0.3;
+const ROLL_OTHERS_VOLUME = 0.6;
 
 /** A car whose tyres may squeal: where it is, its strongest sliding tyre's slip (m/s). */
 export interface SkidSource {
@@ -74,7 +81,7 @@ function pickNoRepeat(size: number, last: number): number {
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - straight into the mix, whichever way the
  * camera looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
  * (recorded, crashBank; silent without their bundle), the tyre squeal (the pack's, with the engines), the nitro
- * (recorded: effects.bin; silent without it) and the backfires' pops. Nothing synthesised. All of it through a lookahead limiter (limiter.worklet.js).
+ * (recorded: effects.bin; silent without it), every car's tyres rolling (rolling.ts: effects.bin) and the backfires' pops. Nothing synthesised. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -90,6 +97,11 @@ export class Sound {
   /** The rivals' squeals: a loop each (made as first heard), its left and right gains. */
   private readonly otherSkids: { src: AudioBufferSourceNode; l: GainNode; r: GainNode }[] = [];
   private nitroLoop: AudioBufferSourceNode | null = null;
+  /** The player's tyres rolling (its loop, once going) and the others' (once the recording's in). */
+  private rollGain!: GainNode;
+  private rollLoop: AudioBufferSourceNode | null = null;
+  private rolls: OtherRolls | null = null;
+  private rollsBus!: GainNode;
   private nitroOn = false;
   /** How many pops the bank holds; the one last played (not the same one twice running). */
   private popCount = 0;
@@ -160,6 +172,12 @@ export class Sound {
     this.nitroGain = ctx.createGain();
     this.nitroGain.gain.value = 0;
     this.nitroGain.connect(this.master);
+    this.rollGain = ctx.createGain();
+    this.rollGain.gain.value = 0;
+    this.rollGain.connect(this.master);
+    this.rollsBus = ctx.createGain();
+    this.rollsBus.gain.value = ROLL_OTHERS_VOLUME;
+    this.rollsBus.connect(this.master);
     this.bankLoaded = loadEngineBank(ctx).then((bank) => {
       this.bank = bank;
       if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
@@ -171,6 +189,9 @@ export class Sound {
     void loadSoundBank(ctx, EFFECTS_BUNDLE_URL).then((effects) => {
       this.effects = effects;
       this.nitroLoop = this.startLoop(effects?.get('nitro'), this.nitroGain);
+      const roll = effects?.get('roll');
+      this.rollLoop = this.startLoop(roll, this.rollGain);
+      if (roll) this.rolls = new OtherRolls(ctx, roll, this.rollsBus);
     });
   }
 
@@ -239,6 +260,26 @@ export class Sound {
       v.r.gain.setTargetAtTime(SKID_PAN[1], t, 0.04);
       v.src.playbackRate.value = this.timeScale;
     }
+  }
+
+  /**
+   * The player's tyres rolling at `speed` (m/s; `contact` the share of its wheels on the road: none in the air or
+   * on its roof): faster and louder with it (rolling.ts), pitched with the race's time, unplaced as its engine.
+   * Silent without the recording.
+   */
+  setRoll(speed: number, contact: number): void {
+    if (!this.ctx || !this.running || !this.rollLoop) return;
+    const g = rollLevel(speed) * Math.min(1, Math.max(0, contact)) * ROLL_VOLUME, t = this.ctx.currentTime;
+    this.rollGain.gain.setTargetAtTime(Number.isFinite(g) ? g : 0, t, 0.05);
+    this.rollLoop.playbackRate.setTargetAtTime(rollRate(speed) * this.timeScale, t, 0.05);
+  }
+
+  /**
+   * The others' tyres rolling (the first `count` of `sources`), heard from `ear` as their engines are (rolling.ts:
+   * the nearest, panned, fading with distance, Doppler-shifted). `active` false: all let go.
+   */
+  setOtherRolls(sources: readonly RollSource[], count: number, ear: EarPose, dt: number, active: boolean): void {
+    if (this.running) this.rolls?.update(sources, count, ear, dt, this.timeScale, active);
   }
 
   /**
@@ -369,6 +410,8 @@ export class Sound {
   silenceEngine(): void {
     this.engine?.update(0, 0, 1, 0, 0);
     this.others?.clear();
+    this.rolls?.clear();
+    if (this.ctx) this.rollGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
   }
 
   /**
