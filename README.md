@@ -28,16 +28,16 @@ https://highwaythunder2.wwwang.tw/
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/intro.jpg" alt="開場運鏡：起跑線上的車隊"><br><sub>開場運鏡：起跑線上的車隊</sub></td>
-    <td width="50%"><img src="docs/screenshots/garage.jpg" alt="車庫：挑車與烤漆"><br><sub>車庫：挑車與烤漆</sub></td>
+    <td width="50%"><img src="docs/screenshots/intro.jpg" alt="開場運鏡：起跑線上的車隊"></td>
+    <td width="50%"><img src="docs/screenshots/garage.jpg" alt="車庫：挑車與烤漆"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/smoke-trail.jpg" alt="對手煞車拖出的輪胎煙霧"><br><sub>對手煞車拖出的輪胎煙霧</sub></td>
-    <td><img src="docs/screenshots/nitro-traffic.jpg" alt="噴氮氣衝進車流"><br><sub>噴氮氣衝進車流</sub></td>
+    <td><img src="docs/screenshots/smoke-trail.jpg" alt="對手煞車拖出的輪胎煙霧"></td>
+    <td><img src="docs/screenshots/nitro-traffic.jpg" alt="噴氮氣衝進車流"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/drift.jpg" alt="甩尾的對手就在身旁"><br><sub>甩尾的對手就在身旁</sub></td>
-    <td><img src="docs/screenshots/three-wide.jpg" alt="被兩台對手左右包夾"><br><sub>被兩台對手左右包夾</sub></td>
+    <td><img src="docs/screenshots/drift.jpg" alt="甩尾的對手就在身旁"></td>
+    <td><img src="docs/screenshots/three-wide.jpg" alt="被兩台對手左右包夾"></td>
   </tr>
 </table>
 
