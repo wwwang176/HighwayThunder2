@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeResetSpot } from '../src/game/reset';
+import { clearResetSpot, computeResetSpot } from '../src/game/reset';
 import { laneCenter } from '../src/road/coords';
 
 const car = (s: number, lane: number) => ({ s, dMin: laneCenter(lane) - 0.9, dMax: laneCenter(lane) + 0.9, length: 4.5 });
@@ -51,5 +51,22 @@ describe('computeResetSpot', () => {
     const spot = computeResetSpot(2, laneCenter(1), [car(0, 1)]);
     expect(spot.s).toBeGreaterThanOrEqual(0);
     expect(spot.s).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('clearResetSpot (a rival put back)', () => {
+  it('the start just behind and its spot taken: forward, never on top of the car there', () => {
+    const grid = [0, 1, 2, 3].map((l) => car(2, l));
+    const spot = clearResetSpot(0, laneCenter(1), grid)!;
+    expect(spot).not.toBeNull();
+    expect(spot.s - 2.2 - (2 + 2.25)).toBeGreaterThanOrEqual(12);
+  });
+  it('no room either way: none (not put back yet)', () => {
+    const packed = [];
+    for (let s = -400; s <= 400; s += 10) for (const l of [0, 1, 2, 3]) packed.push(car(500 + s, l));
+    expect(clearResetSpot(500, laneCenter(1), packed)).toBeNull();
+  });
+  it('where computeResetSpot finds room, the same spot', () => {
+    expect(clearResetSpot(500, laneCenter(1), [car(503, 1)])).toEqual(computeResetSpot(500, laneCenter(1), [car(503, 1)]));
   });
 });

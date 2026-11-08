@@ -49,6 +49,12 @@ interface Heard {
   releaseAt: number;
 }
 
+/** Whether every number of a source is one (none NaN or infinite). */
+function finiteSource(s: EngineSource): boolean {
+  return Number.isFinite(s.rpm) && Number.isFinite(s.throttle) && Number.isFinite(s.gain) && Number.isFinite(s.idle) && Number.isFinite(s.redline)
+    && s.pos.every(Number.isFinite) && s.vel.every(Number.isFinite);
+}
+
 const NEAR = new Int32Array(VOICES);
 const NEAR_D = new Float64Array(VOICES);
 const PAN = new Float32Array(2);
@@ -84,6 +90,7 @@ export class OtherEngines {
     const now = this.ctx.currentTime;
     for (let k = 0; k < n; k++) {
       const s = sources[NEAR[k]];
+      if (!finiteSource(s)) continue; // (a body the physics blew up on: let go - a NaN set on a gain throws)
       let h = this.heard.find((x) => x.key === s.key);
       if (h && h.voice.kind !== s.kind) {
         this.drop(h);

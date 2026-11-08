@@ -725,6 +725,18 @@ export class NpcVehicle {
     }
   }
 
+  /**
+   * Whether its bodies are where numbers say (none NaN or infinite). Not: the physics blew up on it (two cars put
+   * down on one another) - left in, its NaN spread through every planner that saw it, and on to the sound.
+   */
+  finite(): boolean {
+    for (const p of this.parts) {
+      const t = p.body.translation(); // (a NaN velocity is a NaN place the next step)
+      if (!(Number.isFinite(t.x) && Number.isFinite(t.y) && Number.isFinite(t.z))) return false;
+    }
+    return true;
+  }
+
   /** Position along OUR road (world s = -z) of the first part, for culling. */
   get s(): number {
     return -this.parts[0].body.translation().z;

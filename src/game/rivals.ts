@@ -13,7 +13,7 @@ import { CarSpec, STREET_RACER } from '../vehicles/cars';
 import { randomLivery } from '../vehicles/carModels';
 import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
-import { Blocker, computeResetSpot } from './reset';
+import { Blocker, clearResetSpot } from './reset';
 import { trackerFrom } from '../ai/netTracker';
 import { aiTopSpeed } from '../ai/aiTopSpeed';
 
@@ -130,6 +130,8 @@ export const PLAYER_BOX_ID = -1;
 const BAND_SMOOTH = 1;
 /** Speed (m/s) it is put back on the road at when stuck, spun or off the road. */
 const RESET_SPEED_RIVAL = 60 * KMH;
+/** s: no clear spot to put it back at, it tries again this much later. */
+const RESET_RETRY = 0.5;
 /** Top speed (m/s) once past the finish: it rolls out. */
 export const FINISHED_SPEED = 40 * KMH;
 const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
@@ -150,6 +152,8 @@ export interface Rival {
   nitroAi: NitroAi;
   finishTime: number | null;
   resets: number;
+  /** s left before it may be put back again (no clear spot last time: RESET_RETRY). */
+  resetWait: number;
 }
 
 /** What the rivals need to know about the race each step. */
@@ -194,7 +198,7 @@ export class Rivals {
       driver.accel = spec.ai.accel;
       driver.latAccel = spec.ai.latAccel;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0 };
+      const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0 };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
       this.list.push(r);
     }
@@ -213,6 +217,7 @@ export class Rivals {
       r.boost = 0;
       r.finishTime = null;
       r.resets = 0;
+      r.resetWait = 0;
       this.applyBoost(r);
     }
   }
@@ -259,6 +264,8 @@ export class Rivals {
       const c = r.car;
       if (r.finishTime === null && c.s >= ROAD_LENGTH) r.finishTime = view.raceTime;
       r.stuckFor = c.speed < RIVAL_TUNING.stuckSpeed ? r.stuckFor + dt : 0;
+      r.resetWait = Math.max(0, r.resetWait - dt);
+      if (r.resetWait > 0) continue;
       const why = needsReset({ s: c.s, d: c.d, yaw: c.yaw, speed: c.speed, stuckFor: r.stuckFor, playerS: view.player.s });
       if (why && r.finishTime === null) this.putBack(r, why, view, blockers);
     }
@@ -335,7 +342,12 @@ export class Rivals {
     const at = putBackAt(why, r.car.s, p);
     const all: Blocker[] = [...blockers, { ...p.footprint(), v: Math.max(0, p.speed) }];
     for (const o of this.list) if (o !== r) all.push({ ...o.car.footprint(), v: Math.max(0, o.car.speed) });
-    const spot = computeResetSpot(at.s, r.car.d, all, at.speed);
+    // (Only somewhere clear - never on top of another car: no room yet, it waits a little and tries again.)
+    const spot = clearResetSpot(at.s, r.car.d, all, at.speed);
+    if (!spot) {
+      r.resetWait = RESET_RETRY;
+      return;
+    }
     r.car.resetTo(spot.s, spot.lane, at.speed);
     r.driver.reset();
     r.stuckFor = 0;

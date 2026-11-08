@@ -39,6 +39,9 @@ export interface TrafficFocus {
   raceTime: number;
 }
 
+/** An obstacle whose numbers are numbers (a body the physics blew up on gives NaN: the planners never see one). */
+const finiteObstacle = (o: Obstacle) => Number.isFinite(o.s) && Number.isFinite(o.v) && Number.isFinite(o.dMin) && Number.isFinite(o.dMax) && Number.isFinite(o.length);
+
 /** Position along a carriageway's own s axis of a point at our-carriageway s. */
 const frameS = (frame: RoadFrame, s: number) => frame.fromWorld(0, -s).s;
 
@@ -103,12 +106,15 @@ export class TrafficWorld {
   stepAI(dt: number, simTime: number, obstacles: (frame: RoadFrame) => Obstacle[]): void {
     this.sincePlan += dt;
     const plan = ++this.stepsSincePlan >= (this.opts.planEvery ?? 1);
+    // A vehicle the physics blew up on (NaN, infinite) gone before it is planned round: kept, every planner seeing it
+    // went NaN too, and spawning, never culled, ran on into thousands.
+    if (plan) for (const npc of [...this.npcs.values()]) if (!npc.finite()) this.removeNpc(npc);
     for (const side of this.sides) {
       for (const npc of this.npcs.values()) {
         if (!npc.wrecked && !npc.asleep && this.side.get(npc.id) === side) npc.syncAgent(side.sim.agents.get(npc.id)!);
       }
       if (plan) {
-        const obs = obstacles(side.frame);
+        const obs = obstacles(side.frame).filter(finiteObstacle); // (a racer blown up: not seen)
         for (const npc of this.npcs.values()) if (npc.wrecked) obs.push(...npc.obstacles(side.frame));
         side.sim.plan(this.sincePlan, obs, this.rng);
       }
@@ -206,6 +212,9 @@ export class TrafficWorld {
     for (const npc of this.npcs.values()) npc.dispose();
     this.npcs.clear();
     this.side.clear();
+    // Their planners' agents too: left without bodies, they drove on unseen and unculled (the asleep ones moving
+    // themselves) - and went NaN, spreading to the traffic spawned after.
+    for (const s of this.sides) s.sim.agents.clear();
   }
 
   private removeNpc(npc: NpcVehicle): void {
