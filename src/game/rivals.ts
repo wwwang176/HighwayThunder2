@@ -19,20 +19,21 @@ import { aiTopSpeed } from '../ai/aiTopSpeed';
 
 /**
  * Rival racers' settings (mutable: the tuning panel). Gaps are "rival minus
- * player" along the road, in metres.
+ * player" along the road, in metres. The rubber band the same at every difficulty (game/difficulty: only the
+ * rivals' top speed), keeping them round the player.
  */
 export const RIVAL_TUNING = {
   count: 5,
-  /** Behind by more than this, grip and engine start getting boosted... */
-  boostFrom: 30,
-  /** ...up to `maxBoost` (+25 % each) this far behind. */
+  /** Behind by more than this, grip and engine start getting boosted (within it, none)... */
+  boostFrom: 100,
+  /** ...rising evenly to `maxBoost` (+60 % each) this far behind. */
   boostFull: 300,
-  maxBoost: 0.25,
+  maxBoost: 0.6,
   /** Ahead by more than this, its top speed comes down... */
-  waitFrom: 150,
-  /** ...to `waitSpeed` x the player's speed this far ahead (it waits for the player). */
-  waitFull: 300,
-  waitSpeed: 0.9,
+  waitFrom: 100,
+  /** ...to `waitSpeed` x the player's speed this far ahead (it waits for the player: as fast, holding the gap). */
+  waitFull: 200,
+  waitSpeed: 1,
   /** m/s: it never waits slower than this (a car parked on the road is a wreck waiting to happen). */
   waitMinSpeed: 60 * KMH,
   /**
@@ -60,7 +61,7 @@ export const RIVAL_TUNING = {
  * The rubber band: how a rival `gap` metres from the player (+ ahead) is
  * helped or held back. `boost` is the extra grip and engine (0.25 = +25 %),
  * `speedCap` its top speed (m/s) - `cap` unless it is far ahead, then down
- * toward a little under the player's speed so the player catches up.
+ * toward the player's speed (waitSpeed of it) so it goes no further ahead.
  */
 export function rubberBand(gap: number, playerSpeed: number, cap: number): { boost: number; speedCap: number } {
   const T = RIVAL_TUNING;
@@ -158,6 +159,8 @@ export interface RaceView {
   traffic: TrafficBox[];
   /** Top speed the rivals may do (m/s): the AI strength setting. */
   speedCap: number;
+  /** And at most this share of their own car's top speed (the race's difficulty; none: all of it). */
+  topShare?: number;
   raceTime: number;
 }
 
@@ -219,7 +222,8 @@ export class Rivals {
     const p = view.player;
     for (const r of this.list) {
       r.car.holdInPlace(false);
-      const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), view.speedCap);
+      const own = Math.min(view.speedCap, (view.topShare ?? 1) * r.spec.params.maxSpeed); // (the difficulty's share of its car's)
+      const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), own);
       r.boost += (band.boost - r.boost) * Math.min(1, dt / BAND_SMOOTH);
       this.applyBoost(r);
       const top = aiTopSpeed(band.speedCap, r.spec); // its own top speed when lower than the AI's cap

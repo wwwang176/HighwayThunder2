@@ -103,7 +103,7 @@ describe('putBackAt', () => {
     expect(T.placeAhead).toBe(T.placeBehind);
     expect(T.placeBehind).toBeGreaterThanOrEqual(200);
     expect(T.placeBehind).toBeLessThanOrEqual(T.teleportBehind / 2);
-    expect(T.placeAhead).toBeLessThan(T.waitFull); // ahead, it is not yet waiting its slowest
+    expect(T.placeAhead).toBeGreaterThanOrEqual(T.waitFull); // ahead, put where it waits as fast as the player (not drawing away again)
   });
 });
 

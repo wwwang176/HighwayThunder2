@@ -506,7 +506,7 @@ export class Garage {
           .join('')}
       </div>
       <div class="s-sec">
-        ${head('setup.difficulty.kicker', 'setup.difficulty', rowHelp('difficulty', ...DIFFICULTIES.map((_, i) => `${t(`diff.${i}` as Key)}：${t(`diff.hint.${i}` as Key)}`)))}
+        ${head('setup.difficulty.kicker', 'setup.difficulty', rowHelp('difficulty', ...DIFFICULTIES.map((d, i) => `${t(`diff.${i}` as Key)}：${t(`diff.hint.${i}` as Key, { pct: Math.round(d.topShare * 100) })}`), t('diff.hint.band')))}
         <div class="s-diff-row ${focus('difficulty')}">${DIFFICULTIES.map((_, i) => `<button class="s-btn ${i === s.difficulty ? 'sel' : ''}" data-d="${i}"><span>${t(`diff.${i}` as Key)}</span></button>`).join('')}</div>
       </div>
       <div class="s-sec">
