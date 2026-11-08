@@ -17,6 +17,18 @@ const PUFF_SPIN = 0.6;
 const SHADE_GAIN = 0.8;
 /** The brightest a lit puff gets (linear; tone mapped, near white). */
 const SMOKE_WHITE = 4;
+/**
+ * The low beam's cut-off in the smoke, how soft (tangent units, lowBeamPattern): the road's 0.018 (about a degree)
+ * cut the smoke as with a knife - on the road, the light lying along it, that degree is metres of soft edge; seen
+ * across smoke, centimetres. Spread wider, as the light scattered through the smoke softens it.
+ */
+const SMOKE_CUT_SOFT = 0.15;
+/**
+ * A spot light's light scattered round its beam (off the road, through the smoke), of the beam's: a puff out of the
+ * beam lit this much as in it. None: smoke blown back past the car's own lamps went from white to black at their
+ * cone's edge - as if it were only in the cone.
+ */
+const SMOKE_SPILL = 0.08;
 /** A puff at its thickest (its alpha; how many puffs, as they were): at 0.45 a burnout's cloud was too dense. */
 const PUFF_OPACITY = 0.27;
 
@@ -106,11 +118,12 @@ export class TireSmoke {
     // cookie right (xyz) + has-cookie flag (w); cookie up
     lightRight: { value: vec4s() },
     lightUp: { value: vec3s() },
-    cookieTex: { value: lowBeamCookie(128) },
+    cookieTex: { value: lowBeamCookie(128, SMOKE_CUT_SOFT) },
     puffTex: { value: puffTexture() },
     ambient: { value: AMBIENT.clone().multiplyScalar(ALBEDO / Math.PI) },
     // Half the picture's height (px, as drawn: its pixel ratio's): a puff's radius in the world from its size drawn.
     halfHeight: { value: 500 },
+    spill: { value: SMOKE_SPILL },
   };
   private next = 0;
   private carry = new Map<number, number>();
@@ -140,6 +153,7 @@ export class TireSmoke {
         uniform vec3 lightUp[MAX_LIGHTS];
         uniform sampler2D cookieTex;
         uniform float halfHeight;
+        uniform float spill;
         varying float vAlpha;
         varying float vTurn;
         varying vec3 vLit;
@@ -164,13 +178,16 @@ export class TireSmoke {
               k *= r * r;
             }
             if (prm.z > -1.5) {
+              // Its beam (cone, low-beam pattern), and round it the light scattered (spill): out of the beam a puff
+              // is dim, not dark - near a lamp it is seen grey, the dark coming on with the distance.
               float along = dot(l, lightDir[i]);
-              k *= smoothstep(prm.z, prm.w, along / dist);
-              if (lightRight[i].w > 0.5 && along > 0.0) {
-                vec2 uv = vec2(dot(l, lightRight[i].xyz), dot(l, lightUp[i])) / along;
+              float beam = smoothstep(prm.z, prm.w, along / dist);
+              if (lightRight[i].w > 0.5) {
+                vec2 uv = vec2(dot(l, lightRight[i].xyz), dot(l, lightUp[i])) / max(along, 1e-4);
                 uv = uv / ${(2 * TAN_HALF).toFixed(4)} + 0.5;
-                k *= (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ? texture2D(cookieTex, uv).r : 0.0;
+                beam *= (along > 0.0 && uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) ? texture2D(cookieTex, uv).r : 0.0;
               }
+              k *= spill + (1.0 - spill) * beam;
             }
             vec3 c = lightColor[i] * k;
             e += c;

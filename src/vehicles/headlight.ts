@@ -25,12 +25,13 @@ const FALL = 0.45 * TAN_HALF;
  * A sharp horizontal cut-off just below the horizon (so it lights the road,
  * not the car in front's whole body or oncoming drivers), the right-hand 15°
  * step-up of right-hand-traffic beams, a wide horizontal spread and a gentle
- * fade toward the car.
+ * fade toward the car. `soft`: the cut-off's softness (tangent units; a softer one spread both ways round where the
+ * sharp one fades in).
  */
-export function lowBeamPattern(u: number, v: number): number {
+export function lowBeamPattern(u: number, v: number, soft = EDGE): number {
   const cut = u > 0 ? CUT_V + Math.min(u * KINK, KINK_RISE) : CUT_V;
   const below = cut - v;
-  const edge = Math.min(1, Math.max(0, below / EDGE));
+  const edge = Math.min(1, Math.max(0, (below + (soft - EDGE) / 2) / soft));
   const spread = Math.exp(-(((u - 0.073) / SPREAD) ** 2));
   const fall = 0.3 + 0.7 * Math.exp(-(((below - 0.058) / FALL) ** 2));
   return edge * spread * fall;
@@ -220,8 +221,11 @@ export function installLowBeamShader(): void {
 }
 installLowBeamShader(); // (on import: before any lit material is compiled)
 
-/** The pattern as a texture (the tyre smoke's shader takes it: tireSmoke). Canvas top = up in the light's view, left = car's left. */
-export function lowBeamCookie(size = 256): THREE.CanvasTexture {
+/**
+ * The pattern as a texture (the tyre smoke's shader takes it: tireSmoke), its cut-off `soft` (lowBeamPattern).
+ * Canvas top = up in the light's view, left = car's left.
+ */
+export function lowBeamCookie(size = 256, soft = EDGE): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d')!;
@@ -230,7 +234,7 @@ export function lowBeamCookie(size = 256): THREE.CanvasTexture {
   const pxPerTan = half / TAN_HALF;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const v = Math.round(255 * lowBeamPattern((x - half) / pxPerTan, (half - y) / pxPerTan));
+      const v = Math.round(255 * lowBeamPattern((x - half) / pxPerTan, (half - y) / pxPerTan, soft));
       const i = (y * size + x) * 4;
       img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
       img.data[i + 3] = 255;
