@@ -14,6 +14,7 @@ import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type 
 import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound, type SkidSource } from '../audio/sound';
 import type { RollSource } from '../audio/rolling';
+import type { LoopSource } from '../audio/placedLoops';
 import { createTuningPanel } from '../debug/tuning';
 import { Keyboard } from '../input/keyboard';
 import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
@@ -161,6 +162,7 @@ export class Game {
   /** The rivals' tyres as heard this frame (its entries reused). */
   private readonly skidSources: SkidSource[] = [];
   private readonly rollSources: RollSource[] = [];
+  private readonly windSources: LoopSource[] = [];
   private readonly earPose: EarPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 };
   readonly hud: Hud;
   /** The garage: the title screen, where the car and the race are picked. */
@@ -1075,6 +1077,20 @@ export class Game {
     return n;
   }
 
+  /** The wind past the rivals this frame, into `this.windSources` (its entries reused; keys -1, -2, ...). How many. */
+  private heardWinds(): number {
+    let n = 0;
+    for (const r of this.rivals.list) {
+      const s = (this.windSources[n++] ??= { key: 0, pos: [0, 0, 0], vel: [0, 0, 0], speed: 0, gain: 1, pitch: 1 });
+      const p = r.car.mesh.position, v = r.car.body.linvel();
+      s.key = -1 - r.index;
+      s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.speed = Math.hypot(v.x, v.y, v.z);
+    }
+    return n;
+  }
+
   /**
    * The tyres heard rolling from outside this frame, into `this.rollSources` (its entries reused): each traffic
    * vehicle's (keys twice its id; a container's trailer the next, from its rear axles). Not the rivals' (their engines
@@ -1212,6 +1228,7 @@ export class Game {
     const pv = this.player.body.linvel();
     this.sound.setWind(this.flow.phase === 'title' ? 0 : Math.hypot(pv.x, pv.y, pv.z));
     this.sound.setOtherRolls(this.rollSources, this.heardRolls(), this.ear(), play, this.flow.phase !== 'title');
+    this.sound.setOtherWinds(this.windSources, this.heardWinds(), this.ear(), play, this.flow.phase !== 'title');
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);
     const q = this.player.body.rotation();

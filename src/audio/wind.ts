@@ -1,3 +1,5 @@
+import type { PlacedLoopSpec } from './placedLoops';
+
 /**
  * The wind past the player's car: the pack's wind (a steady loop: engineCatalog WIND_LOOP), unplaced as its engine,
  * louder and a little higher with its speed - none at a crawl, about +12 dB each doubling of the speed (1 at its
@@ -25,3 +27,9 @@ export function windRate(speed: number): number {
   const r = 1 + WIND_RATE_SLOPE * (Math.max(0, speed) / WIND_REF - 1);
   return Number.isFinite(r) ? Math.min(WIND_RATE_MAX, Math.max(WIND_RATE_MIN, r)) : 1;
 }
+
+/**
+ * The rivals' wind from outside (PlacedLoops): heard only close by - the nearest 5 within 40 m, full within 5 m - a
+ * rush going by (its Doppler), at the player's own law of its speed.
+ */
+export const WINDS: PlacedLoopSpec = { voices: 5, range: 40, refDistance: 5, level: windLevel, rate: windRate };
