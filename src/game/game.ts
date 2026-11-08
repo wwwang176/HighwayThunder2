@@ -50,7 +50,7 @@ import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
-import { FINISHED_SPEED, RaceView, RIVAL_COLORS, RIVAL_TUNING, Rivals } from './rivals';
+import { FINISHED_SPEED, RaceView, RIVAL_COLORS, Rivals } from './rivals';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
@@ -160,8 +160,8 @@ export class Game {
   aiActive = false;
   /** AI strength: its top speed. */
   readonly aiSettings = { speedCapKmh: 300 };
-  /** The rivals' top speed (km/h) at the race's difficulty (the tuning panel's AI top speed when that is lower). */
-  private rivalCapKmh = 300;
+  /** The rivals' top speed at the race's difficulty: this share of their car's own (the tuning panel's AI top speed when that is lower). */
+  private rivalTopShare = 1;
   private humanMaxSpeed = 0;
   /** Draw the AI's planned path on the road (P). */
   showPlan = true;
@@ -434,7 +434,7 @@ export class Game {
       }
       if (cars) {
         this.applyCars(cars);
-        this.rivalCapKmh = applyDifficulty(cars.difficulty, RIVAL_TUNING);
+        this.rivalTopShare = applyDifficulty(cars.difficulty);
       }
       this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
       this.resetWorld();
@@ -760,7 +760,8 @@ export class Game {
     const view: RaceView = {
       player: this.player,
       traffic: this.trafficWorld.ourBoxes(this.rivalTraffic),
-      speedCap: Math.min(this.aiSettings.speedCapKmh, this.rivalCapKmh) / 3.6,
+      speedCap: this.aiSettings.speedCapKmh / 3.6,
+      topShare: this.rivalTopShare,
       raceTime: this.flow.raceTime,
     };
     if (racing) this.rivals.drive(dt, view);
