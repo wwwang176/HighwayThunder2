@@ -29,8 +29,11 @@ const SMOKE_CUT_SOFT = 0.15;
  * cone's edge - as if it were only in the cone.
  */
 const SMOKE_SPILL = 0.08;
-/** A puff at its thickest (its alpha; how many puffs, as they were): at 0.45 a burnout's cloud was too dense. */
-const PUFF_OPACITY = 0.27;
+/**
+ * A puff at its thickest (its alpha; how many puffs, as they were): at 0.45 a burnout's cloud was too dense; at
+ * 0.27, lit round the lamps too (SMOKE_SPILL), a rival's smoke ahead hid the road.
+ */
+const PUFF_OPACITY = 0.18;
 
 function puffTexture(): THREE.Texture {
   return new THREE.TextureLoader().load(PUFF_TEXTURE); // (only its alpha is read)
