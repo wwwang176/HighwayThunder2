@@ -488,6 +488,18 @@ export class NpcVehicle {
     agent.d = c.d;
     agent.s = c.s + cab.spec.l / 2 - agent.length / 2;
     agent.v = Math.max(0, v.x * f.x + v.z * f.z);
+    // How far across the road its bodies reach, as they lie (a part at an angle reaches further; a trailer swung out).
+    let lo = Infinity, hi = -Infinity;
+    for (const p of this.parts) {
+      const pt = p === cab ? t : p.body.translation();
+      const pf = p === cab ? f : forwardOf(p.body.rotation());
+      const pd = p === cab ? c.d : this.frame.fromWorld(pt.x, pt.z).d;
+      const yaw = this.frame.yawFromWorldForward(pf.x, pf.z);
+      const reach = (p.spec.w / 2) * Math.abs(Math.cos(yaw)) + (p.spec.l / 2) * Math.abs(Math.sin(yaw));
+      lo = Math.min(lo, pd - reach);
+      hi = Math.max(hi, pd + reach);
+    }
+    agent.span = [lo, hi];
   }
 
   /** Agent → pedals and steering (call before world.step). */
@@ -528,6 +540,7 @@ export class NpcVehicle {
     if (this.asleep || this.wrecked) return;
     this.asleep = true;
     agent.free = true;
+    agent.span = undefined; // (moved straight along its lane now: its plain width)
     this.rolled = 0;
     for (const p of this.parts) {
       p.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);

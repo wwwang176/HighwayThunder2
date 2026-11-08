@@ -32,6 +32,12 @@ export interface Agent {
   idm: IdmParams;
   /** Moved by the sim itself (as in pure mode) though the sim is not integrating: no body under it to (far from every racer). */
   free?: boolean;
+  /**
+   * Across the road, how far its bodies reach (dMin, dMax: every part's corners, as they lie - a trailer swung out, a
+   * body at an angle); none: d ± width / 2. What lanes it blocks (lanesOf): a trailer swung into the next lane, seen
+   * by nobody, was driven through.
+   */
+  span?: [number, number];
 }
 
 /** Something agents must respect but do not drive: the player, wrecks. */
@@ -187,7 +193,7 @@ export class TrafficSim {
 
   /** Lanes an agent currently blocks (its target lane is claimed once it starts moving). */
   private lanesOf(a: Agent): number[] {
-    const lanes = lanesOccupied(a.d - a.width / 2, a.d + a.width / 2);
+    const lanes = a.span ? lanesOccupied(a.span[0], a.span[1]) : lanesOccupied(a.d - a.width / 2, a.d + a.width / 2);
     if (a.lcState === 'move' && a.targetLane !== null && !lanes.includes(a.targetLane)) lanes.push(a.targetLane);
     if (lanes.length === 0) lanes.push(a.lane);
     return lanes;

@@ -627,7 +627,7 @@ export class Game {
     for (const npc of this.npcs.values()) {
       const agent = this.trafficWorld.sideOf(npc.id)?.name === 'ours' ? this.traffic.agents.get(npc.id) : undefined;
       if (agent && !npc.wrecked) {
-        blockers.push({ s: agent.s, dMin: agent.d - agent.width / 2, dMax: agent.d + agent.width / 2, length: agent.length, v: agent.v });
+        blockers.push({ s: agent.s, dMin: agent.span?.[0] ?? agent.d - agent.width / 2, dMax: agent.span?.[1] ?? agent.d + agent.width / 2, length: agent.length, v: agent.v });
         if (agent.targetLane !== null && agent.targetLane !== agent.lane) {
           // Mid lane change: it is about to occupy the target lane too.
           const c = laneCenter(agent.targetLane);
