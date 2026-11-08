@@ -80,10 +80,12 @@ const vec4s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4()
  *
  * Lit as grok-aircraft2 lights its smoke: each puff by the lights around it (spot cones, the low-beam pattern;
  * falling off as the inverse square of the distance - not the lights' own decay: the headlights' 1 lights the road
- * far ahead, but a puff 50 m off lit as one 5 m off read the same in the picture, near white) once, at its centre (the vertex shader: per pixel, with a dozen
- * lights, it cost most of a frame in a thick cloud); per pixel only a fake volume: the puff a ball (a normal
- * from where on it the pixel is), its side toward the light (their weighted direction) lit, the far side and
- * its dense core (the picture's alpha: the light's way through it) darker.
+ * far ahead, but a puff 50 m off lit as one 5 m off read the same in the picture, near white) in the vertex shader
+ * (per pixel, with a dozen lights, it cost most of a frame in a thick cloud): at its centre and at its edges each
+ * way across and up the screen, the pixels lit between them (a beam's edge across a puff; drifting over it, the
+ * puff brightens by degrees - lit at its centre alone, a puff lit up or went dark at once). Per pixel a fake volume
+ * besides: the puff a ball (a normal from where on it the pixel is), its side toward the light (their weighted
+ * direction) lit, the far side and its dense core (the picture's alpha: the light's way through it) darker.
  */
 export class TireSmoke {
   private readonly pos = new Float32Array(MAX * 3);
@@ -107,6 +109,8 @@ export class TireSmoke {
     cookieTex: { value: lowBeamCookie(128) },
     puffTex: { value: puffTexture() },
     ambient: { value: AMBIENT.clone().multiplyScalar(ALBEDO / Math.PI) },
+    // Half the picture's height (px, as drawn: its pixel ratio's): a puff's radius in the world from its size drawn.
+    halfHeight: { value: 500 },
   };
   private next = 0;
   private carry = new Map<number, number>();
@@ -135,18 +139,20 @@ export class TireSmoke {
         uniform vec4 lightRight[MAX_LIGHTS];
         uniform vec3 lightUp[MAX_LIGHTS];
         uniform sampler2D cookieTex;
+        uniform float halfHeight;
         varying float vAlpha;
         varying float vTurn;
         varying vec3 vLit;
+        varying vec3 vLitR;
+        varying vec3 vLitL;
+        varying vec3 vLitU;
+        varying vec3 vLitD;
         varying vec3 vToLight;
         #include <fog_pars_vertex>
-        void main() {
-          vAlpha = alpha;
-          vTurn = turn;
-          // The light reaching the puff's centre, and the way it comes from (each light's, by its strength).
-          vec3 p = (modelMatrix * vec4(position, 1.0)).xyz;
+        // The light reaching world point p (irradiance), and the way it comes from (each light's, by its strength).
+        vec3 lightAt(vec3 p, out vec3 toLight) {
           vec3 e = vec3(0.0);
-          vec3 toLight = vec3(0.0);
+          toLight = vec3(0.0);
           for (int i = 0; i < MAX_LIGHTS; i++) {
             if (i >= lightCount) break;
             vec3 l = p - lightPos[i];
@@ -170,12 +176,30 @@ export class TireSmoke {
             e += c;
             toLight -= l / max(dist, 0.001) * (c.r + c.g + c.b);
           }
-          // Outgoing light of a diffuse grey surface (albedo / pi x irradiance), as the scene's materials.
-          vLit = e * ${(ALBEDO / Math.PI).toFixed(4)};
-          vToLight = mat3(viewMatrix) * toLight; // (seen from the camera: the puff faces it)
+          return e;
+        }
+        void main() {
+          vAlpha = alpha;
+          vTurn = turn;
+          vec3 p = (modelMatrix * vec4(position, 1.0)).xyz;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = size * scale / -mvPosition.z;
           gl_Position = projectionMatrix * mvPosition;
+          // Lit at its centre and at its edges across and up the screen (its radius as drawn, in the world): the
+          // pixels go between them, so a beam's edge falls across the puff, and a puff drifting over it brightens
+          // by degrees - lit at its centre only, the whole puff lit up or went dark at once.
+          float radius = 0.5 * gl_PointSize * -mvPosition.z / (projectionMatrix[1][1] * halfHeight);
+          vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]) * radius;
+          vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]) * radius;
+          vec3 toLight, unused;
+          // Outgoing light of a diffuse grey surface (albedo / pi x irradiance), as the scene's materials.
+          float k = ${(ALBEDO / Math.PI).toFixed(4)};
+          vLit = lightAt(p, toLight) * k;
+          vLitR = lightAt(p + right, unused) * k;
+          vLitL = lightAt(p - right, unused) * k;
+          vLitU = lightAt(p + up, unused) * k;
+          vLitD = lightAt(p - up, unused) * k;
+          vToLight = mat3(viewMatrix) * toLight; // (seen from the camera: the puff faces it)
           #include <fog_vertex>
         }`,
       fragmentShader: `
@@ -184,6 +208,10 @@ export class TireSmoke {
         varying float vAlpha;
         varying float vTurn;
         varying vec3 vLit;
+        varying vec3 vLitR;
+        varying vec3 vLitL;
+        varying vec3 vLitU;
+        varying vec3 vLitD;
         varying vec3 vToLight;
         #include <fog_pars_fragment>
         void main() {
@@ -196,6 +224,9 @@ export class TireSmoke {
           if (density < 0.004) discard;
           // The puff a ball: its normal where this pixel is (x right, y up, z toward the camera).
           vec2 xy = vec2(c.x, -c.y) * 2.0;
+          // Its light here: from its centre's toward its edge's on each side, across and up.
+          vec3 lit = vLit + (xy.x > 0.0 ? vLitR - vLit : vLitL - vLit) * abs(xy.x) + (xy.y > 0.0 ? vLitU - vLit : vLitD - vLit) * abs(xy.y);
+          lit = max(lit, 0.0);
           vec3 n = vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
           float lightLen = length(vToLight);
           float facing = lightLen > 1e-6 ? dot(normalize(n), vToLight / lightLen) : 0.0;
@@ -203,7 +234,7 @@ export class TireSmoke {
           // Its dense core the light's longest way through: darkest on the far side.
           float core = pow(density, 1.35);
           float shade = mix(0.58, 1.0, direct) * (1.0 - core * mix(0.32, 0.12, direct));
-          vec3 col = ambient + vLit * shade * ${SHADE_GAIN.toFixed(2)};
+          vec3 col = ambient + lit * shade * ${SHADE_GAIN.toFixed(2)};
           // Its own white: past 1 eased toward SMOKE_WHITE (the picture is tone mapped only after the smoke is
           // laid over it: a puff by a headlight, ~100, made even its faint square's edge show).
           vec3 over = max(col - 1.0, 0.0);
@@ -219,6 +250,11 @@ export class TireSmoke {
     pts.frustumCulled = false;
     pts.renderOrder = 2;
     scene.add(pts);
+  }
+
+  /** The picture it is drawn into is `heightPx` tall (its drawing buffer's: call as it is sized). */
+  setView(heightPx: number): void {
+    this.uniforms.halfHeight.value = heightPx / 2;
   }
 
   /** Emit for wheel `id` at a contact point; `slip` in m/s, carVel = car velocity (world). */
