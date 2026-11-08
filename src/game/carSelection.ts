@@ -26,7 +26,8 @@ export interface CarSelection {
 
 export const MAX_RIVALS = 5;
 const KEY = 'ht2.cars';
-const NORMAL = 1;
+/** A first visit's difficulty (and a saved one that doesn't exist): hard. */
+const DEFAULT_DIFFICULTY = 2;
 
 /** Car types that can be picked now. */
 export const PICKABLE: string[] = [STREET_RACER.id, MUSCLE_CAR.id, JDM_CAR.id];
@@ -60,9 +61,9 @@ export const CAR_CARDS: CarCard[] = [
   { id: JDM_CAR.id, name: JDM_CAR.name, accent: '#2f9bff', icon: 'icon-jdm', stats: stats('4.0', 0.75, '245', 0.6, '2.4', 1), pickable: true },
 ];
 
-/** Everyone on the supercar, five rivals, normal, a clear night (the game as it was). */
+/** A first visit's race: the player on the supercar, five rivals on cars drawn at random, hard, a clear night. */
 export function defaultSelection(): CarSelection {
-  return { player: STREET_RACER.id, rivals: Array.from({ length: MAX_RIVALS }, () => STREET_RACER.id), rivalMode: 'custom', difficulty: NORMAL, weather: 'clear', paint: {} };
+  return { player: STREET_RACER.id, rivals: Array.from({ length: MAX_RIVALS }, () => STREET_RACER.id), rivalMode: 'random', difficulty: DEFAULT_DIFFICULTY, weather: 'clear', paint: {} };
 }
 
 const pickable = (id: unknown): string => (typeof id === 'string' && PICKABLE.includes(id) && CARS[id] ? id : STREET_RACER.id);
@@ -79,7 +80,7 @@ export function sanitize(x: unknown): CarSelection {
   const o = x as { player?: unknown; rivals?: unknown; rivalMode?: unknown; difficulty?: unknown; paint?: unknown };
   const rivalMode = RIVAL_MODES.find((m) => m === o.rivalMode) ?? 'custom';
   const rivals = Array.isArray(o.rivals) ? o.rivals.slice(0, MAX_RIVALS).map(pickable) : defaultSelection().rivals;
-  const difficulty = typeof o.difficulty === 'number' && Number.isInteger(o.difficulty) && DIFFICULTIES[o.difficulty] ? o.difficulty : NORMAL;
+  const difficulty = typeof o.difficulty === 'number' && Number.isInteger(o.difficulty) && DIFFICULTIES[o.difficulty] ? o.difficulty : DEFAULT_DIFFICULTY;
   const paint: Record<string, string> = {};
   if (o.paint && typeof o.paint === 'object') {
     for (const [id, name] of Object.entries(o.paint)) if (PICKABLE.includes(id) && typeof name === 'string') paint[id] = name;

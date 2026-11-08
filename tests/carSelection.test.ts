@@ -22,8 +22,8 @@ const memory = () => {
 };
 
 describe('carSelection', () => {
-  it('by default: everyone on the supercar, five rivals, normal difficulty, a clear night - the game as it was', () => {
-    expect(defaultSelection()).toEqual({ player: 'street-racer', rivals: Array(5).fill('street-racer'), rivalMode: 'custom', difficulty: 1, weather: 'clear', paint: {} });
+  it('by default: the player on the supercar, five rivals on cars at random, hard, a clear night', () => {
+    expect(defaultSelection()).toEqual({ player: 'street-racer', rivals: Array(5).fill('street-racer'), rivalMode: 'random', difficulty: 2, weather: 'clear', paint: {} });
   });
 
   it('anything it does not know becomes the default; between 0 and 5 rivals', () => {
@@ -39,13 +39,13 @@ describe('carSelection', () => {
     expect(sanitize({ player: 'jdm', rivals: [], rivalMode: 'chaos' }).rivalMode).toBe('custom');
     expect(sanitize({ player: 'jdm', rivals: Array(9).fill('jdm') }).rivals).toHaveLength(MAX_RIVALS);
     expect(sanitize({ player: 'jdm', rivals: [] }).rivals).toEqual([]);
-    expect(sanitize({ player: 'jdm', rivals: [], difficulty: 7, weather: 'rain' })).toMatchObject({ difficulty: 1, weather: 'clear' });
+    expect(sanitize({ player: 'jdm', rivals: [], difficulty: 7, weather: 'rain' })).toMatchObject({ difficulty: 2, weather: 'clear' });
     expect(sanitize('garbage')).toEqual(defaultSelection());
   });
 
   it('an old save (cars only) keeps its cars and gets the defaults for the rest', () => {
     const old = { player: 'muscle-car', rivals: ['jdm', 'jdm', 'muscle-car', 'street-racer', 'jdm'] };
-    expect(sanitize(old)).toEqual({ ...old, rivalMode: 'custom', difficulty: 1, weather: 'clear', paint: {} });
+    expect(sanitize(old)).toEqual({ ...old, rivalMode: 'custom', difficulty: 2, weather: 'clear', paint: {} });
   });
 
   it('keeps a paint job (by name) per pickable car, nothing else', () => {
