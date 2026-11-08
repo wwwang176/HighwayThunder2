@@ -167,13 +167,12 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 .menu .status > div { display: flex; flex-direction: column; gap: 0.42vw; }
 .menu .status b { font-size: 1.56vw; font-weight: 600; }
 .menu .opt + .opt { margin-top: 0.73vw; }
-/* The pause's confirm (restart, the garage): the panel nothing but it - no title, no race's status. */
-#pause .confirm { display: none; }
-#pause.confirming .confirm { display: block; }
-#pause.confirming .menu > :not(.confirm) { display: none; }
-#pause .confirm .msg { margin: 1.04vw 0 1.77vw; font-size: 1.46vw; font-weight: 600; line-height: 1.5; color: #fff; }
-#pause .confirm .btns { display: flex; gap: 1.15vw; }
-#pause .confirm .btns .opt { flex: 1; margin-top: 0; }
+/* The pause's confirm (restart, the garage): over the pause on a veil of its own, as the settings (#settings). */
+#confirm { z-index: 30; pointer-events: auto; }
+#confirm .box { width: 29.2vw; box-sizing: border-box; padding: 2.1vw 2.5vw 2.3vw; --c: 1.35vw; }
+#confirm .msg { margin: 1.04vw 0 1.77vw; font-size: 1.46vw; font-weight: 600; line-height: 1.5; color: #fff; }
+#confirm .btns { display: flex; gap: 1.15vw; }
+#confirm .btns .opt { flex: 1; margin-top: 0; }
 .result { width: 46.9vw; padding: 2.3vw 2.9vw 2.5vw; --c: 1.56vw; }
 .result h2 { margin-bottom: 1.46vw; letter-spacing: 0.21vw; font-size: 2.92vw; }
 .result .main { display: grid; grid-template-columns: 10.4vw 1fr; gap: 2.3vw; align-items: center; }
@@ -278,8 +277,8 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-go .txt { font-size: 1.6vw; letter-spacing: 0.25vw; gap: 0.6vw; }
 #garage .g-go .chev { display: none; }
 /* The controls pop-up: a framed cut panel on the veil. */
-#garage .g-back, #settings { position: absolute; inset: 0; z-index: 5; display: none; place-items: center; background: rgba(2, 4, 10, 0.62); backdrop-filter: blur(3px); }
-#garage .g-back.open, #settings.open { display: grid; }
+#garage .g-back, #settings, #confirm { position: absolute; inset: 0; z-index: 5; display: none; place-items: center; background: rgba(2, 4, 10, 0.62); backdrop-filter: blur(3px); }
+#garage .g-back.open, #settings.open, #confirm.open { display: grid; }
 :is(#garage, #settings) .g-modal { width: 58vw; box-sizing: border-box; padding: 2.4vw 2.3vw 1.6vw; --c: 1.35vw; }
 :is(#garage, #settings) .g-modal .lbl.dash { margin-bottom: 0.6vw; }
 #garage .g-close { position: absolute; right: 1.2vw; top: 1.2vw; width: 2.2vw; height: 2.2vw; --c: 0.42vw; background: rgba(255, 255, 255, 0.08); color: #b9c4d8; font-size: 1.1vw; }
@@ -405,7 +404,7 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #hud.enter > * { animation: hud-in 0.6s ease-out backwards; } /* (backwards: held at its start before it, not at its end after - that held opacity 1 over the R hint's 0) */
 /* A menu panel coming in: up from a little below. */
 @keyframes panel-in { from { opacity: 0; translate: 0 0.6vw; } to { opacity: 1; translate: 0 0; } }
-.menu, .result, #garage .g-back.open .g-modal, #settings.open .g-modal { animation: panel-in 0.25s ease-out both; }
+.menu, .result, #garage .g-back.open .g-modal, #settings.open .g-modal, #confirm.open .g-modal { animation: panel-in 0.25s ease-out both; }
 
 /* The title (src/ui/garage.ts, #garage.title): the game's name and its start on the left, the car on the right
    (garageScene's picture shifted), none of the garage's controls; entering, the car slides to the middle and the

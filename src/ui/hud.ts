@@ -183,15 +183,18 @@ export class Hud {
           <button class="opt" data-id="restartBtn"><span class="no">02</span>${tx('pause.restart')}</button>
           <button class="opt" data-id="settingsBtn"><span class="no">03</span>${tx('pause.settings')}</button>
           <button class="opt" data-id="pauseTitleBtn"><span class="no">04</span>${tx('pause.garage')}</button>
-          <div class="confirm">
-            ${tx('confirm.kicker', 'div', 'lbl dash')}
-            ${tx('confirm.lost', 'p', 'msg')}
-            <div class="btns">
-              <button class="opt" data-id="confirmYes">${tx('confirm.yes')}</button>
-              <button class="opt" data-id="confirmNo">${tx('confirm.no')}<kbd>Esc</kbd></button>
-            </div>
-          </div>
         </div>
+      </div>
+      <div id="confirm" class="g-back" data-id="confirm">
+        <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-modal box panel cut" role="alertdialog" aria-modal="true">
+          ${tx('confirm.kicker', 'div', 'lbl dash')}
+          ${tx('confirm.lost', 'p', 'msg')}
+          <div class="btns">
+            <button class="opt" data-id="confirmYes">${tx('confirm.yes')}</button>
+            <button class="opt" data-id="confirmNo">${tx('confirm.no')}<kbd>Esc</kbd></button>
+          </div>
+        </div></div>
       </div>
       <div id="finish" class="center bracketed">
         <span class="brk tr"></span><span class="brk bl"></span>
@@ -232,6 +235,7 @@ export class Hud {
       then?.();
     };
     this.el.confirmNo.onclick = () => this.cancelConfirm();
+    this.el.confirm.onclick = (e) => e.target === e.currentTarget && this.cancelConfirm(); // (its veil)
     this.el.finishTitleBtn.onclick = () => handlers.onTitle();
     // The pointer moves the menus' cursor too; a click leaves no focus behind (Enter is the cursor's, not a clicked button's).
     for (const id of ['resumeBtn', 'restartBtn', 'settingsBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn', 'confirmYes', 'confirmNo'])
@@ -254,18 +258,21 @@ export class Hud {
     return this.confirmThen !== null;
   }
 
-  /** The pause's confirm (the race thrown away - sure?): `then` on OK; the cursor on Cancel. */
+  /**
+   * The pause's confirm (the race thrown away - sure?), over the pause on a veil of its own (as the settings):
+   * `then` on OK; the cursor on Cancel.
+   */
   private ask(then: () => void): void {
     this.confirmFrom = this.cursor;
     this.confirmThen = then;
-    this.el.pause.classList.add('confirming');
+    this.el.confirm.classList.add('open');
     this.openMenu([this.el.confirmYes, this.el.confirmNo]);
     this.point(1);
   }
 
   private closeConfirm(): void {
     this.confirmThen = null;
-    this.el.pause.classList.remove('confirming');
+    this.el.confirm.classList.remove('open');
   }
 
   /** Cancel (Esc too): back to the pause's menu, its cursor where it was. */
