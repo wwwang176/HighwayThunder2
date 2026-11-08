@@ -16,11 +16,18 @@ import type { SelfState } from './sensors';
 
 /** s ahead on the plan it sees where the plan is and how fast it moves sideways. */
 export const TRACKER_LOOK = [0, 0.15, 0.3, 0.5];
-export const TRACKER_INPUTS = 2 * TRACKER_LOOK.length + 9;
+/**
+ * Its inputs: the plan ahead, the car's motion (each scaled to about -1..1, the angles clamped past ~17 deg), what it
+ * is told; then the car's heading and slide unclamped (HEADING_INPUTS: across the road, after a crash, all of it).
+ */
+const HEADING_INPUTS = 3;
+export const TRACKER_INPUTS = 2 * TRACKER_LOOK.length + 9 + HEADING_INPUTS;
 /** Outputs: a steering correction, and how much of the plan's throttle to take back (0..1: none..all). */
 export const TRACKER_LAYERS = [TRACKER_INPUTS, 12, 12, 2];
+/** The layout before the heading inputs. */
+const NO_HEADING_LAYERS = [TRACKER_INPUTS - HEADING_INPUTS, 12, 12, 2];
 /** The layout before the throttle: steering only, without the wheelspin and throttle inputs. */
-const STEER_ONLY_LAYERS = [TRACKER_INPUTS - 2, 12, 12, 1];
+const STEER_ONLY_LAYERS = [TRACKER_INPUTS - HEADING_INPUTS - 2, 12, 12, 1];
 
 const clamp = (x: number, m = 3) => Math.max(-m, Math.min(m, x));
 
@@ -47,6 +54,10 @@ export function trackerInputs(plan: Plan, age: number, self: SelfState, base: nu
   out[k++] = base;
   out[k++] = clamp((self.rearSpin ?? 0) / 5); // m/s the driven wheels spin faster than the car goes
   out[k++] = throttle; // what the plan asks of the pedal
+  // Its heading off the road's and its slide, all of them: past ~17 deg the ones above all read the same.
+  out[k++] = Math.sin(self.yaw);
+  out[k++] = 1 - Math.cos(self.yaw); // (0 on the road's heading, 2 the wrong way round)
+  out[k++] = Math.atan2(self.vLat, Math.max(1, self.vLong)) / (Math.PI / 2);
   return out;
 }
 
@@ -74,12 +85,33 @@ export function quietTracker(rng: Rng): Brain {
 }
 
 /**
- * A car type's trained tracker (CarPerformance.tracker), or null if it has none for this layout. One trained
- * for steering only comes in as is: the new inputs weigh nothing and it takes no throttle back.
+ * A car type's trained tracker (CarPerformance.tracker), or null if it has none for this layout. One of an older
+ * layout comes in driving as it did: the inputs added since weigh nothing (the heading ones; the wheelspin and
+ * throttle ones), and one trained for steering only takes no throttle back.
  */
 export function trackerFrom(weights: number[] | undefined): Brain | null {
   if (!weights) return null;
   if (weights.length === weightCount(TRACKER_LAYERS)) return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(weights) };
+  if (weights.length === weightCount(NO_HEADING_LAYERS)) return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(widen(weights, NO_HEADING_LAYERS, HEADING_INPUTS)) };
+  const steerAndThrottle = fromSteerOnly(weights);
+  return steerAndThrottle && trackerFrom(steerAndThrottle);
+}
+
+/** The weights of a network of `layers` with `more` inputs added after its own, weighing nothing. */
+function widen(weights: number[], layers: number[], more: number): number[] {
+  const [nIn, h1] = layers;
+  const out: number[] = [];
+  let k = 0;
+  for (let o = 0; o < h1; o++) {
+    out.push(...weights.slice(k, k + nIn), ...new Array(more).fill(0), weights[k + nIn]); // (its inputs', the new ones', its bias)
+    k += nIn + 1;
+  }
+  out.push(...weights.slice(k));
+  return out;
+}
+
+/** A steering-only network's weights in the layout before the heading inputs (null: not that layout). */
+function fromSteerOnly(weights: number[]): number[] | null {
   if (weights.length !== weightCount(STEER_ONLY_LAYERS)) return null;
   const [nIn, h1, h2] = STEER_ONLY_LAYERS;
   const out: number[] = [];
@@ -91,5 +123,5 @@ export function trackerFrom(weights: number[] | undefined): Brain | null {
   out.push(...weights.slice(k, k + (h1 + 1) * h2));
   k += (h1 + 1) * h2;
   out.push(...weights.slice(k, k + h2 + 1), ...new Array(h2 + 1).fill(0)); // the steering row; the throttle's quiet
-  return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(out) };
+  return out;
 }

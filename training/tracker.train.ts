@@ -11,7 +11,8 @@ import { selfStateOf } from '../src/ai/driver';
 import { DEFAULT_EVO, nextGeneration } from '../src/ai/evolution';
 import { baseSteer, netDrive, quietTracker, trackerFrom } from '../src/ai/netTracker';
 import { lateralTurn, maxAccel, Plan, PLANNER } from '../src/ai/planner';
-import { planPedals } from '../src/ai/plannerDriver';
+import { planPedals, PlannerDriver } from '../src/ai/plannerDriver';
+import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { mulberry32, Rng } from '../src/ai/rng';
 import { openGround } from './openGround';
 
@@ -21,7 +22,10 @@ import { openGround } from './openGround';
  * moves to random targets - lane centres and gaps between - replanned every 0.25 s from where the
  * car is, as in a race). Every car of a generation gets the same targets; the plain tracker drives
  * them too, for comparison. Score: squared distance off the plan, a little for jerking the wheel,
- * and spinning out is the end.
+ * and spinning out is the end. Then RECOVERY a generation of a crash's aftermath: the car standing across the road
+ * (30-150 deg off its heading, either way, rails each side), the game's own planner telling it to drive on - scored
+ * by how soon it is away (straight, 40 km/h, held 1 s), how far it turned past its start, how far it swung past
+ * straight (a donut: far over 2 turns, the end), weighed RECOVERY_WEIGHT against the driving.
  *   CAR=muscle-car GENS=40 POP=60 SCENARIOS=8 SAVE=1 npx vitest run --config training/vitest.config.ts training/tracker.train.ts
  * (CAR: the car type, default the supercar; PLANNER_JSON as the benchmark; SAVE=1 writes the car's own
  * weights file, trackerFile(): e.g. src/vehicles/cars/muscleCarTracker.ts.)
@@ -37,6 +41,15 @@ const VALIDATION = 8;
 const CHATTER = 0.002; // cost per unit of wheel input change per step
 const SPIN_SLIP = 0.35; // rad of body slip (cornering.train.ts) or...
 const SPIN_YAW = 0.7; // ...heading off the road: spun
+const RECOVERY = Number(process.env.RECOVERY ?? 1); // a generation
+const RECOVERY_WEIGHT = Number(process.env.RECOVERY_WEIGHT ?? 0.3);
+const RECOVERY_S = 8;
+const RECOVERY_VALIDATION = [60, -60, 120, -120]; // deg off the road's heading
+const AWAY_YAW = (15 * Math.PI) / 180;
+const AWAY_V = 40 * KMH;
+const AWAY_HOLD = 1; // s
+const DONUT = 4 * Math.PI; // rad turned in all
+const NOT_AWAY = RECOVERY_S + 4;
 
 interface Scenario {
   v: number;
@@ -199,6 +212,68 @@ function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepErrors = 
   return { cost: runs.map((r) => r.cost / scenarios.length), errs: runs.map((r) => r.errs) };
 }
 
+/** A crash's aftermath: how far off the road's heading (rad, either way) it stands. */
+const recoveryHeading = (rng: Rng) => ((rng() < 0.5 ? -1 : 1) * (30 + rng() * 120) * Math.PI) / 180;
+
+/**
+ * Every brain (and the plain tracker for null) driving off from standing across the road at each of `headings`
+ * (rad), on the road with its rails, with the game's planner (PlannerDriver): its cost per brain, the mean of the
+ * headings'.
+ */
+function recoveryCost(brains: (Brain | null)[], headings: number[]): number[] {
+  const physics = PhysicsWorld.createSync();
+  physics.timestep = PHYSICS_DT;
+  const cars = brains.map(() => new PlayerCar(physics, null, { spec: SPEC }));
+  const cap = SPEC.params.maxSpeed;
+  const cost = brains.map(() => 0);
+  const lane = Math.floor(LANE_COUNT / 2);
+  for (const a of headings) {
+    for (const car of cars) {
+      car.body.setEnabled(true);
+      car.resetTo(100, lane, 0);
+      car.body.setRotation({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) }, true);
+      car.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    }
+    for (let i = 0; i < Math.round(0.5 / PHYSICS_DT); i++) { // settled on its springs, standing
+      for (const car of cars) car.prePhysics({ steer: 0, throttle: 0, brake: 1 }, PHYSICS_DT);
+      physics.step(() => {});
+      for (const car of cars) car.postPhysics();
+    }
+    const runs = brains.map((brain, k) => {
+      const driver = new PlannerDriver();
+      driver.accel = SPEC.ai.accel;
+      driver.latAccel = SPEC.ai.latAccel;
+      driver.tracker = brain;
+      return { car: cars[k], driver, start: cars[k].yaw, rotation: 0, overshoot: 0, awayAt: NaN, since: NaN, out: false };
+    });
+    for (let i = 0; i < Math.round(RECOVERY_S / PHYSICS_DT); i++) {
+      const t = i * PHYSICS_DT;
+      for (const r of runs) if (!r.out) r.car.prePhysics(r.driver.drive(selfStateOf(r.car, cap), [], r.car.params), PHYSICS_DT);
+      physics.step(() => {});
+      for (const r of runs) {
+        if (r.out) continue;
+        const c = r.car;
+        c.postPhysics();
+        r.rotation += Math.abs(c.yawRate) * PHYSICS_DT;
+        if (Math.sign(c.yaw) === -Math.sign(r.start)) r.overshoot = Math.max(r.overshoot, Math.abs(c.yaw));
+        const ok = Math.abs(c.yaw) < AWAY_YAW && c.vLong > AWAY_V;
+        if (!ok) r.since = NaN;
+        else if (Number.isNaN(r.since)) r.since = t;
+        if (!Number.isNaN(r.since) && t - r.since >= AWAY_HOLD) {
+          r.awayAt = r.since; // away: done
+          r.out = true;
+        } else if (r.rotation > DONUT) r.out = true; // round and round: done
+        if (r.out) c.body.setEnabled(false);
+      }
+    }
+    runs.forEach((r, k) => {
+      cost[k] += (Number.isNaN(r.awayAt) ? NOT_AWAY : r.awayAt) + Math.max(0, r.rotation - Math.abs(r.start)) / Math.PI + r.overshoot / (Math.PI / 2);
+    });
+  }
+  physics.free();
+  return cost.map((c) => c / headings.length);
+}
+
 const pct = (xs: number[], p: number) => {
   const a = xs.map(Math.abs).sort((x, y) => x - y);
   return a[Math.min(a.length - 1, Math.floor(a.length * p))] ?? NaN;
@@ -218,23 +293,36 @@ it('tracker', async () => {
   // From the car's current network if it has one (CONTINUE=1), else quiet ones (the plain tracker).
   const start = process.env.CONTINUE ? trackerFrom(SPEC.ai.tracker) : null;
   let pop: Brain[] = Array.from({ length: evo.population }, (_, i) => (start && i === 0 ? start : quietTracker(rng)));
-  const base = evaluate([null], validation, true);
-  process.stdout.write(`plain tracker on validation: cost ${base.cost[0].toFixed(4)}, ${describe(base.errs[0])}\n`);
+  const validRecovery = RECOVERY_VALIDATION.map((deg) => (deg * Math.PI) / 180);
+  /** One brain's validation: the driving's cost (and its errors), the recovery's, the two weighed together. */
+  const validate = (b: Brain | null) => {
+    const v = evaluate([b], validation, true);
+    const rec = RECOVERY_WEIGHT > 0 ? recoveryCost([b], validRecovery)[0] : 0;
+    return { cost: v.cost[0] + RECOVERY_WEIGHT * rec, drive: v.cost[0], rec, errs: v.errs[0] };
+  };
+  const show = (v: ReturnType<typeof validate>) => `${v.cost.toFixed(4)} (driving ${v.drive.toFixed(4)}, ${describe(v.errs)}; recovery ${v.rec.toFixed(2)})`;
+  const base = validate(null);
+  process.stdout.write(`plain tracker on validation: ${show(base)}\n`);
+  if (start) process.stdout.write(`its network now on validation: ${show(validate(start))}\n`);
   let best: { brain: Brain; cost: number } | null = null;
   const t0 = performance.now();
   for (let g = 0; g < gens; g++) {
     const scenarios = Array.from({ length: PER_GEN }, () => scenario(rng));
     const { cost } = evaluate([...pop, null], scenarios);
+    if (RECOVERY > 0 && RECOVERY_WEIGHT > 0) {
+      const rec = recoveryCost([...pop, null], Array.from({ length: RECOVERY }, () => recoveryHeading(rng)));
+      rec.forEach((c, i) => (cost[i] += RECOVERY_WEIGHT * c));
+    }
     const plain = cost.pop()!;
     const order = cost.map((c, i) => i).sort((a, b) => cost[a] - cost[b]);
     let line = `gen ${g}: best ${cost[order[0]].toFixed(4)}, median ${cost[order[Math.floor(order.length / 2)]].toFixed(4)}, plain ${plain.toFixed(4)}`;
     if (g % 5 === 4 || g === gens - 1) {
-      const v = evaluate([pop[order[0]]], validation, true);
-      line += ` | validation ${v.cost[0].toFixed(4)} (${describe(v.errs[0])})`;
-      if (!best || v.cost[0] < best.cost) {
-        best = { brain: pop[order[0]], cost: v.cost[0] };
+      const v = validate(pop[order[0]]);
+      line += ` | validation ${show(v)}`;
+      if (!best || v.cost < best.cost) {
+        best = { brain: pop[order[0]], cost: v.cost };
         if (process.env.SAVE) {
-          save(best.brain, best.cost, base.cost[0]); // stopping it any time keeps the best so far
+          save(best.brain, best.cost, base.cost); // stopping it any time keeps the best so far
           line += ' saved';
         }
       }
@@ -242,7 +330,7 @@ it('tracker', async () => {
     process.stdout.write(`${line}  [${((performance.now() - t0) / 1000).toFixed(0)} s]\n`);
     pop = nextGeneration(pop, cost.map((c) => -c), rng, evo);
   }
-  if (best) process.stdout.write(`best on validation: ${best.cost.toFixed(4)} (plain ${base.cost[0].toFixed(4)})\n`);
+  if (best) process.stdout.write(`best on validation: ${best.cost.toFixed(4)} (plain ${base.cost.toFixed(4)})\n`);
 });
 
 function save(b: Brain, cost: number, plain: number): void {

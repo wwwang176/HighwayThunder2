@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { baseSteer, netDrive, netSteer, quietTracker, trackerFrom, trackerInputs, TRACKER_INPUTS } from '../src/ai/netTracker';
+import { forward, weightCount } from '../src/ai/brain';
 import { mulberry32 } from '../src/ai/rng';
 import { DEFAULT_CAR } from '../src/vehicles/handling';
 
@@ -15,9 +16,37 @@ describe('netTracker', () => {
     expect(x[1]).toBeCloseTo(2 / 5); // the plan moves 2 m/s sideways
     expect(x[6]).toBeCloseTo(1 / 2); // 0.5 s ahead the plan is 1 m over
     expect(x[7]).toBeCloseTo(0); // ...and holds there
-    expect(x[TRACKER_INPUTS - 3]).toBeCloseTo(0.1); // the plain tracker's steering
-    expect(x[TRACKER_INPUTS - 2]).toBeCloseTo(0.5); // wheelspin, 2.5 m/s
-    expect(x[TRACKER_INPUTS - 1]).toBeCloseTo(0.7); // the plan's throttle
+    expect(x[14]).toBeCloseTo(0.1); // the plain tracker's steering
+    expect(x[15]).toBeCloseTo(0.5); // wheelspin, 2.5 m/s
+    expect(x[16]).toBeCloseTo(0.7); // the plan's throttle
+  });
+
+  it('sees its heading off the road unclamped, the wrong way round too', () => {
+    const across = trackerInputs(plan, 0, { ...self, yaw: Math.PI / 2, vLong: 0 }, 0, 0);
+    const back = trackerInputs(plan, 0, { ...self, yaw: (3 * Math.PI) / 4, vLong: 0 }, 0, 0);
+    expect(across[4 * 2 + 2]).toBe(3); // (the clamped heading: both the same)
+    expect(back[4 * 2 + 2]).toBe(3);
+    expect(across[17]).toBeCloseTo(1); // sin
+    expect(across[18]).toBeCloseTo(1); // 1 - cos
+    expect(back[17]).toBeCloseTo(Math.SQRT1_2);
+    expect(back[18]).toBeCloseTo(1 + Math.SQRT1_2);
+    const sliding = trackerInputs(plan, 0, { ...self, vLong: 10, vLat: 10 }, 0, 0);
+    expect(sliding[19]).toBeCloseTo(0.5); // 45 deg of slide, of 90
+  });
+
+  it('a network from before the heading inputs drives exactly as it did', () => {
+    const rng = mulberry32(3);
+    const before = [TRACKER_INPUTS - 3, 12, 12, 2];
+    const old = Array.from({ length: weightCount(before) }, () => rng() * 2 - 1);
+    const b = trackerFrom(old)!;
+    expect(b.layers).toEqual([TRACKER_INPUTS, 12, 12, 2]);
+    for (let n = 0; n < 20; n++) {
+      const x = Array.from({ length: TRACKER_INPUTS }, () => rng() * 4 - 2);
+      const want = forward({ layers: before, weights: Float32Array.from(old) }, x.slice(0, TRACKER_INPUTS - 3));
+      const got = forward(b, x);
+      expect(got[0]).toBeCloseTo(want[0], 6);
+      expect(got[1]).toBeCloseTo(want[1], 6);
+    }
   });
 
   it('a steering-only network comes in steering the same and taking no throttle back', () => {

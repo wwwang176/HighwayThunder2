@@ -5,7 +5,8 @@ import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { CARS } from '../src/vehicles/cars';
 import { selfStateOf } from '../src/ai/driver';
-import { trackerFrom } from '../src/ai/netTracker';
+import { baseSteer, trackerFrom } from '../src/ai/netTracker';
+import { planAt } from '../src/ai/planner';
 import { PlannerDriver } from '../src/ai/plannerDriver';
 
 /**
@@ -29,6 +30,7 @@ it('recovery', async () => {
   await RAPIER.init();
   const cars = process.env.CAR ? [process.env.CAR] : Object.keys(CARS);
   const lines: string[] = [];
+  const trace: string[] = [];
   for (const id of cars) {
     const spec = CARS[id];
     if (!spec) throw new Error(`no car "${id}"`);
@@ -58,7 +60,17 @@ it('recovery', async () => {
         let rotation = 0, overshoot = 0, awayAt = NaN, awaySince = NaN, touched = false;
         for (let i = 0; i < Math.round(RUN_S / PHYSICS_DT); i++) {
           const t = i * PHYSICS_DT;
-          car.prePhysics(driver.drive(selfStateOf(car, cap), [], car.params), PHYSICS_DT);
+          const self = selfStateOf(car, cap);
+          const input = driver.drive(self, [], car.params);
+          // TRACE=street-racer:-135: that run's every 0.25 s (where it heads, how it moves, what it's told, its plan).
+          if (process.env.TRACE === `${id}:${side * deg}` && i % Math.round(0.25 / PHYSICS_DT) === 0) {
+            const pl = driver.plan ? planAt(driver.plan, driver.planAge + 0.5) : null;
+            const base = driver.plan ? baseSteer(driver.plan, driver.planAge, self, car.params) : NaN;
+            trace.push(`  t ${t.toFixed(2)} yaw ${(car.yaw * DEG).toFixed(0)} vLong ${car.vLong.toFixed(1)} vLat ${car.vLat.toFixed(1)} d ${car.d.toFixed(1)} yawRate ${car.yawRate.toFixed(2)}`
+              + ` | steer ${input.steer.toFixed(2)} (base ${base.toFixed(2)}) thr ${input.throttle.toFixed(2)} brk ${input.brake.toFixed(2)}`
+              + (pl ? ` | plan+0.5s d ${pl.d.toFixed(1)} v ${pl.v.toFixed(1)}` : ''));
+          }
+          car.prePhysics(input, PHYSICS_DT);
           physics.step((x, y) => {
             if (x.type === 'static' || y.type === 'static') touched = true; // (a rail: the ground's under the wheels, not the body)
           });
@@ -80,5 +92,5 @@ it('recovery', async () => {
     }
     lines.push(`${id}: away ${away}/${total}, turned ${(turned / total).toFixed(0)} deg a run on average, rails ${rails}`, ...rows);
   }
-  process.stdout.write(lines.join('\n') + '\n');
+  process.stdout.write([...lines, ...trace].join('\n') + '\n');
 }, 600_000);
