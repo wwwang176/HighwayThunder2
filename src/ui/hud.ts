@@ -11,6 +11,8 @@ export interface HudHandlers {
   onRestart(): void;
   /** Back to the garage. */
   onTitle(): void;
+  /** Paused: the settings pop-up over it. */
+  onSettings(): void;
 }
 
 /** A car on the race line (the player's or a rival's). */
@@ -179,7 +181,8 @@ export class Hud {
           </div>
           <button class="opt" data-id="resumeBtn"><span class="no">01</span>${tx('pause.resume')}<kbd>Esc</kbd></button>
           <button class="opt" data-id="restartBtn"><span class="no">02</span>${tx('pause.restart')}</button>
-          <button class="opt" data-id="pauseTitleBtn"><span class="no">03</span>${tx('pause.garage')}</button>
+          <button class="opt" data-id="settingsBtn"><span class="no">03</span>${tx('pause.settings')}</button>
+          <button class="opt" data-id="pauseTitleBtn"><span class="no">04</span>${tx('pause.garage')}</button>
           <div class="confirm">
             ${tx('confirm.kicker', 'div', 'lbl dash')}
             ${tx('confirm.lost', 'p', 'msg')}
@@ -222,6 +225,7 @@ export class Hud {
     // Restart and the garage throw the race away: each asks first (OK / Cancel).
     this.el.restartBtn.onclick = () => this.ask(() => handlers.onRestart());
     this.el.pauseTitleBtn.onclick = () => this.ask(() => handlers.onTitle());
+    this.el.settingsBtn.onclick = () => handlers.onSettings();
     this.el.confirmYes.onclick = () => {
       const then = this.confirmThen;
       this.closeConfirm();
@@ -230,7 +234,7 @@ export class Hud {
     this.el.confirmNo.onclick = () => this.cancelConfirm();
     this.el.finishTitleBtn.onclick = () => handlers.onTitle();
     // The pointer moves the menus' cursor too; a click leaves no focus behind (Enter is the cursor's, not a clicked button's).
-    for (const id of ['resumeBtn', 'restartBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn', 'confirmYes', 'confirmNo'])
+    for (const id of ['resumeBtn', 'restartBtn', 'settingsBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn', 'confirmYes', 'confirmNo'])
       this.el[id].addEventListener('pointerenter', () => this.menu.includes(this.el[id]) && this.point(this.menu.indexOf(this.el[id])));
     root.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
     onLangChange(() => applyLang(root)); // (another language: the fixed words redone; the rest are set as they show)
@@ -268,8 +272,13 @@ export class Hud {
   cancelConfirm(): void {
     if (!this.confirming) return;
     this.closeConfirm();
-    this.openMenu([this.el.resumeBtn, this.el.restartBtn, this.el.pauseTitleBtn]);
+    this.openMenu(this.pauseMenu());
     this.point(this.confirmFrom);
+  }
+
+  /** The pause's options: resume, restart, the settings, the garage. */
+  private pauseMenu(): HTMLElement[] {
+    return [this.el.resumeBtn, this.el.restartBtn, this.el.settingsBtn, this.el.pauseTitleBtn];
   }
 
   private openMenu(options: HTMLElement[]): void {
@@ -357,7 +366,7 @@ export class Hud {
       }
       this.menu = [];
       this.closeConfirm();
-      if (phase === 'paused') this.openMenu([this.el.resumeBtn, this.el.restartBtn, this.el.pauseTitleBtn]);
+      if (phase === 'paused') this.openMenu(this.pauseMenu());
       if (phase === 'paused') {
         this.el.pTime.innerHTML = timeHtml(flow.raceTime);
         this.el.pPlaceBox.style.display = many ? '' : 'none';

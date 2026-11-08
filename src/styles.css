@@ -278,10 +278,10 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-go .txt { font-size: 1.6vw; letter-spacing: 0.25vw; gap: 0.6vw; }
 #garage .g-go .chev { display: none; }
 /* The controls pop-up: a framed cut panel on the veil. */
-#garage .g-back { position: absolute; inset: 0; z-index: 5; display: none; place-items: center; background: rgba(2, 4, 10, 0.62); backdrop-filter: blur(3px); }
-#garage .g-back.open { display: grid; }
-#garage .g-modal { width: 58vw; box-sizing: border-box; padding: 2.4vw 2.3vw 1.6vw; --c: 1.35vw; }
-#garage .g-modal .lbl.dash { margin-bottom: 0.6vw; }
+#garage .g-back, #settings { position: absolute; inset: 0; z-index: 5; display: none; place-items: center; background: rgba(2, 4, 10, 0.62); backdrop-filter: blur(3px); }
+#garage .g-back.open, #settings.open { display: grid; }
+:is(#garage, #settings) .g-modal { width: 58vw; box-sizing: border-box; padding: 2.4vw 2.3vw 1.6vw; --c: 1.35vw; }
+:is(#garage, #settings) .g-modal .lbl.dash { margin-bottom: 0.6vw; }
 #garage .g-close { position: absolute; right: 1.2vw; top: 1.2vw; width: 2.2vw; height: 2.2vw; --c: 0.42vw; background: rgba(255, 255, 255, 0.08); color: #b9c4d8; font-size: 1.1vw; }
 #garage .g-close:hover { color: #fff; background: var(--accent); }
 /* The race setup: a drawer from the right (the car slid left beside it, the garage's own type faded), no veil.
@@ -304,7 +304,7 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #ui button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #ui button.cut:focus-visible, #ui .panel:focus-visible { outline: none; background: var(--accent); color: #fff; }
 #garage .s-weather { position: relative; }
-#garage .s-sub > .help { margin-left: auto; }
+:is(#garage, #settings) .s-sub > .help { margin-left: auto; }
 #garage .s-back { margin-left: auto; white-space: nowrap; display: flex; align-items: center; gap: 0.52vw; height: 2.3vw; padding: 0 0.83vw 0 0.42vw; --c: 0.42vw;
   background: rgba(255, 255, 255, 0.08); color: var(--text-2); font: 700 0.83vw/1 var(--f-title); }
 #garage .s-back:hover { color: #fff; background: var(--accent); }
@@ -317,17 +317,17 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-head .aside { margin-left: auto; display: flex; align-items: center; gap: 0.42vw; font: 700 0.78vw/1 var(--f-title); color: var(--text-2); }
 #garage .s-head .aside .num { display: inline-flex; align-items: center; gap: 0.15vw; }
 #garage .s-head .icon.mini { width: 2vw; height: 1vw; }
-#garage .s-sub { position: relative; display: flex; align-items: center; gap: 0.83vw; margin-bottom: 0.73vw; }
-#garage .s-sub > .lbl { min-width: 3.4vw; }
+:is(#garage, #settings) .s-sub { position: relative; display: flex; align-items: center; gap: 0.83vw; margin-bottom: 0.73vw; }
+:is(#garage, #settings) .s-sub > .lbl { min-width: 3.4vw; }
 /* The small parallelogram button; picked: filled. */
-#garage .s-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.52vw; height: 2.6vw; padding: 0 0.83vw; box-sizing: border-box;
+:is(#garage, #settings) .s-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.52vw; height: 2.6vw; padding: 0 0.83vw; box-sizing: border-box;
   transform: skewX(-12deg); background: rgba(255, 255, 255, 0.05); border-left: 0.21vw solid rgba(255, 255, 255, 0.18);
   color: var(--text-2); font: 700 0.94vw/1 var(--f-title); white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
-#garage .s-btn > * { transform: skewX(12deg); }
-#garage .s-btn .icon { width: 1.4vw; height: 1.4vw; }
-#garage .s-btn:hover { color: #fff; border-left-color: var(--accent); }
-#garage .s-btn.sel { background: var(--accent); border-left-color: #fff; color: #fff; box-shadow: 0 0 1.4vw -0.3vw var(--accent); }
-#garage .s-btn.sel::after { content: ""; position: absolute; right: 0.42vw; top: 0.52vw; bottom: 0.52vw; width: 0.21vw; background: #fff; }
+:is(#garage, #settings) .s-btn > * { transform: skewX(12deg); }
+:is(#garage, #settings) .s-btn .icon { width: 1.4vw; height: 1.4vw; }
+:is(#garage, #settings) .s-btn:hover { color: #fff; border-left-color: var(--accent); }
+:is(#garage, #settings) .s-btn.sel { background: var(--accent); border-left-color: #fff; color: #fff; box-shadow: 0 0 1.4vw -0.3vw var(--accent); }
+:is(#garage, #settings) .s-btn.sel::after { content: ""; position: absolute; right: 0.42vw; top: 0.52vw; bottom: 0.52vw; width: 0.21vw; background: #fff; }
 #garage .s-count { display: flex; gap: 0.42vw; }
 #garage .s-count .s-btn { width: 3vw; padding: 0; font: 700 1.25vw/1 var(--f-num); }
 #garage .s-count .s-btn.sel::after, #garage .s-chip.sel::after, #garage .s-modes .s-btn.sel::after, #garage .s-weather .s-btn.sel::after { display: none; }
@@ -349,17 +349,17 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-chip.sel .icon.car { color: #fff; }
 #garage .s-rival .keys { justify-self: end; display: inline-flex; opacity: 0; }
 /* The row the keys are on: a light band, an accent bar on its left. */
-#garage .focus { background: rgba(255, 255, 255, 0.06); }
-#garage .focus::before { content: ""; position: absolute; left: -0.52vw; top: 0.2vw; bottom: 0.2vw; width: 0.21vw; background: var(--accent); }
+:is(#garage, #settings) .focus { background: rgba(255, 255, 255, 0.06); }
+:is(#garage, #settings) .focus::before { content: ""; position: absolute; left: -0.52vw; top: 0.2vw; bottom: 0.2vw; width: 0.21vw; background: var(--accent); }
 #garage .s-rival.focus .keys { opacity: 1; }
 #garage .s-diff-row { position: relative; display: flex; gap: 0.42vw; }
 #garage .s-diff-row .s-btn { flex: 1; }
 /* Weather: the ones not out yet say so on their face. */
 #garage .s-weather { display: flex; gap: 0.52vw; }
 #garage .s-weather .s-btn { flex: 1; padding: 0 0.5vw; }
-#garage .s-btn.soon { color: rgba(201, 211, 230, 0.4); cursor: not-allowed;
+:is(#garage, #settings) .s-btn.soon { color: rgba(201, 211, 230, 0.4); cursor: not-allowed;
   background: repeating-linear-gradient(-60deg, rgba(255, 255, 255, 0.045) 0 0.31vw, rgba(255, 255, 255, 0.015) 0.31vw 0.62vw); }
-#garage .s-btn.soon:hover { color: rgba(201, 211, 230, 0.4); border-left-color: rgba(255, 255, 255, 0.18); }
+:is(#garage, #settings) .s-btn.soon:hover { color: rgba(201, 211, 230, 0.4); border-left-color: rgba(255, 255, 255, 0.18); }
 /* A short screen, zoomed as far as it goes: the rows tighter. */
 #garage .compact .s-top { margin-bottom: 0.5vw; }
 #garage .compact .s-sec + .s-sec { margin-top: 0.5vw; padding-top: 0.5vw; }
@@ -367,22 +367,24 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .compact .s-rival { padding: 0.1vw 0.42vw; }
 #garage .compact .s-chip, #garage .compact .s-badge { height: 1.8vw; }
 #garage .compact .s-go { height: 3.3vw; margin-top: 0.8vw; }
-/* The settings pop-up: nothing in it counts till OK; its language shown in itself at once (Garage.drawSettings). */
-#garage .g-settings { width: 36vw; }
-#garage .g-settings h2 { margin: 0.4vw 0 1.4vw; font: italic 900 2.3vw/1 var(--f-title); letter-spacing: 0.21vw; }
-#garage .g-settings .s-sub { padding: 0.31vw 0.42vw; margin-bottom: 0; }
-#garage .g-settings .s-sub + .s-sub { margin-top: 0.52vw; }
-#garage .g-settings .s-sub > .lbl { width: 4.6vw; }
-#garage .g-settings .keys { margin-left: auto; display: inline-flex; }
-#garage .g-settings .s-sub:not(.focus) .keys { visibility: hidden; } /* (the arrows on the row they are on: ↑ ↓ between them) */
-#garage .s-langs { display: flex; gap: 0.42vw; }
-#garage .s-langs .s-btn { min-width: 6.3vw; }
-#garage .s-langs .s-btn.sel::after { display: none; }
-#garage .s-quality { display: flex; gap: 0.31vw; }
-#garage .s-quality .s-btn { padding: 0 0.55vw; font-size: 0.85vw; }
-#garage .s-quality .s-btn.sel::after { display: none; }
-#garage .g-settings .btns { display: flex; gap: 1.15vw; margin-top: 2.1vw; }
-#garage .g-settings .btns .opt { flex: 1; height: 3.1vw; font-size: 1.15vw; }
+/* The settings pop-up (src/ui/settings.ts): nothing in it counts till OK; its language shown in itself at once. Its
+   own veil, over the garage or the race's pause (and under the intro's fade). */
+#settings { z-index: 30; pointer-events: auto; }
+:is(#garage, #settings) .g-settings { width: 36vw; }
+:is(#garage, #settings) .g-settings h2 { margin: 0.4vw 0 1.4vw; font: italic 900 2.3vw/1 var(--f-title); letter-spacing: 0.21vw; }
+:is(#garage, #settings) .g-settings .s-sub { padding: 0.31vw 0.42vw; margin-bottom: 0; }
+:is(#garage, #settings) .g-settings .s-sub + .s-sub { margin-top: 0.52vw; }
+:is(#garage, #settings) .g-settings .s-sub > .lbl { width: 4.6vw; }
+:is(#garage, #settings) .g-settings .keys { margin-left: auto; display: inline-flex; }
+:is(#garage, #settings) .g-settings .s-sub:not(.focus) .keys { visibility: hidden; } /* (the arrows on the row they are on: ↑ ↓ between them) */
+:is(#garage, #settings) .s-langs { display: flex; gap: 0.42vw; }
+:is(#garage, #settings) .s-langs .s-btn { min-width: 6.3vw; }
+:is(#garage, #settings) .s-langs .s-btn.sel::after { display: none; }
+:is(#garage, #settings) .s-quality { display: flex; gap: 0.31vw; }
+:is(#garage, #settings) .s-quality .s-btn { padding: 0 0.55vw; font-size: 0.85vw; }
+:is(#garage, #settings) .s-quality .s-btn.sel::after { display: none; }
+:is(#garage, #settings) .g-settings .btns { display: flex; gap: 1.15vw; margin-top: 2.1vw; }
+:is(#garage, #settings) .g-settings .btns .opt { flex: 1; height: 3.1vw; font-size: 1.15vw; }
 /* The controls pop-up. */
 #garage .g-keys-list { width: 30vw; display: grid; grid-template-columns: 1fr; gap: 1.2vh; }
 #garage .g-key { display: grid; grid-template-columns: 11vw 1fr; align-items: center; font-size: 1vw; color: #cfd8e8; }
@@ -403,7 +405,7 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #hud.enter > * { animation: hud-in 0.6s ease-out backwards; } /* (backwards: held at its start before it, not at its end after - that held opacity 1 over the R hint's 0) */
 /* A menu panel coming in: up from a little below. */
 @keyframes panel-in { from { opacity: 0; translate: 0 0.6vw; } to { opacity: 1; translate: 0 0; } }
-.menu, .result, #garage .g-back.open .g-modal { animation: panel-in 0.25s ease-out both; }
+.menu, .result, #garage .g-back.open .g-modal, #settings.open .g-modal { animation: panel-in 0.25s ease-out both; }
 
 /* The title (src/ui/garage.ts, #garage.title): the game's name and its start on the left, the car on the right
    (garageScene's picture shifted), none of the garage's controls; entering, the car slides to the middle and the
