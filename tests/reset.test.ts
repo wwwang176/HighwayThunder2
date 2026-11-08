@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeResetSpot } from '../src/game/reset';
+import { clearResetSpot, computeResetSpot } from '../src/game/reset';
 import { laneCenter } from '../src/road/coords';
 
 const car = (s: number, lane: number) => ({ s, dMin: laneCenter(lane) - 0.9, dMax: laneCenter(lane) + 0.9, length: 4.5 });
@@ -51,5 +51,31 @@ describe('computeResetSpot', () => {
     const spot = computeResetSpot(2, laneCenter(1), [car(0, 1)]);
     expect(spot.s).toBeGreaterThanOrEqual(0);
     expect(spot.s).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('clearResetSpot (a rival put back)', () => {
+  // A wall of cars across every lane at s 500 (none clear within 20 m of it).
+  const wall = [0, 1, 2, 3].map((l) => car(500, l));
+  it('ahead of the player: looks on down the road, never back', () => {
+    const spot = clearResetSpot(500, laneCenter(1), wall, 0, 1)!;
+    expect(spot.s).toBeGreaterThan(500);
+    expect(spot.s - 2.2 - (500 + 2.25)).toBeGreaterThanOrEqual(12);
+  });
+  it('behind the player: looks back, never on (no rival put back past the player into the lead)', () => {
+    const spot = clearResetSpot(500, laneCenter(1), wall, 0, -1)!;
+    expect(spot.s).toBeLessThan(500);
+    expect(500 - 2.25 - (spot.s + 2.2)).toBeGreaterThanOrEqual(12);
+  });
+  it('behind, the start just behind and its spot taken: none (not put back yet), not forward', () => {
+    expect(clearResetSpot(0, laneCenter(1), [0, 1, 2, 3].map((l) => car(2, l)), 0, -1)).toBeNull();
+  });
+  it('no room that way: none', () => {
+    const packed = [];
+    for (let s = 0; s <= 400; s += 10) for (const l of [0, 1, 2, 3]) packed.push(car(500 + s, l));
+    expect(clearResetSpot(500, laneCenter(1), packed, 0, 1)).toBeNull();
+  });
+  it('looking back, where computeResetSpot finds room: the same spot', () => {
+    expect(clearResetSpot(500, laneCenter(1), [car(503, 1)], 0, -1)).toEqual(computeResetSpot(500, laneCenter(1), [car(503, 1)]));
   });
 });

@@ -15,7 +15,7 @@ export function dopplerFactor(src: readonly number[], srcV: readonly number[], e
   const vs = (srcV[0] * dx + srcV[1] * dy + srcV[2] * dz) / d;
   const ve = (earV[0] * dx + earV[1] * dy + earV[2] * dz) / d;
   const f = (SOUND_SPEED - ve) / Math.max(1, SOUND_SPEED - vs);
-  return Math.min(DOPPLER_MAX, Math.max(DOPPLER_MIN, f));
+  return Number.isFinite(f) ? Math.min(DOPPLER_MAX, Math.max(DOPPLER_MIN, f)) : 1; // (a NaN in: none)
 }
 
 /** A traffic vehicle's gearing, for its engine's sound: its gears, and the speed (m/s) its top gear tops out at. */

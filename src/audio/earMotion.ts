@@ -15,6 +15,8 @@ export class EarMotion {
   /** The ear now at `pos`, `dt` s (the race's time) since the last. */
   update(pos: readonly number[], dt: number): void {
     const v = this.velocity, p = this.prev;
+    if (!pos.every(Number.isFinite)) return; // (an ear blown up: not taken - its NaN would stay in the velocity for good)
+    if (!v.every(Number.isFinite)) v.fill(0);
     if (!this.valid || !(dt > 0)) {
       if (!this.valid) v.fill(0);
       p[0] = pos[0]; p[1] = pos[1]; p[2] = pos[2];

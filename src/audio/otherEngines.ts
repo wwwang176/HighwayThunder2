@@ -49,6 +49,15 @@ interface Heard {
   releaseAt: number;
 }
 
+/** Whether every number of a source is one (none NaN or infinite). */
+function finiteSource(s: EngineSource): boolean {
+  // (and its speed one a car can have: blown up, a body's numbers ran past what a float32 AudioParam holds)
+  return Number.isFinite(s.rpm) && Number.isFinite(s.throttle) && Number.isFinite(s.gain) && Number.isFinite(s.idle) && Number.isFinite(s.redline)
+    && s.pos.every(Number.isFinite) && s.vel.every(Number.isFinite) && Math.hypot(s.vel[0], s.vel[1], s.vel[2]) < MAX_SOURCE_SPEED;
+}
+/** m/s: no car goes this fast (a body faster: the physics blew up on it). */
+const MAX_SOURCE_SPEED = 300;
+
 const NEAR = new Int32Array(VOICES);
 const NEAR_D = new Float64Array(VOICES);
 const PAN = new Float32Array(2);
@@ -76,6 +85,8 @@ export class OtherEngines {
    * all let go).
    */
   update(sources: readonly EngineSource[], count: number, ear: EarPose, dt: number, timeScale: number, active: boolean): void {
+    // (The ear not where numbers say - the camera blown up with a body it follows: nothing set this frame.)
+    if (!Object.values(ear).every(Number.isFinite)) return;
     Object.assign(this.ear, ear);
     this.earPos[0] = ear.px; this.earPos[1] = ear.py; this.earPos[2] = ear.pz;
     this.motion.update(this.earPos, dt);
@@ -84,6 +95,7 @@ export class OtherEngines {
     const now = this.ctx.currentTime;
     for (let k = 0; k < n; k++) {
       const s = sources[NEAR[k]];
+      if (!finiteSource(s)) continue; // (a body the physics blew up on: let go - a NaN set on a gain throws)
       let h = this.heard.find((x) => x.key === s.key);
       if (h && h.voice.kind !== s.kind) {
         this.drop(h);

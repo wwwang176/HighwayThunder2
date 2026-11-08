@@ -31,6 +31,18 @@ function add(sim: TrafficSim, kind: VehicleKind, s: number, lane: number, v: num
 }
 
 describe('TrafficSim', () => {
+  it('a trailer swung into the next lane (span) is braked for there', () => {
+    const sim = new TrafficSim();
+    const truck = add(sim, 'container', 100, 2, 0);
+    const f = add(sim, 'car', 50, 3, 25, 30);
+    truck.cooldown = f.cooldown = Infinity;
+    sim.plan(dt, [], rngFrom(1));
+    expect(f.accel).toBeGreaterThan(0); // (lane 3 clear: the truck in lane 2 only)
+    truck.span = [laneCenter(2) - 1.3, laneCenter(3)]; // its trailer out over lane 3
+    sim.plan(dt, [], rngFrom(1));
+    expect(f.accel).toBeLessThan(-1);
+  });
+
   it('follows a slower leader without collision', () => {
     const sim = new TrafficSim();
     const lead = add(sim, 'car', 100, 1, 15);
