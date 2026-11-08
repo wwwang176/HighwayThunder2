@@ -181,8 +181,8 @@ export class Hud {
           </div>
           <button class="opt" data-id="resumeBtn"><span class="no">01</span>${tx('pause.resume')}<kbd>Esc</kbd></button>
           <button class="opt" data-id="restartBtn"><span class="no">02</span>${tx('pause.restart')}</button>
-          <button class="opt" data-id="settingsBtn"><span class="no">03</span>${tx('pause.settings')}</button>
-          <button class="opt" data-id="pauseTitleBtn"><span class="no">04</span>${tx('pause.garage')}</button>
+          <button class="opt" data-id="pauseTitleBtn"><span class="no">03</span>${tx('pause.garage')}</button>
+          <button class="opt" data-id="settingsBtn"><span class="no">04</span>${tx('pause.settings')}</button>
         </div>
       </div>
       <div id="confirm" class="g-back" data-id="confirm">
@@ -283,9 +283,9 @@ export class Hud {
     this.point(this.confirmFrom);
   }
 
-  /** The pause's options: resume, restart, the settings, the garage. */
+  /** The pause's options: resume, restart, the garage, the settings. */
   private pauseMenu(): HTMLElement[] {
-    return [this.el.resumeBtn, this.el.restartBtn, this.el.settingsBtn, this.el.pauseTitleBtn];
+    return [this.el.resumeBtn, this.el.restartBtn, this.el.pauseTitleBtn, this.el.settingsBtn];
   }
 
   private openMenu(options: HTMLElement[]): void {
