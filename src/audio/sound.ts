@@ -191,7 +191,8 @@ export class Sound {
    */
   setSkid(slip: number): void {
     if (!this.ctx || !this.running) return;
-    this.skidGain.gain.setTargetAtTime(squeal(slip) * SKID_VOLUME, this.ctx.currentTime, 0.04);
+    const g = squeal(slip) * SKID_VOLUME;
+    this.skidGain.gain.setTargetAtTime(Number.isFinite(g) ? g : 0, this.ctx.currentTime, 0.04);
     if (this.skidLoop) this.skidLoop.playbackRate.value = this.timeScale;
   }
 
@@ -213,7 +214,11 @@ export class Sound {
         if (d <= SKID_OTHERS_RANGE) gain = squeal(s.slip) * SKID_OTHERS_VOLUME * inverseDistanceGain(d, SKID_OTHERS_REF, 1);
         if (gain > 0) equalPowerMono(azimuthDeg(s.pos.x, s.pos.y, s.pos.z, ear), gain, SKID_PAN);
       }
-      if (gain === 0) SKID_PAN[0] = SKID_PAN[1] = 0;
+      // (none, or a NaN from a body the physics blew up on: silent - a NaN set on a gain throws)
+      if (!(gain > 0) || !Number.isFinite(SKID_PAN[0]) || !Number.isFinite(SKID_PAN[1])) {
+        gain = 0;
+        SKID_PAN[0] = SKID_PAN[1] = 0;
+      }
       let v = this.otherSkids[i];
       if (!v) {
         if (gain === 0) continue;
