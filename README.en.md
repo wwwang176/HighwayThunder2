@@ -28,16 +28,16 @@ https://highwaythunder2.wwwang.tw/
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/intro.jpg" alt="The opening shot: the grid on the start line"><br><sub>The opening shot: the grid on the start line</sub></td>
-    <td width="50%"><img src="docs/screenshots/garage.jpg" alt="The garage: pick a car and its paint"><br><sub>The garage: pick a car and its paint</sub></td>
+    <td width="50%"><img src="docs/screenshots/intro.jpg" alt="The opening shot: the grid on the start line"></td>
+    <td width="50%"><img src="docs/screenshots/garage.jpg" alt="The garage: pick a car and its paint"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/smoke-trail.jpg" alt="A rival's tyre smoke trailing past"><br><sub>A rival's tyre smoke trailing past</sub></td>
-    <td><img src="docs/screenshots/nitro-traffic.jpg" alt="Into the traffic on nitro"><br><sub>Into the traffic on nitro</sub></td>
+    <td><img src="docs/screenshots/smoke-trail.jpg" alt="A rival's tyre smoke trailing past"></td>
+    <td><img src="docs/screenshots/nitro-traffic.jpg" alt="Into the traffic on nitro"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/drift.jpg" alt="A rival sliding right beside you"><br><sub>A rival sliding right beside you</sub></td>
-    <td><img src="docs/screenshots/three-wide.jpg" alt="Boxed in between two rivals"><br><sub>Boxed in between two rivals</sub></td>
+    <td><img src="docs/screenshots/drift.jpg" alt="A rival sliding right beside you"></td>
+    <td><img src="docs/screenshots/three-wide.jpg" alt="Boxed in between two rivals"></td>
   </tr>
 </table>
 
