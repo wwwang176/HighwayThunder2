@@ -95,6 +95,7 @@ const PREWARM_LAMPS: VehicleLights[] = [
 ];
 const PLAYER_OBSTACLE_ID = -1;
 const BLUR_V = new THREE.Vector3();
+const RESIZE_V = new THREE.Vector2();
 const EAR_FWD = new THREE.Vector3();
 const EAR_UP = new THREE.Vector3();
 /** The traffic's engines: each kind's sound, its gearing (for its rpm by its speed), how loud against a rival's. */
@@ -384,6 +385,7 @@ export class Game {
     this.renderer.setPixelRatio(pixelRatioFor(this.quality, devicePixelRatio));
     this.renderer.setSize(innerWidth, innerHeight);
     this.post.setSize(innerWidth, innerHeight);
+    this.smoke.setView(this.renderer.getDrawingBufferSize(RESIZE_V).y);
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
   }
