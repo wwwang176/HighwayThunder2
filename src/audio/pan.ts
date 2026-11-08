@@ -51,6 +51,33 @@ export function equalPowerMono(azimuth: number, gain: number, out: Float32Array)
   out[1] = gain * Math.sin((x * Math.PI) / 2);
 }
 
+/**
+ * The nearest of the first `count` `sources` within `range` of the ear (as many as `idx` holds): their indices into
+ * `idx`, their squared distances into `d2`, nearest first. How many.
+ */
+export function nearestWithin(sources: readonly { pos: readonly number[] }[], count: number, ear: EarPose, range: number, idx: Int32Array, d2: Float64Array): number {
+  const max = idx.length, r2 = range * range;
+  let m = 0;
+  for (let i = 0; i < count; i++) {
+    const p = sources[i].pos;
+    const dx = p[0] - ear.px, dy = p[1] - ear.py, dz = p[2] - ear.pz;
+    const d = dx * dx + dy * dy + dz * dz;
+    if (d > r2) continue;
+    let j: number;
+    if (m < max) j = m++;
+    else if (d >= d2[max - 1]) continue;
+    else j = max - 1;
+    while (j > 0 && d2[j - 1] > d) {
+      d2[j] = d2[j - 1];
+      idx[j] = idx[j - 1];
+      j--;
+    }
+    d2[j] = d;
+    idx[j] = i;
+  }
+  return m;
+}
+
 /** Inverse distance attenuation (the spec's `inverse` model): full within `ref`; `rolloff` 0 none. */
 export function inverseDistanceGain(distance: number, ref: number, rolloff: number): number {
   if (!(ref > 0)) return 1;

@@ -13,6 +13,7 @@ import type GUI from 'lil-gui';
 import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound, type SkidSource } from '../audio/sound';
+import type { RollSource } from '../audio/rolling';
 import { createTuningPanel } from '../debug/tuning';
 import { Keyboard } from '../input/keyboard';
 import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
@@ -98,6 +99,17 @@ const BLUR_V = new THREE.Vector3();
 const RESIZE_V = new THREE.Vector2();
 const EAR_FWD = new THREE.Vector3();
 const EAR_UP = new THREE.Vector3();
+/**
+ * The traffic's tyres rolling, against a car's (rolling.ts): how loud, and their pitch (bigger tyres turning slower:
+ * lower). A container truck's heard twice - its cab, and its trailer at its rear axles (TRAILER_ROLL).
+ */
+const TRAFFIC_ROLL: Record<VehicleKind, { gain: number; pitch: number }> = {
+  car: { gain: 0.8, pitch: 1 },
+  truck: { gain: 1.3, pitch: 0.8 },
+  container: { gain: 1.3, pitch: 0.8 },
+};
+const TRAILER_ROLL = { gain: 1.4, pitch: 0.75 };
+const ROLL_AT = new THREE.Vector3();
 /** The traffic's engines: each kind's sound, its gearing (for its rpm by its speed), how loud against a rival's. */
 const TRAFFIC_ENGINE: Record<VehicleKind, { kind: EngineKind; gearing: TrafficGearing; gain: number }> = {
   car: { kind: 'sedan', gearing: { gears: 5, top: 55 }, gain: 0.6 },
@@ -118,6 +130,13 @@ const SETTLE_SECONDS = 0.6;
 const CONTACT_SOUND_GAP = 0.3;
 /** The intros' round left (game/intro IntroBag), kept between visits. */
 const INTRO_BAG_KEY = 'ht2.introBag';
+
+/** The share of a car's wheels on the road (none: in the air, or on its roof or side). */
+function wheelsDown(wheels: readonly { inContact: boolean }[]): number {
+  let k = 0;
+  for (const w of wheels) if (w.inContact) k++;
+  return wheels.length ? k / wheels.length : 0;
+}
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
@@ -148,6 +167,7 @@ export class Game {
   private readonly engineSources: EngineSource[] = [];
   /** The rivals' tyres as heard this frame (its entries reused). */
   private readonly skidSources: SkidSource[] = [];
+  private readonly rollSources: RollSource[] = [];
   private readonly earPose: EarPose = { px: 0, py: 0, pz: 0, fx: 0, fy: 0, fz: -1, ux: 0, uy: 1, uz: 0 };
   readonly hud: Hud;
   /** The garage: the title screen, where the car and the race are picked. */
@@ -1062,6 +1082,39 @@ export class Game {
     return n;
   }
 
+  /**
+   * The tyres heard rolling from outside this frame, into `this.rollSources` (its entries reused): each rival's
+   * (keys -1, -2, ...: its wheels on the road), each traffic vehicle's (keys twice its id; a container's trailer the
+   * next, from its rear axles). Wrecks left out (theirs is the crash). How many.
+   */
+  private heardRolls(): number {
+    let n = 0;
+    const next = (): RollSource => (this.rollSources[n++] ??= { key: 0, pos: [0, 0, 0], vel: [0, 0, 0], speed: 0, gain: 1, pitch: 1 });
+    const put = (s: RollSource, key: number, x: number, y: number, z: number, v: { x: number; y: number; z: number }, gain: number, pitch: number): void => {
+      s.key = key;
+      s.pos[0] = x; s.pos[1] = y; s.pos[2] = z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.speed = Math.hypot(v.x, v.z);
+      s.gain = gain;
+      s.pitch = pitch;
+    };
+    for (const r of this.rivals.list) {
+      const c = r.car, p = c.mesh.position;
+      put(next(), -1 - r.index, p.x, p.y, p.z, c.body.linvel(), wheelsDown(c.wheels), 1);
+    }
+    for (const npc of this.npcs.values()) {
+      if (npc.wrecked) continue;
+      const t = TRAFFIC_ROLL[npc.kind], cab = npc.parts[0], p = cab.mesh.position;
+      put(next(), 2 * npc.id, p.x, p.y, p.z, cab.body.linvel(), t.gain, t.pitch);
+      const trailer = npc.parts[1];
+      if (!trailer) continue;
+      const axles = trailer.spec.axles, rear = axles.reduce((a, b) => a + b, 0) / axles.length;
+      ROLL_AT.set(0, 0, rear).applyQuaternion(trailer.mesh.quaternion).add(trailer.mesh.position);
+      put(next(), 2 * npc.id + 1, ROLL_AT.x, ROLL_AT.y, ROLL_AT.z, trailer.body.linvel(), TRAILER_ROLL.gain, TRAILER_ROLL.pitch);
+    }
+    return n;
+  }
+
   /** The rivals' tyres this frame, into `this.skidSources` (where each is drawn, its strongest slide). */
   private heardSkids(): SkidSource[] {
     const list = this.rivals.list, out = this.skidSources;
@@ -1167,6 +1220,9 @@ export class Game {
     this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);
+    const pv = this.player.body.linvel();
+    this.sound.setRoll(this.flow.phase === 'title' ? 0 : Math.hypot(pv.x, pv.z), wheelsDown(this.player.wheels));
+    this.sound.setOtherRolls(this.rollSources, this.heardRolls(), this.ear(), play, this.flow.phase !== 'title');
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);
     const q = this.player.body.rotation();

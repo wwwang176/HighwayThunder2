@@ -1,7 +1,7 @@
 import type { EngineKind } from './engineCatalog';
 import { EngineVoice } from './engineVoice';
 import { EarMotion } from './earMotion';
-import { azimuthDeg, equalPowerMono, inverseDistanceGain, type EarPose } from './pan';
+import { azimuthDeg, equalPowerMono, inverseDistanceGain, nearestWithin, type EarPose } from './pan';
 import { dopplerFactor } from './spatial';
 
 /** An engine heard from outside: a rival's or the traffic's, where it is and what it's doing this frame. */
@@ -130,26 +130,7 @@ export class OtherEngines {
 
   /** The nearest VOICES of the sources within RANGE (indices into NEAR, squared distances into NEAR_D, by distance). */
   private nearest(sources: readonly EngineSource[], count: number): number {
-    let m = 0;
-    const r2 = RANGE * RANGE;
-    for (let i = 0; i < count; i++) {
-      const p = sources[i].pos;
-      const dx = p[0] - this.ear.px, dy = p[1] - this.ear.py, dz = p[2] - this.ear.pz;
-      const d = dx * dx + dy * dy + dz * dz;
-      if (d > r2) continue;
-      let j: number;
-      if (m < VOICES) j = m++;
-      else if (d >= NEAR_D[VOICES - 1]) continue;
-      else j = VOICES - 1;
-      while (j > 0 && NEAR_D[j - 1] > d) {
-        NEAR_D[j] = NEAR_D[j - 1];
-        NEAR[j] = NEAR[j - 1];
-        j--;
-      }
-      NEAR_D[j] = d;
-      NEAR[j] = i;
-    }
-    return m;
+    return nearestWithin(sources, count, this.ear, RANGE, NEAR, NEAR_D);
   }
 
   private add(s: EngineSource): Heard {
