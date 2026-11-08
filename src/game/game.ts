@@ -104,17 +104,17 @@ const EAR_UP = new THREE.Vector3();
  * lower). A container truck's heard twice - its cab, and its trailer at its rear axles (TRAILER_ROLL).
  */
 const TRAFFIC_ROLL: Record<VehicleKind, { gain: number; pitch: number }> = {
-  car: { gain: 0.8, pitch: 1 },
-  truck: { gain: 1.3, pitch: 0.8 },
-  container: { gain: 1.3, pitch: 0.8 },
+  car: { gain: 0.8, pitch: 1 }, // (at its 110 km/h ~6 LU over its engine cruising: a car's heard by its tyres)
+  truck: { gain: 0.8, pitch: 0.8 }, // (a truck's by its diesel: ~2 LU under it cruising, ~6 pulling)
+  container: { gain: 0.8, pitch: 0.8 },
 };
-const TRAILER_ROLL = { gain: 1.4, pitch: 0.75 };
+const TRAILER_ROLL = { gain: 0.8, pitch: 0.75 };
 const ROLL_AT = new THREE.Vector3();
 /** The traffic's engines: each kind's sound, its gearing (for its rpm by its speed), how loud against a rival's. */
 const TRAFFIC_ENGINE: Record<VehicleKind, { kind: EngineKind; gearing: TrafficGearing; gain: number }> = {
   car: { kind: 'sedan', gearing: { gears: 5, top: 55 }, gain: 0.6 },
-  truck: { kind: 'truck', gearing: { gears: 6, top: 35 }, gain: 0.8 },
-  container: { kind: 'container', gearing: { gears: 8, top: 32 }, gain: 0.9 },
+  truck: { kind: 'truck', gearing: { gears: 6, top: 35 }, gain: 1.1 },
+  container: { kind: 'container', gearing: { gears: 8, top: 32 }, gain: 1.25 },
 };
 const STILL = { x: 0, y: 0, z: 0 };
 /** The finish gate's mark, on the screen (render: the HUD's goal). */
