@@ -123,6 +123,15 @@ export class TrafficSim {
    * and the sim only produces `accel` and the lateral path `dPlan`/`dPlanRate`.
    */
   step(dt: number, obstacles: Obstacle[], rng: () => number, integrate = true): void {
+    this.plan(dt, obstacles, rng);
+    this.move(dt, integrate);
+  }
+
+  /**
+   * The planning of a step (`dt`: the time it plans for - since the last plan): lane changes, each agent's `accel`
+   * and its lateral path `dPlan`/`dPlanRate`. Nothing moved (move).
+   */
+  plan(dt: number, obstacles: Obstacle[], rng: () => number): void {
     this.buildBodies(obstacles);
 
     for (const a of this.agents.values()) {
@@ -146,6 +155,15 @@ export class TrafficSim {
       const prevPlan = a.dPlan;
       if (a.lcState === 'move') this.updateMove(a, dt, rng);
       a.dPlanRate = (a.dPlan - prevPlan) / dt;
+    }
+  }
+
+  /**
+   * The agents moved `dt` on their plan: every one (`integrate`: pure mode), else only those the sim moves itself
+   * (Agent.free). (A plan held over several steps: each on at its accel, across at the planned path as last planned.)
+   */
+  move(dt: number, integrate: boolean): void {
+    for (const a of this.agents.values()) {
       if (integrate || a.free) {
         a.v = Math.max(0, a.v + a.accel * dt);
         a.s += a.v * dt;

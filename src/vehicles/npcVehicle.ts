@@ -683,14 +683,16 @@ export class NpcVehicle {
   }
 
   /**
-   * Its bodies, and the wheels of those drawn (placed from the live suspension state), into this frame's
-   * instanced drawing (after render: where they are).
+   * Its bodies, and the wheels of those drawn (placed from the live suspension state; drawn as their body is - in
+   * its bounds), into this frame's instanced drawing (after render: where they are).
    */
   addBodies(bodies: BodyInstances): void {
     const wheel = npcWheel();
     for (const p of this.parts) {
-      if (!bodies.add(p.model.key, p.model.template, p.mesh.matrix, p.lights)) continue;
-      p.wheels.forEach((w, i) => {
+      const shown = bodies.add(p.model.key, p.model.template, p.mesh.matrix, p.lights);
+      if (!shown) continue;
+      for (let i = 0; i < p.wheels.length; i++) {
+        const w = p.wheels[i];
         const cw = p.chassis?.wheels[i];
         const len = cw ? cw.susp : p.vehicle!.wheelSuspensionLength(i) ?? p.spec.rest;
         const spin = cw ? cw.spin : p.vehicle!.wheelRotation(i) ?? 0;
@@ -698,11 +700,14 @@ export class NpcVehicle {
         TMP_E.set(spin, steer, 0, 'YXZ');
         TMP_Q.setFromEuler(TMP_E);
         TMP_S.set(w.width, w.r, w.r);
-        for (const dx of w.gap > 0 ? [-w.gap / 2, w.gap / 2] : [0]) {
+        // (twin wheels: one each side of its place)
+        const twins = w.gap > 0 ? 2 : 1;
+        for (let k = 0; k < twins; k++) {
+          const dx = twins === 2 ? (k === 0 ? -w.gap / 2 : w.gap / 2) : 0;
           TMP_M2.compose(TMP_V.set(w.shownX + dx, w.connY - len, w.z), TMP_Q, TMP_S);
-          bodies.add(NPC_WHEEL, wheel, TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2), NO_LAMPS);
+          bodies.add(NPC_WHEEL, wheel, TMP_M.multiplyMatrices(p.mesh.matrix, TMP_M2), NO_LAMPS, shown);
         }
-      });
+      }
     }
   }
 

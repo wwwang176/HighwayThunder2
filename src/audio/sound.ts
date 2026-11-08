@@ -110,6 +110,15 @@ export class Sound {
   private timeScale = 1;
   muted = false;
 
+  /**
+   * Whether its clock runs. Stopped (paused: suspend), the frame's updates (the engines, the squeals, the nitro) are
+   * left out: every change set at the one frozen instant stayed on its parameter, a frame's more each frame, and
+   * setting one took the longer the more there were (the others' engines ~12 ms a frame half a minute in).
+   */
+  private get running(): boolean {
+    return this.ctx?.state === 'running';
+  }
+
   /** Must be called from a user gesture. */
   init(): void {
     if (this.ctx) {
@@ -181,7 +190,7 @@ export class Sound {
    * pitched with the race's time. Silent without its recording.
    */
   setSkid(slip: number): void {
-    if (!this.ctx) return;
+    if (!this.ctx || !this.running) return;
     this.skidGain.gain.setTargetAtTime(squeal(slip) * SKID_VOLUME, this.ctx.currentTime, 0.04);
     if (this.skidLoop) this.skidLoop.playbackRate.value = this.timeScale;
   }
@@ -194,7 +203,7 @@ export class Sound {
    */
   setOtherSkids(sources: readonly SkidSource[], ear: EarPose, active: boolean): void {
     const ctx = this.ctx, buffer = this.bank?.get(SKID_CLIP.id);
-    if (!ctx || !buffer) return;
+    if (!ctx || !buffer || !this.running) return;
     const t = ctx.currentTime;
     for (let i = 0; i < Math.max(sources.length, this.otherSkids.length); i++) {
       const s = sources[i];
@@ -233,7 +242,7 @@ export class Sound {
    */
   setNitro(on: boolean): void {
     const ctx = this.ctx;
-    if (!ctx) return;
+    if (!ctx || !this.running) return;
     if (this.nitroLoop) this.nitroLoop.playbackRate.value = this.timeScale;
     if (on === this.nitroOn) return;
     this.nitroOn = on;
@@ -324,7 +333,7 @@ export class Sound {
    * `redline` its range. Silent until the clips are in (and for good without them).
    */
   setEngine(kind: EngineKind, rpm: number, idle: number, redline: number, throttle: number, active: boolean): void {
-    if (!this.ctx || !this.bank) return;
+    if (!this.ctx || !this.bank || !this.running) return;
     if (this.engine?.kind !== kind) {
       this.engine?.dispose();
       this.engine = new EngineVoice(this.ctx, this.bank, kind, this.engineBus);
@@ -363,7 +372,7 @@ export class Sound {
    * distance, Doppler-shifted. The player's own isn't among them: straight into the mix, never panned.
    */
   setOtherEngines(sources: readonly EngineSource[], count: number, ear: EarPose, dt: number, active: boolean): void {
-    this.others?.update(sources, count, ear, dt, this.timeScale, active);
+    if (this.running) this.others?.update(sources, count, ear, dt, this.timeScale, active);
   }
 
   /**
