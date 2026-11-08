@@ -100,6 +100,7 @@ export const STRINGS = {
   'pause.title': { zh: '暫停', en: 'Paused' },
   'pause.resume': { zh: '繼續', en: 'Resume' },
   'pause.restart': { zh: '重新開始', en: 'Restart' },
+  'pause.settings': { zh: '設定', en: 'Settings' },
   'pause.garage': { zh: '回車庫', en: 'Garage' },
   'confirm.kicker': { zh: 'Confirm', en: 'Confirm' },
   'confirm.lost': { zh: '進度將會遺失，是否確定？', en: 'This race will be lost. Are you sure?' },

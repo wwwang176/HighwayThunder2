@@ -11,6 +11,8 @@ export interface HudHandlers {
   onRestart(): void;
   /** Back to the garage. */
   onTitle(): void;
+  /** Paused: the settings pop-up over it. */
+  onSettings(): void;
 }
 
 /** A car on the race line (the player's or a rival's). */
@@ -180,15 +182,19 @@ export class Hud {
           <button class="opt" data-id="resumeBtn"><span class="no">01</span>${tx('pause.resume')}<kbd>Esc</kbd></button>
           <button class="opt" data-id="restartBtn"><span class="no">02</span>${tx('pause.restart')}</button>
           <button class="opt" data-id="pauseTitleBtn"><span class="no">03</span>${tx('pause.garage')}</button>
-          <div class="confirm">
-            ${tx('confirm.kicker', 'div', 'lbl dash')}
-            ${tx('confirm.lost', 'p', 'msg')}
-            <div class="btns">
-              <button class="opt" data-id="confirmYes">${tx('confirm.yes')}</button>
-              <button class="opt" data-id="confirmNo">${tx('confirm.no')}<kbd>Esc</kbd></button>
-            </div>
-          </div>
+          <button class="opt" data-id="settingsBtn"><span class="no">04</span>${tx('pause.settings')}</button>
         </div>
+      </div>
+      <div id="confirm" class="g-back" data-id="confirm">
+        <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-modal box panel cut" role="alertdialog" aria-modal="true">
+          ${tx('confirm.kicker', 'div', 'lbl dash')}
+          ${tx('confirm.lost', 'p', 'msg')}
+          <div class="btns">
+            <button class="opt" data-id="confirmYes">${tx('confirm.yes')}</button>
+            <button class="opt" data-id="confirmNo">${tx('confirm.no')}<kbd>Esc</kbd></button>
+          </div>
+        </div></div>
       </div>
       <div id="finish" class="center bracketed">
         <span class="brk tr"></span><span class="brk bl"></span>
@@ -222,15 +228,17 @@ export class Hud {
     // Restart and the garage throw the race away: each asks first (OK / Cancel).
     this.el.restartBtn.onclick = () => this.ask(() => handlers.onRestart());
     this.el.pauseTitleBtn.onclick = () => this.ask(() => handlers.onTitle());
+    this.el.settingsBtn.onclick = () => handlers.onSettings();
     this.el.confirmYes.onclick = () => {
       const then = this.confirmThen;
       this.closeConfirm();
       then?.();
     };
     this.el.confirmNo.onclick = () => this.cancelConfirm();
+    this.el.confirm.onclick = (e) => e.target === e.currentTarget && this.cancelConfirm(); // (its veil)
     this.el.finishTitleBtn.onclick = () => handlers.onTitle();
     // The pointer moves the menus' cursor too; a click leaves no focus behind (Enter is the cursor's, not a clicked button's).
-    for (const id of ['resumeBtn', 'restartBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn', 'confirmYes', 'confirmNo'])
+    for (const id of ['resumeBtn', 'restartBtn', 'settingsBtn', 'pauseTitleBtn', 'againBtn', 'finishTitleBtn', 'confirmYes', 'confirmNo'])
       this.el[id].addEventListener('pointerenter', () => this.menu.includes(this.el[id]) && this.point(this.menu.indexOf(this.el[id])));
     root.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
     onLangChange(() => applyLang(root)); // (another language: the fixed words redone; the rest are set as they show)
@@ -250,26 +258,34 @@ export class Hud {
     return this.confirmThen !== null;
   }
 
-  /** The pause's confirm (the race thrown away - sure?): `then` on OK; the cursor on Cancel. */
+  /**
+   * The pause's confirm (the race thrown away - sure?), over the pause on a veil of its own (as the settings):
+   * `then` on OK; the cursor on Cancel.
+   */
   private ask(then: () => void): void {
     this.confirmFrom = this.cursor;
     this.confirmThen = then;
-    this.el.pause.classList.add('confirming');
+    this.el.confirm.classList.add('open');
     this.openMenu([this.el.confirmYes, this.el.confirmNo]);
     this.point(1);
   }
 
   private closeConfirm(): void {
     this.confirmThen = null;
-    this.el.pause.classList.remove('confirming');
+    this.el.confirm.classList.remove('open');
   }
 
   /** Cancel (Esc too): back to the pause's menu, its cursor where it was. */
   cancelConfirm(): void {
     if (!this.confirming) return;
     this.closeConfirm();
-    this.openMenu([this.el.resumeBtn, this.el.restartBtn, this.el.pauseTitleBtn]);
+    this.openMenu(this.pauseMenu());
     this.point(this.confirmFrom);
+  }
+
+  /** The pause's options: resume, restart, the garage, the settings. */
+  private pauseMenu(): HTMLElement[] {
+    return [this.el.resumeBtn, this.el.restartBtn, this.el.pauseTitleBtn, this.el.settingsBtn];
   }
 
   private openMenu(options: HTMLElement[]): void {
@@ -357,7 +373,7 @@ export class Hud {
       }
       this.menu = [];
       this.closeConfirm();
-      if (phase === 'paused') this.openMenu([this.el.resumeBtn, this.el.restartBtn, this.el.pauseTitleBtn]);
+      if (phase === 'paused') this.openMenu(this.pauseMenu());
       if (phase === 'paused') {
         this.el.pTime.innerHTML = timeHtml(flow.raceTime);
         this.el.pPlaceBox.style.display = many ? '' : 'none';

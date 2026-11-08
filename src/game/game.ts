@@ -38,6 +38,7 @@ import { aiTopSpeed } from '../ai/aiTopSpeed';
 import { CAR_CARDS, CarSelection, defaultSelection, loadSelection, MAX_RIVALS, raceRivals, saveSelection } from './carSelection';
 import { applyDifficulty } from './difficulty';
 import { Garage } from '../ui/garage';
+import { SettingsPopup } from '../ui/settings';
 import { IntroOverlay } from '../ui/introOverlay';
 import { loadSettings, setLang, t } from '../ui/i18n';
 import { Intro, nextIntro, type IntroBag } from './intro';
@@ -172,6 +173,8 @@ export class Game {
   readonly hud: Hud;
   /** The garage: the title screen, where the car and the race are picked. */
   readonly garage: Garage;
+  /** The settings pop-up: over the garage or the pause. */
+  private readonly settings: SettingsPopup;
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
   readonly trafficWorld: TrafficWorld;
   /** Trained driver from public/ai/driver.json (null when none could be loaded). */
@@ -273,12 +276,14 @@ export class Game {
       onResume: () => this.togglePause(),
       onRestart: () => this.startRace(),
       onTitle: () => this.toTitle(),
+      onSettings: () => this.settings.open(uiRoot),
     });
+    this.settings = new SettingsPopup(uiRoot);
+    this.settings.onQuality = (pr) => this.setQuality(pr);
     this.garage = new Garage(uiRoot, RIVAL_COLORS, (cars) => {
       saveSelection(localStorage, cars);
       this.startRace(cars, true);
-    });
-    this.garage.onQuality = (pr) => this.setQuality(pr);
+    }, this.settings);
     this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
@@ -339,24 +344,27 @@ export class Game {
   private bindKeys(): void {
     const k = this.keyboard;
     const g = this.garage;
+    const set = this.settings;
     // Every screen works from the keyboard alone (docs/ui-design.md). Enter: at the title, into the garage; in the
-    // garage (the race setup open or not), into the race (not while the controls pop-up is open; the settings
-    // open, their OK); on the pause and the finish, the option under the menu's cursor. A button the Tab key is on
-    // takes the Enter itself.
+    // garage (the race setup open or not), into the race (not while the controls pop-up is open); on the pause and
+    // the finish, the option under the menu's cursor; the settings open (over the garage or the pause), their OK.
+    // A button the Tab key is on takes the Enter itself.
     const menu = () => !g.isOpen && (this.flow.phase === 'paused' || (this.flow.phase === 'finished' && this.hud.finishShown));
     const enter = () => {
       if (document.activeElement instanceof HTMLButtonElement) return;
+      if (set.isOpen) return set.confirm();
       if (g.isOpen) {
         if (g.keysOpen) return;
-        if (g.settingsOpen) return g.confirmSettings();
         if (g.onTitle) g.enter();
         else g.start();
       } else if (menu()) this.hud.menuPick();
     };
     k.onPress('Enter', enter);
     k.onPress('NumpadEnter', enter);
-    // Esc: closes what is over the garage; races, pauses and resumes; after the finish, back to the garage.
+    // Esc: cancels the settings; closes what is over the garage; races, pauses and resumes; after the finish, back
+    // to the garage.
     k.onPress('Escape', () => {
+      if (set.isOpen) return set.close();
       if (g.isOpen) return g.popOpen && g.closePop();
       if (this.flow.phase === 'finished') return this.hud.finishShown && this.toTitle(); // (in its show: skips it)
       if (this.hud.confirming) return this.hud.cancelConfirm(); // (the pause's confirm open: back to its menu)
@@ -364,17 +372,18 @@ export class Game {
     });
     // ↑ ↓ the car, ← → its paint, E the race setup, H the controls, O the settings: in the garage (not at the title:
     // its picks are not shown there). The setup open, the arrows walk its rows and change them, 0-5 set how many
-    // rivals; the settings open, the same (language, quality). On the pause and the finish, the arrows move the menu's cursor.
+    // rivals; the settings open (here or over the pause), the same (language, quality). On the pause and the finish,
+    // the arrows move the menu's cursor.
     const picking = () => g.isOpen && !g.popOpen && !g.onTitle;
     const setup = () => g.isOpen && g.setupOpen;
     const arrow = (dy: number, dx: number) => {
-      if (g.isOpen && g.settingsOpen) return dy ? g.settingsMove(dy) : g.settingsAdjust(dx);
+      if (set.isOpen) return dy ? set.move(dy) : set.adjust(dx);
       if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
       if (picking()) return dy ? g.step(dy) : g.stepPaint(dx);
       if (menu()) this.hud.menuMove(dy || dx);
     };
     const corner = () => g.isOpen && !g.onTitle && !g.setupOpen;
-    k.onPress('KeyH', () => corner() && !g.settingsOpen && g.toggleKeys());
+    k.onPress('KeyH', () => corner() && !set.isOpen && g.toggleKeys());
     k.onPress('KeyO', () => corner() && !g.keysOpen && g.toggleSettings());
     k.onPress('ArrowUp', () => arrow(-1, 0));
     k.onPress('ArrowDown', () => arrow(1, 0));
