@@ -78,7 +78,7 @@ it('planner', async () => {
     `tracker alone (off the plan it follows, now; p50 / p95 / max, m): moving ${f(pct(all.nowMoving, 0.5))} / ${f(pct(all.nowMoving, 0.95))} / ${f(pct(all.nowMoving, 1))}` +
       `, holding ${f(pct(all.nowHolding, 0.5))} / ${f(pct(all.nowHolding, 0.95))} / ${f(pct(all.nowHolding, 1))}`,
   );
-  const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
+  const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.sidewaysLetGo + PLAN_STATS.fallback;
   out.push(`plans: ${plans}, relaxed ${Math.round((100 * PLAN_STATS.relaxed) / plans)}%, boxed-in fallback ${Math.round((100 * PLAN_STATS.fallback) / plans)}%`);
   const sa = all.speedAtOverride;
   out.push(`at emergency brake: speed over plan p50 ${f(pct(sa, 0.5))} m/s, faster than plan ${Math.round((100 * sa.filter((x) => x > 0).length) / Math.max(1, sa.length))}% of the time`);

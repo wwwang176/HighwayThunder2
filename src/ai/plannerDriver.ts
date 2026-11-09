@@ -2,7 +2,7 @@ import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import type { Brain } from './brain';
-import { baseSteer, netDrive, trackerFrom } from './netTracker';
+import { baseSteer, netDrive, REVERSE_YAW, trackerFrom } from './netTracker';
 import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
@@ -164,6 +164,7 @@ export class PlannerDriver implements Driver {
         latAccel: this.latAccel,
         halfWidth: self.halfWidth,
         halfLength: self.halfLength,
+        across: Math.abs(self.yaw) > REVERSE_YAW,
       };
       if (!this.source) this.adopt(plan(ego, traffic, previous), this.clock);
       else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);

@@ -246,7 +246,12 @@ export interface PlanEgo {
   /** Half its body's width and length (m; default: the street racer's, 0.93 x 2.2). */
   halfWidth?: number;
   halfLength?: number;
+  /** Standing across the road after a crash (heading well off the road's; never in a race). */
+  across?: boolean;
 }
+
+/** m/s a car standing across the road may plan to when its sideways move left it no plan (PlanEgo.across). */
+export const ACROSS_CREEP = 5;
 
 interface Node {
   s: number;
@@ -260,7 +265,7 @@ interface Node {
 }
 
 /** How plans came out (normal search / relaxed replan / boxed-in fallback): for benchmarks. */
-export const PLAN_STATS = { normal: 0, relaxed: 0, fallback: 0 };
+export const PLAN_STATS = { normal: 0, relaxed: 0, sidewaysLetGo: 0, fallback: 0 };
 
 /**
  * The fastest way through the traffic for the next `horizon` seconds, assuming
@@ -292,8 +297,14 @@ export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan
   for (const t of boxes) if (t.phantom && t.id !== undefined) merging.add(t.id);
   const normal = search(ego, boxes, merging, previous, false);
   if (normal) PLAN_STATS.normal++;
-  const found = normal ?? search(ego, boxes, merging, previous, true);
-  if (!normal && found) PLAN_STATS.relaxed++;
+  const relaxed = normal ?? search(ego, boxes, merging, previous, true);
+  if (!normal && relaxed) PLAN_STATS.relaxed++;
+  // Still none, standing across the road: perhaps only because its sideways move (the turn it is making) could not
+  // be taken back before the road's edge. Then a slow plan from standing still sideways - it turns onto it, at a
+  // creep near the edge - rather than the brake: braked, it stopped, the next plan went, and so on (stop and go,
+  // worst by the edges and on the grass). Not otherwise: boxed in in a race, the brake it is.
+  const found = relaxed ?? (ego.across ? search({ ...ego, vD: 0, speedCap: Math.min(ego.speedCap, ACROSS_CREEP) }, boxes, merging, previous, true) : null);
+  if (!relaxed && found) PLAN_STATS.sidewaysLetGo++;
   if (!found) PLAN_STATS.fallback++;
   if (found) return found;
   const dt = PLANNER.step;
