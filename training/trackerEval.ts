@@ -40,6 +40,11 @@ export const RECOVERY = Number(process.env.RECOVERY ?? 1); // a generation
 export const RECOVERY_WEIGHT = Number(process.env.RECOVERY_WEIGHT ?? 0.3);
 export const RECOVERY_S = 8;
 export const RECOVERY_VALIDATION = (process.env.RECOVERY_VALIDATION ?? '60,-60,120,-120').split(',').map(Number); // deg off the road's heading
+/** ...each at each of these (x, m across: the lanes' centres +-1.875, +-5.625; the median's grass -10..-20). */
+export const RECOVERY_VALIDATION_X = (process.env.RECOVERY_VALIDATION_X ?? '1.875').split(',').map(Number);
+/** Where across a generation's crash leaves it (x, m, from..to): by default always the same lane's centre. */
+export const RECOVERY_X_FROM = Number(process.env.RECOVERY_X_FROM ?? 1.875);
+export const RECOVERY_X_TO = Number(process.env.RECOVERY_X_TO ?? RECOVERY_X_FROM);
 export const AWAY_YAW = (15 * Math.PI) / 180;
 export const AWAY_V = 40 * KMH;
 export const AWAY_HOLD = 1; // s
@@ -236,22 +241,35 @@ export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepEr
 /** A crash's aftermath: how far off the road's heading (rad, either way) it stands. */
 export const recoveryHeading = (rng: Rng) => ((rng() < 0.5 ? -1 : 1) * (30 + rng() * 120) * Math.PI) / 180;
 
+/** Where a crash left it: heading off the road's (rad) and where across the road (x, m). */
+export interface RecoveryStart {
+  yaw: number;
+  x: number;
+}
+
+/** A generation's crash: a heading, and somewhere between RECOVERY_X_FROM and _TO. */
+export function recoveryStart(rng: Rng): RecoveryStart {
+  const yaw = recoveryHeading(rng);
+  return { yaw, x: RECOVERY_X_TO > RECOVERY_X_FROM ? RECOVERY_X_FROM + rng() * (RECOVERY_X_TO - RECOVERY_X_FROM) : RECOVERY_X_FROM };
+}
+
 /**
- * Every brain (and the plain tracker for null) driving off from standing across the road at each of `headings`
- * (rad), on the road with its rails, with the game's planner (PlannerDriver): its cost per brain, the mean of the
- * headings'.
+ * Every brain (and the plain tracker for null) driving off from standing across the road at each of `starts`
+ * (a heading, a place across), on the road with its rails, with the game's planner (PlannerDriver): its cost per
+ * brain, the mean of the starts'.
  */
-export function recoveryCost(brains: (Brain | null)[], headings: number[]): number[] {
+export function recoveryCost(brains: (Brain | null)[], starts: RecoveryStart[]): number[] {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   const cars = brains.map(() => new PlayerCar(physics, null, { spec: SPEC }));
   const cap = SPEC.params.maxSpeed;
   const cost = brains.map(() => 0);
   const lane = Math.floor(LANE_COUNT / 2);
-  for (const a of headings) {
+  for (const { yaw: a, x } of starts) {
     for (const car of cars) {
       car.body.setEnabled(true);
       car.resetTo(100, lane, 0);
+      car.body.setTranslation({ ...car.body.translation(), x }, true);
       car.body.setRotation({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) }, true);
       car.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     }
@@ -292,7 +310,7 @@ export function recoveryCost(brains: (Brain | null)[], headings: number[]): numb
     });
   }
   physics.free();
-  return cost.map((c) => c / headings.length);
+  return cost.map((c) => c / starts.length);
 }
 
 /** One brain (null: the plain tracker) racing alone on `seed` for `seconds`, as in the game (traffic gives way to it). */
