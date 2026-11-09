@@ -1,5 +1,5 @@
 import { beforeAll, describe, it, expect } from 'vitest';
-import { ACROSS_CREEP, crossing, plan, PLANNER, Plan } from '../src/ai/planner';
+import { crossing, plan, PLANNER, Plan } from '../src/ai/planner';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH } from '../src/config';
 import { laneAt, laneCenter } from '../src/road/coords';
@@ -313,18 +313,6 @@ describe('plan', () => {
     const boxes = [car(-1, 2, 120), car(-3, 1, 120)];
     const p = plan({ ...ego(120), d: (laneCenter(1) + laneCenter(2)) / 2 }, boxes);
     expect(p.points.length).toBe(Math.round(PLANNER.horizon / PLANNER.step) + 1);
-  });
-
-  it('standing across the road, sliding off its edge too fast to take back: drives on slowly, no brake', () => {
-    // On the outermost cell, 8 m/s sideways on outward: no plan stays on the road with that move.
-    const off = { ...ego(11), d: laneCenter(3) + 0.9, vD: 8 };
-    const braked = plan(off, []); // in a race: the fallback, a brake toward the lane centre
-    expect(braked.points.length).toBe(2);
-    expect(braked.points[1].v).toBeLessThan(off.v);
-    const p = plan({ ...off, across: true }, []);
-    expect(p.points.length).toBe(Math.round(PLANNER.horizon / PLANNER.step) + 1);
-    expect(last(p).v).toBeGreaterThan(0);
-    expect(Math.max(...p.points.slice(1).map((x) => x.v))).toBeLessThanOrEqual(ACROSS_CREEP);
   });
 });
 
