@@ -546,6 +546,7 @@ export class Game {
       this.aiDriver.accel = spec.ai.accel;
       this.aiDriver.latAccel = spec.ai.latAccel;
       this.aiDriver.tracker = trackerFrom(spec.ai.tracker);
+      this.aiDriver.recovery = trackerFrom(spec.ai.recovery);
     }
     const rivals = raceRivals(cars, Math.random); // (at random: drawn afresh each race, the same race again too)
     if (rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {

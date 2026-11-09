@@ -198,6 +198,7 @@ export class Rivals {
       driver.accel = spec.ai.accel;
       driver.latAccel = spec.ai.latAccel;
       driver.tracker = trackerFrom(spec.ai.tracker);
+      driver.recovery = trackerFrom(spec.ai.recovery);
       const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0 };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
       this.list.push(r);

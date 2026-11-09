@@ -1,5 +1,6 @@
 import type { CarSpec } from './types';
 import { STREET_RACER_TRACKER } from './streetRacerTracker';
+import { STREET_RACER_RECOVERY } from './streetRacerRecovery';
 import { SUPERCAR_COLLIDER } from './supercarCollider';
 import { withMass } from './mass';
 
@@ -92,6 +93,7 @@ const SUPERCAR: CarSpec = {
       [300, 23.6],
     ],
     tracker: STREET_RACER_TRACKER,
+    recovery: STREET_RACER_RECOVERY,
   },
 };
 
