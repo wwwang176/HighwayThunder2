@@ -1,3 +1,4 @@
+import { MEDIAN_NEAR_X, RAIL_D } from '../config';
 import type { CarParams } from '../vehicles/handling';
 import { Brain, createBrain, forward, weightCount } from './brain';
 import { trackSteer } from './laneController';
@@ -21,24 +22,35 @@ export const TRACKER_LOOK = [0, 0.15, 0.3, 0.5];
  * is told; then the car's heading and slide unclamped (HEADING_INPUTS: across the road, after a crash, all of it).
  */
 const HEADING_INPUTS = 3;
-export const TRACKER_INPUTS = 2 * TRACKER_LOOK.length + 9 + HEADING_INPUTS;
+/** Then how far the road goes on either side, and what the seat feels (acceleration, roll and pitch rates). */
+const SENSE_INPUTS = 6;
+/** The inputs before the SENSE ones. */
+const PLAN_INPUTS = 2 * TRACKER_LOOK.length + 9 + HEADING_INPUTS;
+export const TRACKER_INPUTS = PLAN_INPUTS + SENSE_INPUTS;
 /**
- * Outputs: a steering correction, how much of the plan's throttle to take back (0..1: none..all), and whether to
- * back up (only where REVERSE_V and REVERSE_YAW let it: standing across the road after a crash).
+ * Outputs: a steering correction, how much of the plan's throttle to take back (0..1: none..all) - standing across
+ * the road (ACROSS_YAW), the throttle itself, the plan's pedals counting for nothing - and whether to back up (only
+ * where REVERSE_V and ACROSS_YAW let it).
  */
 export const TRACKER_LAYERS = [TRACKER_INPUTS, 12, 12, 3];
+/** The layout before the SENSE inputs. */
+const NO_SENSE_LAYERS = [PLAN_INPUTS, 12, 12, 3];
 /** The layout before the reverse output. */
-const TWO_OUT_LAYERS = [TRACKER_INPUTS, 12, 12, 2];
+const TWO_OUT_LAYERS = [PLAN_INPUTS, 12, 12, 2];
 /** The layout before the heading inputs. */
-const NO_HEADING_LAYERS = [TRACKER_INPUTS - HEADING_INPUTS, 12, 12, 2];
+const NO_HEADING_LAYERS = [PLAN_INPUTS - HEADING_INPUTS, 12, 12, 2];
 /** It may back up only slower than this (m/s)... */
 export const REVERSE_V = 3;
-/** ...and heading off the road's by more than this (rad): never in a race, only after a crash (put back at 60 km/h). */
-export const REVERSE_YAW = 0.4;
+/**
+ * Heading off the road's by more than this (rad) it stands across the road: never in a race, only after a crash (put
+ * back at 60 km/h). Then the network has the throttle, and may back up (REVERSE_V).
+ */
+export const ACROSS_YAW = 0.4;
+export const REVERSE_YAW = ACROSS_YAW;
 /** Of its reverse output, this much is nothing (so a slightly-off weight does not back it up). */
 const REVERSE_DEAD = 0.1;
 /** The layout before the throttle: steering only, without the wheelspin and throttle inputs. */
-const STEER_ONLY_LAYERS = [TRACKER_INPUTS - HEADING_INPUTS - 2, 12, 12, 1];
+const STEER_ONLY_LAYERS = [PLAN_INPUTS - HEADING_INPUTS - 2, 12, 12, 1];
 
 const clamp = (x: number, m = 3) => Math.max(-m, Math.min(m, x));
 
@@ -69,6 +81,14 @@ export function trackerInputs(plan: Plan, age: number, self: SelfState, base: nu
   out[k++] = Math.sin(self.yaw);
   out[k++] = 1 - Math.cos(self.yaw); // (0 on the road's heading, 2 the wrong way round)
   out[k++] = Math.atan2(self.vLat, Math.max(1, self.vLong)) / (Math.PI / 2);
+  // Where the road ends either side (the rail on the right; the median's grass on the left, - on it) and what the
+  // seat feels: SENSE_INPUTS.
+  out[k++] = clamp((RAIL_D - self.d) / 5);
+  out[k++] = clamp((self.d - MEDIAN_NEAR_X) / 5);
+  out[k++] = clamp((self.aLong ?? 0) / 10);
+  out[k++] = clamp((self.aLat ?? 0) / 10);
+  out[k++] = clamp((self.rollRate ?? 0) / 0.5);
+  out[k++] = clamp((self.pitchRate ?? 0) / 0.5);
   return out;
 }
 
@@ -76,17 +96,21 @@ const inputs = new Float32Array(TRACKER_INPUTS);
 const output = new Float32Array(3);
 
 /**
- * Steering (-1..1) along `plan`, `age` s after it was made, the plan's `throttle` with some taken back, and how hard
- * to back up (0..1; the brake pedal: it stops the car, then reverses it). Backing up it steers the other way round
- * (the plain tracker's steering mirrored: the same turn of the car, going backwards) plus its correction.
+ * Steering (-1..1) along `plan`, `age` s after it was made, the plan's `throttle` with some taken back (across the
+ * road: its own throttle, `across`), and how hard to back up (0..1; the brake pedal: it stops the car, then reverses
+ * it). Backing up it steers the other way round (the plain tracker's steering mirrored: the same turn of the car,
+ * going backwards) plus its correction.
  */
-export function netDrive(b: Brain, plan: Plan, age: number, self: SelfState, p: CarParams, throttle: number): { steer: number; throttle: number; reverse: number } {
+export function netDrive(b: Brain, plan: Plan, age: number, self: SelfState, p: CarParams, throttle: number): { steer: number; throttle: number; reverse: number; across: boolean } {
   const base = baseSteer(plan, age, self, p);
   forward(b, trackerInputs(plan, age, self, base, throttle, inputs), output);
-  const may = self.vLong < REVERSE_V && Math.abs(self.yaw) > REVERSE_YAW;
+  const across = Math.abs(self.yaw) > ACROSS_YAW;
+  const may = across && self.vLong < REVERSE_V;
   const reverse = may && b.layers[b.layers.length - 1] > 2 ? Math.max(0, Math.min(1, (output[2] - REVERSE_DEAD) / (1 - REVERSE_DEAD))) : 0;
   const steer = (reverse > 0 ? -base : base) + output[0];
-  return { steer: Math.max(-1, Math.min(1, steer)), throttle: reverse > 0 ? 0 : throttle * Math.max(0, Math.min(1, 1 + output[1])), reverse };
+  // (across: as if the plan asked for it all - what it nearly always did, so the older networks drive off as they did)
+  const kept = Math.max(0, Math.min(1, 1 + output[1]));
+  return { steer: Math.max(-1, Math.min(1, steer)), throttle: reverse > 0 ? 0 : across ? kept : throttle * kept, reverse, across };
 }
 
 /** Steering (-1..1) along `plan` (the throttle left as the plan has it). */
@@ -104,12 +128,13 @@ export function quietTracker(rng: Rng): Brain {
 
 /**
  * A car type's trained tracker (CarPerformance.tracker), or null if it has none for this layout. One of an older
- * layout comes in driving as it did: the inputs added since weigh nothing (the heading ones; the wheelspin and
- * throttle ones), and one trained for steering only takes no throttle back.
+ * layout comes in driving as it did: the inputs added since weigh nothing (the road's ends and the seat's; the heading
+ * ones; the wheelspin and throttle ones), and one trained for steering only takes no throttle back.
  */
 export function trackerFrom(weights: number[] | undefined): Brain | null {
   if (!weights) return null;
   if (weights.length === weightCount(TRACKER_LAYERS)) return { layers: TRACKER_LAYERS.slice(), weights: Float32Array.from(weights) };
+  if (weights.length === weightCount(NO_SENSE_LAYERS)) return trackerFrom(widen(weights, NO_SENSE_LAYERS, SENSE_INPUTS));
   // (one that never backs up: a reverse output row of zeros)
   if (weights.length === weightCount(TWO_OUT_LAYERS)) return trackerFrom([...weights, ...new Array(TWO_OUT_LAYERS[2] + 1).fill(0)]);
   if (weights.length === weightCount(NO_HEADING_LAYERS)) return trackerFrom(widen(weights, NO_HEADING_LAYERS, HEADING_INPUTS));

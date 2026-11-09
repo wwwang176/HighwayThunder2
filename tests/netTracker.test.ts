@@ -3,6 +3,10 @@ import { baseSteer, netDrive, netSteer, quietTracker, trackerFrom, trackerInputs
 import { forward, weightCount } from '../src/ai/brain';
 import { mulberry32 } from '../src/ai/rng';
 import { DEFAULT_CAR } from '../src/vehicles/handling';
+import { MEDIAN_NEAR_X, RAIL_D } from '../src/config';
+
+/** The inputs before the road's ends and the seat's (and before those, the heading ones). */
+const PLAN_INPUTS = 20;
 
 // A plan moving one metre right over its first half second, then holding.
 const plan = { points: [ { t: 0, s: 0, d: 0, v: 50 }, { t: 0.5, s: 25, d: 1, v: 50 }, { t: 1, s: 50, d: 1, v: 50 } ] };
@@ -36,13 +40,13 @@ describe('netTracker', () => {
 
   it('a network from before the heading inputs drives exactly as it did', () => {
     const rng = mulberry32(3);
-    const before = [TRACKER_INPUTS - 3, 12, 12, 2];
+    const before = [PLAN_INPUTS - 3, 12, 12, 2];
     const old = Array.from({ length: weightCount(before) }, () => rng() * 2 - 1);
     const b = trackerFrom(old)!;
     expect(b.layers).toEqual([TRACKER_INPUTS, 12, 12, 3]);
     for (let n = 0; n < 20; n++) {
       const x = Array.from({ length: TRACKER_INPUTS }, () => rng() * 4 - 2);
-      const want = forward({ layers: before, weights: Float32Array.from(old) }, x.slice(0, TRACKER_INPUTS - 3));
+      const want = forward({ layers: before, weights: Float32Array.from(old) }, x.slice(0, PLAN_INPUTS - 3));
       const got = forward(b, x);
       expect(got[0]).toBeCloseTo(want[0], 6);
       expect(got[1]).toBeCloseTo(want[1], 6);
@@ -52,19 +56,56 @@ describe('netTracker', () => {
 
   it('a network from before the reverse output drives exactly as it did, never backing up', () => {
     const rng = mulberry32(5);
-    const before = [TRACKER_INPUTS, 12, 12, 2];
+    const before = [PLAN_INPUTS, 12, 12, 2];
     const old = Array.from({ length: weightCount(before) }, () => rng() * 2 - 1);
     const b = trackerFrom(old)!;
     expect(b.layers).toEqual([TRACKER_INPUTS, 12, 12, 3]);
     for (let n = 0; n < 20; n++) {
       const x = Array.from({ length: TRACKER_INPUTS }, () => rng() * 4 - 2);
-      const want = forward({ layers: before, weights: Float32Array.from(old) }, x);
+      const want = forward({ layers: before, weights: Float32Array.from(old) }, x.slice(0, PLAN_INPUTS));
       const got = forward(b, x);
       expect(got[0]).toBeCloseTo(want[0], 6);
       expect(got[1]).toBeCloseTo(want[1], 6);
     }
     const across = { ...self, yaw: 2, vLong: 0 };
     expect(netDrive(b, plan, 0, across, DEFAULT_CAR, 1).reverse).toBe(0);
+  });
+
+  it('a network from before the road-end and seat inputs drives exactly as it did', () => {
+    const rng = mulberry32(7);
+    const before = [PLAN_INPUTS, 12, 12, 3];
+    const old = Array.from({ length: weightCount(before) }, () => rng() * 2 - 1);
+    const b = trackerFrom(old)!;
+    expect(b.layers).toEqual([TRACKER_INPUTS, 12, 12, 3]);
+    for (let n = 0; n < 20; n++) {
+      const x = Array.from({ length: TRACKER_INPUTS }, () => rng() * 4 - 2);
+      const want = forward({ layers: before, weights: Float32Array.from(old) }, x.slice(0, PLAN_INPUTS));
+      const got = forward(b, x);
+      for (let o = 0; o < 3; o++) expect(got[o]).toBeCloseTo(want[o], 6);
+    }
+  });
+
+  it('sees how far the road goes either side and what the seat feels', () => {
+    const x = trackerInputs(plan, 0, { ...self, d: 5, aLong: -5, aLat: 2, rollRate: 0.25, pitchRate: -0.1 }, 0, 0);
+    expect(x.length).toBe(PLAN_INPUTS + 6);
+    expect(x[20]).toBeCloseTo((RAIL_D - 5) / 5); // 5 m to the rail on its right
+    expect(x[21]).toBeCloseTo((5 - MEDIAN_NEAR_X) / 5); // 15 m to the grass on its left
+    expect(x[22]).toBeCloseTo(-0.5); // braking at 5 m/s²
+    expect(x[23]).toBeCloseTo(0.2);
+    expect(x[24]).toBeCloseTo(0.5);
+    expect(x[25]).toBeCloseTo(-0.2);
+    const onGrass = trackerInputs(plan, 0, { ...self, d: MEDIAN_NEAR_X - 3 }, 0, 0);
+    expect(onGrass[21]).toBeCloseTo(-3 / 5); // 3 m onto it
+  });
+
+  it('across the road the throttle is its own: the plan asking for none does not hold it back', () => {
+    const b = quietTracker(mulberry32(4)); // takes nothing back
+    const across = { ...self, yaw: 1, vLong: 5 };
+    expect(netDrive(b, plan, 0, across, DEFAULT_CAR, 0).throttle).toBe(1);
+    expect(netDrive(b, plan, 0, across, DEFAULT_CAR, 0).across).toBe(true);
+    // Racing it is the plan's, some taken back.
+    expect(netDrive(b, plan, 0, self, DEFAULT_CAR, 0.3).throttle).toBeCloseTo(0.3);
+    expect(netDrive(b, plan, 0, self, DEFAULT_CAR, 0.3).across).toBe(false);
   });
 
   it('backs up only standing across the road, steering the other way round', () => {

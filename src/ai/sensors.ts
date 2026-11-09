@@ -19,6 +19,11 @@ export interface SelfState {
   /** Half its body's width and length (m; default the street racer's, 0.93 x 2.2). */
   halfWidth?: number;
   halfLength?: number;
+  /** What the seat feels: acceleration (m/s²) along its nose and toward its right; roll (+ onto its right side) and pitch (+ nose up) rates, rad/s. */
+  aLong?: number;
+  aLat?: number;
+  rollRate?: number;
+  pitchRate?: number;
 }
 
 /** A vehicle (or wreck) on our carriageway as an axis-aligned box in road coordinates. */

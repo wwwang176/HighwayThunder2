@@ -199,6 +199,7 @@ export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepEr
           const net = netDrive(r.brain, r.plan, age, self, r.car.params, pedals.throttle);
           steer = net.steer;
           pedals.throttle = net.throttle;
+          if (net.across) pedals.brake = 0; // (as PlannerDriver)
         } else steer = baseSteer(r.plan, age, self, r.car.params);
         r.car.prePhysics({ steer, ...pedals }, PHYSICS_DT);
         r.cost += CHATTER * Math.abs(steer - r.lastSteer);

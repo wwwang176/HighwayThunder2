@@ -184,6 +184,8 @@ export class PlannerDriver implements Driver {
       const net = netDrive(this.tracker, this.plan, age, self, p, pedals.throttle);
       steer = net.steer;
       pedals.throttle = net.throttle;
+      if (net.across) pedals.brake = 0; // (across the road the throttle is the network's: no plan brakes it - one that
+      // could not take its sideways move back before the road's edge was none, and the fallback braked: stop and go)
       reverse = net.reverse; // (standing across the road after a crash: backing up to turn)
     } else steer = baseSteer(this.plan, age, self, p);
     // Sideways rate the plan has now, or (`steerClear`) where the steering already aims, if more: it is on its way out.
