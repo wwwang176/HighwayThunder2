@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads';
+import { constants, setPriority } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { build } from 'rolldown';
 import type { ExamTask } from './trackerWorker';
@@ -41,6 +42,12 @@ export class ExamPool {
       transform: { define: { 'import.meta.env': '{"BASE_URL":"/"}' } }, // (Vite's, for the game modules that load assets)
       output: { file: out, format: 'esm' },
     });
+    // Above normal: started from a background shell, Windows left its threads waiting for a CPU (2.3 of 6 busy).
+    try {
+      setPriority(constants.priority.PRIORITY_ABOVE_NORMAL);
+    } catch {
+      // (not allowed: as it is)
+    }
     return new ExamPool(Array.from({ length: threads }, () => new Worker(out, { env: process.env })));
   }
 
