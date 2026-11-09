@@ -2,7 +2,7 @@ import { PHYSICS_DT } from '../config';
 import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import type { Brain } from './brain';
-import { baseSteer, netDrive, trackerFrom } from './netTracker';
+import { ACROSS_YAW, baseSteer, netDrive, trackerFrom } from './netTracker';
 import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
@@ -120,6 +120,8 @@ export class PlannerDriver implements Driver {
   latAccel: AccelTable = STREET_RACER.ai.latAccel;
   /** The car type's trained steering network (CarSpec.ai.tracker), used with DRIVER_TUNING.netTracker. */
   tracker: Brain | null = trackerFrom(STREET_RACER.ai.tracker);
+  /** Its network for standing across the road after a crash (CarSpec.ai.recovery); none: `tracker` there too. */
+  recovery: Brain | null = trackerFrom(STREET_RACER.ai.recovery);
   /** Engine boost on top (the rivals' rubber band): the plan and the pedals count on it. */
   accelScale = 1;
   /** Answers to requests made up to this clock time are thrown away (the car was moved since). */
@@ -179,10 +181,15 @@ export class PlannerDriver implements Driver {
     const pedals = planPedals(this.plan, age, self.vLong, this.accelTable());
     // The car type's network steers, and takes back some of the throttle (wheelspin, a sliding tail).
     let steer: number;
-    if (DRIVER_TUNING.netTracker && this.tracker) {
-      const net = netDrive(this.tracker, this.plan, age, self, p, pedals.throttle);
+    let reverse = 0;
+    const brain = this.recovery && Math.abs(self.yaw) > ACROSS_YAW ? this.recovery : this.tracker;
+    if (DRIVER_TUNING.netTracker && brain) {
+      const net = netDrive(brain, this.plan, age, self, p, pedals.throttle);
       steer = net.steer;
       pedals.throttle = net.throttle;
+      if (net.across) pedals.brake = 0; // (across the road the throttle is the network's: no plan brakes it - one that
+      // could not take its sideways move back before the road's edge was none, and the fallback braked: stop and go)
+      reverse = net.reverse; // (standing across the road after a crash: backing up to turn)
     } else steer = baseSteer(this.plan, age, self, p);
     // Sideways rate the plan has now, or (`steerClear`) where the steering already aims, if more: it is on its way out.
     const now = planAt(this.plan, age).dRate;
@@ -192,6 +199,7 @@ export class PlannerDriver implements Driver {
       this.tracking?.speedAtOverride.push(self.vLong - planAt(this.plan, age).v);
       return { steer, throttle: 0, brake };
     }
+    if (reverse > 0) return { steer, throttle: 0, brake: reverse }; // (the brake pedal, stopped: reverse)
     return { steer, ...pedals };
   }
 

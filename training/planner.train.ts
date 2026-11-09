@@ -39,6 +39,7 @@ it('planner', async () => {
     driver.accel = spec.ai.accel;
     driver.latAccel = spec.ai.latAccel;
     driver.tracker = trackerFrom(spec.ai.tracker);
+    driver.recovery = trackerFrom(spec.ai.recovery);
     const st = driver.measure();
     // Traffic gives way to the AI car as it does the player in the game (TRAFFIC_BLIND=1: as in training).
     const sim = new TrainingSim([driver], seed, { spec, speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND,

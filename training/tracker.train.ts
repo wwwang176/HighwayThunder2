@@ -1,19 +1,15 @@
 import { it } from 'vitest';
-import RAPIER from '@dimforge/rapier3d-compat';
-import { writeFileSync } from 'node:fs';
-import { KMH, LANE_COUNT, LANE_WIDTH, PHYSICS_DT } from '../src/config';
-import { laneCenter } from '../src/road/coords';
-import { PlayerCar } from '../src/vehicles/playerCar';
-import { CARS } from '../src/vehicles/cars';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { trackerFile } from '../src/ai/aiTopSpeed';
 import type { Brain } from '../src/ai/brain';
-import { selfStateOf } from '../src/ai/driver';
 import { DEFAULT_EVO, nextGeneration } from '../src/ai/evolution';
-import { baseSteer, netDrive, quietTracker, trackerFrom } from '../src/ai/netTracker';
-import { lateralTurn, maxAccel, Plan, PLANNER } from '../src/ai/planner';
-import { planPedals } from '../src/ai/plannerDriver';
-import { mulberry32, Rng } from '../src/ai/rng';
-import { openGround } from './openGround';
+import { quietTracker, trackerFrom } from '../src/ai/netTracker';
+import { mulberry32 } from '../src/ai/rng';
+import {
+  DRIVE_EPS, DRIVE_GUARD, PER_GEN, RACE_KEEP, RACE_RESETS, RACE_SEEDS, RACE_TRAIN, RACE_VALIDATION_SEED, RACE_WEIGHT,
+  RECOVERY, RECOVERY_VALIDATION, RECOVERY_VALIDATION_X, RECOVERY_WEIGHT, RecoveryStart, recoveryStart, Scenario, scenario, SPEC, VALIDATION,
+} from './trackerEval';
+import { chunks, ExamPool } from './trackerPool';
 
 /**
  * Trains a car type's steering network (src/ai/netTracker.ts) by neuroevolution: a population of
@@ -21,183 +17,31 @@ import { openGround } from './openGround';
  * moves to random targets - lane centres and gaps between - replanned every 0.25 s from where the
  * car is, as in a race). Every car of a generation gets the same targets; the plain tracker drives
  * them too, for comparison. Score: squared distance off the plan, a little for jerking the wheel,
- * and spinning out is the end.
+ * and spinning out is the end. Then RECOVERY a generation of a crash's aftermath: the car standing across the road
+ * (30-150 deg off its heading, either way, rails each side; RECOVERY_X_FROM.._TO m across, the median's grass at
+ * -10..-20), the game's own planner telling it to drive on - scored
+ * by how soon it is away (straight, 40 km/h, held 1 s), how far it turned past its start, how far it swung past
+ * straight (a donut: far over 2 turns, the end), weighed RECOVERY_WEIGHT against the driving.
+ * The driving also pays for where it is LAG_AFTER s after each plan against that plan (the benchmark's measure: a
+ * car slow to move sideways pays nothing against the plan just replanned from where it is), and a brain driving
+ * worse than the network it started from (CONTINUE=1) on the same scenarios pays DRIVE_GUARD times the difference.
+ * Then RACE_TRAIN a generation of the real thing: the whole population (and the start, and the plain tracker) as
+ * ghosts racing RACE_TRAIN_S s from the start on a fresh seed with traffic, the game's planner making the plans - the
+ * dodges, the braking, the emergency brake the open-ground plans never have - scored as the scenarios (the lag
+ * against each plan 0.75 s on, the way it got) plus RESET_COST a crash (it is put back at 60 km/h and races on),
+ * weighed RACE_WEIGHT; it counts as driving (the guard holds it too). The validation's driving has one such race too.
+ * A checkpoint is saved only if it also races (RACE_SEEDS, RACE_S s each, traffic, a crash putting it back at
+ * 60 km/h) about as far with about as few resets as the start; every validated one is archived in training/out/tracker.
  *   CAR=muscle-car GENS=40 POP=60 SCENARIOS=8 SAVE=1 npx vitest run --config training/vitest.config.ts training/tracker.train.ts
  * (CAR: the car type, default the supercar; PLANNER_JSON as the benchmark; SAVE=1 writes the car's own
  * weights file, trackerFile(): e.g. src/vehicles/cars/muscleCarTracker.ts.)
+ * The exams (trackerEval.ts) run in THREADS worker threads (default 6), the population shared out among them; the
+ * race exam has each brain race alone with traffic that gives way to it, as the benchmark.
  */
 
-const SPEC = CARS[process.env.CAR ?? 'street-racer'];
-if (!SPEC) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
-/** Fastest a scenario runs (km/h): the car's own top speed, at most 300. */
-const TOP_KMH = Math.min(300, SPEC.params.maxSpeed / KMH);
-const SCENARIO_S = 8; // s each
-const PER_GEN = Number(process.env.SCENARIOS ?? 4);
-const VALIDATION = 8;
-const CHATTER = 0.002; // cost per unit of wheel input change per step
-const SPIN_SLIP = 0.35; // rad of body slip (cornering.train.ts) or...
-const SPIN_YAW = 0.7; // ...heading off the road: spun
-
-interface Scenario {
-  v: number;
-  /** [time, lateral target] */
-  targets: [number, number][];
-  /** [time, target speed] (m/s): it speeds up flat out and slows, changing lanes as it goes - as in a race. */
-  speeds: [number, number][];
-}
-
-/** How much progress counts against wheel tracking: taking the throttle back must not just slow it down. */
-const PROGRESS = 0.01; // cost per metre
-
-function scenario(rng: Rng): Scenario {
-  const v = (40 + rng() * (TOP_KMH - 40)) * KMH;
-  const targets: [number, number][] = [];
-  const lo = laneCenter(0);
-  const hi = laneCenter(LANE_COUNT - 1);
-  for (let t = 0; t < SCENARIO_S; t += 0.6 + rng() * 1.9) {
-    // Lane centres mostly; else anywhere on the eighth-lane grid (a gap between two cars).
-    const d = rng() < 0.6 ? laneCenter(Math.floor(rng() * LANE_COUNT)) : lo + Math.round((rng() * (hi - lo)) / (LANE_WIDTH / 8)) * (LANE_WIDTH / 8);
-    targets.push([t, d]);
-  }
-  const speeds: [number, number][] = [[0, (60 + rng() * (TOP_KMH - 60)) * KMH]];
-  for (let t = 2 + rng() * 2; t < SCENARIO_S; t += 2 + rng() * 2) speeds.push([t, (50 + rng() * (TOP_KMH - 50)) * KMH]);
-  return { v, targets, speeds };
-}
-
-const targetAt = (sc: Scenario, t: number) => {
-  let d = sc.targets[0][1];
-  for (const [at, x] of sc.targets) if (at <= t) d = x;
-  return d;
-};
-
-const speedAt = (sc: Scenario, t: number) => {
-  let v = sc.speeds[0][1];
-  for (const [at, x] of sc.speeds) if (at <= t) v = x;
-  return v;
-};
-
-/**
- * A plan from (s, d, vD) at speed v toward lateral `target` the way the planner moves: whole cells
- * a step, the change in sideways move each step within what the car's grip allows (`lateralTurn`),
- * as fast as it can while still able to stop on the target.
- */
-export function movePlan(s: number, d: number, vD: number, v: number, target: number, vTarget = v): Plan {
-  const dt = PLANNER.step;
-  const cell = LANE_WIDTH / PLANNER.cellsPerLane;
-  const turn = Math.min(lateralTurn(v, dt, cell, SPEC.ai.latAccel), 6);
-  const maxLat = PLANNER.maxLateral;
-  let lat = Math.max(-maxLat, Math.min(maxLat, (vD * dt) / cell));
-  const first = laneCenter(0) - 2 * cell * PLANNER.cellsPerLane; // any cell boundary works: positions are relative
-  let c = Math.round((d - first) / cell);
-  const goal = Math.round((target - first) / cell);
-  // Cells still covered while slowing from `m` a step to a stop.
-  const stopping = (m: number) => {
-    let sum = 0;
-    for (let x = Math.abs(m) - turn; x > 0; x -= turn) sum += x;
-    return sum;
-  };
-  const points = [{ t: 0, s, d, v }];
-  let speed = v;
-  let along = s;
-  for (let k = 1; k <= Math.round(3 / dt); k++) {
-    // Toward the target speed: flat out up, the planner's soft brake down.
-    const dv = vTarget - speed;
-    const was = speed;
-    speed += dv > 0 ? Math.min(dv, maxAccel(speed, SPEC.ai.accel) * dt) : Math.max(dv, -PLANNER.softBrake * dt);
-    along += ((was + speed) / 2) * dt;
-    const rest = goal - c;
-    let best = NaN;
-    for (let m = Math.ceil(lat - turn - 0.01); m <= Math.floor(lat + turn + 0.01); m++) {
-      if (Math.abs(m) > maxLat) continue;
-      // Toward the goal as fast as it can without passing it (counting the cells it takes to stop).
-      const reach = m + Math.sign(m) * stopping(m);
-      const ok = rest >= 0 ? reach <= rest : reach >= rest;
-      if (ok && (Number.isNaN(best) || (rest >= 0 ? m > best : m < best))) best = m;
-    }
-    // Nothing stops in time: brake sideways as hard as it may.
-    if (Number.isNaN(best)) best = rest >= 0 ? Math.max(-maxLat, Math.ceil(lat - turn - 0.01)) : Math.min(maxLat, Math.floor(lat + turn + 0.01));
-    c += best;
-    lat = best;
-    points.push({ t: k * dt, s: along, d: first + c * cell, v: speed });
-  }
-  return { points };
-}
-
-interface Run {
-  car: PlayerCar;
-  brain: Brain | null; // null: the plain tracker
-  plan: Plan | null;
-  madeAt: number;
-  cost: number;
-  out: boolean;
-  lastSteer: number;
-  errs: number[];
-}
-
-/** Every brain (and the plain tracker, last) through the scenarios together; cost per brain, and the runs' errors. */
-function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepErrors = false): { cost: number[]; errs: number[][] } {
-  const physics = openGround();
-  physics.timestep = PHYSICS_DT;
-  const runs: Run[] = brains.map((brain) => ({ car: new PlayerCar(physics, null, { spec: SPEC }), brain, plan: null, madeAt: 0, cost: 0, out: false, lastSteer: 0, errs: [] }));
-  const cap = SPEC.params.maxSpeed;
-  for (const r of runs) r.car.params.maxSpeed = cap;
-  for (const sc of scenarios) {
-    const lane = Math.floor(LANE_COUNT / 2);
-    for (const r of runs) {
-      r.car.body.setEnabled(true);
-      r.car.resetTo(0, lane, sc.v);
-      r.plan = null;
-      r.out = false;
-      r.lastSteer = 0;
-    }
-    const steps = Math.round(SCENARIO_S / PHYSICS_DT);
-    for (let i = 0; i < steps; i++) {
-      const t = i * PHYSICS_DT;
-      for (const r of runs) {
-        if (r.out) continue;
-        const self = selfStateOf(r.car, cap);
-        if (!r.plan || t - r.madeAt >= 0.25 - 1e-9) {
-          const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
-          r.plan = movePlan(self.s, self.d, vD, Math.max(5, self.vLong), targetAt(sc, t), speedAt(sc, t));
-          r.madeAt = t;
-        }
-        const age = t - r.madeAt;
-        const pedals = planPedals(r.plan, age, self.vLong, SPEC.ai.accel);
-        let steer: number;
-        if (r.brain) {
-          const net = netDrive(r.brain, r.plan, age, self, r.car.params, pedals.throttle);
-          steer = net.steer;
-          pedals.throttle = net.throttle;
-        } else steer = baseSteer(r.plan, age, self, r.car.params);
-        r.car.prePhysics({ steer, ...pedals }, PHYSICS_DT);
-        r.cost += CHATTER * Math.abs(steer - r.lastSteer);
-        r.lastSteer = steer;
-      }
-      physics.step(() => {});
-      for (const r of runs) {
-        if (r.out) continue;
-        r.car.postPhysics();
-        const age = t + PHYSICS_DT - r.madeAt;
-        const pts = r.plan!.points;
-        // Off the plan now (linear between its points).
-        const k = Math.min(pts.length - 2, Math.floor(age / PLANNER.step));
-        const u = Math.min(1, (age - pts[k].t) / (pts[k + 1].t - pts[k].t));
-        const err = r.car.d - (pts[k].d + (pts[k + 1].d - pts[k].d) * u);
-        r.cost += err * err * PHYSICS_DT;
-        if (keepErrors) r.errs.push(err);
-        const slip = Math.abs(Math.atan2(r.car.vLat, Math.max(1, r.car.vLong)));
-        if (slip > SPIN_SLIP || Math.abs(r.car.yaw) > SPIN_YAW) {
-          r.out = true;
-          r.cost += 10 * (SCENARIO_S - t); // spun: the worst of all
-          r.car.body.setEnabled(false);
-        }
-      }
-    }
-    for (const r of runs) r.cost -= PROGRESS * r.car.s; // the way it got
-  }
-  physics.free();
-  return { cost: runs.map((r) => r.cost / scenarios.length), errs: runs.map((r) => r.errs) };
-}
+const THREADS = Number(process.env.THREADS ?? 6);
+type Net = Brain | null;
+type Drive = { cost: number[]; errs: number[][]; lags: number[][] };
 
 const pct = (xs: number[], p: number) => {
   const a = xs.map(Math.abs).sort((x, y) => x - y);
@@ -207,9 +51,22 @@ const describe = (errs: number[]) =>
   `rms ${Math.sqrt(errs.reduce((s, x) => s + x * x, 0) / errs.length).toFixed(3)} m, p95 ${pct(errs, 0.95).toFixed(2)}, max ${pct(errs, 1).toFixed(2)}`;
 
 it('tracker', async () => {
-  await RAPIER.init();
-  Object.assign(PLANNER, { step: 0.25, cellsPerLane: 8, maxLateral: 6, latGrip: 1 });
-  if (process.env.PLANNER_JSON) Object.assign(PLANNER, JSON.parse(process.env.PLANNER_JSON));
+  const pool = await ExamPool.start(THREADS);
+  const share = <T>(xs: T[]) => chunks(xs, THREADS * 3); // (finer than the threads: they finish unevenly)
+  /** The exams over the population shared out: the results in the brains' order. */
+  const drive = async (brains: Net[], scenarios: Scenario[], keepErrors = false): Promise<Drive> => {
+    const parts = await Promise.all(share(brains).map((b) => pool.run<Drive>({ op: 'drive', brains: b, scenarios, keepErrors })));
+    return { cost: parts.flatMap((p) => p.cost), errs: parts.flatMap((p) => p.errs), lags: parts.flatMap((p) => p.lags) };
+  };
+  const recovery = async (brains: Net[], starts: RecoveryStart[]) =>
+    (await Promise.all(share(brains).map((b) => pool.run<number[]>({ op: 'recovery', brains: b, starts })))).flat();
+  const raceCost = async (brains: Net[], seed: number) =>
+    (await Promise.all(share(brains).map((b) => pool.run<number[]>({ op: 'raceCost', brains: b, seed })))).flat();
+  /** The gate's race: its seeds side by side. */
+  const race = async (b: Net) => {
+    const parts = await Promise.all(RACE_SEEDS.map((seed) => pool.run<{ distance: number; resets: number }>({ op: 'race', brain: b, seeds: [seed] })));
+    return { distance: parts.reduce((a, p) => a + p.distance, 0), resets: parts.reduce((a, p) => a + p.resets, 0) };
+  };
   const gens = Number(process.env.GENS ?? 40);
   const evo = { ...DEFAULT_EVO, population: Number(process.env.POP ?? 40), sigma: Number(process.env.SIGMA ?? 0.1) };
   const rng = mulberry32(Number(process.env.SEED ?? 1));
@@ -218,23 +75,72 @@ it('tracker', async () => {
   // From the car's current network if it has one (CONTINUE=1), else quiet ones (the plain tracker).
   const start = process.env.CONTINUE ? trackerFrom(SPEC.ai.tracker) : null;
   let pop: Brain[] = Array.from({ length: evo.population }, (_, i) => (start && i === 0 ? start : quietTracker(rng)));
-  const base = evaluate([null], validation, true);
-  process.stdout.write(`plain tracker on validation: cost ${base.cost[0].toFixed(4)}, ${describe(base.errs[0])}\n`);
+  const validRecovery = RECOVERY_VALIDATION.flatMap((deg) => RECOVERY_VALIDATION_X.map((x) => ({ yaw: (deg * Math.PI) / 180, x })));
+  /** One brain's validation: the driving's cost (and its errors), the recovery's, the two weighed together. */
+  let startDrive = NaN; // the start's driving on validation (the guard)
+  const validate = async (b: Net) => {
+    // (each scenario and heading a task of its own: one brain's validation side by side)
+    const [vs, raced, recs] = await Promise.all([
+      Promise.all(validation.map((sc) => pool.run<Drive>({ op: 'drive', brains: [b], scenarios: [sc], keepErrors: true }))),
+      RACE_TRAIN > 0 ? raceCost([b], RACE_VALIDATION_SEED).then((c) => c[0]) : 0,
+      RECOVERY_WEIGHT > 0 ? Promise.all(validRecovery.map((st) => pool.run<number[]>({ op: 'recovery', brains: [b], starts: [st] }))) : [],
+    ]);
+    const driving = vs.reduce((a, v) => a + v.cost[0], 0) / vs.length + RACE_WEIGHT * raced;
+    const rec = recs.length ? recs.reduce((a, r) => a + r[0], 0) / recs.length : 0;
+    const guard = Number.isNaN(startDrive) ? 0 : DRIVE_GUARD * Math.max(0, driving - startDrive - DRIVE_EPS);
+    return { cost: driving + guard + RECOVERY_WEIGHT * rec, drive: driving, raced, rec, errs: vs.flatMap((v) => v.errs[0]), lags: vs.flatMap((v) => v.lags[0]) };
+  };
+  const show = (v: Awaited<ReturnType<typeof validate>>) =>
+    `${v.cost.toFixed(4)} (driving ${v.drive.toFixed(4)} of it racing ${v.raced.toFixed(4)}, ${describe(v.errs)}, lag p50 ${pct(v.lags, 0.5).toFixed(2)} p95 ${pct(v.lags, 0.95).toFixed(2)}; recovery ${v.rec.toFixed(2)})`;
+  const showRace = (r: { distance: number; resets: number }) => `race ${Math.round(r.distance)} m, ${r.resets} resets`;
+  const base = await validate(null);
+  process.stdout.write(`plain tracker on validation: ${show(base)}\n`);
   let best: { brain: Brain; cost: number } | null = null;
+  let startRace = await race(null);
+  process.stdout.write(`plain tracker ${showRace(startRace)}\n`);
+  if (start) {
+    const v = await validate(start);
+    startDrive = v.drive;
+    startRace = await race(start);
+    best = { brain: start, cost: v.cost }; // saved only when a brain beats the start
+    process.stdout.write(`its network now on validation: ${show(v)}, ${showRace(startRace)}\n`);
+  }
+  const archive = new URL('./out/tracker/', import.meta.url);
+  mkdirSync(archive, { recursive: true });
   const t0 = performance.now();
   for (let g = 0; g < gens; g++) {
     const scenarios = Array.from({ length: PER_GEN }, () => scenario(rng));
-    const { cost } = evaluate([...pop, null], scenarios);
+    const everyone = start ? [...pop, null, start] : [...pop, null];
+    const seeds = Array.from({ length: RACE_TRAIN }, () => 10_000 + Math.floor(rng() * 1e6)); // (none the benchmark's or the gate's)
+    const starts = Array.from({ length: RECOVERY }, () => recoveryStart(rng));
+    const [{ cost }, raced, rec] = await Promise.all([
+      drive(everyone, scenarios),
+      Promise.all(seeds.map((seed) => raceCost(everyone, seed))),
+      RECOVERY > 0 && RECOVERY_WEIGHT > 0 ? recovery([...pop, null], starts) : null,
+    ]);
+    for (const r of raced) r.forEach((c, i) => (cost[i] += (RACE_WEIGHT * c) / RACE_TRAIN));
+    if (start) {
+      const ref = cost.pop()!; // the start on the same scenarios: no brain may drive much worse
+      for (let i = 0; i < pop.length; i++) cost[i] += DRIVE_GUARD * Math.max(0, cost[i] - ref - DRIVE_EPS);
+    }
+    if (rec) rec.forEach((c, i) => (cost[i] += RECOVERY_WEIGHT * c));
     const plain = cost.pop()!;
     const order = cost.map((c, i) => i).sort((a, b) => cost[a] - cost[b]);
     let line = `gen ${g}: best ${cost[order[0]].toFixed(4)}, median ${cost[order[Math.floor(order.length / 2)]].toFixed(4)}, plain ${plain.toFixed(4)}`;
     if (g % 5 === 4 || g === gens - 1) {
-      const v = evaluate([pop[order[0]]], validation, true);
-      line += ` | validation ${v.cost[0].toFixed(4)} (${describe(v.errs[0])})`;
-      if (!best || v.cost[0] < best.cost) {
-        best = { brain: pop[order[0]], cost: v.cost[0] };
+      const v = await validate(pop[order[0]]);
+      line += ` | validation ${show(v)}`;
+      let races = true;
+      if (!best || v.cost < best.cost) {
+        const r = await race(pop[order[0]]);
+        races = r.distance >= RACE_KEEP * startRace.distance && r.resets <= RACE_RESETS * startRace.resets + 2;
+        line += ` | ${showRace(r)}${races ? '' : ' (races worse: not saved)'}`;
+      }
+      writeFileSync(new URL(`${SPEC.id}-g${g}.json`, archive), JSON.stringify({ gen: g, line, weights: Array.from(pop[order[0]].weights) }));
+      if (races && (!best || v.cost < best.cost)) {
+        best = { brain: pop[order[0]], cost: v.cost };
         if (process.env.SAVE) {
-          save(best.brain, best.cost, base.cost[0]); // stopping it any time keeps the best so far
+          save(best.brain, best.cost, base.cost); // stopping it any time keeps the best so far
           line += ' saved';
         }
       }
@@ -242,7 +148,8 @@ it('tracker', async () => {
     process.stdout.write(`${line}  [${((performance.now() - t0) / 1000).toFixed(0)} s]\n`);
     pop = nextGeneration(pop, cost.map((c) => -c), rng, evo);
   }
-  if (best) process.stdout.write(`best on validation: ${best.cost.toFixed(4)} (plain ${base.cost[0].toFixed(4)})\n`);
+  if (best) process.stdout.write(`best on validation: ${best.cost.toFixed(4)} (plain ${base.cost.toFixed(4)})\n`);
+  await pool.close();
 });
 
 function save(b: Brain, cost: number, plain: number): void {

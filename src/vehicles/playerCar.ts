@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
 import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, steerAngle } from './handling';
@@ -82,6 +83,8 @@ export function quatFromYaw(yaw: number): { x: number; y: number; z: number; w: 
 
 const TMP_Q = new THREE.Quaternion();
 const TMP_V = new THREE.Vector3();
+/** s its acceleration is smoothed over (a crash's spike, the springs' shake). */
+const ACCEL_SMOOTH = 0.1;
 
 /** Heading of an arbitrarily rotated body, measured on the road plane. */
 function headingYaw(q: { x: number; y: number; z: number; w: number }): number {
@@ -154,6 +157,11 @@ export class PlayerCar {
   yaw = 0;
   vLong = 0;
   vLat = 0;
+  /** Its acceleration (m/s²) along its nose and across it (+ toward its right, +d), over the last ~ACCEL_SMOOTH s. */
+  aLong = 0;
+  aLat = 0;
+  private lastVx = NaN;
+  private lastVz = 0;
 
   private prevPos = new THREE.Vector3();
   private currPos = new THREE.Vector3();
@@ -285,6 +293,22 @@ export class PlayerCar {
   /** Yaw rate (rad/s), positive turning toward +d like `yaw`. */
   get yawRate(): number {
     return -this.body.angvel().y;
+  }
+
+  /** Roll rate (rad/s about its own nose, + leaning onto its right side) and pitch rate (+ nose up). */
+  get rollRate(): number {
+    return -this.localSpin().z;
+  }
+
+  get pitchRate(): number {
+    return this.localSpin().x;
+  }
+
+  /** The body's angular velocity in its own axes (x its right, y up, z its tail). */
+  private localSpin(): THREE.Vector3 {
+    const w = this.body.angvel();
+    const q = this.body.rotation();
+    return TMP_V.set(w.x, w.y, w.z).applyQuaternion(TMP_Q.set(q.x, q.y, q.z, q.w).invert());
   }
 
   /** Where the steering is now (-1..1): the input after its rise / return ramp. */
@@ -426,6 +450,16 @@ export class PlayerCar {
   /** Call after world.step. */
   postPhysics(): void {
     this.readBack();
+    const v = this.body.linvel();
+    if (!Number.isNaN(this.lastVx)) {
+      const ax = (v.x - this.lastVx) / PHYSICS_DT;
+      const az = (v.z - this.lastVz) / PHYSICS_DT;
+      const k = PHYSICS_DT / (ACCEL_SMOOTH + PHYSICS_DT);
+      this.aLong += k * (ax * Math.sin(this.yaw) - az * Math.cos(this.yaw) - this.aLong);
+      this.aLat += k * (ax * Math.cos(this.yaw) + az * Math.sin(this.yaw) - this.aLat);
+    }
+    this.lastVx = v.x;
+    this.lastVz = v.z;
     const t = this.body.translation();
     const q = this.body.rotation();
     this.currPos.set(t.x, t.y, t.z);
@@ -445,6 +479,9 @@ export class PlayerCar {
   }
 
   private snapInterpolation(): void {
+    this.lastVx = NaN; // (moved: no acceleration from the jump)
+    this.aLong = 0;
+    this.aLat = 0;
     const t = this.body.translation();
     const q = this.body.rotation();
     this.currPos.set(t.x, t.y, t.z);

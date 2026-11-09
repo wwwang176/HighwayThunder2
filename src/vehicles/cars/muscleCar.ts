@@ -2,6 +2,7 @@ import type { CarSpec } from './types';
 import { SUPERCAR_TUNE } from './streetRacer';
 import { withMass } from './mass';
 import { MUSCLE_CAR_TRACKER } from './muscleCarTracker';
+import { MUSCLE_CAR_RECOVERY } from './muscleCarRecovery';
 import { MUSCLE_CAR_COLLIDER } from './muscleCarCollider';
 
 /**
@@ -81,5 +82,6 @@ export const MUSCLE_CAR: CarSpec = {
       [300, 16.2],
     ],
     tracker: MUSCLE_CAR_TRACKER,
+    recovery: MUSCLE_CAR_RECOVERY,
   },
 };
