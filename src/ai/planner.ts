@@ -137,6 +137,15 @@ export const PLANNER = {
    * Street racing - the others look out for themselves.
    */
   steerClear: true,
+  /**
+   * s the last plan may be old to be taken up again when no plan is found from where the car is: searched again
+   * from where that plan has it now (its sideways position, speed and move), against the traffic as it is now.
+   * The car is never quite on its plan (and its sideways speed lags the plan's), and from a little off it a move
+   * half done - pulling out past a car - could find no way on: the fallback then braked toward the nearest lane
+   * centre, back behind the car it was pulling out from (most of the crashes with nothing changed in the traffic).
+   * 0: off.
+   */
+  reuseAge: 0.75,
 };
 
 /** Half the planned car's length and width (m): `plan` sets them from its ego (default: the street racer's). */
@@ -259,8 +268,8 @@ interface Node {
   lat: number;
 }
 
-/** How plans came out (normal search / relaxed replan / boxed-in fallback): for benchmarks. */
-export const PLAN_STATS = { normal: 0, relaxed: 0, fallback: 0 };
+/** How plans came out (normal search / relaxed replan / from the last plan's state / boxed-in fallback): for benchmarks. */
+export const PLAN_STATS = { normal: 0, relaxed: 0, reused: 0, fallback: 0 };
 
 /**
  * The fastest way through the traffic for the next `horizon` seconds, assuming
@@ -275,8 +284,9 @@ export const PLAN_STATS = { normal: 0, relaxed: 0, fallback: 0 };
  * traffic is never ignored.
  *
  * If no first step is clear (something already too close), it plans again
- * without following / cut-in gaps and ignoring what is wholly behind; if even that fails it heads
- * for the nearest lane centre braking hard - never frozen between two lanes.
+ * without following / cut-in gaps and ignoring what is wholly behind; then (`reuseAge`) from where the last plan
+ * has the car now; if even that fails it heads for the nearest lane centre braking hard - never frozen between
+ * two lanes.
  */
 export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null = null): Plan {
   egoHalfW = ego.halfWidth ?? 0.93;
@@ -292,8 +302,14 @@ export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan
   for (const t of boxes) if (t.phantom && t.id !== undefined) merging.add(t.id);
   const normal = search(ego, boxes, merging, previous, false);
   if (normal) PLAN_STATS.normal++;
-  const found = normal ?? search(ego, boxes, merging, previous, true);
+  let found = normal ?? search(ego, boxes, merging, previous, true);
   if (!normal && found) PLAN_STATS.relaxed++;
+  if (!found && previous && previous.age <= PLANNER.reuseAge) {
+    const was = planAt(previous.plan, previous.age);
+    const onIt: PlanEgo = { ...ego, d: was.d, v: was.v, vD: was.dRate };
+    found = search(onIt, boxes, merging, previous, false) ?? search(onIt, boxes, merging, previous, true);
+    if (found) PLAN_STATS.reused++;
+  }
   if (!found) PLAN_STATS.fallback++;
   if (found) return found;
   const dt = PLANNER.step;
