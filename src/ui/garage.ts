@@ -612,9 +612,8 @@ export class Garage {
             const pips = [-2, -1, 0, 1, 2]
               .map((n) => `<button class="t-pip ${n === 0 ? 'mid' : ''} ${n === level ? 'sel' : ''} ${n !== 0 && Math.sign(n) === Math.sign(level) && Math.abs(n) <= Math.abs(level) ? 'on' : ''}" data-key="${key}" data-level="${n}"></button>`)
               .join('');
-            const ends = key === row
-              ? `<div class="t-ends"><span class="${level < 0 ? 'act' : ''}">◀ ${t(`tune.${key}.l` as Key)}</span><span class="${level > 0 ? 'act' : ''}">${t(`tune.${key}.r` as Key)} ▶</span></div>`
-              : '';
+            // (Every row keeps its line for them; shown on the focused row, or the one under the pointer: the CSS.)
+            const ends = `<div class="t-ends"><span class="${level < 0 ? 'act' : ''}">◀ ${t(`tune.${key}.l` as Key)}</span><span class="${level > 0 ? 'act' : ''}">${t(`tune.${key}.r` as Key)} ▶</span></div>`;
             return `<div class="t-row ${key === row ? 'focus' : ''}" data-row="${key}"><span class="t-name">${t(`tune.${key}` as Key)}</span><div class="t-pips">${pips}</div><span class="t-val num">${level === 0 ? t('tune.stock') : (level > 0 ? '+' : '−') + Math.abs(level)}</span>${ends}</div>`;
           })
           .join('') +

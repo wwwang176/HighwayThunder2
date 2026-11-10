@@ -472,8 +472,10 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .t-pip.mid.sel { background: #fff; }
 #garage .t-pip:hover { background: color-mix(in srgb, var(--accent) 45%, var(--unlit)); }
 #garage .t-val { text-align: right; font: 700 0.8vw/1 var(--f-num); color: rgba(255, 255, 255, 0.75); }
+/* Each end's trade-off: its line kept on every row, the words only on the focused row or under the pointer. */
 #garage .t-ends { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 1vw; margin-top: 0.45vw;
-  font: 600 0.72vw/1.3 var(--f-title); color: rgba(255, 255, 255, 0.5); }
+  font: 600 0.84vw/1.3 var(--f-title); color: rgba(255, 255, 255, 0.55); visibility: hidden; opacity: 0; transition: opacity 0.15s, visibility 0s 0.15s; }
+#garage .t-row.focus .t-ends, #garage .t-row:hover .t-ends { visibility: visible; opacity: 1; transition: opacity 0.15s; }
 #garage .t-ends span:last-child { text-align: right; }
 #garage .t-ends .act { color: var(--accent); }
 #garage .t-foot { display: flex; gap: 0.8vw; }
