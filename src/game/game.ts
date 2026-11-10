@@ -790,7 +790,7 @@ export class Game {
       raceTime: this.flow.raceTime,
     };
     if (racing) this.rivals.drive(dt, view);
-    else this.rivals.hold(dt, this.flow.phase === 'countdown');
+    else this.rivals.hold(dt, this.flow.phase === 'countdown', this.flow.countdown);
 
     // Traffic AI on both carriageways (the player, the rivals and every wreck are
     // obstacles to both), then drive the NPC bodies along the planned paths.
