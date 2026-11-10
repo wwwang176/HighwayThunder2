@@ -300,16 +300,10 @@ export class Garage {
     (document.activeElement as HTMLElement | null)?.blur();
   }
 
-  /** As the race setup's drawer (fitSetup): the screen's full height, zoomed down to fit (no smaller than SETUP_MIN_ZOOM), past that its knobs scroll. */
+  /** The screen's full height; its knobs scroll past that (not zoomed down as the race setup's drawer: its words no smaller than the drawer's). */
   private fitTune(): void {
-    const wrap = this.q('.g-tune');
     const panel = this.q('.g-tune-panel');
-    wrap.style.setProperty('zoom', '1');
-    panel.style.height = ''; // (its own height, to measure)
-    const avail = innerHeight - 2 * innerWidth * 0.0125; // (its margin: 1.25vw above and below)
-    const z = Math.max(SETUP_MIN_ZOOM, Math.min(1, avail / panel.offsetHeight));
-    wrap.style.setProperty('zoom', String(z));
-    panel.style.height = `${Math.round(avail / z)}px`;
+    panel.style.height = `${Math.round(innerHeight - 2 * innerWidth * 0.0125)}px`; // (its margin: 1.25vw above and below)
     this.q('.t-body .focus')?.scrollIntoView({ block: 'nearest' });
   }
 
