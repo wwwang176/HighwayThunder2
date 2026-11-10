@@ -538,3 +538,29 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 .now-playing .np-text { display: inline-block; padding: 0.12vw 0.4vw; line-height: 1.2; }
 .now-playing .np-box.scroll .np-text { animation: np-slide linear infinite; }
 @keyframes np-slide { 0%, 15% { transform: translateX(0); } 50%, 65% { transform: translateX(var(--shift)); } 100% { transform: translateX(0); } }
+
+/* ══ The loading screen (index.html's #loading, src/ui/loading.ts): over everything as the game starts and as a race
+   is set up. The game's name where the title has it, under it (where the title's start comes in) a bar of slanted
+   segments lighting up in the accent, the next one pulsing; the step and its percent over it. Faded out when done. ══ */
+#loading { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 5vw;
+  padding-left: 7vw; box-sizing: border-box; color: #eef3fb; opacity: 1; transition: opacity 0.35s;
+  --accent: #ff3b30; --f-num: "Bahnschrift", "DIN Alternate", "Segoe UI", system-ui, sans-serif; --f-title: "Microsoft JhengHei", "Noto Sans TC", "Segoe UI", system-ui, sans-serif;
+  background: radial-gradient(ellipse 70% 90% at 25% 50%, #0e1528 0%, #070a13 55%, #030408 100%); }
+#loading[hidden] { display: none; }
+#loading.out { opacity: 0; pointer-events: none; }
+#loading .ld-name { position: relative; display: flex; align-items: center; gap: 1.6vw; }
+#loading .ld-name .icon { width: 7vw; height: 7vw; color: var(--accent); filter: drop-shadow(0 0 1.2vw var(--accent)); }
+#loading .ld-name h1 { margin: 0; font: italic 900 4.6vw/1 "Segoe UI", system-ui, sans-serif; letter-spacing: 0.3vw; }
+#loading .ld-name .rule { position: absolute; left: 8.6vw; bottom: -1.6vw; width: 30vw; height: 2px; background: linear-gradient(90deg, var(--accent), transparent); }
+#loading .ld-name .rule::after { content: ""; position: absolute; left: 0; top: 0; width: 6vw; height: 0.42vw; background: var(--accent); clip-path: polygon(0 0, 100% 0, calc(100% - 0.31vw) 100%, 0 100%); }
+#loading .ld-meter { width: 30vw; margin-left: 8.6vw; }
+#loading .ld-head { display: flex; align-items: baseline; gap: 0.9vw; }
+#loading .ld-kicker { display: flex; align-items: center; gap: 0.63vw; font: 600 0.73vw/1 var(--f-num); letter-spacing: 0.2vw; text-transform: uppercase; color: var(--accent); }
+#loading .ld-kicker::before { content: ""; width: 1.35vw; height: 0.21vw; background: var(--accent); transform: skewX(-30deg); }
+#loading .ld-step { font: 600 0.94vw/1 var(--f-title); color: #c9d3e6; white-space: nowrap; }
+#loading .ld-pct { margin-left: auto; font: italic 800 1.9vw/1 var(--f-num); font-variant-numeric: tabular-nums; }
+#loading .ld-seg { display: flex; gap: 0.21vw; height: 0.73vw; margin-top: 0.7vw; }
+#loading .ld-seg i { flex: 1; transform: skewX(-30deg); background: rgba(255, 255, 255, 0.1); transition: background 0.15s, box-shadow 0.15s; }
+#loading .ld-seg i.on { background: var(--accent); box-shadow: 0 0 0.5vw var(--accent); }
+#loading .ld-seg i.on + i:not(.on), #loading .ld-seg i:first-child:not(.on) { animation: ld-next 0.7s ease-in-out infinite alternate; }
+@keyframes ld-next { from { background: rgba(255, 255, 255, 0.1); } to { background: color-mix(in srgb, var(--accent) 55%, transparent); } }

@@ -106,8 +106,11 @@ export function randomLivery(style: CarStyle): string | undefined {
 }
 
 /** Load every car file; one that fails to load leaves its car procedural. */
-export async function loadCarModels(base = import.meta.env.BASE_URL): Promise<void> {
+export async function loadCarModels(onProgress?: (done: number, total: number) => void, base = import.meta.env.BASE_URL): Promise<void> {
   const loader = new GLTFLoader();
+  const total = Object.keys(FILES).length;
+  let done = 0;
+  onProgress?.(0, total);
   await Promise.all(
     Object.entries(FILES).map(async ([style, file]) => {
       try {
@@ -130,6 +133,7 @@ export async function loadCarModels(base = import.meta.env.BASE_URL): Promise<vo
       } catch (e) {
         console.warn(`car model ${file} not loaded, using the built-in shape`, e);
       }
+      onProgress?.(++done, total); // (the loading screen's bar: a model in, or given up on)
     }),
   );
 }

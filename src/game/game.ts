@@ -46,6 +46,7 @@ import { applyDifficulty } from './difficulty';
 import { Garage } from '../ui/garage';
 import { SettingsPopup } from '../ui/settings';
 import { IntroOverlay } from '../ui/introOverlay';
+import { LoadingScreen } from '../ui/loading';
 import { loadSettings, setLang, t } from '../ui/i18n';
 import { Intro, nextIntro, type IntroBag } from './intro';
 import { FinishShow } from './finishShow';
@@ -235,6 +236,10 @@ export class Game {
   private readonly gate: FinishGate;
   private readonly emitSpark: SparkEmitter = (x, y, z, vx, vy, vz, life) => this.sparks.emit(x, y, z, vx, vy, vz, life);
   private starting = false;
+  /** The loading screen (index.html's, main.ts's at the start): over the black as a race is set up (setUpRace). */
+  private readonly loading = new LoadingScreen();
+  /** A race being set up (setUpRace, between its steps): the world's frames held, its state half made. */
+  private loadingRace = false;
   /** Fading out of the race, to the garage (toTitle). */
   private leaving = false;
   private overlay!: IntroOverlay;
@@ -316,6 +321,10 @@ export class Game {
     };
     addEventListener('pointerdown', wake, { once: true });
     addEventListener('keydown', wake, { once: true });
+  }
+
+  /** Every shader compiled and picture sent before the first race (prewarm: main.ts, its own step on the loading screen). */
+  warmUp(): void {
     this.prewarm();
   }
 
@@ -485,38 +494,55 @@ export class Game {
     this.sound.init(); // (in the click or key itself: the browser lets the sound start only there)
     if (fromGarage) this.sound.startup(specOf((cars ?? this.cars).player).style);
     this.music.change(); // (a new scene: the song faded out, a moment's quiet, the next one in)
-    this.overlay.toBlack(START_FADE_OUT, () => {
-      this.starting = false;
-      this.garage.close();
-      // Restarted while paused: the pause's menu shut, the sound back on (and an intro still running ended).
-      if (this.introOn) {
-        this.introOn = false;
-        this.intro?.end();
-      }
-      this.sound.suspend(false);
-      this.sound.bringBack();
-      // Every race starts with the player driving (I hands the car to the AI again), on the car's own limiter.
-      if (this.aiActive) {
-        this.aiActive = false;
-        this.player.params.maxSpeed = this.humanMaxSpeed;
-      }
-      if (cars) {
-        this.applyCars(cars);
-        this.rivalTopShare = applyDifficulty(cars.difficulty);
-      }
-      // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
-      const spec = specOf(this.cars.player);
-      Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
-      this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
-      this.resetWorld();
-      this.flow.start(); // (the intro's phase: the cars held on the grid - after a race the rivals would drive off)
-      // The cars settled on their springs, unseen (put on the grid a little high, they bounced ~5 cm in the
-      // intro's first shot).
-      this.simulate(SETTLE_SECONDS, undefined, false);
-      this.prewarm();
-      this.beginIntro();
-      this.overlay.fromBlack(START_FADE_IN);
-    });
+    this.overlay.toBlack(START_FADE_OUT, () => void this.setUpRace(cars));
+  }
+
+  /**
+   * The race set up behind the black, under the loading screen (in the player's car's accent): the cars, the road,
+   * the cars settled, every shader compiled - each step drawn before it holds the page (the world's frames held
+   * meanwhile: loadingRace) - then its intro, out of the black.
+   */
+  private async setUpRace(cars?: CarSelection): Promise<void> {
+    this.loadingRace = true;
+    const accent = CAR_CARDS.find((c) => c.id === (cars ?? this.cars).player)?.accent ?? '#ff3b30';
+    this.loading.show(accent);
+    await this.loading.hold();
+    await this.loading.next('loading.grid', 0.1);
+    this.garage.close();
+    // Restarted while paused: the pause's menu shut, the sound back on (and an intro still running ended).
+    if (this.introOn) {
+      this.introOn = false;
+      this.intro?.end();
+    }
+    this.sound.suspend(false);
+    this.sound.bringBack();
+    // Every race starts with the player driving (I hands the car to the AI again), on the car's own limiter.
+    if (this.aiActive) {
+      this.aiActive = false;
+      this.player.params.maxSpeed = this.humanMaxSpeed;
+    }
+    if (cars) {
+      this.applyCars(cars);
+      this.rivalTopShare = applyDifficulty(cars.difficulty);
+    }
+    // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
+    const spec = specOf(this.cars.player);
+    Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
+    this.hud.setAccent(accent);
+    await this.loading.next('loading.road', 0.35);
+    this.resetWorld();
+    this.flow.start(); // (the intro's phase: the cars held on the grid - after a race the rivals would drive off)
+    await this.loading.next('loading.settle', 0.55);
+    // The cars settled on their springs, unseen (put on the grid a little high, they bounced ~5 cm in the
+    // intro's first shot).
+    this.simulate(SETTLE_SECONDS, undefined, false);
+    await this.loading.next('loading.shaders', 0.75);
+    this.prewarm();
+    await this.loading.finish('loading.go');
+    this.loadingRace = false;
+    this.starting = false;
+    this.beginIntro();
+    this.overlay.fromBlack(START_FADE_IN);
   }
 
   /** The race's intro: the next of its shuffled round (none twice in a row, every one once in each round). */
@@ -743,7 +769,7 @@ export class Game {
     this.nowPlaying.time(this.music.time, this.music.length);
     // The garage covers the whole screen and draws its own car: the world waits (and the GPU rests), the FPS meter too.
     this.stats.dom.style.visibility = this.garage.isOpen ? 'hidden' : '';
-    if (this.garage.isOpen) return;
+    if (this.garage.isOpen || this.loadingRace) return;
     // The race's time this frame: 0 while paused, slowed past the finish (TIME_SCALE; its show's). The world and
     // everything that moves with the race (effects, the camera, the HUD's pop-ups) run on it, so a pause stills the
     // whole picture; only the menus, and the finish's show (what sets how slow), run on real time.
