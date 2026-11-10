@@ -41,6 +41,14 @@ const DETAIL_GROUPS: [Key, { key: DetailKey; digits: number; unit: string; lower
   ['tune.d.nitro', [{ key: 'nitro3', digits: 1, unit: 'km/h' }, { key: 'nitroSecs', digits: 1, unit: 's' }]],
   ['tune.d.feel', ['roll', 'pitch', 'flick', 'slide'].map((key) => ({ key: key as DetailKey, digits: 0, unit: '', feel: true }))],
 ];
+/**
+ * A detail's change, its decimals: one more than the detail's own when it is small (under 1 in the place before its
+ * last: e.g. 0.004 g shown as 0.004, not 0.00), so a small change still reads as one.
+ */
+function changeDigits(change: number, digits: number): number {
+  return Math.abs(change) < 10 ** (1 - digits) ? digits + 1 : digits;
+}
+
 /** A knob moves a detail (lit while it is the one told: markDetail) when its ends move it this share of the most any knob does. */
 const DETAIL_HIT = 0.15;
 
@@ -661,11 +669,12 @@ export class Garage {
             el.querySelector<HTMLElement>('.mark')!.style.left = `${50 + x * 50}%`;
             continue;
           }
-          const moved = Math.abs(dd[r.key]) >= 0.5 * 10 ** -r.digits;
+          const digits = changeDigits(dd[r.key], r.digits);
+          const moved = Math.abs(dd[r.key]) >= 0.5 * 10 ** -digits;
           const good = r.lowerIsBetter ? dd[r.key] < 0 : dd[r.key] > 0;
           el.querySelector('.d-v b')!.textContent = (base[r.key] + dd[r.key]).toFixed(r.digits);
           const ch = el.querySelector<HTMLElement>('.d-ch')!;
-          ch.textContent = moved ? `${dd[r.key] > 0 ? '+' : '−'}${Math.abs(dd[r.key]).toFixed(r.digits)}` : '';
+          ch.textContent = moved ? `${dd[r.key] > 0 ? '+' : '−'}${Math.abs(dd[r.key]).toFixed(digits)}` : '';
           ch.className = `d-ch num ${moved ? (good ? 'up' : 'down') : ''}`;
         }
     // The knobs.
