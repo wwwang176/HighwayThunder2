@@ -35,10 +35,12 @@ jobs:
           path: .audio
           persist-credentials: false
 
-      - name: Into public/audio (the bundles only)
+      - name: Into public/audio (the bundles, and the music if any)
         run: |
           mkdir -p public/audio
           cp .audio/audio/*.bin public/audio/
+          # (the background music: its songs and playlist.json, if there are any yet)
+          if [ -d .audio/audio/music ]; then cp -r .audio/audio/music public/audio/; fi
           rm -rf .audio
           ls -l public/audio
 

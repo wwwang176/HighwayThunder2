@@ -428,3 +428,14 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-title-name .rule { position: absolute; left: 8.6vw; bottom: -1.6vw; width: 30vw; height: 2px; background: linear-gradient(90deg, var(--accent), transparent); }
 #garage .g-title-name .rule::after { content: ""; position: absolute; left: 0; top: 0; width: 6vw; height: 0.42vw; background: var(--accent); clip-path: polygon(0 0, 100% 0, calc(100% - 0.31vw) 100%, 0 100%); }
 #garage .g-start { width: 20.8vw; }
+
+/* The song playing (ui/nowPlaying): top right, over the garage and the race; a title too long for its box slides. */
+.now-playing { position: absolute; top: 0.45vw; right: 1.4vw; z-index: 45; display: none; align-items: center; gap: 0.35vw;
+  font-size: 0.72vw; color: rgba(255, 255, 255, 0.72); pointer-events: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
+.now-playing.on { display: flex; }
+.now-playing .np-note { color: var(--accent); }
+.now-playing .np-box { max-width: 12vw; overflow: hidden; white-space: nowrap;
+  mask-image: linear-gradient(90deg, transparent 0, #000 0.4vw, #000 calc(100% - 0.4vw), transparent 100%); }
+.now-playing .np-text { display: inline-block; padding: 0 0.4vw; }
+.now-playing .np-box.scroll .np-text { animation: np-slide linear infinite; }
+@keyframes np-slide { 0%, 15% { transform: translateX(0); } 50%, 65% { transform: translateX(var(--shift)); } 100% { transform: translateX(0); } }
