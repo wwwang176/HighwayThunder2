@@ -429,13 +429,18 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-title-name .rule::after { content: ""; position: absolute; left: 0; top: 0; width: 6vw; height: 0.42vw; background: var(--accent); clip-path: polygon(0 0, 100% 0, calc(100% - 0.31vw) 100%, 0 100%); }
 #garage .g-start { width: 20.8vw; }
 
-/* The song playing (ui/nowPlaying): top right, over the garage and the race; a title too long for its box slides. */
-.now-playing { position: absolute; top: 0.45vw; right: 1.4vw; z-index: 45; display: none; align-items: center; gap: 0.35vw;
-  font-size: 0.72vw; color: rgba(255, 255, 255, 0.72); pointer-events: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
+/* The song playing (ui/nowPlaying): in the race under the place (in #hud: it shakes with it; up in its place when
+   there is none), in the garage under the controls / settings buttons. A title too long for its box slides. */
+.now-playing { position: absolute; display: none; align-items: center; gap: 0.35vw; white-space: nowrap; pointer-events: none;
+  font: 600 0.73vw/1 var(--f-title); color: rgba(255, 255, 255, 0.7); }
 .now-playing.on { display: flex; }
-.now-playing .np-note { color: var(--accent); }
-.now-playing .np-box { max-width: 12vw; overflow: hidden; white-space: nowrap;
+#hud .now-playing { right: 3.1vw; top: 7.6vw; }
+#hud .h-place[style*="none"] ~ .now-playing { top: 1.9vw; }
+#garage .g-corner .now-playing { right: 0; top: calc(100% + 0.9vw); }
+#ui .now-playing .np-note { color: var(--accent); }
+#ui .now-playing .np-time { font-size: 0.7vw; color: rgba(255, 255, 255, 0.55); }
+.now-playing .np-box { max-width: 11vw; overflow: hidden; white-space: nowrap;
   mask-image: linear-gradient(90deg, transparent 0, #000 0.4vw, #000 calc(100% - 0.4vw), transparent 100%); }
-.now-playing .np-text { display: inline-block; padding: 0 0.4vw; }
+.now-playing .np-text { display: inline-block; padding: 0.12vw 0.4vw; line-height: 1.2; }
 .now-playing .np-box.scroll .np-text { animation: np-slide linear infinite; }
 @keyframes np-slide { 0%, 15% { transform: translateX(0); } 50%, 65% { transform: translateX(var(--shift)); } 100% { transform: translateX(0); } }

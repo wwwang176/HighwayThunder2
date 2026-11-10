@@ -114,19 +114,37 @@ export class Music {
     this.el.volume = Math.min(1, Math.max(0, this.volume));
   }
 
-  /** The tab hidden: stopped till it is back (a page in the background playing on is not wanted). */
-  setHidden(hidden: boolean): void {
-    this.hidden = hidden;
-    if (hidden) this.el.pause();
-    else this.play();
+  /** s into the song playing; how long it is (NaN: not known yet). */
+  get time(): number {
+    return this.el.currentTime;
+  }
+  get length(): number {
+    return this.el.duration;
   }
 
-  /** The game paused: stopped where it is, on from there once it goes on (each frame: acts on a change only). */
+  /** The tab hidden: stopped till it is back (a page in the background playing on is not wanted), faded back in. */
+  setHidden(hidden: boolean): void {
+    if (hidden === this.hidden) return;
+    this.hidden = hidden;
+    if (hidden) this.el.pause();
+    else this.resume();
+  }
+
+  /**
+   * The game paused: stopped where it is, on from there once it goes on - faded back in from silence, as the sound
+   * is after a pause (each frame: acts on a change only).
+   */
   setPaused(paused: boolean): void {
     if (paused === this.paused) return;
     this.paused = paused;
     if (paused) this.el.pause();
-    else this.play();
+    else this.resume();
+  }
+
+  private resume(): void {
+    this.volume = 0;
+    this.el.volume = 0;
+    this.play();
   }
 
   private play(): void {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { easeVolume, shuffled, songsOf, songTitle } from '../src/audio/music';
 import { mulberry32 } from '../src/ai/rng';
+import { clock } from '../src/ui/nowPlaying';
 
 describe('music', () => {
   it('reads a playlist of file names or { file, title }, leaving anything else out', () => {
@@ -28,5 +29,14 @@ describe('songTitle', () => {
     expect(songTitle({ file: 'x.mp3', title: 'Night Drive' })).toBe('Night Drive');
     expect(songTitle({ file: 'album/01 Night Drive.mp3' })).toBe('01 Night Drive');
     expect(songTitle({ file: 'no-ext' })).toBe('no-ext');
+  });
+});
+
+describe('clock', () => {
+  it('shows m:ss, and -:-- before the length is known', () => {
+    expect(clock(0)).toBe('0:00');
+    expect(clock(227.9)).toBe('3:47');
+    expect(clock(NaN)).toBe('-:--');
+    expect(clock(Infinity)).toBe('-:--');
   });
 });

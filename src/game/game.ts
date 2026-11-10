@@ -162,6 +162,7 @@ export class Game {
   readonly sound = new Sound();
   /** The background music (audio/music): from the first click or key in the garage on. */
   readonly music = new Music();
+  private readonly nowPlaying: NowPlaying;
   /** The engines heard from outside, this frame's (heardEngines; reused). */
   private readonly engineSources: EngineSource[] = [];
   /** The rivals' tyres as heard this frame (its entries reused). */
@@ -279,13 +280,14 @@ export class Game {
     });
     this.settings = new SettingsPopup(uiRoot);
     this.settings.onQuality = (pr) => this.setQuality(pr);
-    const nowPlaying = new NowPlaying(uiRoot);
-    this.music.onSong = (song) => nowPlaying.show(songTitle(song));
     this.garage = new Garage(uiRoot, RIVAL_COLORS, (cars) => {
       saveSelection(localStorage, cars);
       this.startRace(cars, true);
     }, this.settings);
     this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
+    // The song playing: in the race under the place (in the HUD, shaking with it), in the garage under its buttons.
+    this.nowPlaying = new NowPlaying([uiRoot.querySelector<HTMLElement>('#hud')!, uiRoot.querySelector<HTMLElement>('#garage .g-corner')!]);
+    this.music.onSong = (song) => this.nowPlaying.show(songTitle(song));
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
     // Any key or click skips the intro, and the finish's show (its panel in on the next frame: the same key not
@@ -456,6 +458,7 @@ export class Game {
     this.starting = true;
     this.sound.init(); // (in the click or key itself: the browser lets the sound start only there)
     if (fromGarage) this.sound.startup(specOf((cars ?? this.cars).player).style);
+    if (fromGarage) this.music.next(); // (a song of its own for the race, whatever played in the garage)
     this.overlay.toBlack(START_FADE_OUT, () => {
       this.starting = false;
       this.garage.close();
@@ -703,6 +706,7 @@ export class Game {
   private frame(dt: number): void {
     this.music.update(dt, this.flow.phase === 'countdown'); // (quieter in the countdown; real time, the garage too)
     this.music.setPaused(this.flow.phase === 'paused');
+    this.nowPlaying.time(this.music.time, this.music.length);
     // The garage covers the whole screen and draws its own car: the world waits (and the GPU rests), the FPS meter too.
     this.stats.dom.style.visibility = this.garage.isOpen ? 'hidden' : '';
     if (this.garage.isOpen) return;
