@@ -128,7 +128,6 @@ export class Garage {
             <div>${tx('tune.kicker', 'div', 'lbl dash')}<h2>${tx('tune.title')}</h2></div>
             <span class="t-keys"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></span>
           </div>
-          <div class="t-stats"></div>
           <div class="t-body"></div>
           <div class="t-foot">
             <button class="t-reset cut"><kbd>R</kbd>${tx('tune.reset')}</button>
@@ -137,6 +136,7 @@ export class Garage {
         </div>
         <div class="t-tip-at"><div class="t-tip panel cut"><div></div><div></div></div></div>
       </div>
+      <div class="t-stats float"></div>
       <div class="g-back" data-pop="tune-reset">
         <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
         <div class="g-modal t-confirm panel cut" role="alertdialog" aria-modal="true">
@@ -599,14 +599,16 @@ export class Garage {
     const change = [d.t100, d.vTop, d.grip];
     const better = [d.t100 < 0, d.vTop > 0, d.grip > 0];
     const digits = [2, 0, 2];
-    this.q('.t-stats').innerHTML = me.stats
-      .map((st, i) => {
-        const base = Number(st.value);
-        const v = base + change[i];
-        const ch = Math.abs(change[i]) < (i === 1 ? 0.5 : 0.005) ? '<small></small>' : `<small class="${better[i] ? 'up' : 'down'}">${change[i] > 0 ? '+' : '−'}${Math.abs(change[i]).toFixed(digits[i])}</small>`;
-        return `<div class="t-stat">${icon(st.icon)}<span class="lbl">${st.label}</span><span class="v num">${v.toFixed(i === 1 ? 0 : i === 0 ? 2 : 2)}<em>${st.unit === 's' ? t('unit.s') : st.unit}</em></span>${ch}</div>`;
-      })
-      .join('');
+    this.q('.t-stats').innerHTML =
+      '<div class="pool"></div>' +
+      me.stats
+        .map((st, i) => {
+          const v = Number(st.value) + change[i];
+          const moved = Math.abs(change[i]) >= (i === 1 ? 0.5 : 0.005);
+          const ch = `<span class="ch ${moved ? (better[i] ? 'up' : 'down') : ''}">${moved ? `${change[i] > 0 ? '+' : '−'}${Math.abs(change[i]).toFixed(digits[i])}` : ''}</span>`;
+          return `<div class="t-stat"><div class="top">${icon(st.icon)}<span class="lbl">${st.label}</span></div><span class="v num lean">${v.toFixed(digits[i])}<small>${st.unit === 's' ? t('unit.s') : st.unit}</small></span>${ch}</div>`;
+        })
+        .join('');
     // The knobs.
     const row = TUNE_KEYS[this.tuneRow];
     this.q('.t-body').innerHTML = TUNE_GROUPS.map(
@@ -658,7 +660,7 @@ export class Garage {
     if (!this.tuneOpen || !row) return void at.classList.remove('on');
     const [l, r] = at.querySelectorAll<HTMLElement>('.t-tip > div');
     l.textContent = `◀ ${t(`tune.${key}.l` as Key)}`;
-    r.textContent = `${t(`tune.${key}.r` as Key)} ▶`;
+    r.textContent = `▶ ${t(`tune.${key}.r` as Key)}`;
     const box = row.getBoundingClientRect();
     const view = this.q('.t-body').getBoundingClientRect();
     const mid = box.top + box.height / 2;
