@@ -590,6 +590,7 @@ export class Game {
       this.sound.suspend(false);
       this.resetWorld();
       this.openGarage();
+      this.music.next(); // (back in the garage: a song of its own)
       this.overlay.fromBlack(START_FADE_IN);
     });
   }
@@ -883,6 +884,7 @@ export class Game {
     this.flow.update(dt, this.player.s);
     if (!wasFinished && this.flow.phase === 'finished') {
       this.beginFinishShow();
+      this.music.next(); // (the finish: a song of its own)
     }
   }
 
