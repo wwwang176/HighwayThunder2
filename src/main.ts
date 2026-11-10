@@ -3,8 +3,10 @@ import { PhysicsWorld } from './physics/physicsWorld';
 import { PlannerDriver } from './ai/plannerDriver';
 import { WorkerPlanSource } from './ai/workerPlanSource';
 import { loadCarModels } from './vehicles/carModels';
+import { applyUiZoom } from './ui/uiScale';
 
 async function boot() {
+  applyUiZoom(document.getElementById('ui')!);
   const [physics] = await Promise.all([PhysicsWorld.create(), loadCarModels()]);
   const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics);
   (window as unknown as { __game: Game }).__game = game;

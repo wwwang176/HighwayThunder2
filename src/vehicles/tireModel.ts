@@ -18,6 +18,23 @@ export interface TireParams {
   rollingResistance: number; // fraction of Fz
   regripSpeed: number; // m/s of slip below which a sliding tyre grips again
   slipFalloff?: number; // m/s: how fast sliding friction drops from peak towards muSlide
+  /**
+   * Camber (the player's tuning): grip times `latGrip` cornering and `longGrip` driving / braking straight, in
+   * between by how the tyre is loaded (unset: 1, as it was).
+   */
+  latGrip?: number;
+  longGrip?: number;
+}
+
+/**
+ * Camber's grip for a tyre pushed (fx, fy): longGrip (times the wheel's own `longScale`) straight on, latGrip
+ * sideways, between by their shares.
+ */
+export function camberGrip(fx: number, fy: number, t: TireParams, longScale = 1): number {
+  const lat = t.latGrip ?? 1, lon = (t.longGrip ?? 1) * longScale;
+  if (lat === 1 && lon === 1) return 1;
+  const ax = Math.abs(fx), ay = Math.abs(fy);
+  return ax + ay > 0 ? (lon * ax + lat * ay) / (ax + ay) : 1;
 }
 
 export const DEFAULT_TIRE: TireParams = {
@@ -46,6 +63,8 @@ export interface WheelIn {
    * hard brake it still steers, even locked and skidding).
    */
   brakeApart?: boolean;
+  /** This wheel's grip driving / braking straight, times (the brakes' balance shifting it front to rear). */
+  longScale?: number;
 }
 
 export interface WheelOut {
@@ -113,7 +132,7 @@ export function solveWheel(w: WheelIn): WheelOut {
   FxReq -= Math.sign(w.vx) * t.rollingResistance * w.Fz;
 
   const alpha = Math.atan2(w.vy, Math.max(Math.abs(w.vx), 0.5));
-  const FyCurve = -Math.sign(w.vy) * lateralCurve(alpha, t) * mu * w.Fz;
+  const FyCurve = -Math.sign(w.vy) * lateralCurve(alpha, t) * mu * (t.latGrip ?? 1) * w.Fz;
   const FyStop = (-w.mEff * w.vy) / dt; // what would cancel the side motion this step
   const FyReq = Math.abs(FyCurve) < Math.abs(FyStop) ? FyCurve : FyStop;
 
@@ -123,7 +142,8 @@ export function solveWheel(w: WheelIn): WheelOut {
   // the limit, and the car would fishtail.
   const longSlip = Math.abs(w.omega * R - w.vx);
   const wasSliding = longSlip > t.regripSpeed;
-  const limit = (wasSliding ? kineticMu(longSlip, t) : t.muPeak) * mu * w.Fz;
+  const camber = w.brakeApart ? (t.longGrip ?? 1) * (w.longScale ?? 1) : camberGrip(FxReq, FyReq, t, w.longScale ?? 1);
+  const limit = (wasSliding ? kineticMu(longSlip, t) : t.muPeak) * mu * camber * w.Fz;
   // Braking apart: only the braking (or drive) force against the limit; the cornering force stays as the
   // slip-angle curve gives it (never above the peak grip).
   const req = w.brakeApart ? Math.abs(FxReq) : Math.hypot(FxReq, FyReq);
@@ -133,7 +153,7 @@ export function solveWheel(w: WheelIn): WheelOut {
   }
 
   // --- sliding --------------------------------------------------------------
-  const kinetic = kineticMu(longSlip, t) * mu * w.Fz;
+  const kinetic = kineticMu(longSlip, t) * mu * camber * w.Fz;
   const scale = Math.min(1, kinetic / req);
   const Fx = FxReq * scale;
   const Fy = w.brakeApart ? FyReq : FyReq * scale;

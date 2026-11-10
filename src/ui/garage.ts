@@ -3,9 +3,12 @@ import { DIFFICULTIES } from '../game/difficulty';
 import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
 import { GarageScene, VIEW } from './garageScene';
-import { applyLang, onLangChange, t, tx, type Key } from './i18n';
+import { applyLang, getLang, onLangChange, t, tx, type Key } from './i18n';
 import type { SettingsPopup } from './settings';
 import { installTooltips } from './tooltip';
+import { uiZoom } from './uiScale';
+import { type TuneKey, type Tuning } from '../vehicles/tuning';
+import { detailSpan, TUNE_BASE, TUNE_EFFECTS, tunedDetail, tunedStats, type DetailKey } from '../vehicles/tuneEffects';
 
 const html = String.raw;
 const UI = `${import.meta.env.BASE_URL}ui/`;
@@ -20,6 +23,30 @@ const rowHelp = (row: string, ...lines: string[]) => help(...lines).replace('<sp
 /** A call to action's inside (docs/ui-design.md .cta): its offset outline, its fill, the words, Enter, the chevrons. */
 const CTA = (key: Key) =>
   `<span class="ghost"></span><span class="fill"></span><span class="txt">${tx(key)}<kbd>Enter</kbd><span class="chev"><b>›</b><b>›</b><b>›</b></span></span>`;
+/**
+ * The tuning's details beside the car, group by group (0-100 and top speed are its big numbers): each its decimals,
+ * unit and which way is better; the feel ones on a meter between two words (stock in the middle).
+ */
+const DETAIL_GROUPS: [Key, { key: DetailKey; digits: number; unit: string; lowerIsBetter?: boolean; feel?: boolean }[]][] = [
+  [
+    'tune.d.accel',
+    [
+      { key: 't100', digits: 2, unit: 's', lowerIsBetter: true },
+      { key: 't100_200', digits: 2, unit: 's', lowerIsBetter: true },
+      { key: 'vTop', digits: 0, unit: 'km/h' },
+    ],
+  ],
+  ['tune.d.braking', [{ key: 'brake200', digits: 1, unit: 'm', lowerIsBetter: true }]],
+  ['tune.d.cornering', [{ key: 'lat150', digits: 2, unit: 'g' }, { key: 'lat250', digits: 2, unit: 'g' }]],
+  ['tune.d.nitro', [{ key: 'nitro3', digits: 1, unit: 'km/h' }, { key: 'nitroSecs', digits: 1, unit: 's' }]],
+  ['tune.d.feel', ['roll', 'pitch', 'flick', 'slide'].map((key) => ({ key: key as DetailKey, digits: 0, unit: '', feel: true }))],
+];
+/** A knob moves a detail (lit while it is the one told: markDetail) when its ends move it this share of the most any knob does. */
+const DETAIL_HIT = 0.15;
+
+/** The stats' decimals (0-100 s, top speed km/h, grip g): the garage's and the tuning's alike. */
+const STAT_DIGITS = [2, 0, 2];
+
 /** A car type's name, in the language now. */
 const carName = (id: string) => t(`car.${id}` as Key);
 /** How the rivals' cars are picked (the setup's second level: their cars listed only for the custom one). */
@@ -37,6 +64,15 @@ const WEATHERS: [Weather, string][] = [
 const OPEN_WEATHERS: Weather[] = ['clear'];
 /** A car stat's tip, by its icon. */
 const STAT_TIPS: Record<string, Key> = { 'icon-accel': 'stat.accel', 'icon-topspeed': 'stat.top', 'icon-handling': 'stat.grip' };
+/** The tuning panel's knobs, in their groups (src/vehicles/tuning). */
+const TUNE_GROUPS: [Key, TuneKey[]][] = [
+  ['tune.group.power', ['finalDrive', 'nitro']],
+  ['tune.group.tyres', ['pressure', 'width', 'camber']],
+  ['tune.group.aero', ['wing']],
+  ['tune.group.chassis', ['springs', 'dampers', 'antiRoll']],
+  ['tune.group.control', ['brakeBias', 'steering', 'esc']],
+];
+const TUNE_KEYS: TuneKey[] = TUNE_GROUPS.flatMap(([, keys]) => keys);
 /** Keys and what they do (the controls pop-up). */
 const KEYS: [string, Key][] = [
   ['W / ↑', 'keys.throttle'],
@@ -53,11 +89,10 @@ const KEYS: [string, Key][] = [
   ['N', 'keys.nextSong'],
   ['↑ ↓  ← →', 'keys.menus'],
   ['E', 'keys.setup'],
+  ['T', 'keys.tune'],
   ['H', 'keys.help'],
   ['O', 'keys.settings'],
 ];
-/** The race setup's drawer no smaller than this (its zoom, to fit a short screen); below it, its compact layout, then its scroll. */
-const SETUP_MIN_ZOOM = 0.75;
 
 /**
  * The garage: the car to race in (parked on a wet lay-by at night, drawn live: garageScene.ts), the screen around
@@ -73,6 +108,10 @@ export class Garage {
   private titleOn = false;
   /** The race setup's row the keys are on (rowKeys()). */
   private row = 0;
+  /** The tuning panel's knob the keys are on (TUNE_KEYS). */
+  private tuneRow = 0;
+  /** The tuning's knob under the pointer (null: none): its ends told beside the panel instead of the keys' knob's. */
+  private tuneHover: TuneKey | null = null;
   /** The race setup worked by the keys (last): the row's "?" opens by itself; by the pointer, only on hover. */
   private keyed = false;
 
@@ -104,7 +143,35 @@ export class Garage {
         <div class="g-head"><span class="lbl float">Select class</span><span><kbd>↑</kbd><kbd>↓</kbd></span></div>
         <div class="g-classes"></div>
       </div>
-      <div class="g-paint"><span class="lbl float">Paint</span><kbd>←</kbd><div class="g-paints"></div><kbd>→</kbd></div>
+      <div class="g-paint"><span class="lbl float">Paint</span><kbd>←</kbd><div class="g-paints"></div><kbd>→</kbd>
+        <button class="g-tune-open cut"><kbd>T</kbd>${tx('garage.tune')}</button></div>
+      <div class="g-tune-shade"></div>
+      <div class="g-tune bracketed" role="dialog" data-t-aria="tune.title"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-tune-panel panel cut">
+          <div class="t-top">
+            <div>${tx('tune.kicker', 'div', 'lbl dash')}<h2>${tx('tune.title')}</h2></div>
+            <span class="t-keys"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></span>
+          </div>
+          <div class="t-body"></div>
+          <div class="t-foot">
+            <button class="t-reset cut"><kbd>R</kbd>${tx('tune.reset')}</button>
+            <button class="t-done cut"><kbd>Esc</kbd>${tx('tune.done')}</button>
+          </div>
+        </div>
+        <div class="t-tip-at"><div class="t-tip panel cut"><div></div><div></div></div></div>
+      </div>
+      <div class="t-side panel cut"><div class="t-detail"></div></div>
+      <div class="g-back" data-pop="tune-reset">
+        <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-modal t-confirm panel cut" role="alertdialog" aria-modal="true">
+          ${tx('tune.kicker', 'div', 'lbl dash')}
+          ${tx('tune.resetAsk', 'p', 'msg')}
+          <div class="btns">
+            <button class="opt t-yes">${tx('tune.reset')}</button>
+            <button class="opt t-no">${tx('settings.cancel')}<kbd>Esc</kbd></button>
+          </div>
+        </div></div>
+      </div>
       <div class="g-depart">
         <button class="g-race float"></button>
         <button class="cta g-go">${CTA('garage.start')}</button>
@@ -139,7 +206,22 @@ export class Garage {
     this.q('.g-keys').onclick = () => this.openKeys();
     this.q('.g-opts').onclick = () => this.openSettings();
     this.q('.g-close').onclick = () => this.closePop();
-    this.el.querySelectorAll<HTMLElement>('.g-back').forEach((b) => (b.onclick = (e) => e.target === e.currentTarget && this.closePop()));
+    this.q('.g-tune-open').onclick = () => this.openTune();
+    this.q('.t-reset').onclick = () => this.tuneReset();
+    this.q('.t-yes').onclick = () => this.confirmReset();
+    this.q('.t-no').onclick = () => this.cancelReset();
+    // As the pause's confirm: the pointer moves its cursor too.
+    this.resetOpts().forEach((b, i) => b.addEventListener('pointerenter', () => this.resetPoint(i)));
+    this.q('.t-done').onclick = () => this.closePop();
+    // The tuning's ends beside the panel follow its row as it scrolls; the pointer gone, back to the keys' knob.
+    this.q('.t-body').addEventListener('scroll', () => this.placeTip());
+    this.q('.t-body').addEventListener('pointerleave', () => {
+      this.tuneHover = null;
+      this.placeTip();
+    });
+    this.el.querySelectorAll<HTMLElement>('.g-back').forEach(
+      (b) => (b.onclick = (e) => e.target === e.currentTarget && (b.dataset.pop === 'tune-reset' ? this.cancelReset() : this.closePop())),
+    );
     this.drawSetupKeys();
     // Another language (the settings' OK): the fixed words redone, the rest redrawn.
     onLangChange(() => {
@@ -147,7 +229,10 @@ export class Garage {
       this.drawSetupKeys();
       if (this.sel) this.draw();
     });
-    addEventListener('resize', () => this.setupOpen && this.fitSetup());
+    addEventListener('resize', () => {
+      if (this.setupOpen) this.fitSetup();
+      if (this.tuneOpen) this.fitTune();
+    });
     this.q('.g-setup').addEventListener('pointerdown', () => (this.keyed = false));
     // A click leaves no focus behind: Enter is the garage's (start), not the clicked button's again.
     this.el.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
@@ -172,9 +257,14 @@ export class Garage {
     return this.el.classList.contains('setup');
   }
 
+  /** The tuning panel is open (the arrows work it: tuneMove, tuneAdjust; R its stock). */
+  get tuneOpen(): boolean {
+    return this.el.classList.contains('tune');
+  }
+
   /** Something over the garage (Esc closes it rather than anything else). */
   get popOpen(): boolean {
-    return this.keysOpen || this.settingsOpen || this.setupOpen;
+    return this.keysOpen || this.settingsOpen || this.setupOpen || this.tuneOpen;
   }
 
   /** Open on `sel`: at the title (the game's name and its start on the left, the car on the right) or in it. */
@@ -224,6 +314,120 @@ export class Garage {
       this.el.classList.remove('setup');
       this.preview.slide(VIEW.garage, true);
     }
+    if (this.tuneOpen) {
+      this.el.classList.remove('tune');
+      this.preview.slide(VIEW.garage, true);
+      this.preview.closeUp(false);
+    }
+  }
+
+  /** The tuning panel, on the left (its button by the paint, or T): the camera in on the car's front wheel (slower), the garage's own type faded. */
+  openTune(): void {
+    if (this.titleOn || this.tuneOpen) return;
+    this.closePop();
+    this.tuneRow = 0;
+    this.tuneHover = null;
+    this.el.classList.add('tune');
+    this.preview.slide(VIEW.tune, true);
+    this.preview.closeUp(true);
+    this.draw();
+    this.fitTune();
+    (document.activeElement as HTMLElement | null)?.blur();
+  }
+
+  /** The screen's full height, at every panel's zoom (uiZoom); its knobs scroll past that. */
+  private fitTune(): void {
+    const panel = this.q('.g-tune-panel');
+    const z = uiZoom();
+    panel.style.height = `${Math.floor((innerHeight - 2 * innerWidth * 0.0125 * z) / z)}px`; // (in its own px; its margin: 1.25vw above and below)
+    this.q('.t-body .focus')?.scrollIntoView({ block: 'nearest' });
+    this.placeTip();
+  }
+
+  /** The stock confirm is open (Enter: back to stock; Esc: not). */
+  get resetAsking(): boolean {
+    return this.q('[data-pop="tune-reset"]').classList.contains('open');
+  }
+
+  /** Esc in the garage: the stock confirm cancelled, else what is open closed. */
+  back(): void {
+    if (this.resetAsking) this.cancelReset();
+    else this.closePop();
+  }
+
+  /** T in the garage: the tuning panel, or closed again. */
+  toggleTune(): void {
+    if (this.tuneOpen) this.closePop();
+    else this.openTune();
+  }
+
+  /** ↑ ↓ in the tuning panel: the knob above or below. */
+  tuneMove(d: number): void {
+    this.tuneHover = null; // (the keys' knob told, not the one the pointer was left on)
+    this.tuneRow = Math.max(0, Math.min(TUNE_KEYS.length - 1, this.tuneRow + d));
+    this.draw();
+  }
+
+  /** ← → in the tuning panel: the knob a step toward its left or its right end. */
+  tuneAdjust(d: number): void {
+    const key = TUNE_KEYS[this.tuneRow];
+    this.tuneHover = null;
+    this.setKnob(key, (this.tuning()[key] ?? 0) + d);
+  }
+
+  /** R in the tuning panel (or its button): asked first - the car as built (nothing to ask when it is); as the pause's confirm, the cursor on Cancel. */
+  tuneReset(): void {
+    if (!this.tuneOpen || this.resetAsking || !Object.keys(this.tuning()).length) return;
+    this.q('[data-pop="tune-reset"]').classList.add('open');
+    this.resetPoint(1);
+    (document.activeElement as HTMLElement | null)?.blur();
+  }
+
+  /** The stock confirm's options (OK, Cancel); the cursor on one: filled (.sel). */
+  private resetOpts(): HTMLElement[] {
+    return [this.q('.t-yes'), this.q('.t-no')];
+  }
+
+  private resetCursor = 1;
+
+  private resetPoint(i: number): void {
+    this.resetCursor = i;
+    this.resetOpts().forEach((b, k) => b.classList.toggle('sel', k === i));
+  }
+
+  /** The arrows in the stock confirm: the cursor to the other option. */
+  resetMove(d: number): void {
+    this.resetPoint((this.resetCursor + d + 2) % 2);
+  }
+
+  /** Enter in the stock confirm: the option under the cursor. */
+  resetPick(): void {
+    this.resetOpts()[this.resetCursor].click();
+  }
+
+  /** The stock confirm's OK: every knob of the car back to stock. */
+  confirmReset(): void {
+    this.cancelReset();
+    this.sel = { ...this.sel, tuning: { ...this.sel.tuning, [this.sel.player]: {} } };
+    this.draw();
+  }
+
+  cancelReset(): void {
+    this.q('[data-pop="tune-reset"]').classList.remove('open');
+  }
+
+  /** The picked car's tuning. */
+  private tuning(): Tuning {
+    return this.sel.tuning[this.sel.player] ?? {};
+  }
+
+  private setKnob(key: TuneKey, level: number): void {
+    const v = Math.max(-2, Math.min(2, level));
+    const knobs: Tuning = { ...this.tuning() };
+    if (v === 0) delete knobs[key];
+    else knobs[key] = v;
+    this.sel = { ...this.sel, tuning: { ...this.sel.tuning, [this.sel.player]: knobs } };
+    this.draw();
   }
 
   /** The race setup, from the right (its card, or E): the car slides left beside it, the garage's own type fades. */
@@ -390,11 +594,14 @@ export class Garage {
     this.q('.g-id .tag').textContent = t(`tag.${me.id}` as Key);
     this.q('.g-id .pos').textContent = `${two(CAR_CARDS.indexOf(me) + 1)} / ${two(CAR_CARDS.length)}`;
     this.q('.g-id h1').textContent = carName(me.id);
+    // (as tuned: the tuning panel's numbers, without its changes)
+    const d = tunedStats(s.player, this.tuning());
+    const delta = [d.t100, d.vTop, d.grip];
     this.q('.g-stats').innerHTML = me.stats
       .map(
-        (st) =>
+        (st, i) =>
           `<div><div class="top"><span data-tip="${t(STAT_TIPS[st.icon])}" tabindex="0">${icon(st.icon)}</span><span class="lbl">${st.label}</span></div>` +
-          `<span class="v num lean">${st.value}<small>${st.unit === 's' ? t('unit.s') : st.unit}</small></span>${seg(st.bar)}</div>`,
+          `<span class="v num lean">${(Number(st.value) + delta[i]).toFixed(STAT_DIGITS[i])}<small>${st.unit === 's' ? t('unit.s') : st.unit}</small></span>${seg(st.bar)}</div>`,
       )
       .join('');
     // Bottom right: the race at a glance (the rivals, difficulty, weather), opening the setup.
@@ -405,6 +612,131 @@ export class Garage {
       <div class="row">${icon('icon-difficulty')}<span class="lbl">Difficulty</span><span class="val">${t(`diff.${s.difficulty}` as Key)}</span></div>
       <div class="row">${icon(w[1])}<span class="lbl">Weather</span><span class="val">${t(`weather.${w[0]}` as Key)}</span></div>`;
     if (this.setupOpen) this.drawSetup();
+    if (this.tuneOpen) this.drawTune();
+  }
+
+  /**
+   * The tuning panel: the car's stats as tuned (its three, each with what the tuning changes), then its knobs in
+   * their groups - five steps each, stock in the middle; the keys' knob shows what its two ends do.
+   */
+  private drawTune(): void {
+    const s = this.sel;
+    const me = card(s.player);
+    const knobs = this.tuning();
+    // The car as tuned, measure by measure: each as tuned and its change (the feel ones on a meter, stock in the
+    // middle). 0-100 and top speed from the garage's own numbers (its stats as built), so the two agree.
+    const measured = TUNE_BASE[s.player];
+    const base = measured && { ...measured, t100: Number(me.stats[0].value), vTop: Number(me.stats[1].value) };
+    const dd = tunedDetail(s.player, knobs);
+    const span = detailSpan(s.player);
+    const unit = (u: string) => (u === 's' ? t('unit.s') : u);
+    // Its rows laid out once a car and language (redrawn whole, a knob's change made the list flicker), then
+    // only their numbers and meters set.
+    const host = this.q('.t-detail');
+    const sig = `${s.player}|${getLang()}`;
+    if (host.dataset.sig !== sig) {
+      host.dataset.sig = sig;
+      host.innerHTML = base
+        ? DETAIL_GROUPS.map(
+            ([group, rows]) =>
+              `<div class="d-group"><div class="lbl dash">${t(group)}</div>` +
+              rows
+                .map((r) => {
+                  const name = `<span class="d-name">${t(`tune.d.${r.key}` as Key)}</span>`;
+                  if (r.feel)
+                    return `<div class="d-row feel" data-d="${r.key}">${name}<span class="d-end">${t(`tune.d.${r.key}.l` as Key)}</span><span class="d-meter"><i class="mid"></i><i class="mark"></i></span><span class="d-end">${t(`tune.d.${r.key}.r` as Key)}</span></div>`;
+                  return `<div class="d-row" data-d="${r.key}">${name}<span class="d-v num"><b></b><small>${unit(r.unit)}</small></span><span class="d-ch num"></span></div>`;
+                })
+                .join('') +
+              '</div>',
+          ).join('')
+        : '';
+    }
+    if (base)
+      for (const [, rows] of DETAIL_GROUPS)
+        for (const r of rows) {
+          const el = host.querySelector<HTMLElement>(`[data-d="${r.key}"]`)!;
+          if (r.feel) {
+            const x = span[r.key] ? Math.max(-1, Math.min(1, dd[r.key] / span[r.key])) : 0;
+            el.querySelector<HTMLElement>('.mark')!.style.left = `${50 + x * 50}%`;
+            continue;
+          }
+          const moved = Math.abs(dd[r.key]) >= 0.5 * 10 ** -r.digits;
+          const good = r.lowerIsBetter ? dd[r.key] < 0 : dd[r.key] > 0;
+          el.querySelector('.d-v b')!.textContent = (base[r.key] + dd[r.key]).toFixed(r.digits);
+          const ch = el.querySelector<HTMLElement>('.d-ch')!;
+          ch.textContent = moved ? `${dd[r.key] > 0 ? '+' : '−'}${Math.abs(dd[r.key]).toFixed(r.digits)}` : '';
+          ch.className = `d-ch num ${moved ? (good ? 'up' : 'down') : ''}`;
+        }
+    // The knobs.
+    const row = TUNE_KEYS[this.tuneRow];
+    this.q('.t-body').innerHTML = TUNE_GROUPS.map(
+      ([group, keys]) =>
+        `<div class="t-group"><div class="lbl dash">${t(group)}</div>` +
+        keys
+          .map((key) => {
+            const level = knobs[key] ?? 0;
+            const pips = [-2, -1, 0, 1, 2]
+              .map((n) => `<button class="t-pip ${n === 0 ? 'mid' : ''} ${n === level ? 'sel' : ''} ${n !== 0 && Math.sign(n) === Math.sign(level) && Math.abs(n) <= Math.abs(level) ? 'on' : ''}" data-key="${key}" data-level="${n}"></button>`)
+              .join('');
+            return `<div class="t-row ${key === row ? 'focus' : ''}" data-row="${key}"><span class="t-name">${t(`tune.${key}` as Key)}</span><div class="t-pips">${pips}</div><span class="t-val num">${level === 0 ? t('tune.stock') : (level > 0 ? '+' : '−') + Math.abs(level)}</span><div class="t-space"></div></div>`;
+          })
+          .join('') +
+        '</div>',
+    ).join('');
+    this.el.querySelectorAll<HTMLElement>('.t-pip').forEach(
+      (b) =>
+        (b.onclick = () => {
+          this.tuneRow = TUNE_KEYS.indexOf(b.dataset.key as TuneKey);
+          this.setKnob(b.dataset.key as TuneKey, Number(b.dataset.level));
+        }),
+    );
+    this.el.querySelectorAll<HTMLElement>('.t-row').forEach((r) => {
+      r.addEventListener('pointerdown', () => {
+        const i = TUNE_KEYS.indexOf(r.dataset.row as TuneKey);
+        if (i !== this.tuneRow) {
+          this.tuneRow = i;
+          this.draw();
+        }
+      });
+      r.addEventListener('pointerenter', () => {
+        this.tuneHover = r.dataset.row as TuneKey;
+        this.placeTip();
+      });
+    });
+    this.q('.t-body .focus')?.scrollIntoView({ block: 'nearest' });
+    this.placeTip();
+  }
+
+  /** The details the knob told (`key`) moves lit, the rest faded: where it does its work. */
+  private markDetail(key: TuneKey): void {
+    const e = TUNE_EFFECTS[this.sel.player]?.[key];
+    const span = detailSpan(this.sel.player);
+    this.el.querySelectorAll<HTMLElement>('.d-row').forEach((r) => {
+      const d = r.dataset.d as DetailKey;
+      const most = e ? Math.max(...Object.values(e).map((lv) => Math.abs(lv[d]))) : 0;
+      r.classList.toggle('hit', span[d] > 0 && most >= DETAIL_HIT * span[d]);
+    });
+  }
+
+  /**
+   * The knob's two ends told beside the panel, level with its row: the one under the pointer, else the keys' one
+   * (hidden while that row is scrolled out of the panel's view).
+   */
+  private placeTip(): void {
+    const at = this.q('.t-tip-at');
+    const key = this.tuneHover ?? TUNE_KEYS[this.tuneRow];
+    const row = this.q(`.t-row[data-row="${key}"]`);
+    this.markDetail(key);
+    if (!this.tuneOpen || !row) return void at.classList.remove('on');
+    const [l, r] = at.querySelectorAll<HTMLElement>('.t-tip > div');
+    l.textContent = `◀ ${t(`tune.${key}.l` as Key)}`;
+    r.textContent = `▶ ${t(`tune.${key}.r` as Key)}`;
+    const box = row.getBoundingClientRect();
+    const view = this.q('.t-body').getBoundingClientRect();
+    const mid = box.top + box.height / 2;
+    at.style.top = `${(mid - this.q('.g-tune').getBoundingClientRect().top) / uiZoom()}px`; // (in the panel's own px)
+    at.classList.toggle('on', mid >= view.top && mid <= view.bottom);
   }
 
   /**
@@ -462,31 +794,23 @@ export class Garage {
 
   /**
    * The drawer on any screen's height (on opening, and as the window changes), always the screen's full height,
-   * its start at the bottom: zoomed down to fit (no smaller than SETUP_MIN_ZOOM), below that its compact layout
-   * (tighter rows), and past that its middle scrolls. Fitted to its tallest (five custom
-   * rivals listed), so changing the settings never moves nor resizes it.
+   * its start at the bottom, at every panel's zoom (uiZoom): if its tallest (five custom rivals listed) does not
+   * fit, its compact layout (tighter rows), and past that its middle scrolls. Fitted to its tallest, so changing
+   * the settings never moves nor resizes it.
    */
   private fitSetup(): void {
     const wrap = this.q('.g-setup');
     const drawer = this.q('.g-drawer');
-    wrap.style.setProperty('zoom', '1');
     wrap.classList.remove('compact');
     drawer.style.height = ''; // (its own height, to measure)
     const picked = this.sel;
     this.sel = { ...picked, rivalMode: 'custom', rivals: Array.from({ length: MAX_RIVALS }, () => picked.player) };
-    const tallest = () => {
-      this.drawSetup();
-      return drawer.offsetHeight;
-    };
-    const avail = innerHeight - 2 * innerWidth * 0.0125; // (its margin: 1.25vw above and below)
-    let z = Math.min(1, avail / tallest());
-    if (z < SETUP_MIN_ZOOM) {
-      wrap.classList.add('compact');
-      z = Math.max(SETUP_MIN_ZOOM, Math.min(1, avail / tallest()));
-    }
+    this.drawSetup();
+    const z = uiZoom();
+    const avail = (innerHeight - 2 * innerWidth * 0.0125 * z) / z; // (in its own px; its margin: 1.25vw above and below)
+    if (drawer.offsetHeight > avail) wrap.classList.add('compact');
     this.sel = picked;
     this.drawSetup();
-    wrap.style.setProperty('zoom', String(z));
-    drawer.style.height = `${Math.round(avail / z)}px`; // (rounded: a float's last digit is no reason to scroll)
+    drawer.style.height = `${Math.floor(avail)}px`; // (rounded down: a float's last digit is no reason to scroll)
   }
 }

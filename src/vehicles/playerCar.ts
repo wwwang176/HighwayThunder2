@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, steerAngle } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -327,9 +327,11 @@ export class PlayerCar {
       muPeak: p.muPeak,
       muSlide: p.muSlide,
       slipAnglePeak: p.slipAnglePeak,
-      rollingResistance: 0.012,
+      rollingResistance: 0.012 * (p.rollingRes ?? 1),
       regripSpeed: 0.6,
       slipFalloff: p.slipFalloff,
+      latGrip: (p.latGrip ?? 1) * pressureGripScale(speed, p), // (the pressure: cornering only)
+      longGrip: p.longGrip,
     };
     return {
       rest: p.suspensionRest,
@@ -399,19 +401,37 @@ export class PlayerCar {
     // On the rev limiter: how long (the gauge's needle bounces by it, gaugeRpm).
     this.onLimiter = this.rpm >= p.redline * LIMITER_SHARE && this.throttle > 0.5 ? Math.max(0, this.onLimiter) + dt : -1;
     // Nitro: a harder push, a little past the limiter (on the throttle only).
-    const boost = this.nitro.update(dt, !!input.nitro && input.throttle > 0);
+    const boost = this.nitro.update(dt, !!input.nitro && input.throttle > 0, p.nitroBurn ?? 1);
     const limit = boost ? { ...p, maxSpeed: p.maxSpeed * NITRO.topSpeed } : p;
     const cmd = driveCommand({ ...input, throttle: this.throttle }, this.vLong, limit, this.driveMode);
     this.driveMode = cmd.mode;
     // Forward drive comes from the engine through the current gear (reverse keeps
     // the simple pedal force). The rev limiter bounds wheelspin.
     if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / p.wheelRadius;
-    if (boost && this.driveMode === 'D') cmd.engineForce *= NITRO.force;
+    if (boost && this.driveMode === 'D') cmd.engineForce *= NITRO.force * (p.nitroForce ?? 1);
     // Stability control also trims power once the car is sliding sideways (never all of it: escPowerTrim).
     if (p.escGain > 0 && cmd.engineForce > 0) cmd.engineForce *= escPowerTrim(bodySlip);
-    const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * p.brakeFrontBias * 0.5 * p.wheelRadius;
+    // The brakes' balance (the player's tuning, brakeShift): braking, some of the front tyres' grip straight on moved to
+    // the rear, as much as the loads on them come to (all four stop as well as ever) - and the brakes' split with it,
+    // each axle as near locking as it was. The rear doing more of the braking, its cornering grip goes sooner.
+    const braking = cmd.brake > 0 && !cmd.burnout;
+    const shift = braking ? (p.brakeShift ?? 0) : 0;
+    let bias = p.brakeFrontBias;
+    let frontLong = 1, rearLong = 1;
+    if (shift !== 0) {
+      const front = this.wheels[0].load + this.wheels[1].load, rear = this.wheels[2].load + this.wheels[3].load;
+      const ratio = rear > 1 ? front / rear : 1;
+      frontLong = 1 - shift;
+      rearLong = Math.max(0.2, 1 + shift * ratio);
+      bias = (bias * frontLong) / (bias * frontLong + (1 - bias) * rearLong);
+    }
+    if (braking && p.brakeGrip !== undefined) {
+      frontLong *= p.brakeGrip;
+      rearLong *= p.brakeGrip;
+    }
+    const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * bias * 0.5 * p.wheelRadius;
     // A burnout (both keys, stopped): the front brakes hold it, the driven rear wheels spin free of theirs.
-    const brakeTorqueRear = cmd.burnout ? 0 : (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - p.brakeFrontBias) * 0.5 * p.wheelRadius;
+    const brakeTorqueRear = cmd.burnout ? 0 : (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - bias) * 0.5 * p.wheelRadius;
     const driveTorqueRear = cmd.engineForce * 0.5 * p.wheelRadius;
     setBrake(this.lights, this.showBrake ?? (cmd.brake > 0 && (Math.abs(this.vLong) > 0.5 || !!cmd.burnout)));
 
@@ -419,13 +439,15 @@ export class PlayerCar {
     // so both rears light up (and hook up) together instead of one-wheel peel.
     const lsd = Math.max(-p.lsdMax, Math.min(p.lsdMax, p.lsd * (this.wheels[2].omega - this.wheels[3].omega)));
     this.chassis.setup = this.chassisSetup(this.vLong);
-    const grip = aeroGripScale(Math.hypot(this.vLong, this.vLat), p);
+    const speedNow = Math.hypot(this.vLong, this.vLat);
+    const grip = aeroGripScale(speedNow, p);
     for (const w of this.wheels) {
       w.springK = (p.springK * wheelLoad(p, w.front)) / (p.mass / 4); // as stiff as its corner is heavy
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
       // In a burnout the spinning rear tyres push less (arcade): the front brakes hold every car, even a tail-heavy one.
       w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1)) * grip;
+      w.longScale = w.front ? frontLong : rearLong;
     }
     this.chassis.step(
       dt,

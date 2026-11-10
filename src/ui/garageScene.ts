@@ -34,8 +34,10 @@ const TITLE_SHIFT = 0.2; // (0.25: the car's tail off the right edge)
 const SLIDE_SECONDS = 0.9;
 /** The layer of what only the wet ground's mirror shows (the lamps' glows, drawn in the picture by their own pass). */
 const MIRRORED = 1;
-/** The picture's shifts (x TITLE_SHIFT of the screen's width; slide()): the title's, the garage's, with the race setup's drawer open. */
-export const VIEW = { title: 1, garage: 0, setup: -0.7 };
+/** The picture's shifts (x TITLE_SHIFT of the screen's width; slide()): the title's, the garage's, with the race setup's drawer open, the tuning's. */
+export const VIEW = { title: 1, garage: 0, setup: -0.7, tune: 0.15 };
+/** The tuning's close-up (closeUp()): round the car as ever, at `r` of the distance and `h` of the height, swinging over `period` s (slower); in and out over `secs` s. */
+const CLOSE = { r: 0.5, h: 0.5, period: 60, secs: 1.4 };
 
 /**
  * The garage's scene: the picked car parked on a wet lay-by at night, under a sodium lamp, the city's lights
@@ -64,6 +66,10 @@ export class GarageScene {
   private slideFrom = 0;
   private slideTo = 0;
   private slideT = 1;
+  /** The close-up (CLOSE): how far in (0 round the car .. 1 close), where it heads; the swing's phase (its pace the close-up's too). */
+  private close = 0;
+  private closeTo = 0;
+  private phase = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -149,6 +155,8 @@ export class GarageScene {
         this.t += dt;
         last = now;
         this.slideOn(dt);
+        this.close += Math.max(-dt / CLOSE.secs, Math.min(dt / CLOSE.secs, this.closeTo - this.close));
+        this.phase += dt / (CAM.period + (CLOSE.period - CAM.period) * this.eased());
         this.frame();
         requestAnimationFrame(loop);
       };
@@ -158,6 +166,7 @@ export class GarageScene {
 
   stop(): void {
     this.running = false;
+    this.close = this.closeTo = 0; // (the next garage opens round the car)
   }
 
   /**
@@ -184,9 +193,21 @@ export class GarageScene {
     this.placeView();
   }
 
+  /** The tuning's close-up (on: CLOSE), or back out; eased in or out over CLOSE.secs. */
+  closeUp(on: boolean): void {
+    this.closeTo = on ? 1 : 0;
+  }
+
+  /** How far in the close-up is (smoothstep). */
+  private eased(): number {
+    return this.close * this.close * (3 - 2 * this.close);
+  }
+
   private frame(): void {
-    const a = CAM.base + CAM.swing * Math.sin((this.t / CAM.period) * Math.PI * 2);
-    this.camera.position.set(CAM.r * Math.sin(a), CAM.h, CAM.r * Math.cos(a));
+    const a = CAM.base + CAM.swing * Math.sin(this.phase * Math.PI * 2);
+    const k = this.eased();
+    const r = CAM.r * (1 - (1 - CLOSE.r) * k);
+    this.camera.position.set(r * Math.sin(a), CAM.h * (1 - (1 - CLOSE.h) * k), r * Math.cos(a));
     this.camera.lookAt(0, CAM.look, 0);
     (this.bokeh.uniforms as { focus: { value: number } }).focus.value = this.camera.position.distanceTo(new THREE.Vector3(0, CAM.look, 0));
     this.composer.render();

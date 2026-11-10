@@ -15,6 +15,8 @@ import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound, type SkidSource } from '../audio/sound';
 import { Music, songTitle } from '../audio/music';
 import { NowPlaying } from '../ui/nowPlaying';
+import { tuned } from '../vehicles/tuning';
+import { TUNE_CAL } from '../vehicles/tuneCalibration';
 import { loadVolumes, saveVolumes, type Volumes } from '../audio/volumes';
 import type { RollSource } from '../audio/rolling';
 import type { LoopSource } from '../audio/placedLoops';
@@ -264,6 +266,7 @@ export class Game {
     this.bodies = new BodyInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.rivalCars.map(specOf));
+    this.rivals.tuneAtRandom = true; // (each race its rivals' perf knobs at random)
     this.rivalLights = new RivalLightPool(this.scene);
     this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true, edge: TRAFFIC_EDGE, gone: TRAFFIC_GONE, planEvery: TRAFFIC_PLAN_EVERY }); // (any way the player goes)
     this.skids = new SkidMarks(this.scene);
@@ -365,6 +368,8 @@ export class Game {
       if (set.isOpen) return set.confirm();
       if (g.isOpen) {
         if (g.keysOpen) return;
+        if (g.resetAsking) return g.resetPick();
+        if (g.tuneOpen) return g.closePop(); // (the tuning done, as Esc: back to the garage, not into a race)
         if (g.onTitle) g.enter();
         else g.start();
       } else if (menu()) this.hud.menuPick();
@@ -375,7 +380,7 @@ export class Game {
     // to the garage.
     k.onPress('Escape', () => {
       if (set.isOpen) return set.close();
-      if (g.isOpen) return g.popOpen && g.closePop();
+      if (g.isOpen) return g.popOpen && g.back();
       if (this.flow.phase === 'finished') return this.hud.finishShown && this.toTitle(); // (in its show: skips it)
       if (this.hud.confirming) return this.hud.cancelConfirm(); // (the pause's confirm open: back to its menu)
       this.togglePause();
@@ -389,12 +394,18 @@ export class Game {
     const arrow = (dy: number, dx: number) => {
       if (set.isOpen) return dy ? set.move(dy) : set.adjust(dx);
       if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
+      if (g.isOpen && g.tuneOpen) {
+        if (g.resetAsking) return g.resetMove(dy || dx);
+        return dy ? g.tuneMove(dy) : g.tuneAdjust(dx);
+      }
       if (picking()) return dy ? g.step(dy) : g.stepPaint(dx);
       if (menu()) this.hud.menuMove(dy || dx);
     };
     const corner = () => g.isOpen && !g.onTitle && !g.setupOpen;
     k.onPress('KeyH', () => corner() && !set.isOpen && g.toggleKeys());
     k.onPress('KeyO', () => corner() && !g.keysOpen && g.toggleSettings());
+    // T: the tuning panel (the car's knobs), or closed again; R in it, the car as built.
+    k.onPress('KeyT', () => corner() && !set.isOpen && !g.keysOpen && !g.resetAsking && g.toggleTune());
     k.onPress('ArrowUp', () => arrow(-1, 0));
     k.onPress('ArrowDown', () => arrow(1, 0));
     k.onPress('ArrowLeft', () => arrow(0, -1));
@@ -405,7 +416,10 @@ export class Game {
       k.onPress(`Numpad${n}`, () => setup() && g.setupCount(n));
     }
     // Race keys do nothing in the garage.
-    k.onPress('KeyR', () => !g.isOpen && this.tryReset());
+    k.onPress('KeyR', () => {
+      if (g.isOpen) return g.tuneOpen && !set.isOpen && g.tuneReset();
+      this.tryReset();
+    });
     k.onPress('KeyM', () => {
       const v = { ...loadVolumes(localStorage), muted: !this.sound.muted };
       saveVolumes(localStorage, v);
@@ -490,6 +504,9 @@ export class Game {
         this.applyCars(cars);
         this.rivalTopShare = applyDifficulty(cars.difficulty);
       }
+      // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
+      const spec = specOf(this.cars.player);
+      Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
       this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
       this.resetWorld();
       this.flow.start(); // (the intro's phase: the cars held on the grid - after a race the rivals would drive off)
@@ -582,6 +599,7 @@ export class Game {
     if (rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {
       this.rivals.dispose();
       this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), rivals.map(specOf));
+      this.rivals.tuneAtRandom = true;
     }
     this.rivalCars = rivals;
     this.cars = { ...cars, rivals: [...cars.rivals], paint: { ...cars.paint } };
