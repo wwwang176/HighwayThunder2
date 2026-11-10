@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { CarStyle } from './cars/types';
+import { addTread } from './tyreTread';
 
 /**
  * Car bodies made in Blender (tools/models/*.py → public/models/*.glb, see
@@ -38,6 +39,9 @@ const FILES: Partial<Record<ModelName, string>> = {
   cab: 'models/cab.glb',
   trailer: 'models/trailer.glb',
 };
+
+/** The files whose tyres get a car tyre's tread (tyreTread; the trucks' stay plain). */
+const TREADED = new Set<ModelName>(['super', 'muscle', 'jdm', 'sedan']);
 
 /**
  * Where each file's headlight glows (its flare sprite, render/lightFlares): the left lamp's, in the file's space
@@ -124,6 +128,7 @@ export async function loadCarModels(onProgress?: (done: number, total: number) =
         });
         const wheel = gltf.scene.getObjectByName('wheel') ?? null;
         wheel?.removeFromParent();
+        if (wheel && TREADED.has(style as ModelName)) addTread(wheel);
         const caliper = gltf.scene.getObjectByName('caliper') ?? null;
         caliper?.removeFromParent();
         const spots = wheel && 'r' in wheel.userData ? (wheel.userData as WheelSpots) : null;
