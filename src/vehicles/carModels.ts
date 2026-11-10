@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { CarStyle } from './cars/types';
+import { addDiscSlots } from './brakeDisc';
 import { addTread } from './tyreTread';
 
 /**
@@ -129,6 +130,7 @@ export async function loadCarModels(onProgress?: (done: number, total: number) =
         const wheel = gltf.scene.getObjectByName('wheel') ?? null;
         wheel?.removeFromParent();
         if (wheel && TREADED.has(style as ModelName)) addTread(wheel);
+        if (wheel) addDiscSlots(wheel); // (the wheels with a brake disc: the cars')
         const caliper = gltf.scene.getObjectByName('caliper') ?? null;
         caliper?.removeFromParent();
         const spots = wheel && 'r' in wheel.userData ? (wheel.userData as WheelSpots) : null;
