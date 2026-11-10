@@ -3,7 +3,7 @@ import { DIFFICULTIES } from '../game/difficulty';
 import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
 import { GarageScene, VIEW } from './garageScene';
-import { applyLang, onLangChange, t, tx, type Key } from './i18n';
+import { applyLang, getLang, onLangChange, t, tx, type Key } from './i18n';
 import type { SettingsPopup } from './settings';
 import { installTooltips } from './tooltip';
 import { uiZoom } from './uiScale';
@@ -628,27 +628,44 @@ export class Garage {
     const dd = tunedDetail(s.player, knobs);
     const span = detailSpan(s.player);
     const unit = (u: string) => (u === 's' ? t('unit.s') : u);
-    this.q('.t-detail').innerHTML = base
-      ? DETAIL_GROUPS.map(
-          ([group, rows]) =>
-            `<div class="d-group"><div class="lbl dash">${t(group)}</div>` +
-            rows
-              .map((r) => {
-                const name = `<span class="d-name">${t(`tune.d.${r.key}` as Key)}</span>`;
-                if (r.feel) {
-                  const x = span[r.key] ? Math.max(-1, Math.min(1, dd[r.key] / span[r.key])) : 0;
-                  return `<div class="d-row feel" data-d="${r.key}">${name}<span class="d-end">${t(`tune.d.${r.key}.l` as Key)}</span><span class="d-meter"><i class="mid"></i><i class="mark" style="left:${50 + x * 50}%"></i></span><span class="d-end">${t(`tune.d.${r.key}.r` as Key)}</span></div>`;
-                }
-                const v = base[r.key] + dd[r.key];
-                const moved = Math.abs(dd[r.key]) >= 0.5 * 10 ** -r.digits;
-                const good = r.lowerIsBetter ? dd[r.key] < 0 : dd[r.key] > 0;
-                const ch = moved ? `${dd[r.key] > 0 ? '+' : '−'}${Math.abs(dd[r.key]).toFixed(r.digits)}` : '';
-                return `<div class="d-row" data-d="${r.key}">${name}<span class="d-v num">${v.toFixed(r.digits)}<small>${unit(r.unit)}</small></span><span class="d-ch num ${moved ? (good ? 'up' : 'down') : ''}">${ch}</span></div>`;
-              })
-              .join('') +
-            '</div>',
-        ).join('')
-      : '';
+    // Its rows laid out once a car and language (redrawn whole, a knob's change made the list flicker), then
+    // only their numbers and meters set.
+    const host = this.q('.t-detail');
+    const sig = `${s.player}|${getLang()}`;
+    if (host.dataset.sig !== sig) {
+      host.dataset.sig = sig;
+      host.innerHTML = base
+        ? DETAIL_GROUPS.map(
+            ([group, rows]) =>
+              `<div class="d-group"><div class="lbl dash">${t(group)}</div>` +
+              rows
+                .map((r) => {
+                  const name = `<span class="d-name">${t(`tune.d.${r.key}` as Key)}</span>`;
+                  if (r.feel)
+                    return `<div class="d-row feel" data-d="${r.key}">${name}<span class="d-end">${t(`tune.d.${r.key}.l` as Key)}</span><span class="d-meter"><i class="mid"></i><i class="mark"></i></span><span class="d-end">${t(`tune.d.${r.key}.r` as Key)}</span></div>`;
+                  return `<div class="d-row" data-d="${r.key}">${name}<span class="d-v num"><b></b><small>${unit(r.unit)}</small></span><span class="d-ch num"></span></div>`;
+                })
+                .join('') +
+              '</div>',
+          ).join('')
+        : '';
+    }
+    if (base)
+      for (const [, rows] of DETAIL_GROUPS)
+        for (const r of rows) {
+          const el = host.querySelector<HTMLElement>(`[data-d="${r.key}"]`)!;
+          if (r.feel) {
+            const x = span[r.key] ? Math.max(-1, Math.min(1, dd[r.key] / span[r.key])) : 0;
+            el.querySelector<HTMLElement>('.mark')!.style.left = `${50 + x * 50}%`;
+            continue;
+          }
+          const moved = Math.abs(dd[r.key]) >= 0.5 * 10 ** -r.digits;
+          const good = r.lowerIsBetter ? dd[r.key] < 0 : dd[r.key] > 0;
+          el.querySelector('.d-v b')!.textContent = (base[r.key] + dd[r.key]).toFixed(r.digits);
+          const ch = el.querySelector<HTMLElement>('.d-ch')!;
+          ch.textContent = moved ? `${dd[r.key] > 0 ? '+' : '−'}${Math.abs(dd[r.key]).toFixed(r.digits)}` : '';
+          ch.className = `d-ch num ${moved ? (good ? 'up' : 'down') : ''}`;
+        }
     // The knobs.
     const row = TUNE_KEYS[this.tuneRow];
     this.q('.t-body').innerHTML = TUNE_GROUPS.map(
