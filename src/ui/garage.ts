@@ -86,6 +86,8 @@ export class Garage {
   private row = 0;
   /** The tuning panel's knob the keys are on (TUNE_KEYS). */
   private tuneRow = 0;
+  /** The tuning's knob under the pointer (null: none): its ends told beside the panel instead of the keys' knob's. */
+  private tuneHover: TuneKey | null = null;
   /** The race setup worked by the keys (last): the row's "?" opens by itself; by the pointer, only on hover. */
   private keyed = false;
 
@@ -133,6 +135,7 @@ export class Garage {
             <button class="t-done cut"><kbd>Esc</kbd>${tx('tune.done')}</button>
           </div>
         </div>
+        <div class="t-tip-at"><div class="t-tip panel cut"><div></div><div></div></div></div>
       </div>
       <div class="g-back" data-pop="tune-reset">
         <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
@@ -186,6 +189,12 @@ export class Garage {
     // As the pause's confirm: the pointer moves its cursor too.
     this.resetOpts().forEach((b, i) => b.addEventListener('pointerenter', () => this.resetPoint(i)));
     this.q('.t-done').onclick = () => this.closePop();
+    // The tuning's ends beside the panel follow its row as it scrolls; the pointer gone, back to the keys' knob.
+    this.q('.t-body').addEventListener('scroll', () => this.placeTip());
+    this.q('.t-body').addEventListener('pointerleave', () => {
+      this.tuneHover = null;
+      this.placeTip();
+    });
     this.el.querySelectorAll<HTMLElement>('.g-back').forEach(
       (b) => (b.onclick = (e) => e.target === e.currentTarget && (b.dataset.pop === 'tune-reset' ? this.cancelReset() : this.closePop())),
     );
@@ -292,6 +301,7 @@ export class Garage {
     if (this.titleOn || this.tuneOpen) return;
     this.closePop();
     this.tuneRow = 0;
+    this.tuneHover = null;
     this.el.classList.add('tune');
     this.preview.slide(VIEW.title, true);
     this.draw();
@@ -305,6 +315,7 @@ export class Garage {
     const z = uiZoom();
     panel.style.height = `${Math.floor((innerHeight - 2 * innerWidth * 0.0125 * z) / z)}px`; // (in its own px; its margin: 1.25vw above and below)
     this.q('.t-body .focus')?.scrollIntoView({ block: 'nearest' });
+    this.placeTip();
   }
 
   /** The stock confirm is open (Enter: back to stock; Esc: not). */
@@ -326,6 +337,7 @@ export class Garage {
 
   /** ↑ ↓ in the tuning panel: the knob above or below. */
   tuneMove(d: number): void {
+    this.tuneHover = null; // (the keys' knob told, not the one the pointer was left on)
     this.tuneRow = Math.max(0, Math.min(TUNE_KEYS.length - 1, this.tuneRow + d));
     this.draw();
   }
@@ -333,6 +345,7 @@ export class Garage {
   /** ← → in the tuning panel: the knob a step toward its left or its right end. */
   tuneAdjust(d: number): void {
     const key = TUNE_KEYS[this.tuneRow];
+    this.tuneHover = null;
     this.setKnob(key, (this.tuning()[key] ?? 0) + d);
   }
 
@@ -605,9 +618,7 @@ export class Garage {
             const pips = [-2, -1, 0, 1, 2]
               .map((n) => `<button class="t-pip ${n === 0 ? 'mid' : ''} ${n === level ? 'sel' : ''} ${n !== 0 && Math.sign(n) === Math.sign(level) && Math.abs(n) <= Math.abs(level) ? 'on' : ''}" data-key="${key}" data-level="${n}"></button>`)
               .join('');
-            // (Every row keeps its line for them; shown on the focused row, or the one under the pointer: the CSS.)
-            const ends = `<div class="t-ends"><span>◀ ${t(`tune.${key}.l` as Key)}</span><span>${t(`tune.${key}.r` as Key)} ▶</span></div>`;
-            return `<div class="t-row ${key === row ? 'focus' : ''}" data-row="${key}"><span class="t-name">${t(`tune.${key}` as Key)}</span><div class="t-pips">${pips}</div><span class="t-val num">${level === 0 ? t('tune.stock') : (level > 0 ? '+' : '−') + Math.abs(level)}</span>${ends}</div>`;
+            return `<div class="t-row ${key === row ? 'focus' : ''}" data-row="${key}"><span class="t-name">${t(`tune.${key}` as Key)}</span><div class="t-pips">${pips}</div><span class="t-val num">${level === 0 ? t('tune.stock') : (level > 0 ? '+' : '−') + Math.abs(level)}</span><div class="t-space"></div></div>`;
           })
           .join('') +
         '</div>',
@@ -619,16 +630,40 @@ export class Garage {
           this.setKnob(b.dataset.key as TuneKey, Number(b.dataset.level));
         }),
     );
-    this.el.querySelectorAll<HTMLElement>('.t-row').forEach((r) =>
+    this.el.querySelectorAll<HTMLElement>('.t-row').forEach((r) => {
       r.addEventListener('pointerdown', () => {
         const i = TUNE_KEYS.indexOf(r.dataset.row as TuneKey);
         if (i !== this.tuneRow) {
           this.tuneRow = i;
           this.draw();
         }
-      }),
-    );
+      });
+      r.addEventListener('pointerenter', () => {
+        this.tuneHover = r.dataset.row as TuneKey;
+        this.placeTip();
+      });
+    });
     this.q('.t-body .focus')?.scrollIntoView({ block: 'nearest' });
+    this.placeTip();
+  }
+
+  /**
+   * The knob's two ends told beside the panel, level with its row: the one under the pointer, else the keys' one
+   * (hidden while that row is scrolled out of the panel's view).
+   */
+  private placeTip(): void {
+    const at = this.q('.t-tip-at');
+    const key = this.tuneHover ?? TUNE_KEYS[this.tuneRow];
+    const row = this.q(`.t-row[data-row="${key}"]`);
+    if (!this.tuneOpen || !row) return void at.classList.remove('on');
+    const [l, r] = at.querySelectorAll<HTMLElement>('.t-tip > div');
+    l.textContent = `◀ ${t(`tune.${key}.l` as Key)}`;
+    r.textContent = `${t(`tune.${key}.r` as Key)} ▶`;
+    const box = row.getBoundingClientRect();
+    const view = this.q('.t-body').getBoundingClientRect();
+    const mid = box.top + box.height / 2;
+    at.style.top = `${(mid - this.q('.g-tune').getBoundingClientRect().top) / uiZoom()}px`; // (in the panel's own px)
+    at.classList.toggle('on', mid >= view.top && mid <= view.bottom);
   }
 
   /**
