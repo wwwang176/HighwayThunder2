@@ -59,7 +59,7 @@ CAR = kit.Car(
     tyre="245/30 R18",
     rim="bronze-10",
     wheel_face=0.87,
-    caliper=0xE8B828,
+    caliper=0xD62828,
     # Paint, and the colour of the dark on its tops (its black roof, hood vents, aero: black in all).
     liveries=[
         ("blue", 0x3A8DDE, 0x141414),
