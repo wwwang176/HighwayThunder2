@@ -20,8 +20,8 @@ describe('smokeKick', () => {
     // heading -z (the road's forward), the car standing, the tread at 20 m/s: back is +z
     const k = smokeKick(0, -1, 20 / 0.33, 0.33, 0, 0);
     expect(k.x).toBeCloseTo(0);
-    expect(k.z).toBeGreaterThan(5);
-    expect(smokeKick(0, -1, 100 / 0.33, 0.33, 0, 0).z).toBeLessThanOrEqual(9); // (capped)
+    expect(k.z).toBeGreaterThan(2.5);
+    expect(smokeKick(0, -1, 100 / 0.33, 0.33, 0, 0).z).toBeLessThanOrEqual(4.5); // (capped)
   });
   it('none for a tyre rolling with the road or locked', () => {
     expect(smokeKick(0, -1, 30 / 0.33, 0.33, 0, -30)).toEqual({ x: 0, z: 0 }); // rolling at 30 m/s

@@ -39,8 +39,8 @@ const RISE_FROM = 0.1;
 const RISE_TOP = 0.9;
 const PUFF_LIFT = 0.9;
 /** A spinning tyre's throw: this share of how much faster its tread turns than the car goes, at most KICK_MOST m/s. */
-const KICK_SHARE = 0.35;
-const KICK_MOST = 9;
+const KICK_SHARE = 0.175;
+const KICK_MOST = 4.5;
 
 /**
  * The throw of a tyre at (dirX, dirZ) (its heading, world) turning `omega` (rad/s, radius `r`) on a car moving (vx,
