@@ -28,7 +28,14 @@ const CTA = (key: Key) =>
  * unit and which way is better; the feel ones on a meter between two words (stock in the middle).
  */
 const DETAIL_GROUPS: [Key, { key: DetailKey; digits: number; unit: string; lowerIsBetter?: boolean; feel?: boolean }[]][] = [
-  ['tune.d.accel', [{ key: 't100_200', digits: 2, unit: 's', lowerIsBetter: true }]],
+  [
+    'tune.d.accel',
+    [
+      { key: 't100', digits: 2, unit: 's', lowerIsBetter: true },
+      { key: 't100_200', digits: 2, unit: 's', lowerIsBetter: true },
+      { key: 'vTop', digits: 0, unit: 'km/h' },
+    ],
+  ],
   ['tune.d.braking', [{ key: 'brake200', digits: 1, unit: 'm', lowerIsBetter: true }]],
   ['tune.d.cornering', [{ key: 'lat150', digits: 2, unit: 'g' }, { key: 'lat250', digits: 2, unit: 'g' }]],
   ['tune.d.nitro', [{ key: 'nitro3', digits: 1, unit: 'km/h' }, { key: 'nitroSecs', digits: 1, unit: 's' }]],
@@ -153,7 +160,7 @@ export class Garage {
         </div>
         <div class="t-tip-at"><div class="t-tip panel cut"><div></div><div></div></div></div>
       </div>
-      <div class="t-side panel cut"><div class="t-stats"></div><div class="t-detail"></div></div>
+      <div class="t-side panel cut"><div class="t-detail"></div></div>
       <div class="g-back" data-pop="tune-reset">
         <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
         <div class="g-modal t-confirm panel cut" role="alertdialog" aria-modal="true">
@@ -614,21 +621,10 @@ export class Garage {
     const s = this.sel;
     const me = card(s.player);
     const knobs = this.tuning();
-    // Stats: as built and the tuning's change (0-100 s, top speed km/h, grip g).
-    const d = tunedStats(s.player, knobs);
-    const change = [d.t100, d.vTop, d.grip];
-    const better = [d.t100 < 0, d.vTop > 0, d.grip > 0];
-    const digits = STAT_DIGITS;
-    this.q('.t-stats').innerHTML = me.stats
-      .map((st, i) => {
-        const v = Number(st.value) + change[i];
-        const moved = Math.abs(change[i]) >= (i === 1 ? 0.5 : 0.005);
-        const ch = `<span class="ch ${moved ? (better[i] ? 'up' : 'down') : ''}">${moved ? `${change[i] > 0 ? '+' : '−'}${Math.abs(change[i]).toFixed(digits[i])}` : ''}</span>`;
-        return `<div class="t-stat"><div class="top">${icon(st.icon)}<span class="lbl">${st.label}</span></div><span class="v num lean">${v.toFixed(digits[i])}<small>${st.unit === 's' ? t('unit.s') : st.unit}</small></span>${ch}</div>`;
-      })
-      .join('');
-    // The details under them: each measure as tuned and its change (the feel ones on a meter, stock in the middle).
-    const base = TUNE_BASE[s.player];
+    // The car as tuned, measure by measure: each as tuned and its change (the feel ones on a meter, stock in the
+    // middle). 0-100 and top speed from the garage's own numbers (its stats as built), so the two agree.
+    const measured = TUNE_BASE[s.player];
+    const base = measured && { ...measured, t100: Number(me.stats[0].value), vTop: Number(me.stats[1].value) };
     const dd = tunedDetail(s.player, knobs);
     const span = detailSpan(s.player);
     const unit = (u: string) => (u === 's' ? t('unit.s') : u);
