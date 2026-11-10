@@ -123,7 +123,7 @@ export class Garage {
       <div class="g-tune bracketed" role="dialog" data-t-aria="tune.title"><span class="brk tr"></span><span class="brk bl"></span>
         <div class="g-tune-panel panel cut">
           <div class="t-top">
-            <div>${tx('tune.kicker', 'div', 'lbl dash')}<h2><span class="t-car"></span> ${tx('tune.title')}</h2></div>
+            <div>${tx('tune.kicker', 'div', 'lbl dash')}<h2>${tx('tune.title')}</h2></div>
             <span class="t-keys"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></span>
           </div>
           <div class="t-stats"></div>
@@ -581,7 +581,6 @@ export class Garage {
     const s = this.sel;
     const me = card(s.player);
     const knobs = this.tuning();
-    this.q('.t-car').textContent = carName(me.id);
     // Stats: as built and the tuning's change (0-100 s, top speed km/h, grip g).
     const d = tunedStats(s.player, knobs);
     const change = [d.t100, d.vTop, d.grip];
@@ -591,7 +590,7 @@ export class Garage {
       .map((st, i) => {
         const base = Number(st.value);
         const v = base + change[i];
-        const ch = Math.abs(change[i]) < (i === 1 ? 0.5 : 0.005) ? '' : `<small class="${better[i] ? 'up' : 'down'}">${change[i] > 0 ? '+' : '−'}${Math.abs(change[i]).toFixed(digits[i])}</small>`;
+        const ch = Math.abs(change[i]) < (i === 1 ? 0.5 : 0.005) ? '<small></small>' : `<small class="${better[i] ? 'up' : 'down'}">${change[i] > 0 ? '+' : '−'}${Math.abs(change[i]).toFixed(digits[i])}</small>`;
         return `<div class="t-stat">${icon(st.icon)}<span class="lbl">${st.label}</span><span class="v num">${v.toFixed(i === 1 ? 0 : i === 0 ? 2 : 2)}<em>${st.unit === 's' ? t('unit.s') : st.unit}</em></span>${ch}</div>`;
       })
       .join('');

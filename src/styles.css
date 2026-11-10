@@ -449,14 +449,13 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-tune-panel { display: flex; flex-direction: column; box-sizing: border-box; padding: 1.5vw 1.7vw 1.4vw; --c: 1.35vw; }
 #garage .t-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.9vw; }
 #garage .t-top h2 { margin: 0.5vw 0 0; font: italic 900 1.67vw/1 var(--f-title); letter-spacing: 0.15vw; white-space: nowrap; }
-#garage .t-top .t-car { color: var(--accent); }
 #garage .t-keys { margin-top: 0.4vw; display: flex; }
 #garage .t-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6vw; padding: 0.7vw 0 0.9vw; border-bottom: 1px solid rgba(255, 255, 255, 0.18); }
 #garage .t-stat { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 0.4vw; }
 #garage .t-stat .icon { width: 1.1vw; height: 1.1vw; color: var(--accent); }
 #garage .t-stat .v { grid-column: 1 / -1; font: italic 800 1.5vw/1.1 var(--f-num); }
 #garage .t-stat .v em { font: 600 0.7vw/1 var(--f-num); font-style: normal; margin-left: 0.2vw; color: rgba(255, 255, 255, 0.6); }
-#garage .t-stat small { grid-column: 1 / -1; font: 700 0.75vw/1 var(--f-num); }
+#garage .t-stat small { grid-column: 1 / -1; height: 1em; font: 700 0.75vw/1 var(--f-num); } /* (its line kept when there is no change: nothing moves as one shows) */
 #garage .t-stat small.up { color: #4fe08a; }
 #garage .t-stat small.down { color: #ff7a6b; }
 #garage .t-body { flex: 1; overflow-y: auto; margin: 0.6vw -0.6vw 0.6vw 0; padding-right: 0.6vw; }
