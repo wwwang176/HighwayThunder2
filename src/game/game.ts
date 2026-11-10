@@ -13,6 +13,8 @@ import type GUI from 'lil-gui';
 import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound, type SkidSource } from '../audio/sound';
+import { Music, songTitle } from '../audio/music';
+import { NowPlaying } from '../ui/nowPlaying';
 import type { RollSource } from '../audio/rolling';
 import type { LoopSource } from '../audio/placedLoops';
 import { createTuningPanel } from '../debug/tuning';
@@ -158,6 +160,8 @@ export class Game {
   private readonly flashers = new WeakMap<object, BeamFlasher>();
   readonly flow = new GameFlow(localStorage);
   readonly sound = new Sound();
+  /** The background music (audio/music): from the first click or key in the garage on. */
+  readonly music = new Music();
   /** The engines heard from outside, this frame's (heardEngines; reused). */
   private readonly engineSources: EngineSource[] = [];
   /** The rivals' tyres as heard this frame (its entries reused). */
@@ -275,6 +279,8 @@ export class Game {
     });
     this.settings = new SettingsPopup(uiRoot);
     this.settings.onQuality = (pr) => this.setQuality(pr);
+    const nowPlaying = new NowPlaying(uiRoot);
+    this.music.onSong = (song) => nowPlaying.show(songTitle(song));
     this.garage = new Garage(uiRoot, RIVAL_COLORS, (cars) => {
       saveSelection(localStorage, cars);
       this.startRace(cars, true);
@@ -289,13 +295,17 @@ export class Game {
     this.resize();
     addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
+      this.music.setHidden(document.hidden);
       if (document.hidden && (this.flow.phase === 'racing' || this.flow.phase === 'countdown')) this.togglePause();
     });
     this.resetWorld();
     this.openGarage(true); // (the game opens on its title)
     // The sound woken at the first click or key (the browser lets it start only then), so its clips load in the
-    // garage, ready for the race's start.
-    const wake = (): void => this.sound.init();
+    // garage, ready for the race's start; the music starts there too.
+    const wake = (): void => {
+      this.sound.init();
+      this.music.start();
+    };
     addEventListener('pointerdown', wake, { once: true });
     addEventListener('keydown', wake, { once: true });
     this.prewarm();
@@ -391,7 +401,11 @@ export class Game {
     }
     // Race keys do nothing in the garage.
     k.onPress('KeyR', () => !g.isOpen && this.tryReset());
-    k.onPress('KeyM', () => this.sound.toggleMute());
+    k.onPress('KeyM', () => {
+      this.sound.toggleMute();
+      this.music.muted = this.sound.muted;
+    });
+    k.onPress('KeyN', () => this.music.next());
     k.onPress('KeyV', () => !g.isOpen && (this.hoodCam = !this.hoodCam));
     k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
     k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
@@ -687,6 +701,8 @@ export class Game {
   }
 
   private frame(dt: number): void {
+    this.music.update(dt, this.flow.phase === 'countdown'); // (quieter in the countdown; real time, the garage too)
+    this.music.setPaused(this.flow.phase === 'paused');
     // The garage covers the whole screen and draws its own car: the world waits (and the GPU rests), the FPS meter too.
     this.stats.dom.style.visibility = this.garage.isOpen ? 'hidden' : '';
     if (this.garage.isOpen) return;

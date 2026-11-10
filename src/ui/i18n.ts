@@ -74,6 +74,7 @@ export const STRINGS = {
   'keys.highBeam': { zh: '遠光燈（按住）', en: 'High beam (hold)' },
   'keys.pause': { zh: '暫停', en: 'Pause' },
   'keys.mute': { zh: '靜音', en: 'Mute' },
+  'keys.nextSong': { zh: '下一首音樂', en: 'Next song' },
   'keys.menus': { zh: '車庫：換車、換烤漆；選單：移動游標', en: 'Garage: car, paint · Menus: move the cursor' },
   'keys.setup': { zh: '車庫：比賽設定', en: 'Garage: race setup' },
   'keys.help': { zh: '車庫：操作說明', en: 'Garage: controls' },

@@ -50,6 +50,7 @@ const KEYS: [string, Key][] = [
   ['X', 'keys.highBeam'],
   ['Esc', 'keys.pause'],
   ['M', 'keys.mute'],
+  ['N', 'keys.nextSong'],
   ['↑ ↓  ← →', 'keys.menus'],
   ['E', 'keys.setup'],
   ['H', 'keys.help'],
