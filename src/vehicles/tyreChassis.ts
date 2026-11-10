@@ -18,6 +18,7 @@ export interface ChassisWheel {
   rebound: number; // N·s/m
   mEff: number; // mass this wheel carries (kg)
   gripScale: number; // per-wheel grip multiplier (e.g. wider rear tyres)
+  longScale: number; // ...and its grip driving / braking straight only (the brakes' balance)
   // state
   omega: number;
   spin: number; // accumulated visual rotation
@@ -98,7 +99,7 @@ export function makeWheel(
 ): ChassisWheel {
   return {
     ...w,
-    omega: 0, spin: 0, susp, steer: 0, inContact: true, sliding: false, slip: 0, load: 0,
+    omega: 0, spin: 0, susp, steer: 0, inContact: true, sliding: false, slip: 0, load: 0, longScale: 1,
     fx: 0, fy: 0, alpha: 0, contactX: 0, contactZ: 0, dirX: 0, dirZ: -1,
   };
 }
@@ -204,6 +205,7 @@ export class TyreChassis {
         tire: s.tire,
         muScale: s.surfaceGrip(CONTACT.x) * w.gripScale * trip,
         brakeApart: w.front && s.frontBrakeApart,
+        longScale: w.longScale,
       });
       w.omega = res.omega;
       w.spin -= res.omega * dt;

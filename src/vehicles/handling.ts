@@ -63,6 +63,17 @@ export interface CarParams {
   steerSlowdownSpeed: number; // m/s; turn-in rate is halved at this speed (Infinity = never slower)
   escGain: number; // stability control: N·m of yaw correction per rad/s of yaw-rate error (0 = off)
   escMaxTorque: number; // N·m
+  // The player's tuning (src/vehicles/tuning.ts); unset: as built.
+  gearScale?: number; // final drive: every gear's top speed (and the limiter's) times this (> 1 taller)
+  latGrip?: number; // camber: the tyres' grip cornering, times this ...
+  longGrip?: number; // ... and driving / braking straight, times this
+  nitroForce?: number; // the nitro's push (NITRO.force) times this
+  nitroBurn?: number; // a tank's seconds of use (NITRO.burn) times this
+  rollingRes?: number; // the tyres' rolling resistance times this
+  gripSpeed?: number; // tyre pressure: grip change per 100 km/h from gripPivot (pressureGripScale)
+  gripPivot?: number; // km/h it turns about (unset: PRESSURE_PIVOT_KMH)
+  brakeGrip?: number; // braking, all four tyres' grip straight on times this (the balance's stopping distance kept)
+  brakeShift?: number; // the brakes' balance: braking, this share of the front tyres' grip straight on moved to the rear (- forward)
 }
 
 /** The player car's handling (the street racer: src/vehicles/cars/streetRacer.ts). */
@@ -152,6 +163,8 @@ export function smoothSteer(current: number, target: number, p: CarParams, dt: n
 
 /** Top wheel-surface speed of each gear (rev limiter), km/h. */
 export const GEAR_TOP_KMH = [95, 140, 185, 230, 270, 310];
+/** A gear's top speed (km/h) on `p`'s final drive (gearScale). */
+export const gearTopKmh = (gear: number, p: CarParams): number => GEAR_TOP_KMH[gear - 1] * (p.gearScale ?? 1);
 const SHIFT_UP = 0.93;
 const SHIFT_DOWN = 0.6;
 const SHIFT_TIME = 0.25;
@@ -233,7 +246,7 @@ export class Gearbox {
 
   /** Overall ratio (engine revs per wheel rev) of a gear. */
   ratio(gear = this.gear, p: CarParams = DEFAULT_CAR): number {
-    const wheelOmegaAtRedline = GEAR_TOP_KMH[gear - 1] / 3.6 / p.wheelRadius;
+    const wheelOmegaAtRedline = gearTopKmh(gear, p) / 3.6 / p.wheelRadius;
     return (p.redline * RPM_TO_RAD) / wheelOmegaAtRedline;
   }
 
@@ -274,20 +287,20 @@ export class Gearbox {
     this.cooldown -= dt;
     if (this.cooldown > 0) return;
     const v = Math.abs(roadSpeed) * 3.6;
-    if (this.gear < GEAR_TOP_KMH.length && v > GEAR_TOP_KMH[this.gear - 1] * SHIFT_UP) {
+    if (this.gear < GEAR_TOP_KMH.length && v > gearTopKmh(this.gear, p) * SHIFT_UP) {
       this.fromRpm = this.engineRpm(wheelOmega, p);
       this.gear++;
       this.cut = this.shiftLen = p.shiftTime;
       this.cooldown = Math.max(SHIFT_TIME, p.shiftTime);
-    } else if (this.gear > 1 && v < GEAR_TOP_KMH[this.gear - 2] * SHIFT_DOWN) {
+    } else if (this.gear > 1 && v < gearTopKmh(this.gear - 1, p) * SHIFT_DOWN) {
       this.gear--;
       this.cooldown = SHIFT_TIME;
     }
   }
 
   /** Driven wheel surface speed at the rev limiter (m/s). */
-  wheelSpeedLimit(): number {
-    return GEAR_TOP_KMH[this.gear - 1] / 3.6;
+  wheelSpeedLimit(p: CarParams = DEFAULT_CAR): number {
+    return gearTopKmh(this.gear, p) / 3.6;
   }
 
   reset(): void {
@@ -326,6 +339,21 @@ export function effectiveMu(speed: number, p: CarParams): number {
 export function aeroGripScale(speed: number, p: CarParams): number {
   const u = Math.max(0, Math.min(1, ((Math.abs(speed) * 3.6 - p.aeroGripFrom) / (p.aeroGripTo - p.aeroGripFrom))));
   return 1 + p.aeroGrip * u * u * (3 - 2 * u);
+}
+
+/** Around this speed (km/h) the tyres' pressure (gripSpeed) neither adds grip nor takes it. */
+export const PRESSURE_PIVOT_KMH = 200;
+
+/**
+ * The tyres' cornering grip at this speed for their pressure (the player's tuning, gripSpeed): soft ones grip more
+ * slow and less fast (the sidewall squirming, the heat), hard ones the other way (driving and braking straight: as
+ * they are) - gripSpeed per 100 km/h from
+ * PRESSURE_PIVOT_KMH; 1 unset. (Within 0.7..1.3.)
+ */
+export function pressureGripScale(speed: number, p: CarParams): number {
+  const k = p.gripSpeed ?? 0;
+  if (k === 0) return 1;
+  return Math.max(0.7, Math.min(1.3, 1 + (k * (Math.abs(speed) * 3.6 - (p.gripPivot ?? PRESSURE_PIVOT_KMH))) / 100));
 }
 
 /** Highest yaw rate the tyres (with downforce) can sustain at this speed. */

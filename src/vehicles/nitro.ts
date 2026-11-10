@@ -25,10 +25,10 @@ export class Nitro {
   /** Burning (as of the last update). */
   active = false;
 
-  /** A step of `dt` s, the driver asking for it (`want`) or not; whether it burns. */
-  update(dt: number, want: boolean): boolean {
+  /** A step of `dt` s, the driver asking for it (`want`) or not; whether it burns. `burn`: NITRO.burn times this. */
+  update(dt: number, want: boolean, burn = 1): boolean {
     this.active = want && this.level > 0;
-    if (this.active) this.level = Math.max(0, this.level - dt / NITRO.burn);
+    if (this.active) this.level = Math.max(0, this.level - dt / (NITRO.burn * burn));
     else if (!want) this.level = Math.min(1, this.level + dt / NITRO.refill);
     return this.active;
   }
