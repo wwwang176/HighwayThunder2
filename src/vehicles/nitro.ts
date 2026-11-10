@@ -24,9 +24,12 @@ export class Nitro {
   level = 1; // full at a race's start
   /** Burning (as of the last update). */
   active = false;
+  /** Its car's tank, NITRO.burn times this (as of the last update: the tuner's is bigger, the tuning's jets). */
+  burnScale = 1;
 
   /** A step of `dt` s, the driver asking for it (`want`) or not; whether it burns. `burn`: NITRO.burn times this. */
   update(dt: number, want: boolean, burn = 1): boolean {
+    this.burnScale = burn;
     this.active = want && this.level > 0;
     if (this.active) this.level = Math.max(0, this.level - dt / (NITRO.burn * burn));
     else if (!want) this.level = Math.min(1, this.level + dt / NITRO.refill);
@@ -65,7 +68,7 @@ export class NitroAi {
       this.burst -= dt;
       return true;
     }
-    if (this.wait > dt / 2 || throttle < NITRO.aiThrottle || nitro.level < this.next / NITRO.burn) return false;
+    if (this.wait > dt / 2 || throttle < NITRO.aiThrottle || nitro.level < this.next / (NITRO.burn * nitro.burnScale)) return false;
     this.burst = this.next - dt;
     this.wait = this.next + this.roll(NITRO.aiGap);
     this.next = this.roll(NITRO.aiBurst);

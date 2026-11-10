@@ -65,8 +65,8 @@ export const TUNE_ITEMS: TuneItem[] = [
     metric: 'nitro3',
     apply: (p, x) => {
       const k = exp2(-0.45, x); // the push; the tank's seconds the other way (as much in all)
-      p.nitroForce = k;
-      p.nitroBurn = 1 / k;
+      p.nitroForce = (p.nitroForce ?? 1) * k;
+      p.nitroBurn = (p.nitroBurn ?? 1) / k; // (on the car's own tank: the tuner's is bigger)
     },
   },
   {
