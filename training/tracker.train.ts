@@ -41,7 +41,7 @@ import { chunks, ExamPool } from './trackerPool';
 
 const THREADS = Number(process.env.THREADS ?? 6);
 type Net = Brain | null;
-type Drive = { cost: number[]; errs: number[][]; lags: number[][] };
+type Drive = { cost: number[]; errs: number[][]; lags: number[][]; launch: number[] };
 
 const pct = (xs: number[], p: number) => {
   const a = xs.map(Math.abs).sort((x, y) => x - y);
@@ -56,7 +56,7 @@ it('tracker', async () => {
   /** The exams over the population shared out: the results in the brains' order. */
   const drive = async (brains: Net[], scenarios: Scenario[], keepErrors = false): Promise<Drive> => {
     const parts = await Promise.all(share(brains).map((b) => pool.run<Drive>({ op: 'drive', brains: b, scenarios, keepErrors })));
-    return { cost: parts.flatMap((p) => p.cost), errs: parts.flatMap((p) => p.errs), lags: parts.flatMap((p) => p.lags) };
+    return { cost: parts.flatMap((p) => p.cost), errs: parts.flatMap((p) => p.errs), lags: parts.flatMap((p) => p.lags), launch: parts.flatMap((p) => p.launch) };
   };
   const recovery = async (brains: Net[], starts: RecoveryStart[]) =>
     (await Promise.all(share(brains).map((b) => pool.run<number[]>({ op: 'recovery', brains: b, starts })))).flat();
@@ -77,7 +77,7 @@ it('tracker', async () => {
   let pop: Brain[] = Array.from({ length: evo.population }, (_, i) => (start && i === 0 ? start : quietTracker(rng)));
   const validRecovery = RECOVERY_VALIDATION.flatMap((deg) => RECOVERY_VALIDATION_X.map((x) => ({ yaw: (deg * Math.PI) / 180, x })));
   /** One brain's validation: the driving's cost (and its errors), the recovery's, the two weighed together. */
-  let startDrive = NaN; // the start's driving on validation (the guard)
+  let startDrive = NaN; // the start's driving on validation (the guard), the launches' extra left out
   const validate = async (b: Net) => {
     // (each scenario and heading a task of its own: one brain's validation side by side)
     const [vs, raced, recs] = await Promise.all([
@@ -86,12 +86,13 @@ it('tracker', async () => {
       RECOVERY_WEIGHT > 0 ? Promise.all(validRecovery.map((st) => pool.run<number[]>({ op: 'recovery', brains: [b], starts: [st] }))) : [],
     ]);
     const driving = vs.reduce((a, v) => a + v.cost[0], 0) / vs.length + RACE_WEIGHT * raced;
+    const launch = vs.reduce((a, v) => a + v.launch[0], 0) / vs.length;
     const rec = recs.length ? recs.reduce((a, r) => a + r[0], 0) / recs.length : 0;
-    const guard = Number.isNaN(startDrive) ? 0 : DRIVE_GUARD * Math.max(0, driving - startDrive - DRIVE_EPS);
-    return { cost: driving + guard + RECOVERY_WEIGHT * rec, drive: driving, raced, rec, errs: vs.flatMap((v) => v.errs[0]), lags: vs.flatMap((v) => v.lags[0]) };
+    const guard = Number.isNaN(startDrive) ? 0 : DRIVE_GUARD * Math.max(0, driving - launch - startDrive - DRIVE_EPS);
+    return { cost: driving + guard + RECOVERY_WEIGHT * rec, drive: driving, launch, raced, rec, errs: vs.flatMap((v) => v.errs[0]), lags: vs.flatMap((v) => v.lags[0]) };
   };
   const show = (v: Awaited<ReturnType<typeof validate>>) =>
-    `${v.cost.toFixed(4)} (driving ${v.drive.toFixed(4)} of it racing ${v.raced.toFixed(4)}, ${describe(v.errs)}, lag p50 ${pct(v.lags, 0.5).toFixed(2)} p95 ${pct(v.lags, 0.95).toFixed(2)}; recovery ${v.rec.toFixed(2)})`;
+    `${v.cost.toFixed(4)} (driving ${v.drive.toFixed(4)} of it launches' extra ${v.launch.toFixed(4)}, racing ${v.raced.toFixed(4)}, ${describe(v.errs)}, lag p50 ${pct(v.lags, 0.5).toFixed(2)} p95 ${pct(v.lags, 0.95).toFixed(2)}; recovery ${v.rec.toFixed(2)})`;
   const showRace = (r: { distance: number; resets: number }) => `race ${Math.round(r.distance)} m, ${r.resets} resets`;
   const base = await validate(null);
   process.stdout.write(`plain tracker on validation: ${show(base)}\n`);
@@ -100,7 +101,7 @@ it('tracker', async () => {
   process.stdout.write(`plain tracker ${showRace(startRace)}\n`);
   if (start) {
     const v = await validate(start);
-    startDrive = v.drive;
+    startDrive = v.drive - v.launch;
     startRace = await race(start);
     best = { brain: start, cost: v.cost }; // saved only when a brain beats the start
     process.stdout.write(`its network now on validation: ${show(v)}, ${showRace(startRace)}\n`);
@@ -113,15 +114,15 @@ it('tracker', async () => {
     const everyone = start ? [...pop, null, start] : [...pop, null];
     const seeds = Array.from({ length: RACE_TRAIN }, () => 10_000 + Math.floor(rng() * 1e6)); // (none the benchmark's or the gate's)
     const starts = Array.from({ length: RECOVERY }, () => recoveryStart(rng));
-    const [{ cost }, raced, rec] = await Promise.all([
+    const [{ cost, launch }, raced, rec] = await Promise.all([
       drive(everyone, scenarios),
       Promise.all(seeds.map((seed) => raceCost(everyone, seed))),
       RECOVERY > 0 && RECOVERY_WEIGHT > 0 ? recovery([...pop, null], starts) : null,
     ]);
     for (const r of raced) r.forEach((c, i) => (cost[i] += (RACE_WEIGHT * c) / RACE_TRAIN));
     if (start) {
-      const ref = cost.pop()!; // the start on the same scenarios: no brain may drive much worse
-      for (let i = 0; i < pop.length; i++) cost[i] += DRIVE_GUARD * Math.max(0, cost[i] - ref - DRIVE_EPS);
+      const ref = cost.pop()! - launch[launch.length - 1]; // the start on the same scenarios: no brain may drive much worse
+      for (let i = 0; i < pop.length; i++) cost[i] += DRIVE_GUARD * Math.max(0, cost[i] - launch[i] - ref - DRIVE_EPS);
     }
     if (rec) rec.forEach((c, i) => (cost[i] += RECOVERY_WEIGHT * c));
     const plain = cost.pop()!;

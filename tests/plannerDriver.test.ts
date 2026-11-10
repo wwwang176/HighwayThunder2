@@ -75,6 +75,54 @@ describe('emergencyBrake', () => {
     // Moving toward it: no such luck.
     expect(emergencyBrake({ ...self, vLat: -2 }, [slow])).toBeGreaterThan(0.5);
   });
+
+  // A plan with its line now at the car's d + `from`, holding it 0.25 s, then moving `move` m right in 0.25 s.
+  const right = (from: number, move = 1.5) => ({
+    plan: { points: [{ t: 0, s: 0, d: self.d + from, v: 45 }, { t: 0.25, s: 11.25, d: self.d + from, v: 45 }, { t: 0.5, s: 22.5, d: self.d + from + move, v: 45 }, { t: 8, s: 360, d: self.d + from + move, v: 45 }] },
+    age: 0,
+  });
+
+  it('not for a car its plan takes it past: where the plan has it when it gets there is clear', () => {
+    // Not moving yet (straight on it overlaps), but the plan is 1.2 m clear of it by then (12 m at 20 m/s: 0.6 s).
+    expect(emergencyBrake(self, [slow])).toBeGreaterThan(0.5);
+    expect(emergencyBrake(self, [slow], 0, [right(0), right(0)])).toBe(0);
+  });
+
+  it('only when the plans before it agree: one changing its mind is not believed', () => {
+    expect(emergencyBrake(self, [slow], 0, [right(0)])).toBeGreaterThan(0.5); // one plan alone
+    expect(emergencyBrake(self, [slow], 0, [right(0), right(0, 0)])).toBeGreaterThan(0.5); // the one before stayed put
+  });
+
+  it('wholly behind the car it brakes as ever, whatever the plans say', () => {
+    const behind = { ...slow, dMin: self.d - 0.925, dMax: self.d + 0.925 };
+    expect(emergencyBrake(self, [behind], 0, [right(0, 3), right(0, 3)])).toBeGreaterThan(0.5);
+  });
+
+  it('counting how far off the plan it is now', () => {
+    // The plan's line passes it 0.62 m clear, but the car is 0.9 m left of that line: moving the 0.5 m the plan does
+    // it passes only 0.2 m clear - under pathMargin.
+    expect(emergencyBrake(self, [slow], 0, [right(0.9, 0.5), right(0.9, 0.5)])).toBeGreaterThan(0.5);
+    expect(emergencyBrake(self, [slow], 0, [right(0, 1.4), right(0, 1.4)])).toBe(0); // on the line, 1.4 m: 1.1 m clear
+  });
+
+  it('counting the sideways speed it lags the plan by', () => {
+    // The plan already moving right at 3 m/s, the car not yet: 0.9 m short by the time it gets there.
+    const moving = { plan: { points: [{ t: 0, s: 0, d: self.d, v: 45 }, { t: 0.5, s: 22.5, d: self.d + 1.5, v: 45 }, { t: 8, s: 360, d: self.d + 1.5, v: 45 }] }, age: 0 };
+    expect(emergencyBrake(self, [slow], 0, [moving, moving])).toBeGreaterThan(0.5);
+    expect(emergencyBrake({ ...self, vLat: 3 }, [slow], 0, [moving, moving])).toBe(0); // keeping up
+  });
+
+  it('believes no plan it is well off (or sliding)', () => {
+    expect(emergencyBrake(self, [slow], 0, [right(-1.2), right(-1.2)])).toBeGreaterThan(0.5); // its line 1.2 m right of the car
+    expect(emergencyBrake({ ...self, yaw: -0.4 }, [slow], 0, [right(0), right(0)])).toBeGreaterThan(0.5);
+  });
+
+  it('once braking it holds on down to a lower need', () => {
+    const me = { ...self, d: laneCenter(1), vLong: 50 };
+    const ahead = [{ id: 1, s: 2.2 + 1.5 + 40 + 2.25, dMin: laneCenter(1) - 0.925, dMax: laneCenter(1) + 0.925, v: 25, length: 4.5 }];
+    expect(emergencyBrake(me, ahead)).toBe(0); // needs 7.8 m/s²
+    expect(emergencyBrake(me, ahead, 0, [], 9.5 * 0.6)).toBeCloseTo(7.8 / 11, 1);
+  });
 });
 
 describe('PlannerDriver', () => {

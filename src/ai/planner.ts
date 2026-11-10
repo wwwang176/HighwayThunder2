@@ -78,6 +78,14 @@ export const PLANNER = {
    */
   useShoulders: false,
   /**
+   * How far past the paved road's edge (off the shoulders) the car may plan, as a part of its half width:
+   * 1 - its centre on the edge line, half the car on the shoulder. 0: all of it on the road - which left
+   * the outermost plan positions 0.47 m beyond the outer lane centres (the cell under the 0.9 m there was),
+   * so in practice it went no further out than the outer lanes' centres, and a slow car in an outer lane
+   * could not be squeezed past on its outside.
+   */
+  pastEdge: 1,
+  /**
    * Most cells (quarter lanes) moved sideways per step. 1: a lane in 2 s. 3:
    * 5.6 m/s, about the most the car does (a lane in 0.7 s at full lock) - the
    * lattice then tells lateral speeds apart. 3 (with maxLateralChange 2, beam
@@ -137,6 +145,26 @@ export const PLANNER = {
    * Street racing - the others look out for themselves.
    */
   steerClear: true,
+  /**
+   * s the last plan may be old to be taken up again when no plan is found from where the car is: searched again
+   * from where that plan has it now (its sideways position, speed and move), against the traffic as it is now.
+   * The car is never quite on its plan (and its sideways speed lags the plan's), and from a little off it a move
+   * half done - pulling out past a car - could find no way on: the fallback then braked toward the nearest lane
+   * centre, back behind the car it was pulling out from (most of the crashes with nothing changed in the traffic).
+   * 0: off.
+   */
+  reuseAge: 0.75,
+  /**
+   * Room (m, body to body) it would like beside a vehicle it is level with, and the cost (m of progress per m short,
+   * per plan point) of less: it swings out wider passing when that is cheap - starts its move sooner, goes a little
+   * further out - instead of brushing past by `sideMargin`. (Passing with less than the emergency brake's pathMargin
+   * the brake did not believe the plan: a third of the braking alongside.) 0: off. 1 (60 races each, against 0):
+   * street racer 95.8 -> 93.5 s (paired -2.28 +- 0.49), resets 11 -> 6; muscle car 94.5 -> 94.0, 18 -> 21; JDM
+   * 99.0 -> 98.7, 12 -> 10. Of 10 tight passes picked from a race, 7 got 0.4-0.5 m more room, none any slower;
+   * passes on alternate sides make a gentle S (0.2-0.5 m), inside the lane.
+   */
+  passRoom: 0.5,
+  passCost: 1,
 };
 
 /** Half the planned car's length and width (m): `plan` sets them from its ego (default: the street racer's). */
@@ -160,8 +188,9 @@ class Grid {
     readonly perLane: number,
   ) {
     this.cell = LANE_WIDTH / perLane;
-    const room = shoulders ? RAIL_D - 0.3 : ROAD_HALF_WIDTH;
-    this.edge = Math.floor((room - egoHalfW - laneCenter(LANE_COUNT - 1)) / this.cell);
+    // Furthest out the car's centre may be.
+    const out = shoulders ? RAIL_D - 0.3 - egoHalfW : ROAD_HALF_WIDTH - egoHalfW * (1 - PLANNER.pastEdge);
+    this.edge = Math.max(0, Math.floor((out - laneCenter(LANE_COUNT - 1)) / this.cell + 1e-9));
     this.first = laneCenter(0) - this.edge * this.cell;
     this.cells = perLane * (LANE_COUNT - 1) + 1 + 2 * this.edge;
   }
@@ -178,7 +207,7 @@ class Grid {
 }
 const grids = new Map<string, Grid>();
 function gridFor(shoulders: boolean, perLane: number): Grid {
-  const k = `${shoulders}/${perLane}/${egoHalfW}`; // the edge cells leave room for the car's width
+  const k = `${shoulders}/${perLane}/${egoHalfW}/${PLANNER.pastEdge}`; // the edge cells leave room for the car's width
   let g = grids.get(k);
   if (!g) grids.set(k, (g = new Grid(shoulders, perLane)));
   return g;
@@ -259,8 +288,8 @@ interface Node {
   lat: number;
 }
 
-/** How plans came out (normal search / relaxed replan / boxed-in fallback): for benchmarks. */
-export const PLAN_STATS = { normal: 0, relaxed: 0, fallback: 0 };
+/** How plans came out (normal search / relaxed replan / from the last plan's state / boxed-in fallback): for benchmarks. */
+export const PLAN_STATS = { normal: 0, relaxed: 0, reused: 0, fallback: 0 };
 
 /**
  * The fastest way through the traffic for the next `horizon` seconds, assuming
@@ -275,8 +304,9 @@ export const PLAN_STATS = { normal: 0, relaxed: 0, fallback: 0 };
  * traffic is never ignored.
  *
  * If no first step is clear (something already too close), it plans again
- * without following / cut-in gaps and ignoring what is wholly behind; if even that fails it heads
- * for the nearest lane centre braking hard - never frozen between two lanes.
+ * without following / cut-in gaps and ignoring what is wholly behind; then (`reuseAge`) from where the last plan
+ * has the car now; if even that fails it heads for the nearest lane centre braking hard - never frozen between
+ * two lanes.
  */
 export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null = null): Plan {
   egoHalfW = ego.halfWidth ?? 0.93;
@@ -292,8 +322,14 @@ export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan
   for (const t of boxes) if (t.phantom && t.id !== undefined) merging.add(t.id);
   const normal = search(ego, boxes, merging, previous, false);
   if (normal) PLAN_STATS.normal++;
-  const found = normal ?? search(ego, boxes, merging, previous, true);
+  let found = normal ?? search(ego, boxes, merging, previous, true);
   if (!normal && found) PLAN_STATS.relaxed++;
+  if (!found && previous && previous.age <= PLANNER.reuseAge) {
+    const was = planAt(previous.plan, previous.age);
+    const onIt: PlanEgo = { ...ego, d: was.d, v: was.v, vD: was.dRate };
+    found = search(onIt, boxes, merging, previous, false) ?? search(onIt, boxes, merging, previous, true);
+    if (found) PLAN_STATS.reused++;
+  }
   if (!found) PLAN_STATS.fallback++;
   if (found) return found;
   const dt = PLANNER.step;
@@ -369,6 +405,15 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
       const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + reachSide) + 1);
       for (let c = c0; c <= c1; c++) if (t.dMax > grid.d(c) - reachSide && t.dMin < grid.d(c) + reachSide) byCell[c].push(t);
     }
+    // ...and those within `passRoom` of a car there (`passCost`).
+    const wide = P.passCost > 0 ? egoHalfW + P.passRoom + ON_CELL : 0;
+    const passing: TrafficBox[][] | null = P.passCost > 0 ? Array.from({ length: grid.cells }, () => []) : null;
+    if (passing)
+      for (const t of near) {
+        const c0 = Math.max(0, grid.nearest(t.dMin - wide) - 1);
+        const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + wide) + 1);
+        for (let c = c0; c <= c1; c++) if (t.dMax > grid.d(c) - wide && t.dMin < grid.d(c) + wide) passing[c].push(t);
+      }
     for (const n of layer.values()) {
       const top = maxAccel(n.v, ego.accel);
       const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -P.hardBrake];
@@ -388,6 +433,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
           const s = n.s + ((n.v + v) / 2) * dt;
           let score = n.score + (s - n.s) - moveCost - lineCost - P.brakeCost * Math.max(0, n.v - v);
           if (onCourse) score += P.keepCourseBonus;
+          if (passing && passing[cell].length) score -= passShort(passing[cell], d, s, t0 + dt);
           const kk = (keyBase + Math.round(v / P.speedCell)) * 16 + latKey(move);
           const old = next.get(kk);
           if (old && score <= old.score) continue; // something as good gets there already: no need to check this way is clear
@@ -590,6 +636,18 @@ function collides(
     }
   }
   return false;
+}
+
+/** `passCost` for a plan point at (d, s) `t` s on: what it is short of `passRoom` beside the boxes it is level with. */
+function passShort(boxes: TrafficBox[], d: number, s: number, t: number): number {
+  const P = PLANNER;
+  let cost = 0;
+  for (const b of boxes) {
+    if (Math.abs(b.s + b.v * t - s) > b.length / 2 + egoHalfL) continue; // not level with it
+    const gap = d > (b.dMin + b.dMax) / 2 ? d - egoHalfW - b.dMax : b.dMin - (d + egoHalfW);
+    if (gap < P.passRoom) cost += P.passCost * (P.passRoom - Math.max(0, gap));
+  }
+  return cost;
 }
 
 /** Room (m, centre to piece) kept to a box ahead at speed v - braking down to its speed, or (swerving) only until clear of it. */

@@ -63,6 +63,16 @@ export const RACE_SEEDS = (process.env.RACE_SEEDS ?? '8101,8102,8103,8104,8105,8
 export const RACE_S = Number(process.env.RACE_S ?? 45);
 export const RACE_KEEP = Number(process.env.RACE_KEEP ?? 0.97); // of the start's distance at least
 export const RACE_RESETS = Number(process.env.RACE_RESETS ?? 1.3); // times the start's resets at most (+2)
+/**
+ * Share of scenarios from a standstill (the race's start): half of them held on the line revving first (the game's
+ * countdown burnout, 1-3 s), flat out; the targets as any scenario's. The scenarios otherwise start at 40 km/h or
+ * more, and the race exam's one start in 20 s weighs next to nothing: the networks pulled to one side pulling away
+ * (the street racer's: 0.4 left at once, 4 deg, half a metre by 1.5 s; the plain tracker dead straight).
+ */
+export const LAUNCH = Number(process.env.LAUNCH ?? 0);
+/** Off-the-plan cost times this over a launch's first LAUNCH_S s (1: scored as the rest). */
+export const LAUNCH_WEIGHT = Number(process.env.LAUNCH_WEIGHT ?? 1);
+export const LAUNCH_S = 4;
 
 export interface Scenario {
   v: number;
@@ -70,13 +80,16 @@ export interface Scenario {
   targets: [number, number][];
   /** [time, target speed] (m/s): it speeds up flat out and slows, changing lanes as it goes - as in a race. */
   speeds: [number, number][];
+  /** s held on the line revving before it goes (from a standstill only). */
+  hold?: number;
 }
 
 /** How much progress counts against wheel tracking: taking the throttle back must not just slow it down. */
 export const PROGRESS = 0.01; // cost per metre
 
 export function scenario(rng: Rng): Scenario {
-  const v = (40 + rng() * (TOP_KMH - 40)) * KMH;
+  const launch = LAUNCH > 0 && rng() < LAUNCH;
+  const v = launch ? 0 : (40 + rng() * (TOP_KMH - 40)) * KMH;
   const targets: [number, number][] = [];
   const lo = laneCenter(0);
   const hi = laneCenter(LANE_COUNT - 1);
@@ -87,6 +100,10 @@ export function scenario(rng: Rng): Scenario {
   }
   const speeds: [number, number][] = [[0, (60 + rng() * (TOP_KMH - 60)) * KMH]];
   for (let t = 2 + rng() * 2; t < SCENARIO_S; t += 2 + rng() * 2) speeds.push([t, (50 + rng() * (TOP_KMH - 50)) * KMH]);
+  if (launch) {
+    speeds[0][1] = TOP_KMH * KMH;
+    return { v, targets, speeds, hold: rng() < 0.5 ? 0 : 1 + rng() * 2 };
+  }
   return { v, targets, speeds };
 }
 
@@ -155,6 +172,8 @@ export interface Run {
   plan: Plan | null;
   madeAt: number;
   cost: number;
+  /** Of the cost, what LAUNCH_WEIGHT added (the driving guard leaves it out: a better launch buys no worse driving). */
+  launch: number;
   out: boolean;
   lastSteer: number;
   errs: number[];
@@ -164,10 +183,10 @@ export interface Run {
 }
 
 /** Every brain (and the plain tracker, last) through the scenarios together; cost per brain, and the runs' errors. */
-export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepErrors = false): { cost: number[]; errs: number[][]; lags: number[][] } {
+export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepErrors = false): { cost: number[]; errs: number[][]; lags: number[][]; launch: number[] } {
   const physics = openGround();
   physics.timestep = PHYSICS_DT;
-  const runs: Run[] = brains.map((brain) => ({ car: new PlayerCar(physics, null, { spec: SPEC }), brain, plan: null, madeAt: 0, cost: 0, out: false, lastSteer: 0, errs: [], recent: [], lags: [] }));
+  const runs: Run[] = brains.map((brain) => ({ car: new PlayerCar(physics, null, { spec: SPEC }), brain, plan: null, madeAt: 0, cost: 0, launch: 0, out: false, lastSteer: 0, errs: [], recent: [], lags: [] }));
   const cap = SPEC.params.maxSpeed;
   for (const r of runs) r.car.params.maxSpeed = cap;
   for (const sc of scenarios) {
@@ -179,6 +198,16 @@ export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepEr
       r.out = false;
       r.lastSteer = 0;
       r.recent = [];
+    }
+    if (sc.hold) {
+      // On the line revving, held to its spot (the game's countdown), then let go.
+      for (const r of runs) r.car.holdInPlace(true);
+      for (let i = 0; i < Math.round(sc.hold / PHYSICS_DT); i++) {
+        for (const r of runs) r.car.prePhysics({ steer: 0, throttle: 1, brake: 1 }, PHYSICS_DT);
+        physics.step(() => {});
+        for (const r of runs) r.car.postPhysics();
+      }
+      for (const r of runs) r.car.holdInPlace(false);
     }
     const steps = Math.round(SCENARIO_S / PHYSICS_DT);
     for (let i = 0; i < steps; i++) {
@@ -215,14 +244,17 @@ export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepEr
         const k = Math.min(pts.length - 2, Math.floor(age / PLANNER.step));
         const u = Math.min(1, (age - pts[k].t) / (pts[k + 1].t - pts[k].t));
         const err = r.car.d - (pts[k].d + (pts[k + 1].d - pts[k].d) * u);
-        r.cost += err * err * PHYSICS_DT;
+        const w = sc.v === 0 && t < LAUNCH_S ? LAUNCH_WEIGHT : 1; // (a launch's first seconds)
+        r.cost += w * err * err * PHYSICS_DT;
+        r.launch += (w - 1) * err * err * PHYSICS_DT;
         if (keepErrors) r.errs.push(err);
         const now = t + PHYSICS_DT;
         while (r.recent.length && now - r.recent[0].t >= LAG_AFTER - 1e-9) {
           const old = r.recent.shift()!;
           if (now - old.t > LAG_AFTER + PHYSICS_DT) continue;
           const lag = r.car.d - planAt(old.plan, LAG_AFTER).d;
-          r.cost += LAG_WEIGHT * lag * lag * 0.25; // (one a replan: 0.25 s of it)
+          r.cost += w * LAG_WEIGHT * lag * lag * 0.25; // (one a replan: 0.25 s of it)
+          r.launch += (w - 1) * LAG_WEIGHT * lag * lag * 0.25;
           if (keepErrors) r.lags.push(lag);
         }
         const slip = Math.abs(Math.atan2(r.car.vLat, Math.max(1, r.car.vLong)));
@@ -236,7 +268,7 @@ export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepEr
     for (const r of runs) r.cost -= PROGRESS * r.car.s; // the way it got
   }
   physics.free();
-  return { cost: runs.map((r) => r.cost / scenarios.length), errs: runs.map((r) => r.errs), lags: runs.map((r) => r.lags) };
+  return { cost: runs.map((r) => r.cost / scenarios.length), errs: runs.map((r) => r.errs), lags: runs.map((r) => r.lags), launch: runs.map((r) => r.launch / scenarios.length) };
 }
 
 /** A crash's aftermath: how far off the road's heading (rad, either way) it stands. */
