@@ -418,6 +418,57 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 /* The race setup open: the garage's own type out of its way (the brand stays), back once it closes. */
 #garage.setup .g-corner, #garage.setup .g-id, #garage.setup .g-left, #garage.setup .g-paint, #garage.setup .g-depart {
   opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+/* The tuning panel open (src/ui/garage.ts: T, or its button by the paint): on the left, the car slid right (the
+   title's view), the garage's own type faded (the brand too: the panel is where it was). */
+#garage.tune .g-corner, #garage.tune .g-id, #garage.tune .g-left, #garage.tune .g-paint, #garage.tune .g-depart, #garage.tune .g-brand {
+  opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+#garage .g-tune-open { display: flex; align-items: center; gap: 0.5vw; margin-left: 1.6vw; height: 2.3vw; padding: 0 1.2vw; --c: 0.6vw;
+  background: color-mix(in srgb, var(--accent) 22%, rgba(8, 12, 22, 0.75)); outline: 1px solid var(--accent); outline-offset: -1px;
+  font: 700 0.94vw/1 var(--f-title); letter-spacing: 0.1vw; color: #fff; box-shadow: 0 0 1.2vw -0.3vw var(--accent); transition: background 0.15s; }
+#garage .g-tune-open:hover, #garage .g-tune-open:focus-visible { background: var(--accent); }
+#garage .g-tune-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.4s;
+  background: linear-gradient(90deg, rgba(2, 4, 10, 0.75), rgba(2, 4, 10, 0.35) 34%, transparent 50%); }
+#garage.tune .g-tune-shade { opacity: 1; }
+#garage .g-tune { position: absolute; left: 1.25vw; top: 1.25vw; bottom: 1.25vw; width: 33vw; z-index: 4; visibility: hidden; opacity: 0; translate: -3vw 0;
+  transition: opacity 0.3s, translate 0.3s, visibility 0s 0.3s; }
+#garage.tune .g-tune { visibility: visible; opacity: 1; translate: 0 0; transition: opacity 0.3s, translate 0.3s; }
+#garage .g-tune-panel { height: 100%; display: flex; flex-direction: column; box-sizing: border-box; padding: 1.5vw 1.7vw 1.4vw; --c: 1.35vw; }
+#garage .t-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.9vw; }
+#garage .t-top h2 { margin: 0.5vw 0 0; font: italic 900 1.67vw/1 var(--f-title); letter-spacing: 0.15vw; white-space: nowrap; }
+#garage .t-top .t-car { color: var(--accent); }
+#garage .t-keys { margin-top: 0.4vw; display: flex; }
+#garage .t-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6vw; padding: 0.7vw 0 0.9vw; border-bottom: 1px solid rgba(255, 255, 255, 0.18); }
+#garage .t-stat { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 0.4vw; }
+#garage .t-stat .icon { width: 1.1vw; height: 1.1vw; color: var(--accent); }
+#garage .t-stat .v { grid-column: 1 / -1; font: italic 800 1.5vw/1.1 var(--f-num); }
+#garage .t-stat .v em { font: 600 0.7vw/1 var(--f-num); font-style: normal; margin-left: 0.2vw; color: rgba(255, 255, 255, 0.6); }
+#garage .t-stat small { grid-column: 1 / -1; font: 700 0.75vw/1 var(--f-num); }
+#garage .t-stat small.up { color: #4fe08a; }
+#garage .t-stat small.down { color: #ff7a6b; }
+#garage .t-body { flex: 1; overflow-y: auto; margin: 0.6vw -0.6vw 0.6vw 0; padding-right: 0.6vw; scrollbar-width: thin; }
+#garage .t-group { margin-top: 0.8vw; }
+#garage .t-group > .lbl { margin-bottom: 0.3vw; }
+#garage .t-row { display: grid; grid-template-columns: 8.5vw 1fr 3.2vw; align-items: center; column-gap: 0.8vw; padding: 0.42vw 0.6vw;
+  border-left: 0.21vw solid transparent; cursor: pointer; }
+#garage .t-row.focus { background: rgba(255, 255, 255, 0.07); border-left-color: var(--accent); }
+#garage .t-name { font: 700 0.9vw/1.2 var(--f-title); color: var(--text-2); }
+#garage .t-row.focus .t-name { color: #fff; }
+#garage .t-pips { display: flex; align-items: center; gap: 0.35vw; }
+#garage .t-pip { flex: 1; height: 0.8vw; transform: skewX(-20deg); background: var(--unlit); cursor: pointer; transition: background 0.12s; }
+#garage .t-pip.mid { flex: 0 0 0.4vw; background: rgba(255, 255, 255, 0.45); }
+#garage .t-pip.on { background: color-mix(in srgb, var(--accent) 65%, transparent); }
+#garage .t-pip.sel:not(.mid) { background: var(--accent); box-shadow: 0 0 0.6vw var(--accent); }
+#garage .t-pip.mid.sel { background: #fff; }
+#garage .t-pip:hover { background: color-mix(in srgb, var(--accent) 45%, var(--unlit)); }
+#garage .t-val { text-align: right; font: 700 0.8vw/1 var(--f-num); color: rgba(255, 255, 255, 0.75); }
+#garage .t-ends { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 1vw; margin-top: 0.45vw;
+  font: 600 0.72vw/1.3 var(--f-title); color: rgba(255, 255, 255, 0.5); }
+#garage .t-ends span:last-child { text-align: right; }
+#garage .t-ends .act { color: var(--accent); }
+#garage .t-foot { display: flex; gap: 0.8vw; }
+#garage .t-foot button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5vw; height: 2.6vw; --c: 0.6vw;
+  background: rgba(255, 255, 255, 0.08); font: 700 0.94vw/1 var(--f-title); color: #fff; transition: background 0.15s; }
+#garage .t-foot button:hover, #garage .t-foot button:focus-visible { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 #garage .g-title-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.6s;
   background: linear-gradient(90deg, rgba(2, 4, 10, 0.85), rgba(2, 4, 10, 0.55) 35%, transparent 55%); }
 #garage.title .g-title-shade { opacity: 1; }

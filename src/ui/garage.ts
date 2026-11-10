@@ -6,6 +6,8 @@ import { GarageScene, VIEW } from './garageScene';
 import { applyLang, onLangChange, t, tx, type Key } from './i18n';
 import type { SettingsPopup } from './settings';
 import { installTooltips } from './tooltip';
+import { type TuneKey, type Tuning } from '../vehicles/tuning';
+import { tunedStats } from '../vehicles/tuneEffects';
 
 const html = String.raw;
 const UI = `${import.meta.env.BASE_URL}ui/`;
@@ -37,6 +39,15 @@ const WEATHERS: [Weather, string][] = [
 const OPEN_WEATHERS: Weather[] = ['clear'];
 /** A car stat's tip, by its icon. */
 const STAT_TIPS: Record<string, Key> = { 'icon-accel': 'stat.accel', 'icon-topspeed': 'stat.top', 'icon-handling': 'stat.grip' };
+/** The tuning panel's knobs, in their groups (src/vehicles/tuning). */
+const TUNE_GROUPS: [Key, TuneKey[]][] = [
+  ['tune.group.power', ['finalDrive', 'nitro']],
+  ['tune.group.tyres', ['pressure', 'width', 'camber']],
+  ['tune.group.aero', ['wing']],
+  ['tune.group.chassis', ['springs', 'dampers', 'antiRoll']],
+  ['tune.group.control', ['brakeBias', 'steering', 'esc']],
+];
+const TUNE_KEYS: TuneKey[] = TUNE_GROUPS.flatMap(([, keys]) => keys);
 /** Keys and what they do (the controls pop-up). */
 const KEYS: [string, Key][] = [
   ['W / ↑', 'keys.throttle'],
@@ -53,6 +64,7 @@ const KEYS: [string, Key][] = [
   ['N', 'keys.nextSong'],
   ['↑ ↓  ← →', 'keys.menus'],
   ['E', 'keys.setup'],
+  ['T', 'keys.tune'],
   ['H', 'keys.help'],
   ['O', 'keys.settings'],
 ];
@@ -73,6 +85,8 @@ export class Garage {
   private titleOn = false;
   /** The race setup's row the keys are on (rowKeys()). */
   private row = 0;
+  /** The tuning panel's knob the keys are on (TUNE_KEYS). */
+  private tuneRow = 0;
   /** The race setup worked by the keys (last): the row's "?" opens by itself; by the pointer, only on hover. */
   private keyed = false;
 
@@ -104,7 +118,23 @@ export class Garage {
         <div class="g-head"><span class="lbl float">Select class</span><span><kbd>↑</kbd><kbd>↓</kbd></span></div>
         <div class="g-classes"></div>
       </div>
-      <div class="g-paint"><span class="lbl float">Paint</span><kbd>←</kbd><div class="g-paints"></div><kbd>→</kbd></div>
+      <div class="g-paint"><span class="lbl float">Paint</span><kbd>←</kbd><div class="g-paints"></div><kbd>→</kbd>
+        <button class="g-tune-open cut"><kbd>T</kbd>${tx('garage.tune')}</button></div>
+      <div class="g-tune-shade"></div>
+      <div class="g-tune bracketed" role="dialog" data-t-aria="tune.title"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-tune-panel panel cut">
+          <div class="t-top">
+            <div>${tx('tune.kicker', 'div', 'lbl dash')}<h2><span class="t-car"></span> ${tx('tune.title')}</h2></div>
+            <span class="t-keys"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></span>
+          </div>
+          <div class="t-stats"></div>
+          <div class="t-body"></div>
+          <div class="t-foot">
+            <button class="t-reset cut"><kbd>R</kbd>${tx('tune.reset')}</button>
+            <button class="t-done cut"><kbd>Esc</kbd>${tx('tune.done')}</button>
+          </div>
+        </div>
+      </div>
       <div class="g-depart">
         <button class="g-race float"></button>
         <button class="cta g-go">${CTA('garage.start')}</button>
@@ -139,6 +169,9 @@ export class Garage {
     this.q('.g-keys').onclick = () => this.openKeys();
     this.q('.g-opts').onclick = () => this.openSettings();
     this.q('.g-close').onclick = () => this.closePop();
+    this.q('.g-tune-open').onclick = () => this.openTune();
+    this.q('.t-reset').onclick = () => this.tuneReset();
+    this.q('.t-done').onclick = () => this.closePop();
     this.el.querySelectorAll<HTMLElement>('.g-back').forEach((b) => (b.onclick = (e) => e.target === e.currentTarget && this.closePop()));
     this.drawSetupKeys();
     // Another language (the settings' OK): the fixed words redone, the rest redrawn.
@@ -172,9 +205,14 @@ export class Garage {
     return this.el.classList.contains('setup');
   }
 
+  /** The tuning panel is open (the arrows work it: tuneMove, tuneAdjust; R its stock). */
+  get tuneOpen(): boolean {
+    return this.el.classList.contains('tune');
+  }
+
   /** Something over the garage (Esc closes it rather than anything else). */
   get popOpen(): boolean {
-    return this.keysOpen || this.settingsOpen || this.setupOpen;
+    return this.keysOpen || this.settingsOpen || this.setupOpen || this.tuneOpen;
   }
 
   /** Open on `sel`: at the title (the game's name and its start on the left, the car on the right) or in it. */
@@ -224,6 +262,59 @@ export class Garage {
       this.el.classList.remove('setup');
       this.preview.slide(VIEW.garage, true);
     }
+    if (this.tuneOpen) {
+      this.el.classList.remove('tune');
+      this.preview.slide(VIEW.garage, true);
+    }
+  }
+
+  /** The tuning panel, on the left (its button by the paint, or T): the car slides right, the garage's own type fades. */
+  openTune(): void {
+    if (this.titleOn || this.tuneOpen) return;
+    this.closePop();
+    this.tuneRow = 0;
+    this.el.classList.add('tune');
+    this.preview.slide(VIEW.title, true);
+    this.draw();
+    (document.activeElement as HTMLElement | null)?.blur();
+  }
+
+  /** T in the garage: the tuning panel, or closed again. */
+  toggleTune(): void {
+    if (this.tuneOpen) this.closePop();
+    else this.openTune();
+  }
+
+  /** ↑ ↓ in the tuning panel: the knob above or below. */
+  tuneMove(d: number): void {
+    this.tuneRow = Math.max(0, Math.min(TUNE_KEYS.length - 1, this.tuneRow + d));
+    this.draw();
+  }
+
+  /** ← → in the tuning panel: the knob a step toward its left or its right end. */
+  tuneAdjust(d: number): void {
+    const key = TUNE_KEYS[this.tuneRow];
+    this.setKnob(key, (this.tuning()[key] ?? 0) + d);
+  }
+
+  /** R in the tuning panel (or its button): the car as built. */
+  tuneReset(): void {
+    this.sel = { ...this.sel, tuning: { ...this.sel.tuning, [this.sel.player]: {} } };
+    this.draw();
+  }
+
+  /** The picked car's tuning. */
+  private tuning(): Tuning {
+    return this.sel.tuning[this.sel.player] ?? {};
+  }
+
+  private setKnob(key: TuneKey, level: number): void {
+    const v = Math.max(-2, Math.min(2, level));
+    const knobs: Tuning = { ...this.tuning() };
+    if (v === 0) delete knobs[key];
+    else knobs[key] = v;
+    this.sel = { ...this.sel, tuning: { ...this.sel.tuning, [this.sel.player]: knobs } };
+    this.draw();
   }
 
   /** The race setup, from the right (its card, or E): the car slides left beside it, the garage's own type fades. */
@@ -405,6 +496,67 @@ export class Garage {
       <div class="row">${icon('icon-difficulty')}<span class="lbl">Difficulty</span><span class="val">${t(`diff.${s.difficulty}` as Key)}</span></div>
       <div class="row">${icon(w[1])}<span class="lbl">Weather</span><span class="val">${t(`weather.${w[0]}` as Key)}</span></div>`;
     if (this.setupOpen) this.drawSetup();
+    if (this.tuneOpen) this.drawTune();
+  }
+
+  /**
+   * The tuning panel: the car's stats as tuned (its three, each with what the tuning changes), then its knobs in
+   * their groups - five steps each, stock in the middle; the keys' knob shows what its two ends do.
+   */
+  private drawTune(): void {
+    const s = this.sel;
+    const me = card(s.player);
+    const knobs = this.tuning();
+    this.q('.t-car').textContent = carName(me.id);
+    // Stats: as built and the tuning's change (0-100 s, top speed km/h, grip g).
+    const d = tunedStats(s.player, knobs);
+    const change = [d.t100, d.vTop, d.grip];
+    const better = [d.t100 < 0, d.vTop > 0, d.grip > 0];
+    const digits = [2, 0, 2];
+    this.q('.t-stats').innerHTML = me.stats
+      .map((st, i) => {
+        const base = Number(st.value);
+        const v = base + change[i];
+        const ch = Math.abs(change[i]) < (i === 1 ? 0.5 : 0.005) ? '' : `<small class="${better[i] ? 'up' : 'down'}">${change[i] > 0 ? '+' : '−'}${Math.abs(change[i]).toFixed(digits[i])}</small>`;
+        return `<div class="t-stat">${icon(st.icon)}<span class="lbl">${st.label}</span><span class="v num">${v.toFixed(i === 1 ? 0 : i === 0 ? 2 : 2)}<em>${st.unit === 's' ? t('unit.s') : st.unit}</em></span>${ch}</div>`;
+      })
+      .join('');
+    // The knobs.
+    const row = TUNE_KEYS[this.tuneRow];
+    this.q('.t-body').innerHTML = TUNE_GROUPS.map(
+      ([group, keys]) =>
+        `<div class="t-group"><div class="lbl dash">${t(group)}</div>` +
+        keys
+          .map((key) => {
+            const level = knobs[key] ?? 0;
+            const pips = [-2, -1, 0, 1, 2]
+              .map((n) => `<button class="t-pip ${n === 0 ? 'mid' : ''} ${n === level ? 'sel' : ''} ${n !== 0 && Math.sign(n) === Math.sign(level) && Math.abs(n) <= Math.abs(level) ? 'on' : ''}" data-key="${key}" data-level="${n}"></button>`)
+              .join('');
+            const ends = key === row
+              ? `<div class="t-ends"><span class="${level < 0 ? 'act' : ''}">◀ ${t(`tune.${key}.l` as Key)}</span><span class="${level > 0 ? 'act' : ''}">${t(`tune.${key}.r` as Key)} ▶</span></div>`
+              : '';
+            return `<div class="t-row ${key === row ? 'focus' : ''}" data-row="${key}"><span class="t-name">${t(`tune.${key}` as Key)}</span><div class="t-pips">${pips}</div><span class="t-val num">${level === 0 ? t('tune.stock') : (level > 0 ? '+' : '−') + Math.abs(level)}</span>${ends}</div>`;
+          })
+          .join('') +
+        '</div>',
+    ).join('');
+    this.el.querySelectorAll<HTMLElement>('.t-pip').forEach(
+      (b) =>
+        (b.onclick = () => {
+          this.tuneRow = TUNE_KEYS.indexOf(b.dataset.key as TuneKey);
+          this.setKnob(b.dataset.key as TuneKey, Number(b.dataset.level));
+        }),
+    );
+    this.el.querySelectorAll<HTMLElement>('.t-row').forEach((r) =>
+      r.addEventListener('pointerdown', () => {
+        const i = TUNE_KEYS.indexOf(r.dataset.row as TuneKey);
+        if (i !== this.tuneRow) {
+          this.tuneRow = i;
+          this.draw();
+        }
+      }),
+    );
+    this.q('.t-body .focus')?.scrollIntoView({ block: 'nearest' });
   }
 
   /**

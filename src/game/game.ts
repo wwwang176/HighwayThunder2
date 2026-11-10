@@ -15,6 +15,8 @@ import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound, type SkidSource } from '../audio/sound';
 import { Music, songTitle } from '../audio/music';
 import { NowPlaying } from '../ui/nowPlaying';
+import { tuned } from '../vehicles/tuning';
+import { TUNE_CAL } from '../vehicles/tuneCalibration';
 import { loadVolumes, saveVolumes, type Volumes } from '../audio/volumes';
 import type { RollSource } from '../audio/rolling';
 import type { LoopSource } from '../audio/placedLoops';
@@ -389,12 +391,15 @@ export class Game {
     const arrow = (dy: number, dx: number) => {
       if (set.isOpen) return dy ? set.move(dy) : set.adjust(dx);
       if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
+      if (g.isOpen && g.tuneOpen) return dy ? g.tuneMove(dy) : g.tuneAdjust(dx);
       if (picking()) return dy ? g.step(dy) : g.stepPaint(dx);
       if (menu()) this.hud.menuMove(dy || dx);
     };
     const corner = () => g.isOpen && !g.onTitle && !g.setupOpen;
     k.onPress('KeyH', () => corner() && !set.isOpen && g.toggleKeys());
     k.onPress('KeyO', () => corner() && !g.keysOpen && g.toggleSettings());
+    // T: the tuning panel (the car's knobs), or closed again; R in it, the car as built.
+    k.onPress('KeyT', () => corner() && !set.isOpen && !g.keysOpen && g.toggleTune());
     k.onPress('ArrowUp', () => arrow(-1, 0));
     k.onPress('ArrowDown', () => arrow(1, 0));
     k.onPress('ArrowLeft', () => arrow(0, -1));
@@ -405,7 +410,10 @@ export class Game {
       k.onPress(`Numpad${n}`, () => setup() && g.setupCount(n));
     }
     // Race keys do nothing in the garage.
-    k.onPress('KeyR', () => !g.isOpen && this.tryReset());
+    k.onPress('KeyR', () => {
+      if (g.isOpen) return g.tuneOpen && !set.isOpen && g.tuneReset();
+      this.tryReset();
+    });
     k.onPress('KeyM', () => {
       const v = { ...loadVolumes(localStorage), muted: !this.sound.muted };
       saveVolumes(localStorage, v);
@@ -490,6 +498,9 @@ export class Game {
         this.applyCars(cars);
         this.rivalTopShare = applyDifficulty(cars.difficulty);
       }
+      // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
+      const spec = specOf(this.cars.player);
+      Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
       this.hud.setAccent(CAR_CARDS.find((c) => c.id === this.cars.player)?.accent ?? '#ff3b30');
       this.resetWorld();
       this.flow.start(); // (the intro's phase: the cars held on the grid - after a race the rivals would drive off)

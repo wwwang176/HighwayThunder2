@@ -1,5 +1,6 @@
 import { CARS, JDM_CAR, MUSCLE_CAR, STREET_RACER } from '../vehicles/cars';
 import { DIFFICULTIES } from './difficulty';
+import { TUNE_ITEMS, type Tuning } from '../vehicles/tuning';
 
 /** Weathers there will be; only the clear night can be picked for now. */
 export type Weather = 'clear' | 'rain' | 'fog';
@@ -22,6 +23,8 @@ export interface CarSelection {
   difficulty: number;
   weather: Weather;
   paint: Record<string, string>;
+  /** Each car's tuning (src/vehicles/tuning: its knobs' levels), kept apart as its paint is; none: as built. */
+  tuning: Record<string, Tuning>;
 }
 
 export const MAX_RIVALS = 5;
@@ -63,7 +66,7 @@ export const CAR_CARDS: CarCard[] = [
 
 /** A first visit's race: the player on the supercar, five rivals on cars drawn at random, hard, a clear night. */
 export function defaultSelection(): CarSelection {
-  return { player: STREET_RACER.id, rivals: Array.from({ length: MAX_RIVALS }, () => STREET_RACER.id), rivalMode: 'random', difficulty: DEFAULT_DIFFICULTY, weather: 'clear', paint: {} };
+  return { player: STREET_RACER.id, rivals: Array.from({ length: MAX_RIVALS }, () => STREET_RACER.id), rivalMode: 'random', difficulty: DEFAULT_DIFFICULTY, weather: 'clear', paint: {}, tuning: {} };
 }
 
 const pickable = (id: unknown): string => (typeof id === 'string' && PICKABLE.includes(id) && CARS[id] ? id : STREET_RACER.id);
@@ -72,12 +75,12 @@ const pickable = (id: unknown): string => (typeof id === 'string' && PICKABLE.in
  * A selection made safe: unknown or unpickable cars become the supercar, at
  * most MAX_RIVALS rivals (none missing: the default five), a difficulty that
  * exists, the clear night, paint jobs only for pickable cars (by name: one the
- * car's file doesn't have is its own when built). Old saves (cars only) keep
+ * car's file doesn't have is its own when built), tunings only of known knobs. Old saves (cars only) keep
  * their cars.
  */
 export function sanitize(x: unknown): CarSelection {
   if (!x || typeof x !== 'object') return defaultSelection();
-  const o = x as { player?: unknown; rivals?: unknown; rivalMode?: unknown; difficulty?: unknown; paint?: unknown };
+  const o = x as { player?: unknown; rivals?: unknown; rivalMode?: unknown; difficulty?: unknown; paint?: unknown; tuning?: unknown };
   const rivalMode = RIVAL_MODES.find((m) => m === o.rivalMode) ?? 'custom';
   const rivals = Array.isArray(o.rivals) ? o.rivals.slice(0, MAX_RIVALS).map(pickable) : defaultSelection().rivals;
   const difficulty = typeof o.difficulty === 'number' && Number.isInteger(o.difficulty) && DIFFICULTIES[o.difficulty] ? o.difficulty : DEFAULT_DIFFICULTY;
@@ -85,7 +88,20 @@ export function sanitize(x: unknown): CarSelection {
   if (o.paint && typeof o.paint === 'object') {
     for (const [id, name] of Object.entries(o.paint)) if (PICKABLE.includes(id) && typeof name === 'string') paint[id] = name;
   }
-  return { player: pickable(o.player), rivals, rivalMode, difficulty, weather: 'clear', paint };
+  // Each pickable car's knobs: known ones only, whole levels -2..2 (0: left out).
+  const tuning: Record<string, Tuning> = {};
+  if (o.tuning && typeof o.tuning === 'object') {
+    for (const [id, t] of Object.entries(o.tuning)) {
+      if (!PICKABLE.includes(id) || !t || typeof t !== 'object') continue;
+      const knobs: Tuning = {};
+      for (const item of TUNE_ITEMS) {
+        const v = (t as Record<string, unknown>)[item.key];
+        if (typeof v === 'number' && Number.isInteger(v) && v !== 0) knobs[item.key] = Math.max(-2, Math.min(2, v));
+      }
+      tuning[id] = knobs;
+    }
+  }
+  return { player: pickable(o.player), rivals, rivalMode, difficulty, weather: 'clear', paint, tuning };
 }
 
 export function loadSelection(storage: Pick<Storage, 'getItem'>): CarSelection {
