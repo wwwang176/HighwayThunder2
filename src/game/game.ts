@@ -388,6 +388,7 @@ export class Game {
     // Esc: cancels the settings; closes what is over the garage; races, pauses and resumes; after the finish, back
     // to the garage.
     k.onPress('Escape', () => {
+      if (this.loadingRace) return; // (a race being set up: restarted from the pause, Esc would let it run on under the loading)
       if (set.isOpen) return set.close();
       if (g.isOpen) return g.popOpen && g.back();
       if (this.flow.phase === 'finished') return this.hud.finishShown && this.toTitle(); // (in its show: skips it)
@@ -574,9 +575,13 @@ export class Game {
     this.camYaw = null; // (the camera's jump no turn for the speed blur)
   }
 
-  /** A key or a click in the intro: straight to the countdown, the chase camera. */
+  /**
+   * A key or a click in the intro: straight to the countdown, the chase camera. Only once it is playing: the race's
+   * phase is the intro's already as the race is set up under the loading screen, and a key there would start the
+   * countdown under the intro still to come.
+   */
   private skipIntro(): void {
-    if (this.flow.phase !== 'intro') return;
+    if (this.flow.phase !== 'intro' || !this.introOn) return;
     this.startCountdown();
     this.finishIntro();
   }
