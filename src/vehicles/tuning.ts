@@ -178,11 +178,18 @@ export interface TuneEnd {
 /** A car's calibration: each knob's two ends (missing: as written). */
 export type TuneCal = Partial<Record<TuneKey, { lo: TuneEnd; hi: TuneEnd }>>;
 
+/**
+ * How far a knob's ends reach, of the change its item writes (its x at ±2): half - all the way, the muscle car could
+ * be tuned to roll over, and the cars felt too unlike their own selves. The calibration's ends (TuneCal) are at the
+ * written change's (x ±1): so they still are, scaled as the compensations are.
+ */
+export const TUNE_REACH = 0.5;
+
 /** One knob at `level` (with its end's calibration) onto `p`. */
 export function applyKnob(p: CarParams, item: TuneItem, level: number, end: TuneEnd = { s: 1 }): void {
   if (level === 0) return;
-  const x = level / 2;
-  // (the compensations as far as the knob goes: half at ±1)
+  const x = (level / 2) * TUNE_REACH;
+  // (the compensations as far as the knob goes: a share k of its written ends')
   const k = Math.abs(x);
   item.apply(p, x * end.s, end.b ?? 1);
   if (end.cl !== undefined) p.longGrip = (p.longGrip ?? 1) * end.cl ** k;
