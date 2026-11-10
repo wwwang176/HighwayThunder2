@@ -369,6 +369,7 @@ export class Game {
       if (g.isOpen) {
         if (g.keysOpen) return;
         if (g.resetAsking) return g.resetPick();
+        if (g.tuneOpen) return g.closePop(); // (the tuning done, as Esc: back to the garage, not into a race)
         if (g.onTitle) g.enter();
         else g.start();
       } else if (menu()) this.hud.menuPick();
