@@ -78,6 +78,14 @@ export const PLANNER = {
    */
   useShoulders: false,
   /**
+   * How far past the paved road's edge (off the shoulders) the car may plan, as a part of its half width:
+   * 1 - its centre on the edge line, half the car on the shoulder. 0: all of it on the road - which left
+   * the outermost plan positions 0.47 m beyond the outer lane centres (the cell under the 0.9 m there was),
+   * so in practice it went no further out than the outer lanes' centres, and a slow car in an outer lane
+   * could not be squeezed past on its outside.
+   */
+  pastEdge: 1,
+  /**
    * Most cells (quarter lanes) moved sideways per step. 1: a lane in 2 s. 3:
    * 5.6 m/s, about the most the car does (a lane in 0.7 s at full lock) - the
    * lattice then tells lateral speeds apart. 3 (with maxLateralChange 2, beam
@@ -169,8 +177,9 @@ class Grid {
     readonly perLane: number,
   ) {
     this.cell = LANE_WIDTH / perLane;
-    const room = shoulders ? RAIL_D - 0.3 : ROAD_HALF_WIDTH;
-    this.edge = Math.floor((room - egoHalfW - laneCenter(LANE_COUNT - 1)) / this.cell);
+    // Furthest out the car's centre may be.
+    const out = shoulders ? RAIL_D - 0.3 - egoHalfW : ROAD_HALF_WIDTH - egoHalfW * (1 - PLANNER.pastEdge);
+    this.edge = Math.max(0, Math.floor((out - laneCenter(LANE_COUNT - 1)) / this.cell + 1e-9));
     this.first = laneCenter(0) - this.edge * this.cell;
     this.cells = perLane * (LANE_COUNT - 1) + 1 + 2 * this.edge;
   }
@@ -187,7 +196,7 @@ class Grid {
 }
 const grids = new Map<string, Grid>();
 function gridFor(shoulders: boolean, perLane: number): Grid {
-  const k = `${shoulders}/${perLane}/${egoHalfW}`; // the edge cells leave room for the car's width
+  const k = `${shoulders}/${perLane}/${egoHalfW}/${PLANNER.pastEdge}`; // the edge cells leave room for the car's width
   let g = grids.get(k);
   if (!g) grids.set(k, (g = new Grid(shoulders, perLane)));
   return g;

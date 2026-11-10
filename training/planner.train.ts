@@ -5,6 +5,7 @@ import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { LANE_TUNING } from '../src/ai/laneController';
 import { laneAt, laneCenter } from '../src/road/coords';
+import { LANE_COUNT, ROAD_HALF_WIDTH } from '../src/config';
 import { CARS } from '../src/vehicles/cars';
 import { trackerFrom } from '../src/ai/netTracker';
 
@@ -50,6 +51,8 @@ it('planner', async () => {
     });
     let maxV = 0;
     let offCentre = 0;
+    let outward = 0; // past an outer lane's centre (0.25 m+)
+    let overEdge = 0; // part of the car past the paved road's edge
     let steps = 0;
     const t0 = performance.now();
     while (!sim.done) {
@@ -58,6 +61,8 @@ it('planner', async () => {
       maxV = Math.max(maxV, c.speed);
       steps++;
       if (Math.abs(c.d - laneCenter(laneAt(c.d))) > 0.5) offCentre++;
+      if (Math.abs(c.d) > laneCenter(LANE_COUNT - 1) + 0.25) outward++;
+      if (Math.abs(c.d) + spec.params.width / 2 > ROAD_HALF_WIDTH) overEdge++;
     }
     const ms = performance.now() - t0;
     const g = sim.ghosts[0];
@@ -65,7 +70,7 @@ it('planner', async () => {
     const end = r.finishTime !== null ? `FINISH ${r.finishTime.toFixed(0)}s` : r.crashed ? `CRASH at ${Math.round(r.distance)} m` : `timeout at ${Math.round(r.distance)} m`;
     out.push(
       `${seed}: ${end}, avg ${Math.round((r.distance / sim.time) * 3.6)} km/h, max ${Math.round(maxV * 3.6)}, lane changes ${g.laneChanges}, ` +
-        `off lane centre ${Math.round((100 * offCentre) / steps)}%, light contacts ${r.contacts}, resets ${r.resets ?? 0}, emergency brake ${Math.round((100 * driver.overrides) / steps)}% of steps, ${(ms / 1000).toFixed(1)} s cpu`,
+        `off lane centre ${Math.round((100 * offCentre) / steps)}%, past outer lane centre ${((100 * outward) / steps).toFixed(1)}% (over the edge ${((100 * overEdge) / steps).toFixed(1)}%), light contacts ${r.contacts}, resets ${r.resets ?? 0}, emergency brake ${Math.round((100 * driver.overrides) / steps)}% of steps, ${(ms / 1000).toFixed(1)} s cpu`,
     );
     // Each crash: off the road (O) or into traffic (T), sliding just before it (*), and the speed.
     if (r.crashLog?.length) out.push(`  crashes: ${r.crashLog.map((k) => `${k.offRoad ? 'O' : 'T'}${k.sliding ? '*' : ''}${Math.round(k.kmh)}`).join(' ')}`);
