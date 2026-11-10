@@ -6,7 +6,7 @@ import { DEFAULT_EVO, nextGeneration } from '../src/ai/evolution';
 import { quietTracker, trackerFrom } from '../src/ai/netTracker';
 import { mulberry32 } from '../src/ai/rng';
 import {
-  DRIVE_EPS, DRIVE_GUARD, PER_GEN, RACE_KEEP, RACE_RESETS, RACE_SEEDS, RACE_TRAIN, RACE_VALIDATION_SEED, RACE_WEIGHT,
+  DRIVE_EPS, DRIVE_GUARD, PER_GEN, RACE_KEEP, RACE_RESETS, RACE_SEEDS, RACE_TRAIN, RACE_VALIDATION_SEEDS, RACE_WEIGHT,
   RECOVERY, RECOVERY_VALIDATION, RECOVERY_VALIDATION_X, RECOVERY_WEIGHT, RecoveryStart, recoveryStart, Scenario, scenario, SPEC, VALIDATION,
 } from './trackerEval';
 import { chunks, ExamPool } from './trackerPool';
@@ -82,7 +82,7 @@ it('tracker', async () => {
     // (each scenario and heading a task of its own: one brain's validation side by side)
     const [vs, raced, recs] = await Promise.all([
       Promise.all(validation.map((sc) => pool.run<Drive>({ op: 'drive', brains: [b], scenarios: [sc], keepErrors: true }))),
-      RACE_TRAIN > 0 ? raceCost([b], RACE_VALIDATION_SEED).then((c) => c[0]) : 0,
+      RACE_TRAIN > 0 ? Promise.all(RACE_VALIDATION_SEEDS.map((seed) => raceCost([b], seed).then((c) => c[0]))).then((cs) => cs.reduce((a, c) => a + c, 0) / cs.length) : 0,
       RECOVERY_WEIGHT > 0 ? Promise.all(validRecovery.map((st) => pool.run<number[]>({ op: 'recovery', brains: [b], starts: [st] }))) : [],
     ]);
     const driving = vs.reduce((a, v) => a + v.cost[0], 0) / vs.length + RACE_WEIGHT * raced;
@@ -106,7 +106,8 @@ it('tracker', async () => {
     best = { brain: start, cost: v.cost }; // saved only when a brain beats the start
     process.stdout.write(`its network now on validation: ${show(v)}, ${showRace(startRace)}\n`);
   }
-  const archive = new URL('./out/tracker/', import.meta.url);
+  // ARCHIVE=name: into training/out/tracker/name/ (runs side by side not writing over each other's).
+  const archive = new URL(`./out/tracker/${process.env.ARCHIVE ? process.env.ARCHIVE + '/' : ''}`, import.meta.url);
   mkdirSync(archive, { recursive: true });
   const t0 = performance.now();
   for (let g = 0; g < gens; g++) {

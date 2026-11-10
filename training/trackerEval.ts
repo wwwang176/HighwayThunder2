@@ -58,7 +58,8 @@ export const RACE_TRAIN = Number(process.env.RACE_TRAIN ?? 1); // race exams a g
 export const RACE_TRAIN_S = Number(process.env.RACE_TRAIN_S ?? 20);
 export const RACE_WEIGHT = Number(process.env.RACE_WEIGHT ?? 1);
 export const RESET_COST = Number(process.env.RESET_COST ?? 3);
-export const RACE_VALIDATION_SEED = 9001;
+/** The validation's races (one was noise enough to fire the driving guard on brains that raced no worse). */
+export const RACE_VALIDATION_SEEDS = (process.env.RACE_VALIDATION_SEEDS ?? '9001').split(',').map(Number);
 export const RACE_SEEDS = (process.env.RACE_SEEDS ?? '8101,8102,8103,8104,8105,8106').split(',').map(Number);
 export const RACE_S = Number(process.env.RACE_S ?? 45);
 export const RACE_KEEP = Number(process.env.RACE_KEEP ?? 0.97); // of the start's distance at least
