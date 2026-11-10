@@ -34,6 +34,25 @@ const SMOKE_SPILL = 0.08;
  * 0.27, lit round the lamps too (SMOKE_SPILL), a rival's smoke ahead hid the road.
  */
 const PUFF_OPACITY = 0.18;
+/** A puff's climb (m/s): as it starts, and the most; its lift (m/s², less while it still moves fast). */
+const RISE_FROM = 0.1;
+const RISE_TOP = 0.9;
+const PUFF_LIFT = 0.9;
+/** A spinning tyre's throw: this share of how much faster its tread turns than the car goes, at most KICK_MOST m/s. */
+const KICK_SHARE = 0.35;
+const KICK_MOST = 9;
+
+/**
+ * The throw of a tyre at (dirX, dirZ) (its heading, world) turning `omega` (rad/s, radius `r`) on a car moving (vx,
+ * vz): back along it by how much faster its tread goes than the ground - a burnout's spinning tyres shoot their smoke
+ * back (a locked or rolling one throws none).
+ */
+export function smokeKick(dirX: number, dirZ: number, omega: number, r: number, vx: number, vz: number): { x: number; z: number } {
+  const spin = omega * r - (vx * dirX + vz * dirZ);
+  if (!(spin > 0)) return { x: 0, z: 0 };
+  const k = Math.min(KICK_MOST, spin * KICK_SHARE);
+  return { x: -dirX * k, z: -dirZ * k };
+}
 
 function puffTexture(): THREE.Texture {
   return new THREE.TextureLoader().load(PUFF_TEXTURE); // (only its alpha is read)
@@ -277,8 +296,11 @@ export class TireSmoke {
     this.uniforms.halfHeight.value = heightPx / 2;
   }
 
-  /** Emit for wheel `id` at a contact point; `slip` in m/s, carVel = car velocity (world). */
-  emit(id: number, x: number, z: number, slip: number, carVx: number, carVz: number, dt: number): void {
+  /**
+   * Emit for wheel `id` at a contact point; `slip` in m/s, carVel = car velocity (world); `kick` (world, m/s): a
+   * spinning tyre's throw (smokeKick) - the puffs shot off it, slowing fast (the air), then drifting up.
+   */
+  emit(id: number, x: number, z: number, slip: number, carVx: number, carVz: number, dt: number, kickX = 0, kickZ = 0): void {
     if (slip < 3) {
       this.carry.delete(id);
       return;
@@ -292,10 +314,12 @@ export class TireSmoke {
       this.pos[i * 3] = x + (Math.random() - 0.5) * 0.3;
       this.pos[i * 3 + 1] = 0.25;
       this.pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.3;
-      // Smoke is left behind: it keeps only a little of the car's motion.
-      this.vel[i * 3] = carVx * 0.15 + (Math.random() - 0.5) * 1.2;
-      this.vel[i * 3 + 1] = 0.25 + Math.random() * 0.3; // (rising: it climbed twice as high)
-      this.vel[i * 3 + 2] = carVz * 0.15 + (Math.random() - 0.5) * 1.2;
+      // Smoke is left behind: it keeps only a little of the car's motion; a spinning tyre throws it back (its kick,
+      // each puff a little more or less of it).
+      const k = 0.7 + Math.random() * 0.6;
+      this.vel[i * 3] = carVx * 0.15 + kickX * k + (Math.random() - 0.5) * 1.2;
+      this.vel[i * 3 + 1] = RISE_FROM + Math.random() * 0.15; // (low at first: it climbs as it slows - PUFF_LIFT)
+      this.vel[i * 3 + 2] = carVz * 0.15 + kickZ * k + (Math.random() - 0.5) * 1.2;
       this.turn[i] = Math.random() * Math.PI * 2;
       this.spin[i] = (Math.random() * 2 - 1) * PUFF_SPIN;
       this.age[i] = 0;
@@ -311,6 +335,9 @@ export class TireSmoke {
         this.age[i] += dt;
         this.vel[i * 3] *= drag;
         this.vel[i * 3 + 2] *= drag;
+        // Warm, it rises the more as it slows (its own speed through the air holding it down: none, the lift in full).
+        const h = Math.hypot(this.vel[i * 3], this.vel[i * 3 + 2]);
+        this.vel[i * 3 + 1] = Math.min(RISE_TOP, this.vel[i * 3 + 1] + (PUFF_LIFT * dt) / (1 + h / 3));
         this.pos[i * 3] += this.vel[i * 3] * dt;
         this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
         this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;

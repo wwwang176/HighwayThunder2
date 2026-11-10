@@ -54,7 +54,7 @@ import { FinishGate, type SparkEmitter } from '../world/finishGate';
 import { RoadScene } from '../world/roadScene';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
-import { smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
+import { smokeKick, smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
 import { FINISHED_SPEED, RaceView, RIVAL_COLORS, Rivals } from './rivals';
 import { type LitCar, RivalLightPool } from './rivalLights';
@@ -864,7 +864,8 @@ export class Game {
       const sliding = w.inContact && w.sliding;
       const k = sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
       this.skids.add(i, w.contactX, w.contactZ, w.dirX, w.dirZ, k);
-      this.smoke.emit(i, w.contactX, w.contactZ, sliding ? w.slip : 0, pv.x, pv.z, dt);
+      const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, pv.x, pv.z); // (spinning: thrown back)
+      this.smoke.emit(i, w.contactX, w.contactZ, sliding ? w.slip : 0, pv.x, pv.z, dt, kick.x, kick.z);
     });
     // The rivals' tyres smoke as the player's (their burnouts on the grid too). (Their keys 10 on: the player's 0..3,
     // the wrecks' 100 on.)
@@ -872,7 +873,8 @@ export class Game {
       const rv = r.car.body.linvel();
       r.car.wheels.forEach((w, i) => {
         const slip = w.inContact && w.sliding && near(w.contactX, w.contactZ) ? w.slip : 0;
-        this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, slip, rv.x, rv.z, dt);
+        const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, rv.x, rv.z);
+        this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, slip, rv.x, rv.z, dt, kick.x, kick.z);
       });
     }
     // Wrecks run on the same tyre model, so they leave marks and smoke too.
@@ -885,7 +887,8 @@ export class Game {
           const sliding = w.inContact && w.sliding;
           const k = sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
           this.skids.add(key, w.contactX, w.contactZ, w.dirX, w.dirZ, k);
-          this.smoke.emit(key, w.contactX, w.contactZ, sliding && near(w.contactX, w.contactZ) ? w.slip : 0, v.x, v.z, dt);
+          const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, v.x, v.z);
+          this.smoke.emit(key, w.contactX, w.contactZ, sliding && near(w.contactX, w.contactZ) ? w.slip : 0, v.x, v.z, dt, kick.x, kick.z);
         });
       }
     }
