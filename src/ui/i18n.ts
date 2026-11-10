@@ -122,6 +122,17 @@ export const STRINGS = {
   'tune.done': { zh: '完成', en: 'Done' },
   'tune.resetAsk': { zh: '這台車的調校全部恢復原廠？', en: 'All of this car’s tuning back to stock?' },
   'tune.stock': { zh: '原廠', en: 'Stock' },
+  // The loading screen's steps (src/ui/loading.ts): the game starting, a race being set up.
+  'loading.preparing': { zh: '準備中', en: 'Getting ready' },
+  'loading.physics': { zh: '啟動物理引擎', en: 'Starting the physics' },
+  'loading.cars': { zh: '載入車輛', en: 'Loading the cars' },
+  'loading.scene': { zh: '建立場景', en: 'Building the scene' },
+  'loading.shaders': { zh: '準備畫面', en: 'Warming up the graphics' },
+  'loading.ready': { zh: '完成', en: 'Ready' },
+  'loading.grid': { zh: '車輛進場', en: 'Cars to the grid' },
+  'loading.road': { zh: '布置賽道', en: 'Setting the road' },
+  'loading.settle': { zh: '車輛就位', en: 'Settling on the grid' },
+  'loading.go': { zh: '準備出發', en: 'Ready to go' },
   // The tuning's details (beside the car): what it does, measure by measure.
   'tune.d.accel': { zh: '加速', en: 'Acceleration' },
   'tune.d.braking': { zh: '煞車', en: 'Braking' },

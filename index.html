@@ -10,6 +10,14 @@
   <body>
     <div id="app"></div>
     <div id="ui"></div>
+    <!-- The loading screen (src/ui/loading.ts): here before any script, over the page as the game starts and as a race is set up. -->
+    <div id="loading">
+      <div class="ld-name"><span class="icon" style="--src: url(%BASE_URL%ui/emblem.png)"></span><h1>HIGHWAY<br />THUNDER 2</h1><div class="rule"></div></div>
+      <div class="ld-meter">
+        <div class="ld-head"><span class="ld-kicker">Loading</span><span class="ld-step"></span><span class="ld-pct">0%</span></div>
+        <div class="ld-seg"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
