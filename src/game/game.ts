@@ -463,9 +463,7 @@ export class Game {
     if (!picksCars(this.flow.phase)) return;
     // The world (and its render, which drives the engine and tyre sounds) stops: no engine left running in the garage.
     this.sound.silenceEngine();
-    this.sound.setSkid(0);
-    this.sound.setOtherSkids(this.skidSources, this.ear(), false);
-    this.sound.setNitro(false);
+    this.sound.hush(); // (the squeals, the nitro, the wind: at once, even from a pause - its clock not yet running again)
     this.hud.hide();
     this.garage.open(loadSelection(localStorage), title);
   }
