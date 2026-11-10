@@ -201,3 +201,14 @@ export function tuned(base: CarParams, tuning: Tuning, cal: TuneCal = {}): CarPa
   }
   return p;
 }
+
+/** A rival's tuning at a race's start: each perf knob at a level at random (-2..2); the feel ones as built. */
+export function randomPerfTuning(rand: () => number = Math.random): Tuning {
+  const t: Tuning = {};
+  for (const item of TUNE_ITEMS) {
+    if (item.kind !== 'perf') continue;
+    const level = Math.floor(rand() * 5) - 2;
+    if (level !== 0) t[item.key] = level;
+  }
+  return t;
+}

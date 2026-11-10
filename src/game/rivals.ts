@@ -15,7 +15,9 @@ import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
 import { Blocker, clearResetSpot } from './reset';
 import { trackerFrom } from '../ai/netTracker';
-import { aiTopSpeed } from '../ai/aiTopSpeed';
+import type { CarParams } from '../vehicles/handling';
+import { randomPerfTuning, tuned, type Tuning } from '../vehicles/tuning';
+import { TUNE_CAL } from '../vehicles/tuneCalibration';
 
 /**
  * Rival racers' settings (mutable: the tuning panel). Gaps are "rival minus
@@ -171,8 +173,12 @@ export function gridRevStep(g: GridRev, dt: number, toGo: number, rng: () => num
 
 export interface Rival {
   index: number;
-  /** Its car type: the base its rubber band boosts from, its own top speed and AI tables. */
+  /** Its car type: its AI tables. */
   spec: CarSpec;
+  /** Its tuning this race (Rivals.tuneAtRandom: its perf knobs at random; else as built). */
+  tuning: Tuning;
+  /** Its car as tuned: the base its rubber band boosts from, its own top speed. */
+  base: CarParams;
   car: PlayerCar;
   driver: PlannerDriver;
   /** s it has been slower than RIVAL_TUNING.stuckSpeed. */
@@ -232,16 +238,24 @@ export class Rivals {
       driver.latAccel = spec.ai.latAccel;
       driver.tracker = trackerFrom(spec.ai.tracker);
       driver.recovery = trackerFrom(spec.ai.recovery);
-      const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
+      const r: Rival = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
       this.list.push(r);
     }
     this.place();
   }
 
-  /** Line them up on the start grid. */
+  /** A race's start: each rival's perf knobs at random (the game's; off: as built, as the training's races). */
+  tuneAtRandom = false;
+
+  /** Line them up on the start grid (each tuned anew: tuneAtRandom). */
   place(): void {
     for (const r of this.list) {
+      if (this.tuneAtRandom) {
+        r.tuning = randomPerfTuning();
+        r.base = tuned(r.spec.params, r.tuning, TUNE_CAL[r.spec.id]);
+        Object.assign(r.car.params, r.base);
+      }
       const [lane, s] = GRID[r.index];
       r.car.resetTo(s, lane, 0);
       r.driver.reset();
@@ -262,11 +276,11 @@ export class Rivals {
     const p = view.player;
     for (const r of this.list) {
       r.car.holdInPlace(false);
-      const own = Math.min(view.speedCap, (view.topShare ?? 1) * r.spec.params.maxSpeed); // (the difficulty's share of its car's)
+      const own = Math.min(view.speedCap, (view.topShare ?? 1) * r.base.maxSpeed); // (the difficulty's share of its car's)
       const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), own);
       r.boost += (band.boost - r.boost) * Math.min(1, dt / BAND_SMOOTH);
       this.applyBoost(r);
-      const top = aiTopSpeed(band.speedCap, r.spec); // its own top speed when lower than the AI's cap
+      const top = Math.min(band.speedCap, r.base.maxSpeed); // its own top speed (as tuned) when lower than the AI's cap
       const cap = r.finishTime === null ? top : Math.min(top, FINISHED_SPEED);
       r.car.params.maxSpeed = cap;
       // Past the line it coasts down to FINISHED_SPEED: no more push over it (maxSpeed), the AI aiming at the speed
@@ -365,7 +379,7 @@ export class Rivals {
 
   /** Engine and grip with the rubber band's boost (the grip through `surfaceGrip`). */
   private applyBoost(r: Rival): void {
-    const base = r.spec.params;
+    const base = r.base;
     const k = 1 + r.boost;
     r.car.params.power = base.power * k;
     r.car.params.engineTorque = base.engineTorque * k;

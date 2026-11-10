@@ -23,6 +23,9 @@ const rowHelp = (row: string, ...lines: string[]) => help(...lines).replace('<sp
 /** A call to action's inside (docs/ui-design.md .cta): its offset outline, its fill, the words, Enter, the chevrons. */
 const CTA = (key: Key) =>
   `<span class="ghost"></span><span class="fill"></span><span class="txt">${tx(key)}<kbd>Enter</kbd><span class="chev"><b>›</b><b>›</b><b>›</b></span></span>`;
+/** The stats' decimals (0-100 s, top speed km/h, grip g): the garage's and the tuning's alike. */
+const STAT_DIGITS = [2, 0, 2];
+
 /** A car type's name, in the language now. */
 const carName = (id: string) => t(`car.${id}` as Key);
 /** How the rivals' cars are picked (the setup's second level: their cars listed only for the custom one). */
@@ -568,11 +571,14 @@ export class Garage {
     this.q('.g-id .tag').textContent = t(`tag.${me.id}` as Key);
     this.q('.g-id .pos').textContent = `${two(CAR_CARDS.indexOf(me) + 1)} / ${two(CAR_CARDS.length)}`;
     this.q('.g-id h1').textContent = carName(me.id);
+    // (as tuned: the tuning panel's numbers, without its changes)
+    const d = tunedStats(s.player, this.tuning());
+    const delta = [d.t100, d.vTop, d.grip];
     this.q('.g-stats').innerHTML = me.stats
       .map(
-        (st) =>
+        (st, i) =>
           `<div><div class="top"><span data-tip="${t(STAT_TIPS[st.icon])}" tabindex="0">${icon(st.icon)}</span><span class="lbl">${st.label}</span></div>` +
-          `<span class="v num lean">${st.value}<small>${st.unit === 's' ? t('unit.s') : st.unit}</small></span>${seg(st.bar)}</div>`,
+          `<span class="v num lean">${(Number(st.value) + delta[i]).toFixed(STAT_DIGITS[i])}<small>${st.unit === 's' ? t('unit.s') : st.unit}</small></span>${seg(st.bar)}</div>`,
       )
       .join('');
     // Bottom right: the race at a glance (the rivals, difficulty, weather), opening the setup.
@@ -598,7 +604,7 @@ export class Garage {
     const d = tunedStats(s.player, knobs);
     const change = [d.t100, d.vTop, d.grip];
     const better = [d.t100 < 0, d.vTop > 0, d.grip > 0];
-    const digits = [2, 0, 2];
+    const digits = STAT_DIGITS;
     this.q('.t-stats').innerHTML =
       '<div class="pool"></div>' +
       me.stats

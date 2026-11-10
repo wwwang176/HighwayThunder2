@@ -266,6 +266,7 @@ export class Game {
     this.bodies = new BodyInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
     this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.rivalCars.map(specOf));
+    this.rivals.tuneAtRandom = true; // (each race its rivals' perf knobs at random)
     this.rivalLights = new RivalLightPool(this.scene);
     this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true, edge: TRAFFIC_EDGE, gone: TRAFFIC_GONE, planEvery: TRAFFIC_PLAN_EVERY }); // (any way the player goes)
     this.skids = new SkidMarks(this.scene);
@@ -597,6 +598,7 @@ export class Game {
     if (rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {
       this.rivals.dispose();
       this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), rivals.map(specOf));
+      this.rivals.tuneAtRandom = true;
     }
     this.rivalCars = rivals;
     this.cars = { ...cars, rivals: [...cars.rivals], paint: { ...cars.paint } };
