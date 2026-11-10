@@ -154,6 +154,17 @@ export const PLANNER = {
    * 0: off.
    */
   reuseAge: 0.75,
+  /**
+   * Room (m, body to body) it would like beside a vehicle it is level with, and the cost (m of progress per m short,
+   * per plan point) of less: it swings out wider passing when that is cheap - starts its move sooner, goes a little
+   * further out - instead of brushing past by `sideMargin`. (Passing with less than the emergency brake's pathMargin
+   * the brake did not believe the plan: a third of the braking alongside.) 0: off. 1 (60 races each, against 0):
+   * street racer 95.8 -> 93.5 s (paired -2.28 +- 0.49), resets 11 -> 6; muscle car 94.5 -> 94.0, 18 -> 21; JDM
+   * 99.0 -> 98.7, 12 -> 10. Of 10 tight passes picked from a race, 7 got 0.4-0.5 m more room, none any slower;
+   * passes on alternate sides make a gentle S (0.2-0.5 m), inside the lane.
+   */
+  passRoom: 0.5,
+  passCost: 1,
 };
 
 /** Half the planned car's length and width (m): `plan` sets them from its ego (default: the street racer's). */
@@ -394,6 +405,15 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
       const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + reachSide) + 1);
       for (let c = c0; c <= c1; c++) if (t.dMax > grid.d(c) - reachSide && t.dMin < grid.d(c) + reachSide) byCell[c].push(t);
     }
+    // ...and those within `passRoom` of a car there (`passCost`).
+    const wide = P.passCost > 0 ? egoHalfW + P.passRoom + ON_CELL : 0;
+    const passing: TrafficBox[][] | null = P.passCost > 0 ? Array.from({ length: grid.cells }, () => []) : null;
+    if (passing)
+      for (const t of near) {
+        const c0 = Math.max(0, grid.nearest(t.dMin - wide) - 1);
+        const c1 = Math.min(grid.cells - 1, grid.nearest(t.dMax + wide) + 1);
+        for (let c = c0; c <= c1; c++) if (t.dMax > grid.d(c) - wide && t.dMin < grid.d(c) + wide) passing[c].push(t);
+      }
     for (const n of layer.values()) {
       const top = maxAccel(n.v, ego.accel);
       const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -P.hardBrake];
@@ -413,6 +433,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
           const s = n.s + ((n.v + v) / 2) * dt;
           let score = n.score + (s - n.s) - moveCost - lineCost - P.brakeCost * Math.max(0, n.v - v);
           if (onCourse) score += P.keepCourseBonus;
+          if (passing && passing[cell].length) score -= passShort(passing[cell], d, s, t0 + dt);
           const kk = (keyBase + Math.round(v / P.speedCell)) * 16 + latKey(move);
           const old = next.get(kk);
           if (old && score <= old.score) continue; // something as good gets there already: no need to check this way is clear
@@ -615,6 +636,18 @@ function collides(
     }
   }
   return false;
+}
+
+/** `passCost` for a plan point at (d, s) `t` s on: what it is short of `passRoom` beside the boxes it is level with. */
+function passShort(boxes: TrafficBox[], d: number, s: number, t: number): number {
+  const P = PLANNER;
+  let cost = 0;
+  for (const b of boxes) {
+    if (Math.abs(b.s + b.v * t - s) > b.length / 2 + egoHalfL) continue; // not level with it
+    const gap = d > (b.dMin + b.dMax) / 2 ? d - egoHalfW - b.dMax : b.dMin - (d + egoHalfW);
+    if (gap < P.passRoom) cost += P.passCost * (P.passRoom - Math.max(0, gap));
+  }
+  return cost;
 }
 
 /** Room (m, centre to piece) kept to a box ahead at speed v - braking down to its speed, or (swerving) only until clear of it. */
