@@ -2,12 +2,14 @@ import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { CARS } from '../src/vehicles/cars';
 import { TUNE_ITEMS, type TuneCal } from '../src/vehicles/tuning';
+import { TUNE_CAL } from '../src/vehicles/tuneCalibration';
 import { initExams } from './trackerEval';
 import { measure, type Metrics } from './tuneMetrics';
 
 /**
  * Every tuning item at -2, 0, +2 on each car (training/tuneMetrics.ts's measurements), as calibrated (CAL=<json>:
- * { carId: { key: [lo, hi] } }, tuneCalibrate's; none: as written).
+ * { carId: { key: { lo, hi } } }, tuneCalibrate's; none: the game's, TUNE_CAL). LEVELS=1,2: at -1 / +1 too (OUT's
+ * rows then each level's, for src/vehicles/tuneEffects.ts).
  *   CAR=street-racer CARS=street-racer OUT=file.json npx vitest run --config training/vitest.config.ts training/tuneMeasure.train.ts
  */
 const COLS: [string, number][] = [
@@ -21,14 +23,16 @@ it('tune measure', async () => {
   const out: string[] = [];
   const dump: Record<string, unknown> = {};
   for (const specId of (process.env.CARS ?? Object.keys(CARS).join(',')).split(',')) {
-    const cal: TuneCal = process.env.CAL ? (JSON.parse(readFileSync(process.env.CAL, 'utf8'))[specId] ?? {}) : {};
+    const cal: TuneCal = process.env.CAL ? (JSON.parse(readFileSync(process.env.CAL, 'utf8'))[specId] ?? {}) : (TUNE_CAL[specId] ?? {});
     const base = measure(specId, {}, cal);
-    const rows: Record<string, { lo: Metrics; hi: Metrics }> = {};
+    const rows: Record<string, Record<string, Metrics>> = {};
+    const levels = (process.env.LEVELS ?? '2').split(',').map(Number);
     out.push(`== ${specId}: stock ${COLS.map(([k, d]) => `${k} ${base[k].toFixed(d)}`).join(', ')}`);
     for (const item of TUNE_ITEMS) {
       const lo = measure(specId, { [item.key]: -2 }, cal);
       const hi = measure(specId, { [item.key]: 2 }, cal);
       rows[item.key] = { lo, hi };
+      for (const l of levels) if (l !== 2) Object.assign(rows[item.key], { [-l]: measure(specId, { [item.key]: -l }, cal), [l]: measure(specId, { [item.key]: l }, cal) });
       // Each metric: -2 / +2 as a change from stock (only those that move 1 % or more).
       const moved = COLS.filter(([k]) => Math.max(Math.abs(lo[k] - base[k]), Math.abs(hi[k] - base[k])) >= Math.max(0.01 * Math.abs(base[k]), 1e-3))
         .map(([k, d]) => `${k} ${(lo[k] - base[k] >= 0 ? '+' : '') + (lo[k] - base[k]).toFixed(d)}/${(hi[k] - base[k] >= 0 ? '+' : '') + (hi[k] - base[k]).toFixed(d)}`);
