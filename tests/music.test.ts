@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { easeVolume, shuffled, songsOf, songTitle } from '../src/audio/music';
+import { easeVolume, type MusicFade, SCENE_SWITCH, shuffled, SKIP_SWITCH, songsOf, songTitle, startSwitch, stepFade, type Switch } from '../src/audio/music';
 import { mulberry32 } from '../src/ai/rng';
 import { clock } from '../src/ui/nowPlaying';
 
@@ -38,5 +38,36 @@ describe('clock', () => {
     expect(clock(227.9)).toBe('3:47');
     expect(clock(NaN)).toBe('-:--');
     expect(clock(Infinity)).toBe('-:--');
+  });
+});
+
+describe('from one song to the next', () => {
+  const run = (how: Switch) => {
+    const f: MusicFade = { level: 1, rate: 0, switching: null, gapLeft: 0, how };
+    startSwitch(f, how, false);
+    const dt = 1 / 120;
+    let t = 0, stopAt = NaN, nextAt = NaN, fullAt = NaN;
+    while (t < how.out + how.gap + how.in + 0.5) {
+      const step = stepFade(f, dt);
+      t += dt;
+      if (step === 'stop') stopAt = t;
+      if (step === 'next') nextAt = t;
+      if (!Number.isNaN(nextAt) && Number.isNaN(fullAt) && f.level >= 1) fullAt = t;
+      if (t > stopAt && Number.isNaN(nextAt)) expect(f.level).toBe(0); // (quiet)
+    }
+    return { stopAt, nextAt, fullAt, f };
+  };
+
+  it('a change of scene: out, quiet SCENE_SWITCH.gap s, the next one faded in', () => {
+    const r = run(SCENE_SWITCH);
+    expect(r.stopAt).toBeCloseTo(SCENE_SWITCH.out, 1);
+    expect(r.nextAt - r.stopAt).toBeCloseTo(SCENE_SWITCH.gap, 1);
+    expect(r.f.switching).toBeNull();
+  });
+
+  it('N: out and in again within half a second', () => {
+    const r = run(SKIP_SWITCH);
+    expect(r.fullAt).toBeLessThanOrEqual(0.5);
+    expect(r.nextAt).toBeGreaterThan(0.15); // (faded out first: no click)
   });
 });

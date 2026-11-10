@@ -2,15 +2,65 @@
  * The background music: songs in public/audio/music/ (licensed: never in this repository - the private audio repo,
  * copied in for the build as the sound bundles are, docs/audio.md), listed in its playlist.json - file names
  * (["a.mp3", ...]) or { "file": "a.mp3", "title": "..." } - played one after another in a shuffled order, round
- * and round; `next()` skips to the following one. Its own <audio> element, streamed (no song decoded whole into
- * memory) and outside the sound's Web Audio graph (stopped in a pause, and in a hidden tab, by `setPaused` /
- * `setHidden`). No playlist (or no songs): silent.
+ * and round. `change()` (a change of scene) fades the song out, waits and fades the next one in; `skip()` (N) the
+ * same in half a second, no wait (switched there and then, a song would click). Its own <audio> element, streamed (no song decoded whole into memory) and outside the
+ * sound's Web Audio graph (stopped in a pause, and in a hidden tab, by `setPaused` / `setHidden`; faded back in).
+ * No playlist (or no songs): silent.
  */
 export const MUSIC_URL = 'audio/music/';
 /** Its loudness (the element's volume) as a rule; in the countdown this share of it; how fast it gets there (s). */
 export const MUSIC_VOLUME = 0.35;
 export const MUSIC_COUNTDOWN = 0.4;
 const MUSIC_FADE = 0.4;
+/** From one song to the next: this one faded out over `out` s, `gap` s of quiet, the next faded in over `in` s. */
+export interface Switch {
+  out: number;
+  gap: number;
+  in: number;
+}
+/** A change of scene (into a race, the finish, back to the garage); the next song asked for (N). */
+export const SCENE_SWITCH: Switch = { out: 1, gap: 2, in: 1.5 };
+export const SKIP_SWITCH: Switch = { out: 0.2, gap: 0, in: 0.25 };
+/** Back from a pause (or a hidden tab): faded in over this (s), as the sound is. */
+const MUSIC_RESUME = 0.8;
+
+/** A fade (0..1 on top of the volume), moving `rate` a second; a switch's step (out, the quiet, none) and its Switch. */
+export interface MusicFade {
+  level: number;
+  rate: number;
+  switching: 'out' | 'gap' | null;
+  gapLeft: number;
+  how: Switch;
+}
+
+/** `f` set off on a switch (`how`); from silence already (stopped): straight to the quiet. */
+export function startSwitch(f: MusicFade, how: Switch, silent: boolean): void {
+  f.switching = 'out';
+  f.how = how;
+  f.rate = -1 / how.out;
+  if (silent) f.level = 0;
+}
+
+/**
+ * The fade `dt` s on: what to do now - stop the song (faded out: the quiet starts), the next one (the quiet over: it
+ * fades in), or nothing.
+ */
+export function stepFade(f: MusicFade, dt: number): 'stop' | 'next' | null {
+  f.level = Math.min(1, Math.max(0, f.level + f.rate * dt));
+  if (f.switching === 'out' && f.level <= 0) {
+    f.switching = 'gap';
+    f.gapLeft = f.how.gap;
+    f.rate = 0;
+    return 'stop';
+  }
+  if (f.switching === 'gap' && (f.gapLeft -= dt) <= 0) {
+    f.switching = null;
+    f.level = 0;
+    f.rate = 1 / f.how.in;
+    return 'next';
+  }
+  return null;
+}
 
 export interface Song {
   file: string;
@@ -63,6 +113,7 @@ export class Music {
   private target = MUSIC_VOLUME;
   private hidden = false;
   private paused = false;
+  private readonly fade: MusicFade = { level: 1, rate: 0, switching: null, gapLeft: 0, how: SCENE_SWITCH };
   muted = false;
   /** Called with each song as it comes on (its title shown: ui/nowPlaying). */
   onSong: ((song: Song) => void) | null = null;
@@ -107,11 +158,26 @@ export class Music {
     this.onSong?.(song);
   }
 
+  /** The next song, asked for (N): SKIP_SWITCH - quickly out and the next in, a change of scene under way cut short. */
+  skip(): void {
+    if (this.at < 0) return;
+    startSwitch(this.fade, SKIP_SWITCH, this.el.paused || this.fade.switching === 'gap');
+  }
+
+  /** A change of scene: SCENE_SWITCH (out, a moment's quiet, the next in). */
+  change(): void {
+    if (this.at < 0 || this.fade.switching) return; // (none yet - start() brings the first in - or changing already)
+    startSwitch(this.fade, SCENE_SWITCH, this.el.paused);
+  }
+
   /** Each frame (real time, `dt` s): `countdown` the countdown on (quieter), else as a rule. */
   update(dt: number, countdown: boolean): void {
     this.target = this.muted ? 0 : MUSIC_VOLUME * (countdown ? MUSIC_COUNTDOWN : 1);
     this.volume = easeVolume(this.volume, this.target, dt);
-    this.el.volume = Math.min(1, Math.max(0, this.volume));
+    const step = stepFade(this.fade, dt);
+    if (step === 'stop') this.el.pause();
+    else if (step === 'next') this.next();
+    this.el.volume = Math.min(1, Math.max(0, this.volume * this.fade.level));
   }
 
   /** s into the song playing; how long it is (NaN: not known yet). */
@@ -142,13 +208,15 @@ export class Music {
   }
 
   private resume(): void {
-    this.volume = 0;
+    if (this.fade.switching) return; // (a change of scene under way brings the next song in itself)
+    this.fade.level = 0;
+    this.fade.rate = 1 / MUSIC_RESUME;
     this.el.volume = 0;
     this.play();
   }
 
   private play(): void {
-    if (this.hidden || this.paused || this.at < 0) return;
+    if (this.hidden || this.paused || this.fade.switching || this.at < 0) return;
     void this.el.play().catch(() => {}); // (refused - no click or key yet: start() is called from one)
   }
 }

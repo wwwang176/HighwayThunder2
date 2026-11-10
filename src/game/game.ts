@@ -407,7 +407,7 @@ export class Game {
       this.sound.toggleMute();
       this.music.muted = this.sound.muted;
     });
-    k.onPress('KeyN', () => this.music.next());
+    k.onPress('KeyN', () => this.music.skip());
     k.onPress('KeyV', () => !g.isOpen && (this.hoodCam = !this.hoodCam));
     k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
     k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
@@ -458,7 +458,7 @@ export class Game {
     this.starting = true;
     this.sound.init(); // (in the click or key itself: the browser lets the sound start only there)
     if (fromGarage) this.sound.startup(specOf((cars ?? this.cars).player).style);
-    if (fromGarage) this.music.next(); // (a song of its own for the race, whatever played in the garage)
+    this.music.change(); // (a new scene: the song faded out, a moment's quiet, the next one in)
     this.overlay.toBlack(START_FADE_OUT, () => {
       this.starting = false;
       this.garage.close();
@@ -579,6 +579,7 @@ export class Game {
   toTitle(): void {
     if (this.leaving || this.starting) return;
     this.leaving = true;
+    this.music.change(); // (a new scene: the song faded out, a moment's quiet, the next one in)
     this.overlay.toBlack(START_FADE_OUT, () => {
       this.leaving = false;
       if (this.introOn) {
@@ -590,7 +591,6 @@ export class Game {
       this.sound.suspend(false);
       this.resetWorld();
       this.openGarage();
-      this.music.next(); // (back in the garage: a song of its own)
       this.overlay.fromBlack(START_FADE_IN);
     });
   }
@@ -884,7 +884,7 @@ export class Game {
     this.flow.update(dt, this.player.s);
     if (!wasFinished && this.flow.phase === 'finished') {
       this.beginFinishShow();
-      this.music.next(); // (the finish: a song of its own)
+      this.music.change(); // (the finish: a new scene, a new song)
     }
   }
 
