@@ -702,6 +702,7 @@ export class Game {
 
   private frame(dt: number): void {
     this.music.update(dt, this.flow.phase === 'countdown'); // (quieter in the countdown; real time, the garage too)
+    this.music.setPaused(this.flow.phase === 'paused');
     // The garage covers the whole screen and draws its own car: the world waits (and the GPU rests), the FPS meter too.
     this.stats.dom.style.visibility = this.garage.isOpen ? 'hidden' : '';
     if (this.garage.isOpen) return;

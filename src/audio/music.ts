@@ -3,8 +3,8 @@
  * copied in for the build as the sound bundles are, docs/audio.md), listed in its playlist.json - file names
  * (["a.mp3", ...]) or { "file": "a.mp3", "title": "..." } - played one after another in a shuffled order, round
  * and round; `next()` skips to the following one. Its own <audio> element, streamed (no song decoded whole into
- * memory) and outside the sound's Web Audio graph: a pause (which stops that graph) does not stop the music.
- * No playlist (or no songs): silent.
+ * memory) and outside the sound's Web Audio graph (stopped in a pause, and in a hidden tab, by `setPaused` /
+ * `setHidden`). No playlist (or no songs): silent.
  */
 export const MUSIC_URL = 'audio/music/';
 /** Its loudness (the element's volume) as a rule; in the countdown this share of it; how fast it gets there (s). */
@@ -62,6 +62,7 @@ export class Music {
   private volume = 0;
   private target = MUSIC_VOLUME;
   private hidden = false;
+  private paused = false;
   muted = false;
   /** Called with each song as it comes on (its title shown: ui/nowPlaying). */
   onSong: ((song: Song) => void) | null = null;
@@ -120,8 +121,16 @@ export class Music {
     else this.play();
   }
 
+  /** The game paused: stopped where it is, on from there once it goes on (each frame: acts on a change only). */
+  setPaused(paused: boolean): void {
+    if (paused === this.paused) return;
+    this.paused = paused;
+    if (paused) this.el.pause();
+    else this.play();
+  }
+
   private play(): void {
-    if (this.hidden || this.at < 0) return;
+    if (this.hidden || this.paused || this.at < 0) return;
     void this.el.play().catch(() => {}); // (refused - no click or key yet: start() is called from one)
   }
 }
