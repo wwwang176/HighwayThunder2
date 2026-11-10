@@ -15,6 +15,8 @@ const ENGINE_VOLUME = 0.8;
 const OTHERS_VOLUME = 0.8;
 /** The whole mix (everything summed) this loud: -6 dB of headroom, so the limiter steps in only on a pile-up. */
 const MASTER = 0.5;
+/** Past the finish line (its slow motion): everything faded away over this (s) - slowed down it sounds wrong. */
+const FINISH_FADE = 2.5;
 /** After a pause (or a tab coming back), everything fades back in over this (s): no pop. */
 const RESUME_FADE = 0.8;
 /** The start-up this loud (on the engine's own volume); played only if its clips are in within this (s). */
@@ -92,6 +94,8 @@ export class Sound {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private fade!: GainNode;
+  /** The scene's level: 1, faded away past the finish (fadeAway), back for the next race or the garage (bringBack). */
+  private scene!: GainNode;
   private limiter: AudioWorkletNode | null = null;
   private engineBus!: GainNode;
   private skidGain!: GainNode;
@@ -129,6 +133,8 @@ export class Sound {
   /** How fast the race's time runs (the finish's slow motion): every engine's rate by it. */
   private timeScale = 1;
   muted = false;
+  /** The player's volume for it all (settings: 0..1 on top of MASTER). */
+  private sfx = 1;
 
   /**
    * Whether its clock runs. Stopped (paused: suspend), the frame's updates (the engines, the squeals, the nitro) are
@@ -148,9 +154,10 @@ export class Sound {
     const ctx = new AudioContext();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : MASTER;
+    this.master.gain.value = this.masterGain;
     this.fade = ctx.createGain();
-    this.master.connect(this.fade);
+    this.scene = ctx.createGain();
+    this.master.connect(this.scene).connect(this.fade);
     // Straight out until the limiter's in (its module loads asynchronously, and may fail: then it stays out); out of
     // the way again if it ever fails (a failed worklet outputs silence for good - the whole mix gone).
     this.fade.connect(ctx.destination);
@@ -325,8 +332,43 @@ export class Sound {
   }
 
   toggleMute(): void {
-    this.muted = !this.muted;
-    if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : MASTER, this.ctx.currentTime, 0.05);
+    this.setMuted(!this.muted);
+  }
+
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    this.applyMaster();
+  }
+
+  /** The player's volume (0..1, settings) for everything but the music. */
+  setVolume(v: number): void {
+    this.sfx = Math.min(1, Math.max(0, v));
+    this.applyMaster();
+  }
+
+  private get masterGain(): number {
+    return this.muted ? 0 : MASTER * this.sfx;
+  }
+
+  private applyMaster(): void {
+    if (this.ctx) this.master.gain.setTargetAtTime(this.masterGain, this.ctx.currentTime, 0.05);
+  }
+
+  /** Past the finish: everything (not the music: its own) faded away over FINISH_FADE s. */
+  fadeAway(): void {
+    if (!this.ctx) return;
+    const g = this.scene.gain, now = this.ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(0, now + FINISH_FADE);
+  }
+
+  /** The next race, or the garage: heard again (at once - behind the black between them). */
+  bringBack(): void {
+    if (!this.ctx) return;
+    const g = this.scene.gain, now = this.ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(1, now);
   }
 
   /** Paused (the whole context stopped) or going again: faded back in, the limiter's buffer cleared first. */
