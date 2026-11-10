@@ -6,6 +6,7 @@ import { GarageScene, VIEW } from './garageScene';
 import { applyLang, onLangChange, t, tx, type Key } from './i18n';
 import type { SettingsPopup } from './settings';
 import { installTooltips } from './tooltip';
+import { uiZoom } from './uiScale';
 import { type TuneKey, type Tuning } from '../vehicles/tuning';
 import { tunedStats } from '../vehicles/tuneEffects';
 
@@ -68,8 +69,6 @@ const KEYS: [string, Key][] = [
   ['H', 'keys.help'],
   ['O', 'keys.settings'],
 ];
-/** The race setup's drawer no smaller than this (its zoom, to fit a short screen); below it, its compact layout, then its scroll. */
-const SETUP_MIN_ZOOM = 0.75;
 
 /**
  * The garage: the car to race in (parked on a wet lay-by at night, drawn live: garageScene.ts), the screen around
@@ -300,10 +299,11 @@ export class Garage {
     (document.activeElement as HTMLElement | null)?.blur();
   }
 
-  /** The screen's full height; its knobs scroll past that (not zoomed down as the race setup's drawer: its words no smaller than the drawer's). */
+  /** The screen's full height, at every panel's zoom (uiZoom); its knobs scroll past that. */
   private fitTune(): void {
     const panel = this.q('.g-tune-panel');
-    panel.style.height = `${Math.round(innerHeight - 2 * innerWidth * 0.0125)}px`; // (its margin: 1.25vw above and below)
+    const z = uiZoom();
+    panel.style.height = `${Math.floor((innerHeight - 2 * innerWidth * 0.0125 * z) / z)}px`; // (in its own px; its margin: 1.25vw above and below)
     this.q('.t-body .focus')?.scrollIntoView({ block: 'nearest' });
   }
 
@@ -607,7 +607,7 @@ export class Garage {
               .map((n) => `<button class="t-pip ${n === 0 ? 'mid' : ''} ${n === level ? 'sel' : ''} ${n !== 0 && Math.sign(n) === Math.sign(level) && Math.abs(n) <= Math.abs(level) ? 'on' : ''}" data-key="${key}" data-level="${n}"></button>`)
               .join('');
             // (Every row keeps its line for them; shown on the focused row, or the one under the pointer: the CSS.)
-            const ends = `<div class="t-ends"><span class="${level < 0 ? 'act' : ''}">◀ ${t(`tune.${key}.l` as Key)}</span><span class="${level > 0 ? 'act' : ''}">${t(`tune.${key}.r` as Key)} ▶</span></div>`;
+            const ends = `<div class="t-ends"><span>◀ ${t(`tune.${key}.l` as Key)}</span><span>${t(`tune.${key}.r` as Key)} ▶</span></div>`;
             return `<div class="t-row ${key === row ? 'focus' : ''}" data-row="${key}"><span class="t-name">${t(`tune.${key}` as Key)}</span><div class="t-pips">${pips}</div><span class="t-val num">${level === 0 ? t('tune.stock') : (level > 0 ? '+' : '−') + Math.abs(level)}</span>${ends}</div>`;
           })
           .join('') +
@@ -687,31 +687,23 @@ export class Garage {
 
   /**
    * The drawer on any screen's height (on opening, and as the window changes), always the screen's full height,
-   * its start at the bottom: zoomed down to fit (no smaller than SETUP_MIN_ZOOM), below that its compact layout
-   * (tighter rows), and past that its middle scrolls. Fitted to its tallest (five custom
-   * rivals listed), so changing the settings never moves nor resizes it.
+   * its start at the bottom, at every panel's zoom (uiZoom): if its tallest (five custom rivals listed) does not
+   * fit, its compact layout (tighter rows), and past that its middle scrolls. Fitted to its tallest, so changing
+   * the settings never moves nor resizes it.
    */
   private fitSetup(): void {
     const wrap = this.q('.g-setup');
     const drawer = this.q('.g-drawer');
-    wrap.style.setProperty('zoom', '1');
     wrap.classList.remove('compact');
     drawer.style.height = ''; // (its own height, to measure)
     const picked = this.sel;
     this.sel = { ...picked, rivalMode: 'custom', rivals: Array.from({ length: MAX_RIVALS }, () => picked.player) };
-    const tallest = () => {
-      this.drawSetup();
-      return drawer.offsetHeight;
-    };
-    const avail = innerHeight - 2 * innerWidth * 0.0125; // (its margin: 1.25vw above and below)
-    let z = Math.min(1, avail / tallest());
-    if (z < SETUP_MIN_ZOOM) {
-      wrap.classList.add('compact');
-      z = Math.max(SETUP_MIN_ZOOM, Math.min(1, avail / tallest()));
-    }
+    this.drawSetup();
+    const z = uiZoom();
+    const avail = (innerHeight - 2 * innerWidth * 0.0125 * z) / z; // (in its own px; its margin: 1.25vw above and below)
+    if (drawer.offsetHeight > avail) wrap.classList.add('compact');
     this.sel = picked;
     this.drawSetup();
-    wrap.style.setProperty('zoom', String(z));
-    drawer.style.height = `${Math.round(avail / z)}px`; // (rounded: a float's last digit is no reason to scroll)
+    drawer.style.height = `${Math.floor(avail)}px`; // (rounded down: a float's last digit is no reason to scroll)
   }
 }
