@@ -1,4 +1,5 @@
 import { it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { PLAN_STATS, PLANNER } from '../src/ai/planner';
 import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
@@ -41,7 +42,8 @@ it('planner', async () => {
     const driver = new PlannerDriver();
     driver.accel = spec.ai.accel;
     driver.latAccel = spec.ai.latAccel;
-    driver.tracker = trackerFrom(spec.ai.tracker);
+    // TRACKER_JSON=<archive.json>: a candidate network (training/out/tracker) instead of the car's own.
+    driver.tracker = trackerFrom(process.env.TRACKER_JSON ? JSON.parse(readFileSync(process.env.TRACKER_JSON, 'utf8')).weights : spec.ai.tracker);
     driver.recovery = trackerFrom(spec.ai.recovery);
     const st = driver.measure();
     // Traffic gives way to the AI car as it does the player in the game (TRAFFIC_BLIND=1: as in training).

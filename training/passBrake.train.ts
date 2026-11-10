@@ -1,8 +1,8 @@
 import { writeFileSync } from 'node:fs';
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PLAN_STATS, planAt } from '../src/ai/planner';
-import { emergencyBrake, PlannerDriver } from '../src/ai/plannerDriver';
+import { type Plan, PLAN_STATS, PLANNER, planAt } from '../src/ai/planner';
+import { DRIVER_TUNING, emergencyBrake, PlannerDriver, type PlanPath } from '../src/ai/plannerDriver';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { CARS } from '../src/vehicles/cars';
 import { trackerFrom } from '../src/ai/netTracker';
@@ -35,6 +35,7 @@ interface Row {
 
 it('pass brake', async () => {
   await RAPIER.init();
+  if (process.env.PLANNER_JSON) Object.assign(PLANNER, JSON.parse(process.env.PLANNER_JSON));
   const spec = CARS[process.env.CAR ?? 'street-racer'];
   const trace = !!process.env.TRACE;
   const tally = { beside: { steps: 0, brake: {} as Record<string, number>, lift: 0, onsets: 0 }, clear: { steps: 0, brake: {} as Record<string, number>, lift: 0, onsets: 0 } };
@@ -48,6 +49,8 @@ it('pass brake', async () => {
   const crashLines: string[] = [];
   const clearMargin: number[] = [];
   const offsetMargin: number[] = [];
+  const reasons = { beside: {} as Record<string, number>, clear: {} as Record<string, number> };
+  const rawClear = { beside: [] as number[], clear: [] as number[] };
   for (const seed of (process.env.EVAL_SEEDS ?? '7001,7002,7003,7004').split(',').map(Number)) {
     const driver = new PlannerDriver();
     driver.accel = spec.ai.accel;
@@ -64,7 +67,59 @@ it('pass brake', async () => {
     driver.drive = (self: SelfState, traffic: TrafficBox[], p) => {
       clock += 1 / 120;
       const o0 = driver.overrides, f0 = PLAN_STATS.fallback, r0 = PLAN_STATS.relaxed;
+      const wasOn = (driver as unknown as { emergency: boolean }).emergency;
       const out = drive(self, traffic, p);
+      // Why the emergency brake did not believe the plans for each box it braked for (see emergencyBrake).
+      if (driver.overrides > o0 && driver.plan) {
+        const dv = driver as unknown as { earlier: { plan: Plan; t: number }[]; clock: number };
+        const paths: PlanPath[] = [{ plan: driver.plan, age: driver.planAge }, ...dv.earlier.map((e) => ({ plan: e.plan, age: dv.clock - e.t }))];
+        const from = DRIVER_TUNING.emergencyFrom * (wasOn ? DRIVER_TUNING.emergencyRelease : 1);
+        const rate = planAt(driver.plan, driver.planAge).dRate;
+        const hw = self.halfWidth ?? 0.93, hl = self.halfLength ?? 2.2;
+        const alongside = traffic.some((t) => !t.phantom && Math.abs(t.s - self.s) < t.length / 2 + hl && Math.max(t.dMin - (self.d + hw), self.d - hw - t.dMax) < BESIDE_GAP);
+        const actualVD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
+        for (const t of traffic) {
+          if (emergencyBrake(self, [t], rate, paths, from) <= 0) continue;
+          const overlap = Math.min(t.dMax, self.d + hw) - Math.max(t.dMin, self.d - hw);
+          const offsets = paths.map((q) => self.d - planAt(q.plan, q.age).d);
+          let why: string;
+          let raw = NaN;
+          if (paths.length < DRIVER_TUNING.pathAgree) why = 'one plan only';
+          else if (Math.abs(self.yaw) >= 0.25) why = 'sliding (yaw)';
+          else if (offsets.some((o) => Math.abs(o) > DRIVER_TUNING.pathTrust)) why = 'off its plan > pathTrust';
+          else if (overlap > DRIVER_TUNING.pathOverlap) why = 'wholly behind (overlap > pathOverlap)';
+          else {
+            const closing = self.vLong - t.v;
+            const gap = t.s - t.length / 2 - (self.s + hl);
+            const t0 = Math.max(0, gap) / closing, t1 = (t.s - self.s) / closing;
+            const mid = (t.dMin + t.dMax) / 2;
+            // Per plan: the side it ends up on, and its clearance (m, body to box) over the window - its own line, and shifted as the brake shifts it.
+            const per = paths.map((q, i) => {
+              const lag = actualVD - planAt(q.plan, q.age).dRate;
+              const side = Math.sign(planAt(q.plan, q.age + Math.max(t0, t1)).d - mid);
+              let rawMin = Infinity, adjMin = Infinity;
+              for (let k = 0; k <= 4; k++) {
+                const tau = t0 + ((Math.max(t0, t1) - t0) * k) / 4;
+                const pd = planAt(q.plan, q.age + tau).d;
+                const ad = pd + offsets[i] + lag * Math.min(tau, DRIVER_TUNING.pathLag);
+                const c = (d: number) => (side > 0 ? d - hw - t.dMax : t.dMin - (d + hw));
+                rawMin = Math.min(rawMin, c(pd));
+                adjMin = Math.min(adjMin, c(ad));
+              }
+              return { side, rawMin, adjMin };
+            });
+            raw = per[0].rawMin;
+            const m = DRIVER_TUNING.pathMargin;
+            if (per.some((x) => x.side !== per[0].side)) why = 'plans disagree on the side';
+            else if (per.some((x) => x.rawMin < 0)) why = "a plan's own line touches it (not going past)";
+            else if (per.some((x) => x.rawMin < m)) why = `plan clears it by < pathMargin (${m} m)`;
+            else why = 'plan clears, but offset / lag eat the margin';
+          }
+          const r = alongside ? reasons.beside : reasons.clear;
+          r[why] = (r[why] ?? 0) + 1;
+          if (!Number.isNaN(raw)) (alongside ? rawClear.beside : rawClear.clear).push(raw);
+        }
+      }
       if (driver.plan !== lastPlan) {
         lastPlan = driver.plan;
         planCause = PLAN_STATS.fallback > f0 ? 'fallback' : PLAN_STATS.relaxed > r0 ? 'relaxed' : 'plan';
@@ -169,6 +224,16 @@ it('pass brake', async () => {
   clearMargin.sort((a, b) => a - b);
   const share = (m: number) => ((100 * offsetMargin.filter((x) => x > m).length) / Math.max(1, offsetMargin.length)).toFixed(0) + '%';
   const lines = [`with its offset from the plan carried along, clear by > 0 / 0.3 / 0.45 / 0.6 m: ${share(0)} / ${share(0.3)} / ${share(0.45)} / ${share(0.6)} of ${offsetMargin.length}`, `emergency-braked boxes: the plan's own path clears them by the time it gets there ${planClears[1]} of ${planClears[0] + planClears[1]} (margin p10 / p50 ${clearMargin[Math.floor(clearMargin.length * 0.1)]?.toFixed(2)} / ${clearMargin[Math.floor(clearMargin.length * 0.5)]?.toFixed(2)} m)`, show(`alongside (gap < ${BESIDE_GAP} m)`, tally.beside), show('otherwise', tally.clear), `episodes alongside with braking: ${episodes.length}`];
+  for (const k of ['beside', 'clear'] as const) {
+    const n = Object.values(reasons[k]).reduce((a, b) => a + b, 0);
+    lines.push(`why the plans were not believed (${k === 'beside' ? 'alongside' : 'otherwise'}; box-steps, ${n}): ` +
+      Object.entries(reasons[k]).sort((a, b) => b[1] - a[1]).map(([w, x]) => `${w} ${Math.round((100 * x) / n)}%`).join(', '));
+    const xs = rawClear[k].sort((a, b) => a - b);
+    const q = (p: number) => xs[Math.min(xs.length - 1, Math.floor(xs.length * p))]?.toFixed(2);
+    const bins = [-Infinity, 0, 0.15, 0.3, 0.45, Infinity];
+    lines.push(`  the current plan's own clearance (m) where it got that far: p10 / p50 / p90 ${q(0.1)} / ${q(0.5)} / ${q(0.9)}; ` +
+      bins.slice(1).map((b, i) => `${bins[i] === -Infinity ? '<' : bins[i] + '..'}${b === Infinity ? '' : b} ${xs.filter((x) => x >= bins[i] && x < b).length}`).join(', '));
+  }
   // Per episode: onsets, causes, closest gap.
   for (const e of episodes.slice(0, 40)) {
     const on = e.filter((r, i) => r.brake > 0.02 && !(e[i - 1]?.brake > 0.02));
