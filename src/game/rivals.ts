@@ -137,6 +137,37 @@ export const FINISHED_SPEED = 40 * KMH;
 const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 /** On the grid in the countdown: both pedals down, as the player's - a burnout on the line (held to its spot). */
 const REV_ON_GRID = { throttle: 1, brake: 1, steer: 0, handbrake: false, nitro: false };
+/**
+ * Revving on the grid as a driver does: the throttle blipped for `on` s and let go for `off` s (each drawn anew,
+ * from..to), over and over, until `launch` s before the green: then held down, waiting for it. `firstWait`: off the
+ * throttle that long first, so they do not all start together.
+ */
+export const GRID_REV = { on: [0.12, 0.4], off: [0.2, 0.6], launch: [0.5, 1], firstWait: [0, 0.4] };
+
+/** A rival's revving on the grid: blipping now or not, s left of that, and how long before the green it holds on. */
+export interface GridRev {
+  on: boolean;
+  left: number;
+  launch: number;
+}
+
+const between = ([lo, hi]: number[], rng: () => number) => lo + (hi - lo) * rng();
+
+/** A fresh start for the countdown. */
+export function gridRevStart(rng: () => number = Math.random): GridRev {
+  return { on: false, left: between(GRID_REV.firstWait, rng), launch: between(GRID_REV.launch, rng) };
+}
+
+/** On the throttle this step? `toGo`: s of the countdown left. */
+export function gridRevStep(g: GridRev, dt: number, toGo: number, rng: () => number = Math.random): boolean {
+  if (toGo <= g.launch) return true; // (held down for the green)
+  g.left -= dt;
+  if (g.left <= 0) {
+    g.on = !g.on;
+    g.left = between(g.on ? GRID_REV.on : GRID_REV.off, rng);
+  }
+  return g.on;
+}
 
 export interface Rival {
   index: number;
@@ -154,6 +185,8 @@ export interface Rival {
   resets: number;
   /** s left before it may be put back again (no clear spot last time: RESET_RETRY). */
   resetWait: number;
+  /** Its revving in the countdown. */
+  gridRev: GridRev;
 }
 
 /** What the rivals need to know about the race each step. */
@@ -199,7 +232,7 @@ export class Rivals {
       driver.latAccel = spec.ai.latAccel;
       driver.tracker = trackerFrom(spec.ai.tracker);
       driver.recovery = trackerFrom(spec.ai.recovery);
-      const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0 };
+      const r: Rival = { index: i, spec, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
       this.list.push(r);
     }
@@ -219,6 +252,7 @@ export class Rivals {
       r.finishTime = null;
       r.resets = 0;
       r.resetWait = 0;
+      r.gridRev = gridRevStart();
       this.applyBoost(r);
     }
   }
@@ -245,12 +279,13 @@ export class Rivals {
 
   /**
    * Before the physics step while the race has not started (countdown, title): held on the grid - `revving` (the
-   * countdown) its throttle held down too, a burnout going nowhere, let go of at the green.
+   * countdown, `toGo` s of it left) blipping the throttle (the brake held: bursts of burnout going nowhere), then
+   * held down for the green (GRID_REV), let go of at the green.
    */
-  hold(dt: number, revving = false): void {
+  hold(dt: number, revving = false, toGo = 0): void {
     for (const r of this.list) {
       r.car.holdInPlace(revving);
-      r.car.prePhysics(revving ? REV_ON_GRID : HOLD, dt);
+      r.car.prePhysics(revving && gridRevStep(r.gridRev, dt, toGo) ? REV_ON_GRID : HOLD, dt);
     }
   }
 

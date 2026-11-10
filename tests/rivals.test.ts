@@ -1,6 +1,7 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { needsReset, placeOf, putBackAt, Rivals, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
+import { GRID_REV, gridRevStart, gridRevStep, needsReset, placeOf, putBackAt, Rivals, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
+import { mulberry32 } from '../src/ai/rng';
 import { KMH } from '../src/config';
 import { laneCenter } from '../src/road/coords';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
@@ -158,5 +159,36 @@ describe('Rivals on their own cars', () => {
     rivals.dispose();
     expect(physics.world.bodies.len()).toBe(before);
     physics.free();
+  });
+});
+
+describe('revving on the grid', () => {
+  it('blips the throttle on and off in the set lengths, then holds it down for the green', () => {
+    const rng = mulberry32(3);
+    const dt = 1 / 120;
+    const g = gridRevStart(rng);
+    expect(g.on).toBe(false);
+    expect(g.launch).toBeGreaterThanOrEqual(GRID_REV.launch[0]);
+    expect(g.launch).toBeLessThanOrEqual(GRID_REV.launch[1]);
+    const runs: { on: boolean; s: number }[] = [];
+    let toGo = 3;
+    let held = 0;
+    while (toGo > 0) {
+      const on = gridRevStep(g, dt, toGo, rng);
+      if (toGo <= g.launch) {
+        expect(on).toBe(true);
+        held += dt;
+      } else if (runs.length && runs[runs.length - 1].on === on) runs[runs.length - 1].s += dt;
+      else runs.push({ on, s: dt });
+      toGo -= dt;
+    }
+    expect(held).toBeCloseTo(g.launch, 1);
+    expect(runs.filter((r) => r.on).length).toBeGreaterThanOrEqual(2); // a few blips, not one long burn
+    // Whole blips and pauses (not the first wait, nor the last one cut short by the hold) last as set.
+    for (const r of runs.slice(1, -1)) {
+      const [lo, hi] = r.on ? GRID_REV.on : GRID_REV.off;
+      expect(r.s).toBeGreaterThanOrEqual(lo - dt);
+      expect(r.s).toBeLessThanOrEqual(hi + dt);
+    }
   });
 });
