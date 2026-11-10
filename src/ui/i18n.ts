@@ -120,6 +120,7 @@ export const STRINGS = {
   'tune.title': { zh: '調校', en: 'Tuning' },
   'tune.reset': { zh: '恢復原廠', en: 'Stock' },
   'tune.done': { zh: '完成', en: 'Done' },
+  'tune.resetAsk': { zh: '這台車的調校全部恢復原廠？', en: 'All of this car’s tuning back to stock?' },
   'tune.stock': { zh: '原廠', en: 'Stock' },
   'tune.group.power': { zh: '動力', en: 'Power' },
   'tune.group.tyres': { zh: '輪胎', en: 'Tyres' },

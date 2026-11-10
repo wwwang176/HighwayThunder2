@@ -63,6 +63,17 @@ button { margin: 0; padding: 0; border: 0; background: none; color: inherit; fon
 .opt.sel::after { content: ""; position: absolute; right: 0.63vw; top: 0.73vw; bottom: 0.73vw; width: 0.31vw; background: #fff; transform: none; }
 .opt.sel::before { content: ""; position: absolute; right: -0.83vw; top: 0; bottom: 0; width: 0.31vw; background: var(--accent); transform: none; }
 
+/* Scrollbars (the race setup's drawer, the tuning's knobs): a thin rail in the frame's colour, the thumb in the accent,
+   its top-left and bottom-right corners cut as the panels (.cut); no arrows. */
+#ui ::-webkit-scrollbar { width: 0.42vw; height: 0.42vw; }
+#ui ::-webkit-scrollbar-button, #ui ::-webkit-scrollbar-corner { display: none; background: transparent; }
+#ui ::-webkit-scrollbar-track { background: linear-gradient(90deg, transparent calc(50% - 1px), var(--line) calc(50% - 1px), var(--line) calc(50% + 1px), transparent calc(50% + 1px)); }
+#ui ::-webkit-scrollbar-thumb { background: linear-gradient(135deg, transparent 0.15vw, var(--accent) 0.15vw, var(--accent) calc(100% - 0.15vw), transparent calc(100% - 0.15vw)); }
+#ui ::-webkit-scrollbar-thumb:hover, #ui ::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(135deg, transparent 0.15vw, color-mix(in srgb, var(--accent), #fff 30%) 0.15vw, color-mix(in srgb, var(--accent), #fff 30%) calc(100% - 0.15vw), transparent calc(100% - 0.15vw)); }
+/* (Without those: the standard properties, thin and in the accent.) */
+@supports not selector(::-webkit-scrollbar) { #ui * { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; } }
+
 /* The call to action (start): a big parallelogram, an offset outline behind it, its key inside, running chevrons. */
 .cta { position: relative; width: 20.8vw; height: 4.4vw; color: #fff; }
 .cta .ghost, .cta .fill { position: absolute; inset: 0; transform: skewX(-14deg); }
@@ -307,7 +318,7 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-back { margin-left: auto; white-space: nowrap; display: flex; align-items: center; gap: 0.52vw; height: 2.3vw; padding: 0 0.83vw 0 0.42vw; --c: 0.42vw;
   background: rgba(255, 255, 255, 0.08); color: var(--text-2); font: 700 0.83vw/1 var(--f-title); }
 #garage .s-back:hover { color: #fff; background: var(--accent); }
-#garage .s-body { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--accent) transparent; padding-right: 0.3vw; margin-right: -0.3vw; }
+#garage .s-body { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-right: 0.3vw; margin-right: -0.3vw; }
 #garage .s-go { flex: none; width: 100%; height: 4vw; margin-top: 1.25vw; }
 /* A section: English small caps + its Chinese title, a summary on the right. */
 #garage .s-sec + .s-sec { margin-top: 0.83vw; padding-top: 0.83vw; border-top: 1px solid rgba(255, 255, 255, 0.08); }
@@ -429,10 +440,10 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .g-tune-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.4s;
   background: linear-gradient(90deg, rgba(2, 4, 10, 0.75), rgba(2, 4, 10, 0.35) 34%, transparent 50%); }
 #garage.tune .g-tune-shade { opacity: 1; }
-#garage .g-tune { position: absolute; left: 1.25vw; top: 1.25vw; bottom: 1.25vw; width: 33vw; z-index: 4; visibility: hidden; opacity: 0; translate: -3vw 0;
+#garage .g-tune { position: absolute; left: 1.25vw; top: 1.25vw; width: 33vw; z-index: 4; visibility: hidden; opacity: 0; translate: -3vw 0;
   transition: opacity 0.3s, translate 0.3s, visibility 0s 0.3s; }
 #garage.tune .g-tune { visibility: visible; opacity: 1; translate: 0 0; transition: opacity 0.3s, translate 0.3s; }
-#garage .g-tune-panel { height: 100%; display: flex; flex-direction: column; box-sizing: border-box; padding: 1.5vw 1.7vw 1.4vw; --c: 1.35vw; }
+#garage .g-tune-panel { display: flex; flex-direction: column; box-sizing: border-box; padding: 1.5vw 1.7vw 1.4vw; --c: 1.35vw; }
 #garage .t-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.9vw; }
 #garage .t-top h2 { margin: 0.5vw 0 0; font: italic 900 1.67vw/1 var(--f-title); letter-spacing: 0.15vw; white-space: nowrap; }
 #garage .t-top .t-car { color: var(--accent); }
@@ -445,7 +456,7 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .t-stat small { grid-column: 1 / -1; font: 700 0.75vw/1 var(--f-num); }
 #garage .t-stat small.up { color: #4fe08a; }
 #garage .t-stat small.down { color: #ff7a6b; }
-#garage .t-body { flex: 1; overflow-y: auto; margin: 0.6vw -0.6vw 0.6vw 0; padding-right: 0.6vw; scrollbar-width: thin; }
+#garage .t-body { flex: 1; overflow-y: auto; margin: 0.6vw -0.6vw 0.6vw 0; padding-right: 0.6vw; }
 #garage .t-group { margin-top: 0.8vw; }
 #garage .t-group > .lbl { margin-bottom: 0.3vw; }
 #garage .t-row { display: grid; grid-template-columns: 8.5vw 1fr 3.2vw; align-items: center; column-gap: 0.8vw; padding: 0.42vw 0.6vw;
@@ -466,6 +477,10 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .t-ends span:last-child { text-align: right; }
 #garage .t-ends .act { color: var(--accent); }
 #garage .t-foot { display: flex; gap: 0.8vw; }
+#garage .t-confirm { width: 33vw; padding: 2.1vw 2.5vw 2.3vw; }
+#garage .t-confirm .msg { margin: 1.04vw 0 1.77vw; font-size: 1.3vw; font-weight: 600; line-height: 1.5; color: #fff; }
+#garage .t-confirm .btns { display: flex; gap: 1.15vw; }
+#garage .t-confirm .btns .opt { flex: 1; margin-top: 0; white-space: nowrap; }
 #garage .t-foot button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5vw; height: 2.6vw; --c: 0.6vw;
   background: rgba(255, 255, 255, 0.08); font: 700 0.94vw/1 var(--f-title); color: #fff; transition: background 0.15s; }
 #garage .t-foot button:hover, #garage .t-foot button:focus-visible { background: color-mix(in srgb, var(--accent) 35%, transparent); }

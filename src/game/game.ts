@@ -367,6 +367,7 @@ export class Game {
       if (set.isOpen) return set.confirm();
       if (g.isOpen) {
         if (g.keysOpen) return;
+        if (g.resetAsking) return g.resetPick();
         if (g.onTitle) g.enter();
         else g.start();
       } else if (menu()) this.hud.menuPick();
@@ -377,7 +378,7 @@ export class Game {
     // to the garage.
     k.onPress('Escape', () => {
       if (set.isOpen) return set.close();
-      if (g.isOpen) return g.popOpen && g.closePop();
+      if (g.isOpen) return g.popOpen && g.back();
       if (this.flow.phase === 'finished') return this.hud.finishShown && this.toTitle(); // (in its show: skips it)
       if (this.hud.confirming) return this.hud.cancelConfirm(); // (the pause's confirm open: back to its menu)
       this.togglePause();
@@ -391,7 +392,10 @@ export class Game {
     const arrow = (dy: number, dx: number) => {
       if (set.isOpen) return dy ? set.move(dy) : set.adjust(dx);
       if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
-      if (g.isOpen && g.tuneOpen) return dy ? g.tuneMove(dy) : g.tuneAdjust(dx);
+      if (g.isOpen && g.tuneOpen) {
+        if (g.resetAsking) return g.resetMove(dy || dx);
+        return dy ? g.tuneMove(dy) : g.tuneAdjust(dx);
+      }
       if (picking()) return dy ? g.step(dy) : g.stepPaint(dx);
       if (menu()) this.hud.menuMove(dy || dx);
     };
@@ -399,7 +403,7 @@ export class Game {
     k.onPress('KeyH', () => corner() && !set.isOpen && g.toggleKeys());
     k.onPress('KeyO', () => corner() && !g.keysOpen && g.toggleSettings());
     // T: the tuning panel (the car's knobs), or closed again; R in it, the car as built.
-    k.onPress('KeyT', () => corner() && !set.isOpen && !g.keysOpen && g.toggleTune());
+    k.onPress('KeyT', () => corner() && !set.isOpen && !g.keysOpen && !g.resetAsking && g.toggleTune());
     k.onPress('ArrowUp', () => arrow(-1, 0));
     k.onPress('ArrowDown', () => arrow(1, 0));
     k.onPress('ArrowLeft', () => arrow(0, -1));

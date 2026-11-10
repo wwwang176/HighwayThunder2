@@ -135,6 +135,17 @@ export class Garage {
           </div>
         </div>
       </div>
+      <div class="g-back" data-pop="tune-reset">
+        <div class="bracketed"><span class="brk tr"></span><span class="brk bl"></span>
+        <div class="g-modal t-confirm panel cut" role="alertdialog" aria-modal="true">
+          ${tx('tune.kicker', 'div', 'lbl dash')}
+          ${tx('tune.resetAsk', 'p', 'msg')}
+          <div class="btns">
+            <button class="opt t-yes">${tx('tune.reset')}</button>
+            <button class="opt t-no">${tx('settings.cancel')}<kbd>Esc</kbd></button>
+          </div>
+        </div></div>
+      </div>
       <div class="g-depart">
         <button class="g-race float"></button>
         <button class="cta g-go">${CTA('garage.start')}</button>
@@ -171,8 +182,14 @@ export class Garage {
     this.q('.g-close').onclick = () => this.closePop();
     this.q('.g-tune-open').onclick = () => this.openTune();
     this.q('.t-reset').onclick = () => this.tuneReset();
+    this.q('.t-yes').onclick = () => this.confirmReset();
+    this.q('.t-no').onclick = () => this.cancelReset();
+    // As the pause's confirm: the pointer moves its cursor too.
+    this.resetOpts().forEach((b, i) => b.addEventListener('pointerenter', () => this.resetPoint(i)));
     this.q('.t-done').onclick = () => this.closePop();
-    this.el.querySelectorAll<HTMLElement>('.g-back').forEach((b) => (b.onclick = (e) => e.target === e.currentTarget && this.closePop()));
+    this.el.querySelectorAll<HTMLElement>('.g-back').forEach(
+      (b) => (b.onclick = (e) => e.target === e.currentTarget && (b.dataset.pop === 'tune-reset' ? this.cancelReset() : this.closePop())),
+    );
     this.drawSetupKeys();
     // Another language (the settings' OK): the fixed words redone, the rest redrawn.
     onLangChange(() => {
@@ -180,7 +197,10 @@ export class Garage {
       this.drawSetupKeys();
       if (this.sel) this.draw();
     });
-    addEventListener('resize', () => this.setupOpen && this.fitSetup());
+    addEventListener('resize', () => {
+      if (this.setupOpen) this.fitSetup();
+      if (this.tuneOpen) this.fitTune();
+    });
     this.q('.g-setup').addEventListener('pointerdown', () => (this.keyed = false));
     // A click leaves no focus behind: Enter is the garage's (start), not the clicked button's again.
     this.el.addEventListener('click', (e) => e.detail && (document.activeElement as HTMLElement | null)?.blur());
@@ -276,7 +296,32 @@ export class Garage {
     this.el.classList.add('tune');
     this.preview.slide(VIEW.title, true);
     this.draw();
+    this.fitTune();
     (document.activeElement as HTMLElement | null)?.blur();
+  }
+
+  /** As the race setup's drawer (fitSetup): the screen's full height, zoomed down to fit (no smaller than SETUP_MIN_ZOOM), past that its knobs scroll. */
+  private fitTune(): void {
+    const wrap = this.q('.g-tune');
+    const panel = this.q('.g-tune-panel');
+    wrap.style.setProperty('zoom', '1');
+    panel.style.height = ''; // (its own height, to measure)
+    const avail = innerHeight - 2 * innerWidth * 0.0125; // (its margin: 1.25vw above and below)
+    const z = Math.max(SETUP_MIN_ZOOM, Math.min(1, avail / panel.offsetHeight));
+    wrap.style.setProperty('zoom', String(z));
+    panel.style.height = `${Math.round(avail / z)}px`;
+    this.q('.t-body .focus')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** The stock confirm is open (Enter: back to stock; Esc: not). */
+  get resetAsking(): boolean {
+    return this.q('[data-pop="tune-reset"]').classList.contains('open');
+  }
+
+  /** Esc in the garage: the stock confirm cancelled, else what is open closed. */
+  back(): void {
+    if (this.resetAsking) this.cancelReset();
+    else this.closePop();
   }
 
   /** T in the garage: the tuning panel, or closed again. */
@@ -297,10 +342,45 @@ export class Garage {
     this.setKnob(key, (this.tuning()[key] ?? 0) + d);
   }
 
-  /** R in the tuning panel (or its button): the car as built. */
+  /** R in the tuning panel (or its button): asked first - the car as built (nothing to ask when it is); as the pause's confirm, the cursor on Cancel. */
   tuneReset(): void {
+    if (!this.tuneOpen || this.resetAsking || !Object.keys(this.tuning()).length) return;
+    this.q('[data-pop="tune-reset"]').classList.add('open');
+    this.resetPoint(1);
+    (document.activeElement as HTMLElement | null)?.blur();
+  }
+
+  /** The stock confirm's options (OK, Cancel); the cursor on one: filled (.sel). */
+  private resetOpts(): HTMLElement[] {
+    return [this.q('.t-yes'), this.q('.t-no')];
+  }
+
+  private resetCursor = 1;
+
+  private resetPoint(i: number): void {
+    this.resetCursor = i;
+    this.resetOpts().forEach((b, k) => b.classList.toggle('sel', k === i));
+  }
+
+  /** The arrows in the stock confirm: the cursor to the other option. */
+  resetMove(d: number): void {
+    this.resetPoint((this.resetCursor + d + 2) % 2);
+  }
+
+  /** Enter in the stock confirm: the option under the cursor. */
+  resetPick(): void {
+    this.resetOpts()[this.resetCursor].click();
+  }
+
+  /** The stock confirm's OK: every knob of the car back to stock. */
+  confirmReset(): void {
+    this.cancelReset();
     this.sel = { ...this.sel, tuning: { ...this.sel.tuning, [this.sel.player]: {} } };
     this.draw();
+  }
+
+  cancelReset(): void {
+    this.q('[data-pop="tune-reset"]').classList.remove('open');
   }
 
   /** The picked car's tuning. */
