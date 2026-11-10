@@ -15,6 +15,15 @@ export const MUSIC_URL = 'audio/music/';
  */
 export const MUSIC_VOLUME = 0.22;
 export const MUSIC_COUNTDOWN = 0.4;
+/** Past the finish line: down to this share, evenly over MUSIC_FINISH_FADE s (the sound fades away with it). */
+export const MUSIC_FINISH = 0.5;
+export const MUSIC_FINISH_FADE = 2.5;
+
+/** The finish's share `dt` s on: evenly toward MUSIC_FINISH past the line, back to 1 otherwise (as fast). */
+export function finishShare(now: number, finished: boolean, dt: number): number {
+  const step = ((1 - MUSIC_FINISH) / MUSIC_FINISH_FADE) * dt;
+  return finished ? Math.max(MUSIC_FINISH, now - step) : Math.min(1, now + step);
+}
 const MUSIC_FADE = 0.4;
 /** From one song to the next: this one faded out over `out` s, `gap` s of quiet, the next faded in over `in` s. */
 export interface Switch {
@@ -119,6 +128,8 @@ export class Music {
   private paused = false;
   private readonly fade: MusicFade = { level: 1, rate: 0, switching: null, gapLeft: 0, how: SCENE_SWITCH };
   muted = false;
+  /** Its share past the finish line (finishShare). */
+  private finish = 1;
   /** The player's volume for it (settings: 0..1 on top of MUSIC_VOLUME). */
   userVolume = 1;
   /** Called with each song as it comes on (its title shown: ui/nowPlaying). */
@@ -176,9 +187,10 @@ export class Music {
     startSwitch(this.fade, SCENE_SWITCH, this.el.paused);
   }
 
-  /** Each frame (real time, `dt` s): `countdown` the countdown on (quieter), else as a rule. */
-  update(dt: number, countdown: boolean): void {
-    this.target = this.muted ? 0 : MUSIC_VOLUME * this.userVolume * (countdown ? MUSIC_COUNTDOWN : 1);
+  /** Each frame (real time, `dt` s): `countdown` the countdown on (quieter), `finished` past the line (down to half). */
+  update(dt: number, countdown: boolean, finished = false): void {
+    this.finish = finishShare(this.finish, finished, dt);
+    this.target = this.muted ? 0 : MUSIC_VOLUME * this.userVolume * (countdown ? MUSIC_COUNTDOWN : 1) * this.finish;
     this.volume = easeVolume(this.volume, this.target, dt);
     const step = stepFade(this.fade, dt);
     if (step === 'stop') this.el.pause();

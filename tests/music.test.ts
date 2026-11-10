@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { easeVolume, type MusicFade, SCENE_SWITCH, shuffled, SKIP_SWITCH, songsOf, songTitle, startSwitch, stepFade, type Switch } from '../src/audio/music';
+import { easeVolume, finishShare, MUSIC_FINISH, MUSIC_FINISH_FADE, type MusicFade, SCENE_SWITCH, shuffled, SKIP_SWITCH, songsOf, songTitle, startSwitch, stepFade, type Switch } from '../src/audio/music';
 import { mulberry32 } from '../src/ai/rng';
 import { clock } from '../src/ui/nowPlaying';
 
@@ -69,5 +69,17 @@ describe('from one song to the next', () => {
     const r = run(SKIP_SWITCH);
     expect(r.fullAt).toBeLessThanOrEqual(0.5);
     expect(r.nextAt).toBeGreaterThan(0.15); // (faded out first: no click)
+  });
+});
+
+describe('past the finish line', () => {
+  it('goes evenly down to half over MUSIC_FINISH_FADE s, no lower, and back after', () => {
+    let k = 1;
+    for (let t = 0; t < MUSIC_FINISH_FADE / 2 - 1e-9; t += 0.05) k = finishShare(k, true, 0.05);
+    expect(k).toBeCloseTo(1 - (1 - MUSIC_FINISH) / 2, 2); // halfway there
+    for (let i = 0; i < 200; i++) k = finishShare(k, true, 0.05);
+    expect(k).toBe(MUSIC_FINISH);
+    for (let i = 0; i < 200; i++) k = finishShare(k, false, 0.05);
+    expect(k).toBe(1);
   });
 });

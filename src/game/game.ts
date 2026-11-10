@@ -719,7 +719,8 @@ export class Game {
   }
 
   private frame(dt: number): void {
-    this.music.update(dt, this.flow.phase === 'countdown'); // (quieter in the countdown; real time, the garage too)
+    // (quieter in the countdown, down to half past the finish line; real time, the garage too)
+    this.music.update(dt, this.flow.phase === 'countdown', this.flow.phase === 'finished');
     this.music.setPaused(this.flow.phase === 'paused');
     this.nowPlaying.time(this.music.time, this.music.length);
     // The garage covers the whole screen and draws its own car: the world waits (and the GPU rests), the FPS meter too.
@@ -898,7 +899,7 @@ export class Game {
     this.flow.update(dt, this.player.s);
     if (!wasFinished && this.flow.phase === 'finished') {
       this.beginFinishShow();
-      this.sound.fadeAway(); // (slowed down it sounds wrong: away; the music plays on)
+      this.sound.fadeAway(); // (slowed down it sounds wrong: away; the music plays on, down to half: Music.update)
     }
   }
 
