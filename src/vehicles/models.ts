@@ -107,6 +107,7 @@ function wheels(parent: THREE.Object3D, groundY: number, halfTrack: number, zs: 
       t.scale.set(width, r, r);
       t.position.set(side * halfTrack, groundY + r, z);
       parent.add(t);
+      ((parent.userData.wheels ??= []) as THREE.Vector3[]).push(t.position.clone()); // (its wheels' centres: the garage's close-up)
       const rim = new THREE.Mesh(wheelGeo, RIM);
       rim.scale.set(width + 0.02, r * 0.55, r * 0.55);
       rim.position.copy(t.position);
@@ -327,6 +328,7 @@ function fromTemplate(
         const w = templateWheel(t, s.r, x < 0);
         w.position.set(x, g + s.r, -along); // the nose is -z
         root.add(w);
+        ((root.userData.wheels ??= []) as THREE.Vector3[]).push(w.position.clone()); // (its wheels' centres: the garage's close-up)
         const c = templateCaliper(t, s.r, x < 0);
         if (c) {
           c.position.copy(w.position);

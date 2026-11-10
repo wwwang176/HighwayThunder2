@@ -317,17 +317,19 @@ export class Garage {
     if (this.tuneOpen) {
       this.el.classList.remove('tune');
       this.preview.slide(VIEW.garage, true);
+      this.preview.closeUp(false);
     }
   }
 
-  /** The tuning panel, on the left (its button by the paint, or T): the car slides right, the garage's own type fades. */
+  /** The tuning panel, on the left (its button by the paint, or T): the camera in on the car's front wheel (slower), the garage's own type faded. */
   openTune(): void {
     if (this.titleOn || this.tuneOpen) return;
     this.closePop();
     this.tuneRow = 0;
     this.tuneHover = null;
     this.el.classList.add('tune');
-    this.preview.slide(VIEW.title, true);
+    this.preview.slide(VIEW.tune, true);
+    this.preview.closeUp(true);
     this.draw();
     this.fitTune();
     (document.activeElement as HTMLElement | null)?.blur();
