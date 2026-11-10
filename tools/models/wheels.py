@@ -11,7 +11,7 @@ A rim model (open it in Blender to change it), in metres, the axle along X, its 
   spoke   the spoke in that share (turned round with the slice), its ends buried in the hub and the rim
   hub     optional: once, in the middle (centre, nuts)
   brake   optional: once, apart from the rest (a brake disc behind the spokes); with it the wheel can have a
-          caliper, a half moon over the disc's edge, its own object (it doesn't turn with the wheel)
+          caliper, a big half moon over the disc's edge, its own object (it doesn't turn with the wheel)
 The spoke and the hub are laid in, not cut in: what of them is buried (in the rim, in each other) stays there,
 unseen, and may be left open. Low poly: a wheel under 1000 triangles.
 The slice says what size it was made at: `spokes` (SEGMENTS a multiple of it), `bead_r` (the beads' radius) and
@@ -72,20 +72,38 @@ def _material(name, rgb, rough):
     return m
 
 
-CALIPER_AT = math.radians(150)  # where round the disc (from the nose, up): behind its top, on either side
+CALIPER_AT = math.radians(165)  # its middle, round the disc (from the nose, up): behind, a little above the axle
+CALIPER = SimpleNamespace(
+    span=math.radians(112),  # how far round the disc it reaches
+    out=0.09,  # its outer edge past the disc's, of the disc's radius
+    deep=0.6,  # how far in over the disc it reaches in its middle, of the disc's radius ...
+    end=0.25,  # ... and at its ends (cut square)
+    inside=0.015,  # how far it stands past the disc's inner face (m) ...
+    outside=0.03,  # ... and its outer face, toward the spokes
+    n=10,  # its arcs' segments
+)
 
 
-def caliper(disc, colour, span=math.radians(60), n=6):
-    """A brake caliper over the disc's rim: a half moon (a sector of a ring, 5 cm deep, `span` round) wrapped
-    round the disc's edge from both faces, in `colour` (0xRRGGBB)."""
+def caliper(disc, colour):
+    """A brake caliper over the disc's edge, a big half moon: its outer edge round past the disc's, its inner nearly
+    straight across it (deep in the middle, shallow at the square-cut ends); a slab across the disc, standing out
+    further toward the spokes, in `colour` (0xRRGGBB)."""
+    c = CALIPER
     r_disc = max(math.hypot(v.co.y, v.co.z) for v in disc.data.vertices)
     x0, x1 = min(v.co.x for v in disc.data.vertices), max(v.co.x for v in disc.data.vertices)
-    r0, r1 = r_disc - 0.05, r_disc + 0.012
-    angles = [CALIPER_AT - span / 2 + span * i / n for i in range(n + 1)]
-    outline = [(r1, a) for a in angles] + [(r0, a) for a in reversed(angles)]
-    verts = [(x, r * math.cos(a), r * math.sin(a)) for x in (x0 - 0.012, x1 + 0.012) for r, a in outline]
+    r_out = r_disc * (1 + c.out)
+    angles = [CALIPER_AT - c.span / 2 + c.span * i / c.n for i in range(c.n + 1)]
+    r_in = [r_out - r_disc * (c.end + (c.deep - c.end) * math.sin(math.pi * i / c.n) ** 0.6) for i in range(c.n + 1)]
+    outline = [(r_out, a) for a in angles] + [(r, a) for r, a in reversed(list(zip(r_in, angles)))]
+    verts = [(x, r * math.cos(a), r * math.sin(a)) for x in (x0 - c.inside, x1 + c.outside) for r, a in outline]
     k = len(outline)
-    faces = [tuple(range(k))[::-1], tuple(range(k, 2 * k))] + [(i, (i + 1) % k, k + (i + 1) % k, k + i) for i in range(k)]
+    m = c.n + 1  # (outline[i] the outer edge's, outline[k - 1 - i] the inner edge's across from it)
+    faces = []
+    for side in (0, k):  # each face in strips across, outer edge to inner
+        for i in range(c.n):
+            faces.append((side + i, side + i + 1, side + k - 2 - i, side + k - 1 - i))
+    faces += [(i, (i + 1) % k, k + (i + 1) % k, k + i) for i in range(k)]  # round its rim
+    assert m * 2 == k
     me = bpy.data.meshes.new("caliper")
     me.from_pydata(verts, [], faces)
     srgb = [((colour >> s) & 255) / 255 for s in (16, 8, 0)]
