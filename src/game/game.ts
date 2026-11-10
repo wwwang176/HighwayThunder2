@@ -480,6 +480,7 @@ export class Game {
         this.intro?.end();
       }
       this.sound.suspend(false);
+      this.sound.bringBack();
       // Every race starts with the player driving (I hands the car to the AI again), on the car's own limiter.
       if (this.aiActive) {
         this.aiActive = false;
@@ -601,6 +602,7 @@ export class Game {
       }
       this.flow.toTitle();
       this.sound.suspend(false);
+      this.sound.bringBack();
       this.resetWorld();
       this.openGarage();
       this.overlay.fromBlack(START_FADE_IN);
@@ -896,7 +898,7 @@ export class Game {
     this.flow.update(dt, this.player.s);
     if (!wasFinished && this.flow.phase === 'finished') {
       this.beginFinishShow();
-      this.music.change(); // (the finish: a new scene, a new song)
+      this.sound.fadeAway(); // (slowed down it sounds wrong: away; the music plays on)
     }
   }
 
