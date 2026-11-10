@@ -354,6 +354,29 @@ export class Sound {
     if (this.ctx) this.master.gain.setTargetAtTime(this.masterGain, this.ctx.currentTime, 0.05);
   }
 
+  /**
+   * The race left (the garage): the squeals, the nitro's hiss and the wind silenced at once - even with the clock
+   * stopped (paused, then the garage): the frame's setters wait for it to run (`running`), so what the pause froze
+   * sounded on in the garage once it ran again.
+   */
+  hush(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const zero = (p: AudioParam) => {
+      p.cancelScheduledValues(now);
+      p.setValueAtTime(0, now);
+    };
+    zero(this.skidGain.gain);
+    zero(this.nitroGain.gain);
+    zero(this.windGain.gain);
+    this.nitroOn = false;
+    for (const v of this.otherSkids) {
+      zero(v.l.gain);
+      zero(v.r.gain);
+    }
+  }
+
   /** Past the finish: everything (not the music: its own) faded away over FINISH_FADE s. */
   fadeAway(): void {
     if (!this.ctx) return;
