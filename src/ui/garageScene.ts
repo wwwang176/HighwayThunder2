@@ -36,12 +36,8 @@ const SLIDE_SECONDS = 0.9;
 const MIRRORED = 1;
 /** The picture's shifts (x TITLE_SHIFT of the screen's width; slide()): the title's, the garage's, with the race setup's drawer open, the tuning's. */
 export const VIEW = { title: 1, garage: 0, setup: -0.7, tune: 0.15 };
-/**
- * The tuning's close-up (closeUp()): the camera by the front wheel on its side, `dist` m out from its centre and
- * `h` above, `aim` rad from straight out toward the nose, swinging `swing` rad either way over `period` s (slower
- * than round the car); in and out over `secs`.
- */
-const CLOSE = { dist: 2.3, h: 0.3, aim: 0.75, swing: 0.3, period: 60, secs: 1.4 };
+/** The tuning's close-up (closeUp()): round the car as ever, at `r` of the distance and `h` of the height, swinging over `period` s (slower); in and out over `secs` s. */
+const CLOSE = { r: 0.5, h: 0.5, period: 60, secs: 1.4 };
 
 /**
  * The garage's scene: the picked car parked on a wet lay-by at night, under a sodium lamp, the city's lights
@@ -70,13 +66,10 @@ export class GarageScene {
   private slideFrom = 0;
   private slideTo = 0;
   private slideT = 1;
-  /** The close-up on the front wheel (CLOSE): how far in (0 round the car .. 1 at the wheel), where it heads. */
+  /** The close-up (CLOSE): how far in (0 round the car .. 1 close), where it heads; the swing's phase (its pace the close-up's too). */
   private close = 0;
   private closeTo = 0;
-  /** The car's front wheel on the camera's side: its centre and its outward and forward directions (world). */
-  private wheel: { at: THREE.Vector3; out: THREE.Vector3; fwd: THREE.Vector3 } | null = null;
-  private readonly camAt = new THREE.Vector3();
-  private readonly lookAt = new THREE.Vector3();
+  private phase = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
@@ -141,8 +134,6 @@ export class GarageScene {
     this.car.position.y = PLAYER_H / 2; // on the ground
     this.car.rotation.y = CAR_YAW;
     this.car.updateMatrix();
-    this.car.updateMatrixWorld(true);
-    this.wheel = this.frontWheel(this.car);
     for (const f of [this.flares, this.mirrored]) {
       f.begin();
       emitFlares(this.car, built.lights, f);
@@ -165,6 +156,7 @@ export class GarageScene {
         last = now;
         this.slideOn(dt);
         this.close += Math.max(-dt / CLOSE.secs, Math.min(dt / CLOSE.secs, this.closeTo - this.close));
+        this.phase += dt / (CAM.period + (CLOSE.period - CAM.period) * this.eased());
         this.frame();
         requestAnimationFrame(loop);
       };
@@ -201,47 +193,24 @@ export class GarageScene {
     this.placeView();
   }
 
-  /** The tuning's close-up on the front wheel (on), or back round the car; eased in or out over CLOSE.secs. */
+  /** The tuning's close-up (on: CLOSE), or back out; eased in or out over CLOSE.secs. */
   closeUp(on: boolean): void {
     this.closeTo = on ? 1 : 0;
   }
 
-  private frame(): void {
-    const a = CAM.base + CAM.swing * Math.sin((this.t / CAM.period) * Math.PI * 2);
-    this.camAt.set(CAM.r * Math.sin(a), CAM.h, CAM.r * Math.cos(a));
-    this.lookAt.set(0, CAM.look, 0);
-    const w = this.wheel;
-    if (w && this.close > 0) {
-      // By the wheel, swinging slowly round it between straight out and toward the nose; eased (smoothstep).
-      const k = this.close * this.close * (3 - 2 * this.close);
-      const b = CLOSE.aim + CLOSE.swing * Math.sin((this.t / CLOSE.period) * Math.PI * 2);
-      const at = w.at.clone().addScaledVector(w.out, CLOSE.dist * Math.cos(b)).addScaledVector(w.fwd, CLOSE.dist * Math.sin(b));
-      at.y += CLOSE.h;
-      this.camAt.lerp(at, k);
-      this.lookAt.lerp(w.at, k);
-    }
-    this.camera.position.copy(this.camAt);
-    this.camera.lookAt(this.lookAt);
-    (this.bokeh.uniforms as { focus: { value: number } }).focus.value = this.camAt.distanceTo(this.lookAt);
-    this.composer.render();
+  /** How far in the close-up is (smoothstep). */
+  private eased(): number {
+    return this.close * this.close * (3 - 2 * this.close);
   }
 
-  /** `car`'s front wheel on the camera's side (its centres: models' userData.wheels), in the world. */
-  private frontWheel(car: THREE.Object3D): GarageScene['wheel'] {
-    const spots = car.userData.wheels as THREE.Vector3[] | undefined;
-    if (!spots?.length) return null;
-    const front = Math.min(...spots.map((p) => p.z)); // (the nose is -z)
-    // Of the two front wheels, the one whose outside faces the camera (where it swings round).
-    const cam = new THREE.Vector3(Math.sin(CAM.base), 0, Math.cos(CAM.base));
-    const fwd = new THREE.Vector3(0, 0, -1).transformDirection(car.matrixWorld);
-    let best: GarageScene['wheel'] = null;
-    for (const p of spots) {
-      if (Math.abs(p.z - front) > 0.05) continue;
-      const at = car.localToWorld(p.clone());
-      const out = new THREE.Vector3(Math.sign(p.x) || 1, 0, 0).transformDirection(car.matrixWorld);
-      if (!best || out.dot(cam) > best.out.dot(cam)) best = { at, out, fwd };
-    }
-    return best;
+  private frame(): void {
+    const a = CAM.base + CAM.swing * Math.sin(this.phase * Math.PI * 2);
+    const k = this.eased();
+    const r = CAM.r * (1 - (1 - CLOSE.r) * k);
+    this.camera.position.set(r * Math.sin(a), CAM.h * (1 - (1 - CLOSE.h) * k), r * Math.cos(a));
+    this.camera.lookAt(0, CAM.look, 0);
+    (this.bokeh.uniforms as { focus: { value: number } }).focus.value = this.camera.position.distanceTo(new THREE.Vector3(0, CAM.look, 0));
+    this.composer.render();
   }
 
   private resize(): void {

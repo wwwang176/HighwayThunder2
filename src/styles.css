@@ -452,9 +452,9 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .t-keys { margin-top: 0.4vw; display: flex; }
 /* The car as tuned, on the right over the car (the car its backdrop): measure by measure, each with the tuning's
    change beside it (its column kept: nothing moves as one shows). */
-#garage .t-side { position: absolute; right: 1.25vw; top: 1.25vw; width: 32vw; z-index: 4; box-sizing: border-box; padding: 1.5vw 1.7vw 1.4vw; --c: 1.35vw;
-  zoom: var(--ui-z, 1); pointer-events: none; visibility: hidden; opacity: 0; translate: 3vw 0; transition: opacity 0.3s, translate 0.3s, visibility 0s 0.3s; }
-#garage.tune .t-side { visibility: visible; opacity: 1; translate: 0 0; transition: opacity 0.3s, translate 0.3s; }
+#garage .t-side { position: absolute; right: 1.25vw; top: 50%; width: 32vw; z-index: 4; box-sizing: border-box; padding: 1.5vw 1.7vw 1.4vw; --c: 1.35vw;
+  zoom: var(--ui-z, 1); pointer-events: none; visibility: hidden; opacity: 0; translate: 3vw -50%; transition: opacity 0.3s, translate 0.3s, visibility 0s 0.3s; } /* (centred top to bottom) */
+#garage.tune .t-side { visibility: visible; opacity: 1; translate: 0 -50%; transition: opacity 0.3s, translate 0.3s; }
 #garage .d-ch.up { color: #4fe08a; }
 #garage .d-ch.down { color: #ff7a6b; }
 /* The details: a row each (its name, the value as tuned, the change); the feel ones a meter between two words.
