@@ -8,8 +8,12 @@
  * No playlist (or no songs): silent.
  */
 export const MUSIC_URL = 'audio/music/';
-/** Its loudness (the element's volume) as a rule; in the countdown this share of it; how fast it gets there (s). */
-export const MUSIC_VOLUME = 0.35;
+/**
+ * Its loudness (the element's volume) as a rule: the songs (-13 to -14 LUFS) about 4 dB under the player's engine
+ * (its clips -16 LUFS, through ENGINE_VOLUME and MASTER: about -24); the player's volume (settings) on top. In the
+ * countdown this share of it; how fast it gets there (s).
+ */
+export const MUSIC_VOLUME = 0.22;
 export const MUSIC_COUNTDOWN = 0.4;
 const MUSIC_FADE = 0.4;
 /** From one song to the next: this one faded out over `out` s, `gap` s of quiet, the next faded in over `in` s. */
@@ -115,6 +119,8 @@ export class Music {
   private paused = false;
   private readonly fade: MusicFade = { level: 1, rate: 0, switching: null, gapLeft: 0, how: SCENE_SWITCH };
   muted = false;
+  /** The player's volume for it (settings: 0..1 on top of MUSIC_VOLUME). */
+  userVolume = 1;
   /** Called with each song as it comes on (its title shown: ui/nowPlaying). */
   onSong: ((song: Song) => void) | null = null;
 
@@ -172,7 +178,7 @@ export class Music {
 
   /** Each frame (real time, `dt` s): `countdown` the countdown on (quieter), else as a rule. */
   update(dt: number, countdown: boolean): void {
-    this.target = this.muted ? 0 : MUSIC_VOLUME * (countdown ? MUSIC_COUNTDOWN : 1);
+    this.target = this.muted ? 0 : MUSIC_VOLUME * this.userVolume * (countdown ? MUSIC_COUNTDOWN : 1);
     this.volume = easeVolume(this.volume, this.target, dt);
     const step = stepFade(this.fade, dt);
     if (step === 'stop') this.el.pause();

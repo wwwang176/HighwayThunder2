@@ -382,6 +382,9 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 :is(#garage, #settings) .s-quality { display: flex; gap: 0.31vw; }
 :is(#garage, #settings) .s-quality .s-btn { padding: 0 0.55vw; font-size: 0.85vw; }
 :is(#garage, #settings) .s-quality .s-btn.sel::after { display: none; }
+:is(#garage, #settings) .g-settings .s-vol { display: flex; align-items: center; gap: 0.8vw; }
+:is(#garage, #settings) .g-settings .s-bars { width: 10.5vw; height: 0.9vw; cursor: pointer; }
+:is(#garage, #settings) .g-settings .s-pct { width: 2.6vw; font-size: 0.83vw; color: rgba(255, 255, 255, 0.75); }
 :is(#garage, #settings) .g-settings .btns { display: flex; gap: 1.15vw; margin-top: 2.1vw; }
 :is(#garage, #settings) .g-settings .btns .opt { flex: 1; height: 3.1vw; font-size: 1.15vw; }
 /* The controls pop-up. */

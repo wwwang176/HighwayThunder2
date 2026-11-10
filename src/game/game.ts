@@ -15,6 +15,7 @@ import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import { Sound, type SkidSource } from '../audio/sound';
 import { Music, songTitle } from '../audio/music';
 import { NowPlaying } from '../ui/nowPlaying';
+import { loadVolumes, saveVolumes, type Volumes } from '../audio/volumes';
 import type { RollSource } from '../audio/rolling';
 import type { LoopSource } from '../audio/placedLoops';
 import { createTuningPanel } from '../debug/tuning';
@@ -280,6 +281,8 @@ export class Game {
     });
     this.settings = new SettingsPopup(uiRoot);
     this.settings.onQuality = (pr) => this.setQuality(pr);
+    this.settings.onVolumes = (v) => this.setVolumes(v);
+    this.setVolumes(loadVolumes(localStorage));
     this.garage = new Garage(uiRoot, RIVAL_COLORS, (cars) => {
       saveSelection(localStorage, cars);
       this.startRace(cars, true);
@@ -404,14 +407,23 @@ export class Game {
     // Race keys do nothing in the garage.
     k.onPress('KeyR', () => !g.isOpen && this.tryReset());
     k.onPress('KeyM', () => {
-      this.sound.toggleMute();
-      this.music.muted = this.sound.muted;
+      const v = { ...loadVolumes(localStorage), muted: !this.sound.muted };
+      saveVolumes(localStorage, v);
+      this.setVolumes(v);
     });
     k.onPress('KeyN', () => this.music.skip());
     k.onPress('KeyV', () => !g.isOpen && (this.hoodCam = !this.hoodCam));
     k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
     k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
+  }
+
+  /** The player's volumes (settings, M) heard: the music's, the rest's, the mute. */
+  private setVolumes(v: Volumes): void {
+    this.sound.setVolume(v.sfx);
+    this.sound.setMuted(v.muted);
+    this.music.userVolume = v.music;
+    this.music.muted = v.muted;
   }
 
   /** The picture's quality (render/quality: the settings' pixel ratio), kept; drawn at it from now on. */
