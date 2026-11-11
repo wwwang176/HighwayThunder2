@@ -42,6 +42,7 @@ it('planner', async () => {
     const driver = new PlannerDriver();
     driver.accel = spec.ai.accel;
     driver.latAccel = spec.ai.latAccel;
+    driver.brake = spec.ai.brake;
     // TRACKER_JSON=<archive.json>: a candidate network (training/out/tracker) instead of the car's own.
     driver.tracker = trackerFrom(process.env.TRACKER_JSON ? JSON.parse(readFileSync(process.env.TRACKER_JSON, 'utf8')).weights : spec.ai.tracker);
     driver.recovery = trackerFrom(spec.ai.recovery);
@@ -50,6 +51,9 @@ it('planner', async () => {
     const sim = new TrainingSim([driver], seed, { spec, speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND,
       // RESET_ON_CRASH=60: a crash puts the car back on the road at 60 km/h, as a rival in the game, and it races on.
       resetOnCrash: process.env.RESET_ON_CRASH ? Number(process.env.RESET_ON_CRASH) / 3.6 : undefined,
+      // GAME_CONTACT=1: as in the game - the car hits the traffic for real (a hard hit wrecks it), put back only once
+      // stuck (under 5 km/h for 2 s, as a rival in the game); "light contacts" then counts the vehicles it wrecked.
+      gameContact: process.env.GAME_CONTACT === '1',
     });
     let maxV = 0;
     let offCentre = 0;

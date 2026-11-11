@@ -81,7 +81,15 @@ const SUPERCAR: CarSpec = {
       [250, 2.6],
       [300, 1.3],
     ],
-    brake: 9.9,
+    brake: [
+      [0, 9.8],
+      [50, 9.8],
+      [100, 10.4],
+      [150, 12.4],
+      [200, 14.2],
+      [250, 15.2],
+      [300, 16.4],
+    ],
     // Steady full-lock cornering (open ground).
     latAccel: [
       [0, 10.8],

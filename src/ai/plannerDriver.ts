@@ -3,7 +3,7 @@ import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import type { Brain } from './brain';
 import { ACROSS_YAW, baseSteer, netDrive, trackerFrom } from './netTracker';
-import { AccelTable, maxAccel, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
+import { AccelTable, maxAccel, maxBrake, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
 
@@ -13,9 +13,11 @@ export const REPLAN_EVERY = 0.25;
 const ACCEL_WINDOW = 0.3;
 /** 1/s: how hard it pulls back to the plan's speed when off it. */
 const SPEED_GAIN = 1.5;
-/** m/s² the car loses with no pedal (drag, rolling); and what full brake gives (measured 10.8-14). */
+/** m/s² the car loses with no pedal (drag, rolling); and what full brake gives, with no brake table (CarSpec.ai.brake). */
 const COAST_DECEL = 1;
 const FULL_BRAKE_DECEL = 11;
+/** What full brake gives at speed v (m/s): the car's table, FULL_BRAKE_DECEL with none. */
+const fullBrake = (v: number, table?: AccelTable | null) => (table ? maxBrake(v, table) : FULL_BRAKE_DECEL);
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
 /**
@@ -24,12 +26,12 @@ const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
  * controller only gave ~70 % and the car fell behind its plans), plus a pull
  * back toward the plan's speed.
  */
-export function planPedals(p: Plan, age: number, v: number, table?: AccelTable): { throttle: number; brake: number } {
+export function planPedals(p: Plan, age: number, v: number, table?: AccelTable, brakeTable?: AccelTable | null): { throttle: number; brake: number } {
   const now = planAt(p, age);
   const a = (planAt(p, age + ACCEL_WINDOW).v - now.v) / ACCEL_WINDOW + SPEED_GAIN * (now.v - v);
   if (a >= 0) return { throttle: clamp01(a / (0.95 * maxAccel(v, table))), brake: 0 }; // near flat out is flat out
   if (a > -COAST_DECEL) return { throttle: 0, brake: 0 };
-  return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / FULL_BRAKE_DECEL) };
+  return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / fullBrake(v, brakeTable)) };
 }
 const HALF_LENGTH = 2.2; // the car's, unless its SelfState says (the street racer's)
 const HALF_WIDTH = 0.93;
@@ -96,7 +98,14 @@ export interface PlanPath {
  * or sliding, straight on it is again.
  * `from`: m/s² it steps in at (lower while it is braking already: DRIVER_TUNING.emergencyRelease).
  */
-export function emergencyBrake(self: SelfState, traffic: TrafficBox[], plannedVD = 0, paths: PlanPath[] = [], from = DRIVER_TUNING.emergencyFrom): number {
+export function emergencyBrake(
+  self: SelfState,
+  traffic: TrafficBox[],
+  plannedVD = 0,
+  paths: PlanPath[] = [],
+  from = DRIVER_TUNING.emergencyFrom,
+  brakeTable: AccelTable | null = null,
+): number {
   let need = 0;
   const offsets = paths.map((p) => self.d - planAt(p.plan, p.age).d);
   const actualVD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
@@ -128,7 +137,7 @@ export function emergencyBrake(self: SelfState, traffic: TrafficBox[], plannedVD
     }
     need = Math.max(need, room <= 0.1 ? Infinity : (closing * closing) / (2 * room));
   }
-  return need < from ? 0 : Math.min(1, need / FULL_BRAKE_DECEL);
+  return need < from ? 0 : Math.min(1, need / fullBrake(self.vLong, brakeTable));
 }
 
 /**
@@ -191,6 +200,8 @@ export class PlannerDriver implements Driver {
   accel: AccelTable = STREET_RACER.ai.accel;
   /** The car's cornering grip (CarSpec.ai.latAccel): how hard its plans may turn (PLANNER.latGrip). */
   latAccel: AccelTable = STREET_RACER.ai.latAccel;
+  /** The car's full-brake deceleration by speed (CarSpec.ai.brake): plans, pedals and the emergency brake. None: 11 m/s² (PLANNER.hardBrake). */
+  brake: AccelTable | null = null;
   /** The car type's trained steering network (CarSpec.ai.tracker), used with DRIVER_TUNING.netTracker. */
   tracker: Brain | null = trackerFrom(STREET_RACER.ai.tracker);
   /** Its network for standing across the road after a crash (CarSpec.ai.recovery); none: `tracker` there too. */
@@ -239,6 +250,7 @@ export class PlannerDriver implements Driver {
         vD,
         accel: this.accelTable(),
         latAccel: this.latAccel,
+        ...(this.brake ? { brake: this.brake } : {}),
         halfWidth: self.halfWidth,
         halfLength: self.halfLength,
       };
@@ -253,7 +265,7 @@ export class PlannerDriver implements Driver {
     // Aims trackerLead s ahead on the plan (shorter than the lane controller's preview: that one leads on purpose;
     // here it ran the car 0.7 m ahead of the plan's sideways moves, into what the plan was still waiting to clear).
     const aim = planAt(this.plan, age + PLANNER.trackerLead);
-    const pedals = planPedals(this.plan, age, self.vLong, this.accelTable());
+    const pedals = planPedals(this.plan, age, self.vLong, this.accelTable(), this.brake);
     // The car type's network steers, and takes back some of the throttle (wheelspin, a sliding tail).
     let steer: number;
     let reverse = 0;
@@ -270,7 +282,7 @@ export class PlannerDriver implements Driver {
     const now = planAt(this.plan, age).dRate;
     const from = DRIVER_TUNING.emergencyFrom * (this.emergency ? DRIVER_TUNING.emergencyRelease : 1);
     const paths = [{ plan: this.plan, age }, ...this.earlier.map((e) => ({ plan: e.plan, age: this.clock - e.t }))];
-    const brake = emergencyBrake(self, traffic, PLANNER.steerClear && Math.abs(aim.dRate) > Math.abs(now) ? aim.dRate : now, paths, from);
+    const brake = emergencyBrake(self, traffic, PLANNER.steerClear && Math.abs(aim.dRate) > Math.abs(now) ? aim.dRate : now, paths, from, this.brake);
     this.emergency = brake > 0;
     if (brake > pedals.brake) {
       this.overrides++;

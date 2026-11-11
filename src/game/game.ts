@@ -621,6 +621,7 @@ export class Game {
     if (this.aiDriver instanceof PlannerDriver) {
       this.aiDriver.accel = spec.ai.accel;
       this.aiDriver.latAccel = spec.ai.latAccel;
+      this.aiDriver.brake = spec.ai.brake;
       this.aiDriver.tracker = trackerFrom(spec.ai.tracker);
       this.aiDriver.recovery = trackerFrom(spec.ai.recovery);
     }

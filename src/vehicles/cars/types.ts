@@ -33,8 +33,8 @@ export type CarStyle = 'super' | 'muscle' | 'jdm';
 export interface CarPerformance {
   /** Full-throttle acceleration (m/s²) at speeds (km/h), ascending. */
   accel: [kmh: number, accel: number][];
-  /** Full-brake deceleration (m/s²), the lowest measured. */
-  brake: number;
+  /** Full-brake deceleration (m/s²) at speeds (km/h), ascending: what the AI plans its braking with. */
+  brake: [kmh: number, decel: number][];
   /** Sideways acceleration (m/s²) it holds at full steering, at speeds (km/h), ascending. */
   latAccel: [kmh: number, accel: number][];
   /** Weights of its trained steering network (src/ai/netTracker.ts, training/tracker.train.ts); none: the plain tracker. */

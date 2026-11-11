@@ -1,4 +1,5 @@
-import { PHYSICS_DT, ROAD_LENGTH } from '../config';
+import { KMH, PHYSICS_DT, ROAD_LENGTH } from '../config';
+import { knocksOut } from '../game/contact';
 import { PhysicsWorld } from '../physics/physicsWorld';
 import { laneAt, laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
@@ -20,6 +21,15 @@ const START_LANE = 1;
 /** Settled in a lane: this close to its centre (m) and moving across slower than SETTLED_SIDEWAYS (m/s). */
 const HOLDING_LANE_TOLERANCE = 0.5;
 const SETTLED_SIDEWAYS = 1;
+/**
+ * With gameContact: stuck - put back - once under this speed (m/s) for STUCK_TIME s (counted only after first reaching
+ * it), as a rival in the game (RIVAL_TUNING.stuckSpeed / stuckTime). (60 km/h for 3 s counted the queue behind a wreck
+ * too: put back into it, again and again, and a car getting round a wreck slowly.)
+ */
+const STUCK_SPEED = 5 * KMH;
+const STUCK_TIME = 2;
+/** m/s: put back at this speed with no resetOnCrash (as RESET_SPEED_RIVAL in the game). */
+const STUCK_RESET_SPEED = 60 * KMH;
 
 /** One AI car in a generation. */
 export interface Ghost {
@@ -38,6 +48,10 @@ export interface Ghost {
   touching: Map<number, number>;
   /** Last time its body slipped past SLIDING (for RunResult.crashLog). */
   slidAt: number;
+  /** With gameContact: since when it has been under STUCK_SPEED (null: not, or not yet up to it since the start). */
+  slowSince: number | null;
+  /** With gameContact: it has been up to STUCK_SPEED since the start. */
+  rolling: boolean;
 }
 
 /** Body slip angle (rad) that counts as sliding: cornering hard and changing lanes it stays near 6°. */
@@ -97,6 +111,13 @@ export interface TrainingSimOptions {
   trafficSeesCars?: boolean;
   /** m/s: a crash does not end the run - the car is put back nearby at this speed, as a rival in the game (resets counted). */
   resetOnCrash?: number;
+  /**
+   * As in the game: the car has a body and hits the traffic (pushing, pushed), a hit closing in at
+   * CONTACT_TUNING.npcWreckSpeed or more wrecks the vehicle, a scrape it drives on from. No crash is judged: the car
+   * is put back (at resetOnCrash's speed, 60 km/h if none) only when stuck - under STUCK_SPEED for STUCK_TIME s.
+   * RunResult.contacts: the vehicles it wrecked.
+   */
+  gameContact?: boolean;
   /** The car type every car in this run is (default the supercar); its own top speed holds if lower than `speedCap`. */
   spec?: CarSpec;
 }
@@ -116,6 +137,9 @@ export class TrainingSim {
   readonly timeLimit: number;
   private readonly trafficSeesCars: boolean;
   private readonly resetOnCrash: number | null;
+  private readonly gameContact: boolean;
+  /** With gameContact: each ghost's velocity (world x/z) going into the step - a hit is judged on that, as in the game. */
+  private velBefore: { x: number; z: number }[] = [];
   time = 0;
   private boxes: TrafficBox[] = [];
   private touched: TrafficBox[] = [];
@@ -126,11 +150,12 @@ export class TrainingSim {
     this.timeLimit = opts.timeLimit ?? FITNESS.timeLimit;
     this.trafficSeesCars = opts.trafficSeesCars ?? false;
     this.resetOnCrash = opts.resetOnCrash ?? null;
+    this.gameContact = opts.gameContact ?? false;
     this.physics = PhysicsWorld.createSync();
     this.physics.timestep = PHYSICS_DT;
     this.traffic = new TrafficWorld(this.physics, mulberry32(seed), { oncoming: false });
     for (const d of drivers) {
-      const car = new PlayerCar(this.physics, null, { spec });
+      const car = new PlayerCar(this.physics, null, { spec, ...(this.gameContact ? { entity: { type: 'rival' as const, id: this.ghosts.length } } : {}) });
       car.params.maxSpeed = this.speedCap;
       car.surfaceGrip = surfaceGrip; // same ground as the player's car in the game
       car.resetTo(0, START_LANE, 0);
@@ -147,6 +172,8 @@ export class TrainingSim {
         lane: START_LANE,
         touching: new Map(),
         slidAt: -Infinity,
+        slowSince: null,
+        rolling: false,
       });
     }
     this.traffic.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, (f) => this.occupants(f));
@@ -181,8 +208,24 @@ export class TrainingSim {
       g.car.prePhysics(g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes, g.car.params), dt);
     }
     this.traffic.stepAI(dt, this.time, (frame) => (this.trafficSeesCars ? this.carObstacles(frame) : []));
-    this.physics.step((a, b) => {
-      this.traffic.onNpcContact(a, b);
+    if (this.gameContact)
+      this.ghosts.forEach((g, i) => {
+        const v = g.car.body.linvel();
+        this.velBefore[i] = { x: v.x, z: v.z };
+      });
+    this.physics.step((a, b, n) => {
+      const id = this.traffic.onNpcContact(a, b);
+      if (id === null || !this.gameContact) return;
+      // A ghost into a vehicle (game.ts onContact): a hit wrecks it, a scrape it drives on from.
+      const r = a.type === 'rival' ? a : b.type === 'rival' ? b : null;
+      const npc = this.traffic.npcs.get(id);
+      if (!r || !npc || npc.wrecked) return;
+      const nv = npc.parts[0].body.linvel();
+      if (knocksOut(this.velBefore[r.id], nv, n)) {
+        this.traffic.wreck(id);
+        const g = this.ghosts[r.id];
+        g.result.contacts = (g.result.contacts ?? 0) + 1;
+      }
     });
     for (const g of this.ghosts) if (g.alive) g.car.postPhysics();
     this.traffic.afterPhysics();
@@ -239,6 +282,10 @@ export class TrainingSim {
     }
     const [w, l] = [c.width, c.length];
     if (Math.abs(Math.atan2(c.vLat, Math.max(1, Math.abs(c.vLong)))) > SLIDING) g.slidAt = this.time;
+    if (this.gameContact) {
+      this.judgeStuck(g);
+      return;
+    }
     const offRoad = isOffRoad(c.s, c.d, c.yaw, w, l);
     const contact = offRoad
       ? 'crash'
@@ -261,6 +308,26 @@ export class TrainingSim {
         g.progressT = this.time;
       } else if (this.time - g.progressT > FITNESS.stallWindow) this.retire(g);
     }
+  }
+
+  /** With gameContact: put back nearby once under STUCK_SPEED for STUCK_TIME s (after first reaching it). */
+  private judgeStuck(g: Ghost): void {
+    const c = g.car;
+    if (c.speed >= STUCK_SPEED) {
+      g.rolling = true;
+      g.slowSince = null;
+      return;
+    }
+    if (!g.rolling) return;
+    g.slowSince ??= this.time;
+    if (this.time - g.slowSince < STUCK_TIME) return;
+    const speed = this.resetOnCrash ?? STUCK_RESET_SPEED;
+    (g.result.crashLog ??= []).push({ offRoad: isOffRoad(c.s, c.d, c.yaw, c.width, c.length), sliding: this.time - g.slidAt < 1, kmh: c.speed * 3.6 });
+    const spot = computeResetSpot(c.s, c.d, this.boxes.filter((b) => !b.phantom), speed);
+    c.resetTo(spot.s, spot.lane, speed);
+    g.driver.reset(c.d);
+    g.slowSince = null;
+    g.result.resets = (g.result.resets ?? 0) + 1;
   }
 
   /** Out of the race: the body stops simulating (no more cost) but keeps its last pose for drawing. */
