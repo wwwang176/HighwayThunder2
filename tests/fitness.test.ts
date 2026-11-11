@@ -40,6 +40,19 @@ describe('crash rules', () => {
     expect(hitsTraffic(0, laneCenter(2), 0, t)).toBe(false);
   });
 
+  it('a turned body is checked as it is, not by its bounding box', () => {
+    // Cutting left past a car in the next lane (behind it, its nose level with our tail): turned 0.17 rad,
+    // the tail swings toward +d - away from it. The bounding box reaches 0.36 m further left than the body.
+    const yaw = -0.17;
+    const w = 1.86, l = 4.4;
+    const bodyLeft = -(w / 2) * Math.cos(yaw) - (l / 2) * Math.abs(Math.sin(yaw)); // the box's left edge (nose corner)
+    const t = [{ s: -3.5, dMin: -3, dMax: bodyLeft + 0.1, v: 20, length: 4.4 }]; // into the box's left edge, beside the tail
+    expect(touching(0, 0, yaw, t)).toEqual([]);
+    expect(touching(0, 0, 0.17, t).length).toBe(1); // turned the other way (moving right) the tail swings left: into it
+    const level = [{ s: 0, dMin: -3, dMax: bodyLeft + 0.1, v: 20, length: 4.4 }]; // beside the nose corner: touching
+    expect(touching(0, 0, yaw, level).length).toBe(1);
+  });
+
   it('light contacts cost a little each, a crash a lot', () => {
     const clean = fitness({ distance: 5000, crashed: false, finishTime: null });
     const twice = fitness({ distance: 5000, crashed: false, finishTime: null, contacts: 2 });
