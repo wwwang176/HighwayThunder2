@@ -51,7 +51,7 @@ it('planner', async () => {
       // RESET_ON_CRASH=60: a crash puts the car back on the road at 60 km/h, as a rival in the game, and it races on.
       resetOnCrash: process.env.RESET_ON_CRASH ? Number(process.env.RESET_ON_CRASH) / 3.6 : undefined,
       // GAME_CONTACT=1: as in the game - the car hits the traffic for real (a hard hit wrecks it), put back only once
-      // stuck (under 60 km/h for 3 s); "light contacts" then counts the vehicles it wrecked.
+      // stuck (under 5 km/h for 2 s, as a rival in the game); "light contacts" then counts the vehicles it wrecked.
       gameContact: process.env.GAME_CONTACT === '1',
     });
     let maxV = 0;

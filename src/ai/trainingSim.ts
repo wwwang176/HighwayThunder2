@@ -21,9 +21,15 @@ const START_LANE = 1;
 /** Settled in a lane: this close to its centre (m) and moving across slower than SETTLED_SIDEWAYS (m/s). */
 const HOLDING_LANE_TOLERANCE = 0.5;
 const SETTLED_SIDEWAYS = 1;
-/** With gameContact: stuck - put back - once under this speed (m/s) for STUCK_TIME s (counted only after first reaching it). */
-const STUCK_SPEED = 60 * KMH;
-const STUCK_TIME = 3;
+/**
+ * With gameContact: stuck - put back - once under this speed (m/s) for STUCK_TIME s (counted only after first reaching
+ * it), as a rival in the game (RIVAL_TUNING.stuckSpeed / stuckTime). (60 km/h for 3 s counted the queue behind a wreck
+ * too: put back into it, again and again, and a car getting round a wreck slowly.)
+ */
+const STUCK_SPEED = 5 * KMH;
+const STUCK_TIME = 2;
+/** m/s: put back at this speed with no resetOnCrash (as RESET_SPEED_RIVAL in the game). */
+const STUCK_RESET_SPEED = 60 * KMH;
 
 /** One AI car in a generation. */
 export interface Ghost {
@@ -315,7 +321,7 @@ export class TrainingSim {
     if (!g.rolling) return;
     g.slowSince ??= this.time;
     if (this.time - g.slowSince < STUCK_TIME) return;
-    const speed = this.resetOnCrash ?? STUCK_SPEED;
+    const speed = this.resetOnCrash ?? STUCK_RESET_SPEED;
     (g.result.crashLog ??= []).push({ offRoad: isOffRoad(c.s, c.d, c.yaw, c.width, c.length), sliding: this.time - g.slidAt < 1, kmh: c.speed * 3.6 });
     const spot = computeResetSpot(c.s, c.d, this.boxes.filter((b) => !b.phantom), speed);
     c.resetTo(spot.s, spot.lane, speed);
