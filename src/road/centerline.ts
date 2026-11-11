@@ -206,8 +206,8 @@ export const STRAIGHT_ROAD = new Centerline([]);
 /** How a random road is laid out (m, degrees): its bends as real highways' at their speed. */
 export const RANDOM_ROAD = {
   /** Straight off the grid, and into the finish. */
-  startStraight: 500,
-  endStraight: 500,
+  startStraight: 100,
+  endStraight: 100,
   /** Each bend's radius (at 300 km/h R 1600 wants about 0.44 g), turn, and clothoids in and out. */
   radius: [1600, 2000] as const,
   angle: [10, 35] as const,
