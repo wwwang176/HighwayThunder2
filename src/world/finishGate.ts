@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MEDIAN_NEAR_X, RAIL_D, ROAD_LENGTH } from '../config';
+import type { Centerline } from '../road/centerline';
 
 /**
  * The finish: a gate of yellow light across our carriageway at the end of the race (z = -ROAD_LENGTH). Two bars
@@ -131,14 +132,35 @@ export class FinishGate {
     this.owed = this.fountains.map(() => 0);
   }
 
+  /** Across the road where it ends (s = ROAD_LENGTH), turned with it. */
+  setRoad(road: Centerline): void {
+    const { left, right, inset } = GATE;
+    const at = road.toWorld(ROAD_LENGTH, 0);
+    this.group.position.set(at.x, 0, at.z);
+    this.group.rotation.y = -road.heading(ROAD_LENGTH); // (its x across the road, as the road's d)
+    const m = road.toWorld(ROAD_LENGTH, (left + right) / 2);
+    this.mark.set(m.x, GATE.height + 1, m.z);
+    let i = 0;
+    for (const d of [left + inset + 0.25, right - inset - 0.25])
+      for (const off of [-FOUNTAIN.off, FOUNTAIN.off]) {
+        const f = road.toWorld(ROAD_LENGTH + off, d);
+        this.fountains[i++].set(f.x, 0.05, f.z);
+      }
+  }
+
+  /** How far the camera is from the gate (m, on the ground). */
+  private far(camera: { x: number; z: number }): number {
+    return Math.hypot(camera.x - this.group.position.x, camera.z - this.group.position.z);
+  }
+
   /** The gate seen or not (gone past the player's finish: the show's shots without it; its fountains go on). */
   set shown(on: boolean) {
     this.group.visible = on;
   }
 
-  /** The fountains `play` s on (the race's time), into `emit`, the camera `cameraZ` along (none from far off). */
-  spray(play: number, cameraZ: number, emit: SparkEmitter): void {
-    if (play <= 0 || Math.abs(cameraZ - Z) > FOUNTAIN.near) return;
+  /** The fountains `play` s on (the race's time), into `emit`, the camera at `camera` (none from far off). */
+  spray(play: number, camera: { x: number; z: number }, emit: SparkEmitter): void {
+    if (play <= 0 || this.far(camera) > FOUNTAIN.near) return;
     const within = ([lo, hi]: readonly [number, number]) => lo + Math.random() * (hi - lo);
     this.fountains.forEach((at, i) => {
       this.owed[i] += FOUNTAIN.rate * play;
@@ -159,12 +181,12 @@ export class FinishGate {
     f.set(x - GATE.left - GATE.inset, 0);
   }
 
-  /** `play` s on (the race's time), the camera `cameraZ` along: the curtain's drift, the flares, the fade in from far. */
-  update(play: number, cameraZ: number): void {
+  /** `play` s on (the race's time), the camera at `camera`: the curtain's drift, the flares, the fade in from far. */
+  update(play: number, camera: { x: number; z: number }): void {
     this.time += play;
     this.curtain.uniforms.time.value = this.time;
     for (const f of this.flashes) if (f.y >= 0) f.y = f.y + play > FLASH.life * 2 ? -1 : f.y + play;
-    const far = Math.abs(cameraZ - Z);
+    const far = this.far(camera);
     this.fade(1 - THREE.MathUtils.smoothstep(far, GATE.full, GATE.seenFrom));
   }
 

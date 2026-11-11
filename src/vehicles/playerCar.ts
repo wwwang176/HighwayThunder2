@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
+import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
 import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
@@ -148,13 +149,18 @@ export class PlayerCar {
   /** s on the rev limiter (-1: off it). */
   private onLimiter = -1;
   driveMode: DriveMode = 'D';
-  /** Optional per-position grip multiplier (e.g. grass). */
-  surfaceGrip: (x: number) => number = () => 1;
+  /** Optional grip multiplier by where across the road (d: e.g. the median's grass). */
+  surfaceGrip: (d: number) => number = () => 1;
+  /** The road it drives on (its s, d and road-relative yaw measured along it). */
+  road: Centerline = STRAIGHT_ROAD;
 
   // Read back from the body after each physics step.
   s = 0;
   d = 0;
+  /** Its heading against the road's where it is (0 along it, > 0 turned toward +d). */
   yaw = 0;
+  /** Its heading in the world (0 along -z, > 0 turned toward +x): `yaw` on a straight road. */
+  worldYaw = 0;
   vLong = 0;
   vLat = 0;
   /** Its acceleration (m/s²) along its nose and across it (+ toward its right, +d), over the last ~ACCEL_SMOOTH s. */
@@ -345,7 +351,7 @@ export class PlayerCar {
       ] as [number, number, number][],
       rollInfluence: rollInfluenceAt(speed, p),
       tire,
-      surfaceGrip: (x: number) => this.surfaceGrip(x),
+      surfaceGrip: (x: number, z: number) => this.surfaceGrip(this.road.project(x, z, this.s).d),
       frontBrakeApart: p.frontBrakeApart,
     };
   }
@@ -477,8 +483,9 @@ export class PlayerCar {
       const ax = (v.x - this.lastVx) / PHYSICS_DT;
       const az = (v.z - this.lastVz) / PHYSICS_DT;
       const k = PHYSICS_DT / (ACCEL_SMOOTH + PHYSICS_DT);
-      this.aLong += k * (ax * Math.sin(this.yaw) - az * Math.cos(this.yaw) - this.aLong);
-      this.aLat += k * (ax * Math.cos(this.yaw) + az * Math.sin(this.yaw) - this.aLat);
+      const h = this.worldYaw;
+      this.aLong += k * (ax * Math.sin(h) - az * Math.cos(h) - this.aLong);
+      this.aLat += k * (ax * Math.cos(h) + az * Math.sin(h) - this.aLat);
     }
     this.lastVx = v.x;
     this.lastVz = v.z;
@@ -491,13 +498,17 @@ export class PlayerCar {
   private readBack(): void {
     const t = this.body.translation();
     const v = this.body.linvel();
-    this.yaw = headingYaw(this.body.rotation());
-    this.s = -t.z;
-    this.d = t.x;
-    const fx = Math.sin(this.yaw);
-    const fz = -Math.cos(this.yaw);
+    const h = headingYaw(this.body.rotation());
+    this.worldYaw = h;
+    const at = this.road.project(t.x, t.z, this.s);
+    this.s = at.s;
+    this.d = at.d;
+    const rel = h - this.road.heading(at.s);
+    this.yaw = this.road.straight ? h : Math.atan2(Math.sin(rel), Math.cos(rel));
+    const fx = Math.sin(h);
+    const fz = -Math.cos(h);
     this.vLong = v.x * fx + v.z * fz;
-    this.vLat = v.x * Math.cos(this.yaw) + v.z * Math.sin(this.yaw);
+    this.vLat = v.x * Math.cos(h) + v.z * Math.sin(h);
   }
 
   private snapInterpolation(): void {
@@ -579,9 +590,19 @@ export class PlayerCar {
 
   resetTo(s: number, lane: number, speed: number): void {
     const p = this.params;
-    this.body.setTranslation({ x: laneCenter(lane), y: RIDE_Y + 0.02, z: -s }, true);
-    this.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-    this.body.setLinvel({ x: 0, y: 0, z: -speed }, true);
+    if (this.road.straight) {
+      this.body.setTranslation({ x: laneCenter(lane), y: RIDE_Y + 0.02, z: -s }, true);
+      this.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+      this.body.setLinvel({ x: 0, y: 0, z: -speed }, true);
+    } else {
+      // Along the road where it is put.
+      const at = this.road.toWorld(s, laneCenter(lane));
+      const th = this.road.heading(s);
+      this.body.setTranslation({ x: at.x, y: RIDE_Y + 0.02, z: at.z }, true);
+      this.body.setRotation(quatFromYaw(th), true);
+      this.body.setLinvel({ x: speed * Math.sin(th), y: 0, z: -speed * Math.cos(th) }, true);
+    }
+    this.s = s; // (the projection's hint: from where it is now)
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.steer = 0;
     this.throttle = 0;

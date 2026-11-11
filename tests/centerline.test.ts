@@ -83,7 +83,8 @@ describe('randomRoad', () => {
   it('straight at both ends, its bends within the radii, its heading within bounds', () => {
     for (let seed = 1; seed <= 40; seed++) {
       const road = randomRoad(mulberry32(seed), 5000);
-      expect(road.length).toBeLessThanOrEqual(5000 - RANDOM_ROAD.endStraight + 1e-6);
+      // (its last bend ends where the finish's straight begins)
+      expect(road.length).toBeCloseTo(5000 - RANDOM_ROAD.endStraight, 6);
       for (let s = 0; s < RANDOM_ROAD.startStraight; s += 10) expect(road.curvature(s)).toBe(0);
       expect(road.curvature(5000 - RANDOM_ROAD.endStraight + 1)).toBe(0);
       if (!road.straight) {

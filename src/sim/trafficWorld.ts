@@ -244,7 +244,11 @@ export class TrafficWorld {
     }
   }
 
+  /** No traffic spawned (the curved road's trial: the traffic doesn't follow its bends yet). */
+  off = false;
+
   private spawn(focus: TrafficFocus, occupants: (frame: RoadFrame) => Occupant[], initial: boolean): void {
+    if (this.off) return;
     for (const side of this.sides) {
       const occupied: Occupant[] = [];
       for (const a of side.sim.agents.values()) {

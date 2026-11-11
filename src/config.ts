@@ -28,6 +28,8 @@ export const WRECK_LIFETIME = 12;
 export const MAX_WRECKS = 12;
 
 export const BEST_TIME_KEY = 'highwayThunder2.bestTime.5km'; // per race length: 10 km times are not 5 km records
+/** The curved road's best time (its bends at random each race): not a straight road's record. */
+export const CURVED_BEST_TIME_KEY = 'highwayThunder2.bestTime.5km-curve';
 
 export type VehicleKind = 'car' | 'truck' | 'container';
 

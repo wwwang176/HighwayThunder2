@@ -47,9 +47,10 @@ export class LampPools {
     mat.onBeforeCompile = (shader, renderer) => {
       own(shader, renderer);
       Object.assign(shader.uniforms, this.uniforms);
+      // (where on the road, not the world: the road may bend; d across, -s along as the old world z)
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nvarying vec2 vPool;')
-        .replace('#include <project_vertex>', '#include <project_vertex>\nvPool = (modelMatrix * vec4(transformed, 1.0)).xz;');
+        .replace('#include <common>', '#include <common>\nattribute vec2 roadPos;\nvarying vec2 vPool;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvPool = roadPos;');
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>',

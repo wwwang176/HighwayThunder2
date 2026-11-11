@@ -226,27 +226,34 @@ export const RANDOM_ROAD = {
 export function randomRoad(rand: () => number, length: number): Centerline {
   const R = RANDOM_ROAD;
   const within = ([lo, hi]: readonly [number, number]) => lo + rand() * (hi - lo);
-  const pieces: Piece[] = [...straight(R.startStraight)];
+  const bends: { gap: number; pieces: Piece[] }[] = [];
   let s = R.startStraight;
   let heading = 0;
   const last = length - R.endStraight;
   for (;;) {
-    const gap = within(R.gap);
     const radius = within(R.radius);
     const ease = within(R.ease);
-    let angle = within(R.angle);
-    // The longest turn that still fits before the finish's straight.
-    const room = last - s - gap;
-    const fits = ((room - ease) / radius) * (180 / Math.PI);
-    const least = ((ease / radius) * 180) / Math.PI + 1; // (an arc left between the clothoids)
-    angle = Math.min(angle, fits);
-    if (angle < Math.max(R.angle[0], least)) break;
+    const least = Math.max(R.angle[0], ((ease / radius) * 180) / Math.PI + 1); // (an arc left between the clothoids)
+    // The longest turn that still fits before the finish's straight (no straight before it, if that is what fits).
+    const fitting = (gap: number) => ((last - s - gap - ease) / radius) * (180 / Math.PI);
+    let gap = within(R.gap);
+    if (fitting(gap) < least) gap = 0;
+    const angle = Math.min(within(R.angle), fitting(gap));
+    if (angle < least) break;
     let dir = rand() < 0.5 ? -1 : 1;
     if (Math.abs(heading + dir * angle) > R.maxHeading) dir = -dir;
-    if (gap > 0) pieces.push(...straight(gap));
-    pieces.push(...bend(radius, dir * angle, ease));
+    bends.push({ gap, pieces: bend(radius, dir * angle, ease) });
     s += gap + (radius * angle * Math.PI) / 180 + ease;
     heading += dir * angle;
   }
+  // What is left before the finish's straight shared out between the bends (the start's straight as it is).
+  const between = bends.length > 1 ? bends.length - 1 : bends.length;
+  const extra = between ? (last - s) / between : 0;
+  const pieces: Piece[] = [...straight(R.startStraight)];
+  bends.forEach((b, i) => {
+    const gap = b.gap + (bends.length > 1 ? (i > 0 ? extra : 0) : extra);
+    if (gap > 0) pieces.push(...straight(gap));
+    pieces.push(...b.pieces);
+  });
   return new Centerline(pieces);
 }

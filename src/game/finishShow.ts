@@ -73,16 +73,21 @@ export class FinishShow {
     private readonly car: PlayerCar,
   ) {
     this.frame();
-    const at = car.mesh.position;
+    // (across the road: its d; along it: its s)
+    const road = car.road;
+    const at = car.d;
     // Past the car by a bit more than it goes in the first shot (the race slowed: it stops short), beside the road
     // on the nearest side with room (not where the car is: it would come through the camera).
     const goes = THREE.MathUtils.clamp(Math.abs(car.speed) * slowedSeconds(THROUGH) * 1.15, 8, 50);
     const edges = [RAIL_D - 0.8, MEDIAN_NEAR_X + 0.8];
-    const room = edges.filter((x) => Math.abs(x - at.x) >= 6);
-    const x = room.length ? room.reduce((a, b) => (Math.abs(b - at.x) < Math.abs(a - at.x) ? b : a)) : edges.reduce((a, b) => (Math.abs(b - at.x) > Math.abs(a - at.x) ? b : a));
-    this.roadside.set(x, 1.0, at.z).addScaledVector(this.ahead, goes).setX(x);
+    const room = edges.filter((x) => Math.abs(x - at) >= 6);
+    const x = room.length ? room.reduce((a, b) => (Math.abs(b - at) < Math.abs(a - at) ? b : a)) : edges.reduce((a, b) => (Math.abs(b - at) > Math.abs(a - at) ? b : a));
+    const th = road.heading(car.s);
+    const along = this.ahead.x * Math.sin(th) - this.ahead.z * Math.cos(th); // (its heading along the road's)
+    const spot = road.toWorld(car.s + along * goes, x);
+    this.roadside.set(spot.x, 1.0, spot.z);
     // The shots after it from that side of the car, so it keeps going the same way across the picture.
-    const side = Math.sign((x - at.x) * this.right.x + 1e-6);
+    const side = Math.sign((x - at) * (this.right.x * Math.cos(th) + this.right.z * Math.sin(th)) + 1e-6);
     this.shots = [
       { seconds: THROUGH, from: { pos: [0, 0, 0], look: [0, 0, 0], fov: 28 }, to: { pos: [0, 0, 0], look: [0, 0, 0], fov: 38 }, ease: linear },
       {

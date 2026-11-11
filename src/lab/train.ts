@@ -123,7 +123,7 @@ async function boot() {
     beams.end();
     if (leader) {
       const car = leader.car;
-      road.update(car.s, car.d);
+      road.update(car.s);
       rig.update(dt, new THREE.Vector3(lp.x, lp.y, lp.z), car.yaw, car.body.linvel(), car.speed, 83.3);
     }
     bodies.begin(camera);
