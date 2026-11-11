@@ -75,7 +75,7 @@ describe('plan', () => {
     const p = plan(ego(130), boxes);
     expect(clearOfAll(p, boxes)).toBe(true);
     // Tailgates the 120 km/h car in lane 1 while it pulls away from the rest...
-    expect(p.points.slice(1, 5).every((x) => laneAt(x.d) === 1)).toBe(true);
+    expect(p.points.slice(1, 4).every((x) => laneAt(x.d) === 1)).toBe(true);
     // ...and gets at least as far as staying on its bumper would (here: past the 85 km/h car into lane 2).
     const leaderEnd = boxes[1].s + boxes[1].v * PLANNER.horizon;
     expect(last(p).s).toBeGreaterThan(leaderEnd - 20);
@@ -86,7 +86,8 @@ describe('plan', () => {
     for (const t of [...boxes]) boxes.push({ ...t, s: t.s + 12 }); // two rows, no gap between them
     const p = plan(ego(130), boxes);
     expect(clearOfAll(p, boxes)).toBe(true);
-    expect(laneAt(last(p).d)).toBe(2);
+    // Lane 2 (the 110 km/h car's) - or, as that car pulls away from lane 3's, cutting in ahead of them.
+    expect([2, 3]).toContain(laneAt(last(p).d));
     expect(last(p).s).toBeGreaterThan(30 + 110 * KMH * PLANNER.horizon - 20);
   });
 

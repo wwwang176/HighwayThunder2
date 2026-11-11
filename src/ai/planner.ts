@@ -133,6 +133,13 @@ export const PLANNER = {
    */
   trackerLead: 0.15, // 0.3 left no room in a gap little over the car's length (the cut-in had to be 0.3 s clear)
   /**
+   * ...but cutting in ahead of the car it is passing (behind it, slower by less than passedDv m/s) only this
+   * early: it falls back, the lead only kept the cut-in waiting a car's length (two cars side by side a few
+   * metres apart were not passed). 60-race benches, three cars: 0.9 s faster, 22 -> 28 resets.
+   */
+  passedLead: 0,
+  passedDv: 25, // 90 km/h: past ordinary traffic (more slower than that) the full lead is kept
+  /**
    * A car ahead needs only the room to steer clear of it, not to brake down to
    * its speed, whenever the car can get out of its way sideways: holding a line
    * that only clips its side (e.g. swung out past the car being overtaken, the
@@ -599,16 +606,17 @@ function collides(
       // Merging in alongside or from behind: it waits for us (in the game). Merging in ahead: let it in.
       if (inLane && t.id !== undefined && merging.has(t.id) && r0 < egoHalfL && r0 > -(reach + MERGE_YIELD)) continue;
       if (Math.sign(r0) !== Math.sign(r1)) return true; // passed through it
+      const va = n.v + accel * Math.max(0, u0) * dt;
+      const vb = n.v + accel * Math.max(0, u1) * dt;
       let rEarly: number | null = null;
       if (sideways && t.dMax > d1 + off - halfW && t.dMin < d1 + off + halfW) {
         // Moving toward it: the car gets level with it up to trackerLead s early, so where it was then counts too
-        // (only stricter for one being passed - it was still alongside - braking does not help a sideswipe).
-        const uEarly = u0 - P.trackerLead / dt;
+        // (only stricter for one being passed - it was still alongside - braking does not help a sideswipe;
+        // passedLead for the slower one behind it, the one it cuts in ahead of).
+        const uEarly = u0 - (r0 < 0 && r1 < 0 && t.v < Math.min(va, vb) && Math.min(va, vb) - t.v < P.passedDv ? P.passedLead : P.trackerLead) / dt;
         rEarly = t.s + t.v * (t0 + uEarly * dt) - (sAt(n.s, n.v, accel, dt, uEarly) + along);
         if (Math.sign(rEarly) !== Math.sign(r0)) return true;
       }
-      const va = n.v + accel * Math.max(0, u0) * dt;
-      const vb = n.v + accel * Math.max(0, u1) * dt;
       if (r0 >= 0) {
         // Ahead: right on the bumper, but never closer than it takes to brake down to its speed - without this
         // the plan closed in fast up to the last moment and the emergency brake did the braking (all five

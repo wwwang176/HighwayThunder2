@@ -91,7 +91,7 @@ export function isOffRoad(s: number, d: number, yaw: number, w = CAR_W, l = CAR_
 }
 
 /**
- * The car's bounding box overlaps a vehicle or wreck. Traffic from behind in
+ * The car's body (turned as it is) overlaps a vehicle or wreck. Traffic from behind in
  * `ownLane` (the lane the car holds, or is leaving) does not count: the traffic
  * does not see the AI cars in training, but in the game it brakes for the
  * player, so a car running into the AI's back there is not the AI's crash
@@ -102,6 +102,23 @@ export function isOffRoad(s: number, d: number, yaw: number, w = CAR_W, l = CAR_
  */
 export function hitsTraffic(s: number, d: number, yaw: number, traffic: TrafficBox[], ownLane: number | null = null): boolean {
   return touching(s, d, yaw, traffic, ownLane).length > 0;
+}
+
+/** The turned body overlaps the box along its own length and width too (the road's axes are the bounding box's test). */
+function bodyMeets(s: number, d: number, yaw: number, w: number, l: number, t: TrafficBox): boolean {
+  const c = Math.cos(yaw);
+  const si = Math.sin(yaw);
+  let fMin = Infinity, fMax = -Infinity, nMin = Infinity, nMax = -Infinity;
+  for (const bs of [t.s - t.length / 2, t.s + t.length / 2])
+    for (const bd of [t.dMin, t.dMax]) {
+      const f = (bs - s) * c + (bd - d) * si;
+      const n = -(bs - s) * si + (bd - d) * c;
+      fMin = Math.min(fMin, f);
+      fMax = Math.max(fMax, f);
+      nMin = Math.min(nMin, n);
+      nMax = Math.max(nMax, n);
+    }
+  return fMin <= l / 2 && fMax >= -l / 2 && nMin <= w / 2 && nMax >= -w / 2;
 }
 
 /** What `hitsTraffic` would count as hit, one entry per vehicle or wreck touched. */
@@ -133,6 +150,9 @@ export function touching(
     if (ownLane !== null && t.id !== undefined && traffic.some((x) => x.phantom && x.id === t.id)) continue; // merging into us
     if (t.s + t.length / 2 < sMin || t.s - t.length / 2 > sMax) continue;
     if (t.dMax < dMin || t.dMin > dMax) continue;
+    // The body itself, turned: its bounding box pokes out past it 0.2-0.4 m a side at a lane change's angle
+    // (the tail swung out where the body is not - cutting in past a car it was a crash 0.3-0.8 m clear of it).
+    if (!bodyMeets(s, d, yaw, w, l, t)) continue;
     out.push(t);
   }
   return out;
