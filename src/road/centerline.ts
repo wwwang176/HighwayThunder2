@@ -208,8 +208,8 @@ export const RANDOM_ROAD = {
   /** Straight off the grid, and into the finish. */
   startStraight: 500,
   endStraight: 500,
-  /** Each bend's radius (at 300 km/h R 2000 wants about 0.35 g), turn, and clothoids in and out. */
-  radius: [2000, 2500] as const,
+  /** Each bend's radius (at 300 km/h R 1600 wants about 0.44 g), turn, and clothoids in and out. */
+  radius: [1600, 2000] as const,
   angle: [10, 35] as const,
   ease: [150, 250] as const,
   /** Straight between bends (0: one bend straight into the next, an S). */
@@ -220,7 +220,7 @@ export const RANDOM_ROAD = {
 
 /**
  * A road `length` m long laid out at random (`rand`: uniform in [0, 1)): straight off the grid, bends of radius
- * 2000-2500 m either way each eased in and out by clothoids, straights between some, and straight into the
+ * 1600-2000 m either way each eased in and out by clothoids, straights between some, and straight into the
  * finish (RANDOM_ROAD).
  */
 export function randomRoad(rand: () => number, length: number): Centerline {
