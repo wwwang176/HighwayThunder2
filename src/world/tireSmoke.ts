@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { lowBeamCookie, TAN_HALF } from '../vehicles/headlight';
 
 const MAX = 700;
-const LIFE = 1.6; // s
+const LIFE = 1.12; // s (1.6 hung about too long)
+/** A puff's growth (m/s of size) and fade-in (s): as at the 1.6 s life - the shorter one only ends it sooner. */
+const PUFF_GROW = 2;
+const PUFF_FADE_IN = 0.2;
 export const SMOKE_LIFE = LIFE;
 const ALBEDO = 0.86;
 /** Night sky glow + moon reaching the smoke (irradiance, linear). */
@@ -31,9 +34,9 @@ const SMOKE_CUT_SOFT = 0.15;
 const SMOKE_SPILL = 0.08;
 /**
  * A puff at its thickest (its alpha; how many puffs, as they were): at 0.45 a burnout's cloud was too dense; at
- * 0.27, lit round the lamps too (SMOKE_SPILL), a rival's smoke ahead hid the road.
+ * 0.27, lit round the lamps too (SMOKE_SPILL), a rival's smoke ahead hid the road; 0.18 still too thick.
  */
-const PUFF_OPACITY = 0.18;
+const PUFF_OPACITY = 0.09;
 /** A puff's climb (m/s): as it starts, and the most; its lift (m/s², less while it still moves fast). */
 const RISE_FROM = 0.1;
 const RISE_TOP = 0.9;
@@ -101,8 +104,7 @@ export function smokeLightFromSpot(l: THREE.SpotLight): SmokeLight {
  */
 export function puffLook(age: number): { size: number; alpha: number } {
   if (age >= LIFE) return { size: 0, alpha: 0 };
-  const t = age / LIFE;
-  return { size: 0.8 + t * 3.2, alpha: PUFF_OPACITY * (1 - t) * Math.min(1, t * 8) };
+  return { size: 0.8 + age * PUFF_GROW, alpha: PUFF_OPACITY * (1 - age / LIFE) * Math.min(1, age / PUFF_FADE_IN) };
 }
 
 const vec3s = () => Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector3());
