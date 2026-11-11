@@ -70,6 +70,14 @@ export const DRIVER_TUNING = {
    * time it got there and clipped it.
    */
   pathLag: 0.3,
+  /**
+   * A car the plans take it past is no reason to brake only while stopping for it straight on would take at most this
+   * share of the car's full brake (its table at its speed): past that, if the pass fails no brake can save it, so it
+   * brakes anyway. Infinity: the plans are believed whatever it would take.
+   * Not used (Infinity): most of those passes come off. Muscle car, 60 game-contact races (wrecked / resets / time):
+   * Infinity 15 / 3 / 92.5 s; 1: 10 / 1, 2.2 +- 0.5 s slower; 0.8: 5 / 1, 3.4 +- 0.4 s slower.
+   */
+  trustUpTo: Infinity,
   /** Steer with the car type's trained network (PlannerDriver.tracker) where it has one; off: the plain tracker. */
   netTracker: true,
 };
@@ -122,7 +130,9 @@ export function emergencyBrake(
     const gap = t.s - t.length / 2 - (self.s + (self.halfLength ?? HALF_LENGTH));
     const room = gap - STOP_GAP;
     const overlap = Math.min(t.dMax, self.d + halfW) - Math.max(t.dMin, self.d - halfW);
-    if (onPlan && overlap <= DRIVER_TUNING.pathOverlap) {
+    const needHere = room <= 0.1 ? Infinity : (closing * closing) / (2 * room);
+    const trusted = needHere <= DRIVER_TUNING.trustUpTo * fullBrake(self.vLong, brakeTable);
+    if (trusted && onPlan && overlap <= DRIVER_TUNING.pathOverlap) {
       const t0 = Math.max(0, gap) / closing, t1 = (t.s - self.s) / closing;
       const sides = paths.map((p, i) => passSide(p, offsets[i], lags[i], halfW, t, t0, t1));
       if (sides[0] !== 0 && sides.every((x) => x === sides[0])) continue;
