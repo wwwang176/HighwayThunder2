@@ -95,6 +95,15 @@ describe('randomRoad', () => {
     }
   });
 
+  it('no straight between the ends: bend after bend (curvature 0 only where one eases into the next)', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const road = randomRoad(mulberry32(seed), 5000);
+      let flat = 0;
+      for (let s = RANDOM_ROAD.startStraight + 0.37; s < 5000 - RANDOM_ROAD.endStraight; s += 1) if (road.curvature(s) === 0) flat++;
+      expect(flat).toBe(0);
+    }
+  });
+
   it('has bends (not all straight)', () => {
     let bent = 0;
     for (let seed = 1; seed <= 20; seed++) if (!randomRoad(mulberry32(seed), 5000).straight) bent++;

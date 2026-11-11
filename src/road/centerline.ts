@@ -205,55 +205,59 @@ export const STRAIGHT_ROAD = new Centerline([]);
 
 /** How a random road is laid out (m, degrees): its bends as real highways' at their speed. */
 export const RANDOM_ROAD = {
-  /** Straight off the grid, and into the finish. */
+  /** Straight off the grid, and into the finish (between them, bend after bend: no straight). */
   startStraight: 100,
   endStraight: 100,
   /** Each bend's radius (at 300 km/h R 1000 wants about 0.71 g), turn, and clothoids in and out. */
   radius: [1000, 1750] as const,
   angle: [10, 35] as const,
   ease: [150, 250] as const,
-  /** Straight between bends (0: one bend straight into the next, an S). */
-  gap: [0, 400] as const,
+  /** The last bend may turn this far (degrees) to reach the finish's straight (with room for a bend after it at any less: BEND_ROOM). */
+  longest: 50,
   /** The road's heading kept within this of the start's (it never doubles back). */
-  maxHeading: 45,
+  maxHeading: 50,
 };
 
+/** Room enough for any bend (m): the shortest one at the widest radius with the longest clothoids. */
+const BEND_ROOM =
+  RANDOM_ROAD.radius[1] * Math.max((RANDOM_ROAD.angle[0] * Math.PI) / 180, RANDOM_ROAD.ease[1] / RANDOM_ROAD.radius[1] + Math.PI / 180) +
+  RANDOM_ROAD.ease[1];
+
 /**
- * A road `length` m long laid out at random (`rand`: uniform in [0, 1)): straight off the grid, bends of radius
- * 1000-1750 m either way each eased in and out by clothoids, straights between some, and straight into the
- * finish (RANDOM_ROAD).
+ * A road `length` m long laid out at random (`rand`: uniform in [0, 1)): straight off the grid, then bend after
+ * bend (radius 1000-1750 m, either way, each eased in and out by clothoids: one bend's easing out runs straight
+ * into the next's easing in, no straight between) to the finish's straight (RANDOM_ROAD). The last bends are sized
+ * so they end just there.
  */
 export function randomRoad(rand: () => number, length: number): Centerline {
   const R = RANDOM_ROAD;
   const within = ([lo, hi]: readonly [number, number]) => lo + rand() * (hi - lo);
-  const bends: { gap: number; pieces: Piece[] }[] = [];
+  const deg = (rad: number) => (rad * 180) / Math.PI;
+  const pieces: Piece[] = [...straight(R.startStraight)];
   let s = R.startStraight;
   let heading = 0;
   const last = length - R.endStraight;
-  for (;;) {
+  while (last - s > 1e-6) {
+    const room = last - s;
     const radius = within(R.radius);
     const ease = within(R.ease);
-    const least = Math.max(R.angle[0], ((ease / radius) * 180) / Math.PI + 1); // (an arc left between the clothoids)
-    // The longest turn that still fits before the finish's straight (no straight before it, if that is what fits).
-    const fitting = (gap: number) => ((last - s - gap - ease) / radius) * (180 / Math.PI);
-    let gap = within(R.gap);
-    if (fitting(gap) < least) gap = 0;
-    if (fitting(gap) < least) break; // (no room left for a bend)
-    const angle = Math.min(Math.max(within(R.angle), least), fitting(gap));
+    const least = Math.max(R.angle[0], deg(ease / radius) + 1); // (an arc left between the clothoids)
+    const all = deg((room - ease) / radius); // (the turn that ends just at the finish's straight)
+    if (all < least) {
+      // (only when the road is too short for one bend)
+      pieces.push(...straight(room));
+      break;
+    }
+    let angle = Math.min(Math.max(within(R.angle), least), all);
+    // Too little left after it for another bend: this one to the finish's straight, or leaving room for one more.
+    const after = room - (radius * angle * Math.PI) / 180 - ease;
+    if (after > 1e-6 && after < BEND_ROOM) angle = all <= R.longest ? all : deg((room - BEND_ROOM - ease) / radius);
+    // Either way, kept within the heading's bounds (turning back toward the start's heading if need be).
     let dir = rand() < 0.5 ? -1 : 1;
     if (Math.abs(heading + dir * angle) > R.maxHeading) dir = -dir;
-    bends.push({ gap, pieces: bend(radius, dir * angle, ease) });
-    s += gap + (radius * angle * Math.PI) / 180 + ease;
+    pieces.push(...bend(radius, dir * angle, ease));
+    s += (radius * angle * Math.PI) / 180 + ease;
     heading += dir * angle;
   }
-  // What is left before the finish's straight shared out between the bends (the start's straight as it is).
-  const between = bends.length > 1 ? bends.length - 1 : bends.length;
-  const extra = between ? (last - s) / between : 0;
-  const pieces: Piece[] = [...straight(R.startStraight)];
-  bends.forEach((b, i) => {
-    const gap = b.gap + (bends.length > 1 ? (i > 0 ? extra : 0) : extra);
-    if (gap > 0) pieces.push(...straight(gap));
-    pieces.push(...b.pieces);
-  });
   return new Centerline(pieces);
 }
