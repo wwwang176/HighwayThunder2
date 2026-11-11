@@ -264,7 +264,7 @@ export class PhysicsWorld {
    * whole curved rail (a plane touching the inner rail of a bend at one spot cuts across the road a few hundred
    * metres on), nor a run of boxes (a car sliding along them meets each box's end, and is stopped and thrown off);
    * so each car near a rail gets a plane of its own, touching the rail where the car is (RailSlots: within a car's
-   * length a bend of R 1250 strays from it by a millimetre or two), the planes as the straight road's otherwise.
+   * length a bend of R 1000 strays from it by a few millimetres), the planes as the straight road's otherwise.
    */
   setRoad(road: Centerline): void {
     this.road = road;

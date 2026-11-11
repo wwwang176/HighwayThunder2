@@ -247,7 +247,7 @@ diffuseColor.rgb *= 1.0 - ${WET.darken.toFixed(2)} * wet;`,
   return mat;
 }
 
-/** The ribbons' rows along the road (m apart): a bend of R 1250 strays from a 5 m chord by a millimetre or two. */
+/** The ribbons' rows along the road (m apart): a bend of R 1000 strays from a 5 m chord by 3 mm. */
 const SEG = 5;
 const ROWS = STRIP_LEN / SEG + 1;
 /** The grass's columns across the road (d, m): close together near the road (where the lamps' pools fall). */
