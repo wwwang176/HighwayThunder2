@@ -236,6 +236,7 @@ export class Rivals {
       const driver = new PlannerDriver(makeSource());
       driver.accel = spec.ai.accel;
       driver.latAccel = spec.ai.latAccel;
+      driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
       driver.recovery = trackerFrom(spec.ai.recovery);
       const r: Rival = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };

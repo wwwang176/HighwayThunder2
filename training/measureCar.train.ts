@@ -9,7 +9,7 @@ import { KMH, PHYSICS_DT } from '../src/config';
 
 /**
  * Measures a car type's numbers for its CarSpec.ai (what the AI plans with):
- * full-throttle acceleration every 50 km/h, and full-brake deceleration.
+ * full-throttle acceleration and full-brake deceleration every 50 km/h.
  *   CAR=street-racer npx vitest run --config training/vitest.config.ts training/measureCar.train.ts
  */
 it('measure car', async () => {
@@ -45,13 +45,21 @@ it('measure car', async () => {
     accel.push([mark, Math.round(((car.speed - v0) / 0.5) * 10) / 10]);
   }
 
-  let brake = Infinity;
-  for (const from of [100, 200]) {
-    car.resetTo(1000 + from * 5, 1, from * KMH);
+  // Full-brake deceleration around each mark: from 15 km/h above it, the pedal down from cruising (as the AI brakes),
+  // the mean over the 30 km/h it takes to lose. (The 0 km/h point is the 50 one.)
+  const brake: [number, number][] = [];
+  for (const mark of marks.slice(1)) {
+    car.resetTo(1000 + mark * 5, 1, (mark + 15) * KMH);
+    for (let i = 0; i < 0.3 / PHYSICS_DT; i++) step(0.3, 0);
     const v0 = car.speed;
-    for (let i = 0; i < 1 / PHYSICS_DT; i++) step(0, 1);
-    brake = Math.min(brake, v0 - car.speed);
+    let t = 0;
+    while (v0 - car.speed < 30 * KMH && t < 10) {
+      step(0, 1);
+      t += PHYSICS_DT;
+    }
+    brake.push([mark, Math.round(((v0 - car.speed) / t) * 10) / 10]);
   }
+  brake.unshift([0, brake[0][1]]);
   physics.free();
 
   // Cornering grip: full steering at each speed for 1.5 s on open ground; the sideways acceleration
@@ -84,6 +92,6 @@ it('measure car', async () => {
 
   const table = (rows: [number, number][]) => rows.map(([k, a]) => `      [${k}, ${a}],`).join('\n');
   process.stdout.write(
-    `${spec.id}: paste into its CarSpec\n  ai: {\n    accel: [\n${table(accel)}\n    ],\n    brake: ${brake.toFixed(1)},\n    latAccel: [\n${table(latAccel)}\n    ],\n  },\n`,
+    `${spec.id}: paste into its CarSpec\n  ai: {\n    accel: [\n${table(accel)}\n    ],\n    brake: [\n${table(brake)}\n    ],\n    latAccel: [\n${table(latAccel)}\n    ],\n  },\n`,
   );
 });

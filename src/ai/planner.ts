@@ -69,7 +69,7 @@ export const PLANNER = {
    * measured p95 tracking error while moving sideways (0.45 m).
    */
   swingMargin: 0.1, // per SWING_PER (3.75 m/s) sideways: a quarter lane a step on the 0.25 s grid (0.5 s grid: 0.1, as 0.05 per its cell)
-  /** Hardest braking it plans with, and assumes for the room to slow down to a car ahead (measured: 10.8-14). */
+  /** Hardest braking it plans with, and assumes for the room to slow down to a car ahead, with no PlanEgo.brake table. */
   hardBrake: 11, // m/s² (10: the benchmark was ~3 km/h slower)
   softBrake: 3,
   /**
@@ -177,6 +177,8 @@ export const PLANNER = {
 /** Half the planned car's length and width (m): `plan` sets them from its ego (default: the street racer's). */
 let egoHalfL = 2.2;
 let egoHalfW = 0.93;
+/** The planned car's full-brake table (PlanEgo.brake): `plan` sets it (none: PLANNER.hardBrake). */
+let egoBrake: AccelTable | undefined;
 /** A car merging into the held lane this close (m, beyond touching) waits for it in the game. */
 const MERGE_YIELD = 5;
 /** m around a step's positions beyond which nothing can touch: half our length, margins and a closing speed's worth. */
@@ -251,6 +253,11 @@ export function maxAccel(v: number, table: AccelTable = STREET_RACER.ai.accel): 
   return table[table.length - 1][1];
 }
 
+/** Full-brake deceleration (m/s²) at speed `v` (m/s): from the car's table (CarSpec.ai.brake), or PLANNER.hardBrake with none. */
+export function maxBrake(v: number, table?: AccelTable | null): number {
+  return table ? maxAccel(v, table) : PLANNER.hardBrake;
+}
+
 export interface PlanPoint {
   t: number;
   s: number;
@@ -279,6 +286,8 @@ export interface PlanEgo {
   accel?: AccelTable;
   /** Its cornering grip, sideways m/s² at full steering (default: the street racer's): PLANNER.latGrip. */
   latAccel?: AccelTable;
+  /** Its full-brake deceleration by speed (CarSpec.ai.brake); none: PLANNER.hardBrake at every speed. */
+  brake?: AccelTable;
   /** Half its body's width and length (m; default: the street racer's, 0.93 x 2.2). */
   halfWidth?: number;
   halfLength?: number;
@@ -318,6 +327,7 @@ export const PLAN_STATS = { normal: 0, relaxed: 0, reused: 0, fallback: 0 };
 export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null = null): Plan {
   egoHalfW = ego.halfWidth ?? 0.93;
   egoHalfL = ego.halfLength ?? 2.2;
+  egoBrake = ego.brake;
   // Only what can matter within the horizon.
   const reachAhead = ego.s + Math.max(ego.v, ego.speedCap) * PLANNER.horizon + 50;
   // Street racing does not look back: what is wholly behind (its nose behind our tail) brakes for us,
@@ -340,7 +350,7 @@ export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan
   if (!found) PLAN_STATS.fallback++;
   if (found) return found;
   const dt = PLANNER.step;
-  const v = Math.max(0, ego.v - PLANNER.hardBrake * dt);
+  const v = Math.max(0, ego.v - maxBrake(ego.v, ego.brake) * dt);
   return {
     points: [
       { t: 0, s: ego.s, d: ego.d, v: ego.v },
@@ -423,7 +433,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
       }
     for (const n of layer.values()) {
       const top = maxAccel(n.v, ego.accel);
-      const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -P.hardBrake];
+      const accels = [top, top / 2, top / 4, 0, -P.softBrake / 2, -P.softBrake, -maxBrake(n.v, ego.brake)];
       const turn = lateralTurn(n.v, dt, grid.cell, ego.latAccel);
       for (const move of MOVES) {
         if (Math.abs(move) > P.maxLateral || Math.abs(move - n.lat) > turn + 0.01) continue;
@@ -662,7 +672,8 @@ function passShort(boxes: TrafficBox[], d: number, s: number, t: number): number
 function aheadRoom(v: number, tv: number, reach: number, swerving: boolean, overlap: number, awaySpeed: number, margin: number): number {
   const P = PLANNER;
   const closing = Math.max(0, v - tv);
-  let keep = (closing * closing) / (2 * P.hardBrake) + P.headway * v * margin;
+  // (Braking from v down to its speed: the car's deceleration halfway down, the table's middle of that run.)
+  let keep = (closing * closing) / (2 * maxBrake(v - closing / 2, egoBrake)) + P.headway * v * margin;
   if (swerving) keep = Math.min(keep, closing * (Math.max(0, overlap) / awaySpeed));
   return reach + keep + P.gapAhead * margin;
 }

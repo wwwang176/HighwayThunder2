@@ -42,6 +42,7 @@ it('planner', async () => {
     const driver = new PlannerDriver();
     driver.accel = spec.ai.accel;
     driver.latAccel = spec.ai.latAccel;
+    driver.brake = spec.ai.brake;
     // TRACKER_JSON=<archive.json>: a candidate network (training/out/tracker) instead of the car's own.
     driver.tracker = trackerFrom(process.env.TRACKER_JSON ? JSON.parse(readFileSync(process.env.TRACKER_JSON, 'utf8')).weights : spec.ai.tracker);
     driver.recovery = trackerFrom(spec.ai.recovery);
