@@ -275,6 +275,7 @@ export class PhysicsWorld {
       return;
     }
     this.dropStraightRails();
+    this.freeSlots(); // (a new road: every car's place on it, and its slot, found afresh)
     while (this.slotRails.length < RAIL_SLOTS) {
       const i = this.slotRails.length;
       const bit = SLOT_BIT(i);
@@ -377,6 +378,13 @@ export class PhysicsWorld {
 
   unregister(collider: RAPIER.Collider): void {
     this.owners.delete(collider.handle);
+    // (its body's rail bookkeeping gone too: another body may take its handle, with another box)
+    const body = collider.parent();
+    const info = body ? this.railBodies.get(body.handle) : undefined;
+    if (body && info) {
+      if (info.slot >= 0) this.release(info.slot);
+      this.railBodies.delete(body.handle);
+    }
     for (const [key, p] of this.touching) if (p.h1 === collider.handle || p.h2 === collider.handle) this.touching.delete(key);
   }
 

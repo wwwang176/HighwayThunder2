@@ -256,78 +256,84 @@ const GRASS_D = [-900, -300, -150, -90, -60, -50, -40, -30, -20, -10, 0, 10, 20,
 /** One face of a sweep: its edge across the road, (d, y) to (d, y) - its face to the left of that way (clockwise round a solid). */
 type Edge = [number, number, number, number];
 
+/** The road's line at each of the strip's rows (from its start, SEG m apart): its point and its normal (toward +d). */
+interface RowFrames {
+  cx: Float64Array;
+  cz: Float64Array;
+  nx: Float64Array;
+  nz: Float64Array;
+}
+
 /**
  * Faces swept along the road: each an edge across it (d, y) carried along s, its rows SEG m apart over the strip
  * (placed by layout, on the road's line). Each vertex also has its road position (`roadPos`: d, -s; the lamps'
- * pools are worked out on it) and a uv from `uvOf` (d, s from the strip's start).
+ * pools are worked out on it) and a uv: `u` per metre across and at d 0, `v` per metre along from the strip's start
+ * (the same wherever the strip is: set once).
  */
 class Sweep {
   readonly geometry = new THREE.BufferGeometry();
   private readonly pos: Float32Array;
   private readonly nrm: Float32Array;
-  private readonly uv: Float32Array;
   private readonly road: Float32Array;
 
   constructor(
     private readonly edges: Edge[],
-    private readonly uvOf: (d: number, s: number) => [number, number] = () => [0, 0],
+    uv: { u: number; u0: number; v: number } = { u: 0, u0: 0, v: 0 },
   ) {
     const n = ROWS * edges.length * 2;
     this.pos = new Float32Array(n * 3);
     this.nrm = new Float32Array(n * 3);
-    this.uv = new Float32Array(n * 2);
     this.road = new Float32Array(n * 2);
+    const uvs = new Float32Array(n * 2);
     const index: number[] = [];
     const v = (e: number, r: number, k: number) => (e * ROWS + r) * 2 + k;
     for (let e = 0; e < edges.length; e++)
-      for (let r = 0; r + 1 < ROWS; r++) {
-        const a = v(e, r, 0);
-        const b = v(e, r, 1);
-        const c = v(e, r + 1, 0);
-        const d = v(e, r + 1, 1);
-        index.push(a, d, c, a, b, d);
+      for (let r = 0; r < ROWS; r++) {
+        for (let k = 0; k < 2; k++) {
+          const d = edges[e][k * 2];
+          const i = v(e, r, k);
+          uvs[i * 2] = uv.u * d + uv.u0;
+          uvs[i * 2 + 1] = uv.v * r * SEG;
+          this.road[i * 2] = d;
+        }
+        if (r + 1 < ROWS) index.push(v(e, r, 0), v(e, r + 1, 1), v(e, r + 1, 0), v(e, r, 0), v(e, r, 1), v(e, r + 1, 1));
       }
     this.geometry.setIndex(index);
     this.geometry.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     this.geometry.setAttribute('normal', new THREE.BufferAttribute(this.nrm, 3));
-    this.geometry.setAttribute('uv', new THREE.BufferAttribute(this.uv, 2));
+    this.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     this.geometry.setAttribute('roadPos', new THREE.BufferAttribute(this.road, 2));
   }
 
-  /** Along `line` from s = `from` (the strip's start). */
-  layout(line: Centerline, from: number): void {
-    const { edges } = this;
-    for (let r = 0; r < ROWS; r++) {
-      const s = from + r * SEG;
-      const c = line.center(s);
-      const th = line.heading(s);
-      const nx = Math.cos(th);
-      const nz = Math.sin(th);
-      for (let e = 0; e < edges.length; e++) {
-        const [d0, y0, d1, y1] = edges[e];
-        // (its face to the left of the edge's way: (-dy, dd) across and up)
-        const len = Math.hypot(d1 - d0, y1 - y0);
-        const nd = -(y1 - y0) / len;
-        const ny = (d1 - d0) / len;
+  /** Along the road's line at the strip's rows (`rows`), the strip starting at s = `from`. */
+  layout(rows: RowFrames, from: number): void {
+    const { edges, pos, nrm, road } = this;
+    for (let e = 0; e < edges.length; e++) {
+      const [d0, y0, d1, y1] = edges[e];
+      // (its face to the left of the edge's way: (-dy, dd) across and up)
+      const len = Math.hypot(d1 - d0, y1 - y0);
+      const nd = -(y1 - y0) / len;
+      const ny = (d1 - d0) / len;
+      for (let r = 0; r < ROWS; r++) {
+        const cx = rows.cx[r];
+        const cz = rows.cz[r];
+        const nx = rows.nx[r];
+        const nz = rows.nz[r];
+        const ms = -(from + r * SEG);
         for (let k = 0; k < 2; k++) {
           const d = k ? d1 : d0;
           const i = (e * ROWS + r) * 2 + k;
-          this.pos[i * 3] = c.x + d * nx;
-          this.pos[i * 3 + 1] = k ? y1 : y0;
-          this.pos[i * 3 + 2] = c.z + d * nz;
-          this.nrm[i * 3] = nd * nx;
-          this.nrm[i * 3 + 1] = ny;
-          this.nrm[i * 3 + 2] = nd * nz;
-          const [u, w] = this.uvOf(d, s - from);
-          this.uv[i * 2] = u;
-          this.uv[i * 2 + 1] = w;
-          this.road[i * 2] = d;
-          this.road[i * 2 + 1] = -s;
+          pos[i * 3] = cx + d * nx;
+          pos[i * 3 + 1] = k ? y1 : y0;
+          pos[i * 3 + 2] = cz + d * nz;
+          nrm[i * 3] = nd * nx;
+          nrm[i * 3 + 1] = ny;
+          nrm[i * 3 + 2] = nd * nz;
+          road[i * 2 + 1] = ms;
         }
       }
     }
-    for (const name of ['position', 'normal', 'uv', 'roadPos']) this.geometry.getAttribute(name).needsUpdate = true;
-    this.geometry.computeBoundingSphere();
+    for (const name of ['position', 'normal', 'roadPos']) this.geometry.getAttribute(name).needsUpdate = true;
   }
 }
 
@@ -348,7 +354,8 @@ interface PoleSpec {
 }
 
 const M4 = new THREE.Matrix4();
-const QY = new THREE.Quaternion();
+/** The road's line where an instance goes (RoadScene.at). */
+const AT = { cx: 0, cz: 0, nx: 1, nz: 0, q: new THREE.Quaternion() };
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const P3 = new THREE.Vector3();
 const S3 = new THREE.Vector3();
@@ -371,6 +378,7 @@ export class RoadScene {
   private laidS = NaN;
   private treesS = NaN;
   private readonly sweeps: Sweep[] = [];
+  private readonly rows: RowFrames = { cx: new Float64Array(ROWS), cz: new Float64Array(ROWS), nx: new Float64Array(ROWS), nz: new Float64Array(ROWS) };
   private posts!: THREE.InstancedMesh;
   private poles!: THREE.InstancedMesh;
   private arms!: THREE.InstancedMesh;
@@ -410,6 +418,8 @@ export class RoadScene {
     this.buildStrip(renderer);
     this.buildTrees();
     this.buildFar();
+    // (laid along the road round the player: always in view somewhere - and their bounds not worked out anew each time)
+    for (const o of [...this.strip.children, ...this.trees.children]) o.frustumCulled = false;
     scene.add(this.strip, this.trees, this.far);
     this.layout(0);
   }
@@ -423,7 +433,7 @@ export class RoadScene {
 
   private buildStrip(renderer: THREE.WebGLRenderer): void {
     // Our carriageway, its texture across it (rail to rail) and every 20 m along.
-    const roadSweep = new Sweep([[-RAIL_D, 0.01, RAIL_D, 0.01]], (d, s) => [(d + RAIL_D) / (2 * RAIL_D), s / 20]);
+    const roadSweep = new Sweep([[-RAIL_D, 0.01, RAIL_D, 0.01]], { u: 1 / (2 * RAIL_D), u0: 0.5, v: 1 / 20 });
     const road = new THREE.Mesh(
       roadSweep.geometry,
       withAsphalt(
@@ -438,7 +448,11 @@ export class RoadScene {
     // next to the median like ours.
     const roadMat2 = withAsphalt((road.material as THREE.MeshStandardMaterial).clone(), renderer); // (a clone leaves its shader changes behind)
     roadMat2.side = THREE.DoubleSide;
-    const road2Sweep = new Sweep([[ONCOMING_X - RAIL_D, 0.01, ONCOMING_X + RAIL_D, 0.01]], (d, s) => [(ONCOMING_X - d + RAIL_D) / (2 * RAIL_D), s / 20]);
+    const road2Sweep = new Sweep([[ONCOMING_X - RAIL_D, 0.01, ONCOMING_X + RAIL_D, 0.01]], {
+      u: -1 / (2 * RAIL_D),
+      u0: (ONCOMING_X + RAIL_D) / (2 * RAIL_D),
+      v: 1 / 20,
+    });
     const road2 = new THREE.Mesh(road2Sweep.geometry, roadMat2);
     road2.receiveShadow = true;
     this.strip.add(road2);
@@ -446,7 +460,7 @@ export class RoadScene {
 
     const grassEdges: Edge[] = [];
     for (let i = 0; i + 1 < GRASS_D.length; i++) grassEdges.push([GRASS_D[i], -0.02, GRASS_D[i + 1], -0.02]);
-    const grassSweep = new Sweep(grassEdges, (d, s) => [d / GRASS.tile, s / GRASS.tile]);
+    const grassSweep = new Sweep(grassEdges, { u: 1 / GRASS.tile, u0: 0, v: 1 / GRASS.tile });
     const grass = new THREE.Mesh(
       grassSweep.geometry,
       withPatches(
@@ -547,30 +561,53 @@ export class RoadScene {
   }
 
   /** An instance at road position (s, d), `y` up, turned with the road (its x across it), stretched `sx` across. */
-  private place(mesh: THREE.InstancedMesh, i: number, s: number, d: number, y: number, sx = 1, scale = 1): void {
-    const w = this.line.toWorld(s, d);
-    QY.setFromAxisAngle(AXIS_Y, -this.line.heading(s));
-    mesh.setMatrixAt(i, M4.compose(P3.set(w.x, y, w.z), QY, S3.set(sx * scale, scale, scale)));
+  /** The road's line at s (into AT): its point, its normal, its turn (for the instances). */
+  private at(s: number): void {
+    const c = this.line.center(s);
+    const th = this.line.heading(s);
+    AT.cx = c.x;
+    AT.cz = c.z;
+    AT.nx = Math.cos(th);
+    AT.nz = Math.sin(th);
+    AT.q.setFromAxisAngle(AXIS_Y, -th);
+  }
+
+  /** An instance `d` across the road where `at` last was, `y` up, turned with the road (its x across it), stretched `sx` across. */
+  private place(mesh: THREE.InstancedMesh, i: number, d: number, y: number, sx = 1, scale = 1): void {
+    P3.set(AT.cx + d * AT.nx, y, AT.cz + d * AT.nz);
+    mesh.setMatrixAt(i, M4.compose(P3, AT.q, S3.set(sx * scale, scale, scale)));
   }
 
   /** The strip's scenery laid along the road from s = `stripS` - STRIP_BEHIND. */
   private layout(stripS: number): void {
     this.laidS = stripS;
     const from = stripS - STRIP_BEHIND;
-    for (const sw of this.sweeps) sw.layout(this.line, from);
+    const f = this.rows;
+    for (let r = 0; r < ROWS; r++) {
+      const s = from + r * SEG;
+      const c = this.line.center(s);
+      const th = this.line.heading(s);
+      f.cx[r] = c.x;
+      f.cz[r] = c.z;
+      f.nx[r] = Math.cos(th);
+      f.nz[r] = Math.sin(th);
+    }
+    for (const sw of this.sweeps) sw.layout(f, from);
     let i = 0;
-    for (let s = -STRIP_BEHIND; s < STRIP_AHEAD; s += 4)
-      for (const x of [RAIL_D, LEFT_RAIL_X]) this.place(this.posts, i++, stripS + s, x + Math.sign(x) * 0.2, 0.4);
+    for (let s = -STRIP_BEHIND; s < STRIP_AHEAD; s += 4) {
+      this.at(stripS + s);
+      for (const x of [RAIL_D, LEFT_RAIL_X]) this.place(this.posts, i++, x + Math.sign(x) * 0.2, 0.4);
+    }
     let pi = 0;
     let ai = 0;
     const rows = STRIP_LEN / LAMP_SPACING;
     for (let r = 0; r < rows; r++) {
-      const s = stripS - STRIP_BEHIND + r * LAMP_SPACING;
+      this.at(stripS - STRIP_BEHIND + r * LAMP_SPACING);
       for (const spec of this.poleSpecs) {
-        this.place(this.poles, pi++, s, spec.d, 5);
+        this.place(this.poles, pi++, spec.d, 5);
         for (const [dir, reach] of spec.arms) {
-          this.place(this.arms, ai, s, spec.d + (dir * (reach + 0.2)) / 2, 9.9, reach + 0.2);
-          this.place(this.heads, ai, s, spec.d + dir * reach, LAMP_HEIGHT);
+          this.place(this.arms, ai, spec.d + (dir * (reach + 0.2)) / 2, 9.9, reach + 0.2);
+          this.place(this.heads, ai, spec.d + dir * reach, LAMP_HEIGHT);
           ai++;
         }
       }
@@ -581,10 +618,7 @@ export class RoadScene {
       fpos.setXYZ(k, w.x, LAMP_HEIGHT - 0.15, w.z);
     });
     fpos.needsUpdate = true;
-    for (const m of [this.posts, this.poles, this.arms, this.heads]) {
-      m.instanceMatrix.needsUpdate = true;
-      m.computeBoundingSphere();
-    }
+    for (const m of [this.posts, this.poles, this.arms, this.heads]) m.instanceMatrix.needsUpdate = true;
   }
 
   private buildTrees(): void {
@@ -618,15 +652,12 @@ export class RoadScene {
     let i = 0;
     for (let r = 0; r < reps; r++)
       for (const t of this.treeBase) {
-        const s = treeS - STRIP_BEHIND + r * TREE_PERIOD + t.s;
-        this.place(this.trunks, i, s, t.d, 1 * t.k, 1, t.k);
-        this.place(this.crowns, i, s, t.d, 4.5 * t.k, 1, t.k);
+        this.at(treeS - STRIP_BEHIND + r * TREE_PERIOD + t.s);
+        this.place(this.trunks, i, t.d, 1 * t.k, 1, t.k);
+        this.place(this.crowns, i, t.d, 4.5 * t.k, 1, t.k);
         i++;
       }
-    for (const m of [this.trunks, this.crowns]) {
-      m.instanceMatrix.needsUpdate = true;
-      m.computeBoundingSphere();
-    }
+    for (const m of [this.trunks, this.crowns]) m.instanceMatrix.needsUpdate = true;
   }
 
   private buildFar(): void {
