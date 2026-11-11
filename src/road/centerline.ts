@@ -238,8 +238,8 @@ export function randomRoad(rand: () => number, length: number): Centerline {
     const fitting = (gap: number) => ((last - s - gap - ease) / radius) * (180 / Math.PI);
     let gap = within(R.gap);
     if (fitting(gap) < least) gap = 0;
-    const angle = Math.min(within(R.angle), fitting(gap));
-    if (angle < least) break;
+    if (fitting(gap) < least) break; // (no room left for a bend)
+    const angle = Math.min(Math.max(within(R.angle), least), fitting(gap));
     let dir = rand() < 0.5 ? -1 : 1;
     if (Math.abs(heading + dir * angle) > R.maxHeading) dir = -dir;
     bends.push({ gap, pieces: bend(radius, dir * angle, ease) });
