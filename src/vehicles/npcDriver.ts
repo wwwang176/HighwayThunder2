@@ -19,8 +19,11 @@ export interface DriverState {
 /**
  * Stanley path tracking (cross-track error measured at the front axle) with the
  * planned lateral velocity fed forward. Returns the front wheel angle, + = right.
+ * On a bend (`curvature`, 1/m, + bending right; d, yaw and yawRate against the road)
+ * the wheel angle that follows it (wheelbase x curvature) is fed forward too, the
+ * corrections' comfort limit around it.
  */
-export function stanleySteer(st: DriverState, dPlan: number, dPlanRate: number, wheelbase: number): number {
+export function stanleySteer(st: DriverState, dPlan: number, dPlanRate: number, wheelbase: number, curvature = 0): number {
   const v = Math.max(st.v, 1);
   const dFront = st.d + Math.sin(st.yaw) * (wheelbase / 2);
   const headingDesired = Math.atan2(dPlanRate, v);
@@ -28,7 +31,7 @@ export function stanleySteer(st: DriverState, dPlan: number, dPlanRate: number, 
   let delta = headingDesired - st.yaw + Math.atan2(STANLEY_K * e, v + 2) - YAW_DAMP * st.yawRate;
   const limit = Math.min(MAX_STEER, Math.atan((COMFORT_LAT_ACCEL * wheelbase) / (v * v)));
   delta = Math.max(-limit, Math.min(limit, delta));
-  return delta;
+  return curvature === 0 ? delta : delta + Math.atan(wheelbase * curvature);
 }
 
 /** Engine force (N, total) or per-wheel brake impulse to realise a commanded accel. */

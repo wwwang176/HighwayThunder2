@@ -43,7 +43,7 @@ export interface TrafficFocus {
 const finiteObstacle = (o: Obstacle) => Number.isFinite(o.s) && Number.isFinite(o.v) && Number.isFinite(o.dMin) && Number.isFinite(o.dMax) && Number.isFinite(o.length);
 
 /** Position along a carriageway's own s axis of a point at our-carriageway s. */
-const frameS = (frame: RoadFrame, s: number) => frame.fromWorld(0, -s).s;
+const frameS = (frame: RoadFrame, s: number) => frame.sOf(s);
 
 /**
  * The traffic on the road: planners for each carriageway, the NPC bodies that
@@ -244,11 +244,7 @@ export class TrafficWorld {
     }
   }
 
-  /** No traffic spawned (the curved road's trial: the traffic doesn't follow its bends yet). */
-  off = false;
-
   private spawn(focus: TrafficFocus, occupants: (frame: RoadFrame) => Occupant[], initial: boolean): void {
-    if (this.off) return;
     for (const side of this.sides) {
       const occupied: Occupant[] = [];
       for (const a of side.sim.agents.values()) {

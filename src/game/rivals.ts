@@ -7,6 +7,7 @@ import type { PhysicsWorld } from '../physics/physicsWorld';
 import type { LightFlares } from '../render/lightFlares';
 import { lanesOccupied, surfaceGrip } from '../road/coords';
 import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
+import type { Centerline } from '../road/centerline';
 import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { CarSpec, STREET_RACER } from '../vehicles/cars';
@@ -248,6 +249,11 @@ export class Rivals {
   /** A race's start: each rival's perf knobs at random (the game's; off: as built, as the training's races). */
   tuneAtRandom = false;
 
+  /** The road they drive on (their s, d and yaw along it). */
+  setRoad(line: Centerline): void {
+    for (const r of this.list) r.car.road = line;
+  }
+
   /** Line them up on the start grid (each tuned anew: tuneAtRandom). */
   place(): void {
     for (const r of this.list) {
@@ -326,8 +332,9 @@ export class Rivals {
     return this.list.map((r) => {
       const t = r.car.body.translation();
       const v = r.car.body.linvel();
-      const f = OUR_FRAME.forwardWorld(r.car.yaw);
-      return { ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: r.car.width, l: r.car.length, vx: v.x, vz: v.z }), id: RIVAL_BOX_ID - r.index, isPlayer: true };
+      const f = OUR_FRAME.forwardWorld(r.car.yaw, r.car.s);
+      const box = { x: t.x, z: t.z, fx: f.x, fz: f.z, w: r.car.width, l: r.car.length, vx: v.x, vz: v.z };
+      return { ...boxToFrame(frame, box, frame.sOf(r.car.s)), id: RIVAL_BOX_ID - r.index, isPlayer: true };
     });
   }
 
@@ -336,7 +343,7 @@ export class Rivals {
     const out: Occupant[] = [];
     for (const r of this.list) {
       const c = r.car;
-      const s = frame.fromWorld(c.d, -c.s).s;
+      const s = frame.sOf(c.s);
       for (const lane of lanesOccupied(c.d - c.width / 2, c.d + c.width / 2)) out.push({ s, lane, length: c.length, v: Math.max(0, c.speed) });
     }
     return out;

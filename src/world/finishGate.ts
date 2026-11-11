@@ -148,6 +148,12 @@ export class FinishGate {
       }
   }
 
+  /** Where `mark` would be were the gate at `s` along `road` (over its middle, as high): the HUD's goal marked ahead on a bend. */
+  markAt(road: Centerline, s: number, out: THREE.Vector3): THREE.Vector3 {
+    const m = road.toWorld(s, (GATE.left + GATE.right) / 2);
+    return out.set(m.x, GATE.height + 1, m.z);
+  }
+
   /** How far the camera is from the gate (m, on the ground). */
   private far(camera: { x: number; z: number }): number {
     return Math.hypot(camera.x - this.group.position.x, camera.z - this.group.position.z);

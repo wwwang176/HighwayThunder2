@@ -23,7 +23,7 @@ import {
   VehicleModel,
 } from './models';
 import { npcDriveForces, stanleySteer, wheelLoads } from './npcDriver';
-import { boxToFrame, RoadFrame } from '../road/frame';
+import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
 import type { LightFlares } from '../render/lightFlares';
 import type { BodyInstances } from '../render/bodyInstances';
 import { BRAKE_ON, FlareSpot } from './models';
@@ -79,7 +79,11 @@ const TRUCK_WRECK_TIRE: TireParams = {
 };
 // Peak "trip" friction when dragged fully sideways (see SideTrip); tunable live in the panel.
 export const WRECK_TRIP = { car: 3.5, truck: 2.6 };
-const wreckSurfaceGrip = (x: number) => (x < MEDIAN_NEAR_X && x > MEDIAN_FAR_X ? GRASS_GRIP : 1);
+/** The ground's grip under a wreck's tyre (world x, z): the median's grass, across our road. */
+const wreckSurfaceGrip = (x: number, z: number) => {
+  const d = OUR_FRAME.fromWorld(x, z).d;
+  return d < MEDIAN_NEAR_X && d > MEDIAN_FAR_X ? GRASS_GRIP : 1;
+};
 const WHEEL_RAY_GROUPS = groups(G_PLAYER, G_STATIC); // NPC wheels only stand on the road
 const G = 9.81;
 
@@ -466,9 +470,10 @@ export class NpcVehicle {
     const cabS = front - this.parts[0].spec.l / 2;
     const ss = [cabS];
     if (this.parts.length === 2) ss.push(cabS - HITCH_FROM_CAB_CENTER - KINGPIN_FROM_TRAILER_CENTER);
-    const ry = this.frame.rotationY(0);
-    const fwd = this.frame.forwardWorld(0);
     this.parts.forEach((p, i) => {
+      // (along the road where each part is)
+      const ry = this.frame.rotationY(0, ss[i]);
+      const fwd = this.frame.forwardWorld(0, ss[i]);
       const w = this.frame.toWorld(ss[i], agent.d);
       p.body.setTranslation({ x: w.x, y: p.spec.h / 2, z: w.z }, true);
       p.body.setRotation({ x: 0, y: Math.sin(ry / 2), z: 0, w: Math.cos(ry / 2) }, true);
@@ -483,8 +488,8 @@ export class NpcVehicle {
     const t = cab.body.translation();
     const v = cab.body.linvel();
     const f = forwardOf(cab.body.rotation());
-    const c = this.frame.fromWorld(t.x, t.z);
-    agent.yaw = this.frame.yawFromWorldForward(f.x, f.z);
+    const c = this.frame.fromWorld(t.x, t.z, agent.s);
+    agent.yaw = this.frame.yawFromWorldForward(f.x, f.z, c.s);
     agent.d = c.d;
     agent.s = c.s + cab.spec.l / 2 - agent.length / 2;
     agent.v = Math.max(0, v.x * f.x + v.z * f.z);
@@ -493,8 +498,9 @@ export class NpcVehicle {
     for (const p of this.parts) {
       const pt = p === cab ? t : p.body.translation();
       const pf = p === cab ? f : forwardOf(p.body.rotation());
-      const pd = p === cab ? c.d : this.frame.fromWorld(pt.x, pt.z).d;
-      const yaw = this.frame.yawFromWorldForward(pf.x, pf.z);
+      const pc = p === cab ? c : this.frame.fromWorld(pt.x, pt.z, c.s);
+      const pd = pc.d;
+      const yaw = this.frame.yawFromWorldForward(pf.x, pf.z, pc.s);
       const reach = (p.spec.w / 2) * Math.abs(Math.cos(yaw)) + (p.spec.l / 2) * Math.abs(Math.sin(yaw));
       lo = Math.min(lo, pd - reach);
       hi = Math.max(hi, pd + reach);
@@ -505,11 +511,14 @@ export class NpcVehicle {
   /** Agent → pedals and steering (call before world.step). */
   drive(agent: Agent, dt: number, time: number): void {
     const cab = this.parts[0];
+    // The road's bend where the cab is; its turning against the road's (the road turning under it as it goes).
+    const curvature = this.frame.curvature(agent.s + agent.length / 2 - cab.spec.l / 2);
     const steer = stanleySteer(
-      { d: agent.d, yaw: agent.yaw, v: agent.v, yawRate: -cab.body.angvel().y },
+      { d: agent.d, yaw: agent.yaw, v: agent.v, yawRate: -cab.body.angvel().y - curvature * agent.v },
       agent.dPlan,
       agent.dPlanRate,
       cab.spec.axles[cab.spec.axles.length - 1] - cab.spec.axles[0],
+      curvature,
     );
     const f = npcDriveForces(agent.accel, agent.v, this.totalMass, dt);
     // Brakes on every axle in proportion to each part's mass.
@@ -555,7 +564,8 @@ export class NpcVehicle {
     this.asleep = false;
     if (agent) agent.free = false;
     const v = agent?.v ?? 0;
-    const f = this.frame.forwardWorld(agent?.yaw ?? 0);
+    const at = this.parts[0].body.translation();
+    const f = this.frame.forwardWorld(agent?.yaw ?? 0, agent?.s ?? this.frame.fromWorld(at.x, at.z).s);
     for (const p of this.parts) {
       p.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
       for (const c of p.colliders) c.setEnabled(true);
@@ -571,17 +581,21 @@ export class NpcVehicle {
   follow(agent: Agent, dt: number, time: number): void {
     this.rolled += agent.v * dt;
     const cab = this.parts[0];
-    const ry = this.frame.rotationY(agent.yaw);
+    const cabS = agent.s + agent.length / 2 - cab.spec.l / 2;
+    const ry = this.frame.rotationY(agent.yaw, cabS);
     const q = { x: 0, y: Math.sin(ry / 2), z: 0, w: Math.cos(ry / 2) };
-    const c = this.frame.toWorld(agent.s + agent.length / 2 - cab.spec.l / 2, agent.d);
+    const c = this.frame.toWorld(cabS, agent.d);
     cab.body.setNextKinematicTranslation({ x: c.x, y: cab.spec.h / 2, z: c.z });
     cab.body.setNextKinematicRotation(q);
     if (this.parts.length === 2) {
-      const f = this.frame.forwardWorld(agent.yaw);
+      // Its trailer back along the road from the cab (on a bend, turned with it there).
       const back = HITCH_FROM_CAB_CENTER + KINGPIN_FROM_TRAILER_CENTER;
       const trailer = this.parts[1];
-      trailer.body.setNextKinematicTranslation({ x: c.x - f.x * back, y: trailer.spec.h / 2, z: c.z - f.z * back });
-      trailer.body.setNextKinematicRotation(q);
+      const ts = cabS - back * Math.cos(agent.yaw);
+      const t = this.frame.toWorld(ts, agent.d - back * Math.sin(agent.yaw));
+      const rt = this.frame.rotationY(agent.yaw, ts);
+      trailer.body.setNextKinematicTranslation({ x: t.x, y: trailer.spec.h / 2, z: t.z });
+      trailer.body.setNextKinematicRotation({ x: 0, y: Math.sin(rt / 2), z: 0, w: Math.cos(rt / 2) });
     }
     this.lamps(agent, time);
   }
@@ -750,9 +764,10 @@ export class NpcVehicle {
     return true;
   }
 
-  /** Position along OUR road (world s = -z) of the first part, for culling. */
+  /** Position along OUR road of the first part, for culling. */
   get s(): number {
-    return -this.parts[0].body.translation().z;
+    const t = this.parts[0].body.translation();
+    return OUR_FRAME.fromWorld(t.x, t.z).s;
   }
 
   /** World x of the first part. */

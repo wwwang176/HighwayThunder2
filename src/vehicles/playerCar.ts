@@ -296,9 +296,13 @@ export class PlayerCar {
     return this.params.length;
   }
 
-  /** Yaw rate (rad/s), positive turning toward +d like `yaw`. */
+  /** Yaw rate (rad/s), positive turning toward +d like `yaw`: against the road's, as `yaw` (on a bend the road turns as it goes along it). */
   get yawRate(): number {
-    return -this.body.angvel().y;
+    const w = -this.body.angvel().y;
+    if (this.road.straight) return w;
+    const k = this.road.curvature(this.s);
+    const along = this.vLong * Math.cos(this.yaw) - this.vLat * Math.sin(this.yaw);
+    return w - (k * along) / Math.max(0.2, 1 - k * this.d);
   }
 
   /** Roll rate (rad/s about its own nose, + leaning onto its right side) and pitch rate (+ nose up). */

@@ -202,7 +202,7 @@ export class TrainingSim {
     for (const g of this.ghosts) {
       if (!g.alive) continue;
       const c = g.car;
-      const s = frame.fromWorld(c.d, -c.s).s;
+      const s = frame.sOf(c.s);
       for (const lane of lanesOccupied(c.d - c.width / 2, c.d + c.width / 2)) out.push({ s, lane, length: c.length, v: Math.max(0, c.speed) });
     }
     return out;
@@ -215,7 +215,7 @@ export class TrainingSim {
       if (!g.alive) return;
       const t = g.car.body.translation();
       const v = g.car.body.linvel();
-      const f = OUR_FRAME.forwardWorld(g.car.yaw);
+      const f = OUR_FRAME.forwardWorld(g.car.yaw, g.car.s);
       out.push({ ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: g.car.width, l: g.car.length, vx: v.x, vz: v.z }), id: -1000 - i, isPlayer: true });
     });
     return out;
