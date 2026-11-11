@@ -10,7 +10,7 @@ AI 對手開車靠兩部分：
 | 欄位 | 內容 | 來源 |
 |---|---|---|
 | `accel` | 各車速的全油門加速度（m/s²） | 量車（步驟 A） |
-| `brake` | 全煞車減速度（m/s²） | 量車（步驟 A） |
+| `brake` | 各車速的全煞車減速度（m/s²）：規劃器的煞車、跟前車的煞停距離、踏板換算、緊急煞車都用它 | 量車（步驟 A） |
 | `latAccel` | 各車速的全舵側向加速度（m/s²），規劃器的橫移極限 | 量車（步驟 A） |
 | `tracker` | 方向盤神經網路的權重 | 訓練（步驟 B），每台車一個檔案：`<車名>Tracker.ts`（例如 `muscleCarTracker.ts`） |
 
@@ -37,7 +37,8 @@ CAR=street-racer npx vitest run --config training/vitest.config.ts training/meas
 ```
 
 - `CAR` 是車輛的 `id`（`src/vehicles/cars/index.ts` 的 `CARS` 清單）。
-- 會印出一段 `ai: { accel: [...], brake: ..., latAccel: [...] }`，貼進該車的 `CarSpec.ai`，取代舊的數字。保留 `tracker` 那一行。
+- 會印出一段 `ai: { accel: [...], brake: [...], latAccel: [...] }`，貼進該車的 `CarSpec.ai`，取代舊的數字。保留 `tracker` 那一行。
+- `brake` 是從比各速度高 15 km/h 起全力煞車、減掉 30 km/h 這段的平均。煞車力隨車速變很多：低速約 9–10、300 km/h 約 14–17 m/s²。
 - `latAccel` 是在沒有護欄的空地上全舵 1.5 秒量出來的，表格要包含 0 km/h 那一列（用 50 km/h 的值）。
 - 加速度每次量會有 ±0.5 m/s² 左右的差異。街頭跑車目前的 `accel` 刻意保留了舊值，因為跑分比較好（見 `streetRacer.ts` 的註解）。差異小時可以不換。
 
@@ -62,6 +63,8 @@ CAR=muscle-car GENS=40 POP=60 SCENARIOS=8 SIGMA=0.15 SAVE=1 npx vitest run --con
 - 時間：單獨跑約 20 分鐘；同時有其他跑分在搶 CPU 時會慢到約 2 倍。
 
 ## 步驟 C：跑分驗收
+
+> 2026-11-11 起的標準量法是 60 場、像遊戲的碰撞模式（`GAME_CONTACT=1`），目前的基準和歷次實驗見 [`ai-experiments.md`](ai-experiments.md)。下面是舊的量法和舊基準，數字不能跟新模式比。
 
 30 場 × 5 km，撞車就以 60 km/h 放回路上繼續跑。這台電腦記憶體有限，**最多同時 4 個程序**：
 
