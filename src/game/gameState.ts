@@ -18,8 +18,12 @@ export class GameFlow {
   isBest = false;
   private pausedFrom: Phase = 'racing';
 
-  constructor(private storage: KV) {
-    const raw = Number(storage.getItem(BEST_TIME_KEY));
+  /** `bestKey`: where its best time is kept (the curved road's apart from the straight one's). */
+  constructor(
+    private storage: KV,
+    private readonly bestKey = BEST_TIME_KEY,
+  ) {
+    const raw = Number(storage.getItem(bestKey));
     this.best = Number.isFinite(raw) && raw > 0 ? raw : null;
   }
 
@@ -69,7 +73,7 @@ export class GameFlow {
     if (this.best === null || this.raceTime < this.best) {
       this.best = this.raceTime;
       this.isBest = true;
-      this.storage.setItem(BEST_TIME_KEY, String(this.raceTime));
+      this.storage.setItem(this.bestKey, String(this.raceTime));
     }
   }
 

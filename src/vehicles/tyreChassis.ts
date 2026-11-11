@@ -76,7 +76,8 @@ export interface ChassisSetup {
    */
   rollInfluence?: number;
   tire: TireParams;
-  surfaceGrip: (x: number) => number;
+  /** The ground's grip where a tyre touches it (world x, z). */
+  surfaceGrip: (x: number, z: number) => number;
   /** The front tyres brake apart from their cornering grip (tireModel WheelIn.brakeApart). */
   frontBrakeApart?: boolean;
 }
@@ -203,7 +204,7 @@ export class TyreChassis {
         dt,
         mEff: w.mEff,
         tire: s.tire,
-        muScale: s.surfaceGrip(CONTACT.x) * w.gripScale * trip,
+        muScale: s.surfaceGrip(CONTACT.x, CONTACT.z) * w.gripScale * trip,
         brakeApart: w.front && s.frontBrakeApart,
         longScale: w.longScale,
       });

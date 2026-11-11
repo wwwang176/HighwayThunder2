@@ -7,6 +7,6 @@ import { PhysicsWorld } from '../src/physics/physicsWorld';
  */
 export function openGround(): PhysicsWorld {
   const physics = PhysicsWorld.createSync();
-  for (const c of physics.rails) physics.world.removeCollider(c, false);
+  physics.removeRails();
   return physics;
 }

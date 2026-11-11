@@ -10,8 +10,9 @@ import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
-import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
-import { boxToFrame, OUR_FRAME, RoadFrame } from '../road/frame';
+import { BEST_TIME_KEY, CURVED_BEST_TIME_KEY, MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
+import { Centerline, randomRoad, STRAIGHT_ROAD } from '../road/centerline';
+import { boxToFrame, OUR_FRAME, RoadFrame, useRoad } from '../road/frame';
 import { Sound, type SkidSource } from '../audio/sound';
 import { Music, songTitle } from '../audio/music';
 import { NowPlaying } from '../ui/nowPlaying';
@@ -127,6 +128,8 @@ const TRAFFIC_ENGINE: Record<VehicleKind, { kind: EngineKind; gearing: TrafficGe
 const STILL = { x: 0, y: 0, z: 0 };
 /** The finish gate's mark, on the screen (render: the HUD's goal). */
 const GOAL = new THREE.Vector3();
+/** On a curved road the goal is marked over the road this far ahead (m) till the finish is nearer. */
+const GOAL_AHEAD = 500;
 /** How fast the race's time runs, by phase (frame()): stopped in a pause (past the finish line: its show's, finishTimeScale). */
 const TIME_SCALE: Partial<Record<Phase, number>> = { paused: 0 };
 /** A race's start: the garage faded to black, then the race faded in on its intro (ms). */
@@ -162,7 +165,11 @@ export class Game {
   private rivalShadows: THREE.SpotLight[] = [];
   /** Each rival's high-beam flashing (game/flashing). */
   private readonly flashers = new WeakMap<object, BeamFlasher>();
-  readonly flow = new GameFlow(localStorage);
+  readonly flow: GameFlow;
+  /** The road bends (laid out at random each race: road/centerline randomRoad), else straight as ever. */
+  readonly curved: boolean;
+  /** The road's centre line this race. */
+  roadLine: Centerline = STRAIGHT_ROAD;
   readonly sound = new Sound();
   /** The background music (audio/music): from the first click or key in the garage on. */
   readonly music = new Music();
@@ -248,7 +255,9 @@ export class Game {
   /** Debug: stop the real-time loop from advancing the simulation. */
   freeze = false;
 
-  constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld) {
+  constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld, opts: { curved?: boolean } = {}) {
+    this.curved = opts.curved ?? false;
+    this.flow = new GameFlow(localStorage, this.curved ? CURVED_BEST_TIME_KEY : BEST_TIME_KEY);
     physics.timestep = PHYSICS_DT;
     // (No antialiasing of its own: the picture's edges are smoothed in render/postFx.)
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -612,6 +621,7 @@ export class Game {
       this.player.dispose(this.physics);
       this.player = new PlayerCar(this.physics, this.scene, { spec: specOf(cars.player), livery: cars.paint[cars.player] });
       this.player.surfaceGrip = surfaceGrip;
+      this.player.road = this.roadLine;
       const shown = !this.gui._hidden;
       this.gui.destroy();
       this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
@@ -708,6 +718,16 @@ export class Game {
     this.prevRelS.clear();
     this.touched.clear();
     this.contactSoundAt.clear();
+    if (this.curved) {
+      // A new road each race (and on the title's road too).
+      this.roadLine = randomRoad(Math.random, ROAD_LENGTH);
+      useRoad(this.roadLine); // (both carriageways' frames: the traffic's places, the obstacles every AI sees)
+      this.physics.setRoad(this.roadLine);
+      this.player.road = this.roadLine;
+      this.rivals.setRoad(this.roadLine);
+      this.road.setRoad(this.roadLine);
+      this.gate.setRoad(this.roadLine);
+    }
     this.player.resetTo(-3, 1, 0);
     this.player.nitro.reset();
     this.playerNitroAi.reset();
@@ -958,8 +978,8 @@ export class Game {
   private playerBox(frame: RoadFrame) {
     const t = this.player.body.translation();
     const v = this.player.body.linvel();
-    const f = OUR_FRAME.forwardWorld(this.player.yaw);
-    return boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: this.player.width, l: this.player.length, vx: v.x, vz: v.z });
+    const f = OUR_FRAME.forwardWorld(this.player.yaw, this.player.s);
+    return boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: this.player.width, l: this.player.length, vx: v.x, vz: v.z }, frame.sOf(this.player.s));
   }
 
   private onContact(a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null): void {
@@ -1082,12 +1102,12 @@ export class Game {
    * (full with all four on it from 40 km/h, 2.2 cm), quicker with speed (10 Hz at 50 km/h, 22 at 150, at most 25).
    */
   private grassRumble(): void {
-    const t = this.player.body.translation();
+    // (on the road: its d and road-relative yaw)
     const cos = Math.cos(this.player.yaw);
     const sin = Math.sin(this.player.yaw);
     const half = this.player.params.wheelbase / 2;
     let onGrass = 0;
-    for (const side of [-1, 1]) for (const along of [-half, half]) if (surfaceGrip(t.x + cos * side * 0.8 + sin * along) < 1) onGrass++;
+    for (const side of [-1, 1]) for (const along of [-half, half]) if (surfaceGrip(this.player.d + cos * side * 0.8 + sin * along) < 1) onGrass++;
     const kmh = Math.abs(this.player.speed) * 3.6;
     this.rig.rumble(0.0216 * (onGrass / 4) * Math.min(1, kmh / 40), Math.min(25, 4 + kmh * 0.12));
   }
@@ -1099,8 +1119,8 @@ export class Game {
   private gearShake(from: number): void {
     const throttle = this.lastInput.throttle;
     if (throttle < 0.1) return;
-    const fx = Math.sin(this.player.yaw);
-    const fz = -Math.cos(this.player.yaw);
+    const fx = Math.sin(this.player.worldYaw);
+    const fz = -Math.cos(this.player.worldYaw);
     this.rig.shake({ dir: { x: -fx, y: 0, z: -fz }, amplitude: (0.384 * throttle) / (from + 1), frequency: 6, seconds: 0.3, wave: 'sine' });
   }
 
@@ -1116,18 +1136,19 @@ export class Game {
     const fp = p.footprint();
     for (const side of this.trafficWorld.sides) {
       for (const agent of side.sim.agents.values()) {
-        // Work in world terms so oncoming cars count too.
-        const w = side.frame.toWorld(agent.s, agent.d);
-        const rel = -w.z - p.s;
+        // In our road's terms (along it, across it), so oncoming cars count too.
+        const rel = side.frame.ourS(agent.s) - p.s;
+        const across = side.frame.xCenter + side.frame.dir * agent.d;
         const prev = this.prevRelS.get(agent.id);
         this.prevRelS.set(agent.id, rel);
         if (prev === undefined || this.touched.has(agent.id)) continue;
         if (prev > 0 && rel <= 0) {
-          const gap = Math.max(w.x - agent.width / 2 - fp.dMax, fp.dMin - (w.x + agent.width / 2));
+          const gap = Math.max(across - agent.width / 2 - fp.dMax, fp.dMin - (across + agent.width / 2));
           if (detectNearMiss(prev, rel, gap, p.speed) && this.flow.phase === 'racing') {
             this.flow.addNearMiss();
             this.player.nitro.nearMiss();
             this.hud.nearMiss();
+            const w = side.frame.toWorld(agent.s, agent.d);
             this.sound.nearMiss({ x: w.x, y: p.body.translation().y, z: w.z }, this.ear());
           }
         }
@@ -1266,11 +1287,11 @@ export class Game {
     if (this.showPlan && this.aiActive && this.flow.phase === 'racing' && planned?.plan) this.planPath.show(planned.plan, planned.planAge ?? 0);
     else this.planPath.hide();
     const p = this.player.mesh.position;
-    this.road.update(-p.z, p.x);
+    this.road.update(this.roadLine.project(p.x, p.z, this.player.s).s);
     // After the road has placed this frame's street lights.
     // The finish's fountains (their sparks as the crashes'). Streaked as the camera moves: standing by the road
     // in the finish's first shot, not with the car.
-    this.gate.spray(play, this.camera.position.z, this.emitSpark);
+    this.gate.spray(play, this.camera.position, this.emitSpark);
     const standing = this.flow.phase === 'finished' && this.finishShow?.standing;
     this.sparks.update(play, standing ? STILL : this.player.body.linvel());
     // (each flame pops: the player's unplaced, the rivals' from where they are)
@@ -1298,15 +1319,15 @@ export class Game {
     if (this.introOn) this.intro!.placeCamera();
     else if (show) show.placeCamera();
     else if (this.hoodCam && !lookBack) this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
-    else this.rig.update(play, p, this.player.yaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
+    else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
       this.hud.revealFinish();
     }
     // The finish gate: a flare where each racer goes through it.
-    this.gate.pass(-1, this.player.s, p.x);
-    for (const r of this.rivals.list) this.gate.pass(r.index, r.car.s, r.car.mesh.position.x);
-    this.gate.update(play, this.camera.position.z);
+    this.gate.pass(-1, this.player.s, this.player.d);
+    for (const r of this.rivals.list) this.gate.pass(r.index, r.car.s, r.car.d);
+    this.gate.update(play, this.camera.position);
     this.speedBlur(play);
     // The traffic's bodies, those in this frame's view (the camera placed).
     this.bodies.begin(this.camera, this.shadowLights()); // (the lights casting shadows)
@@ -1330,9 +1351,13 @@ export class Game {
     const speedKmh = Math.hypot(this.player.body.linvel().x, this.player.body.linvel().z) * 3.6;
     this.flow.noteSpeed(speedKmh);
     const q = this.player.body.rotation();
-    // The finish ahead, where it is on the screen (behind the camera: none).
+    // The finish ahead, where it is on the screen (behind the camera: none). On a bend it may be off to a side, out
+    // of sight: marked over the road GOAL_AHEAD m ahead, the finish itself once nearer.
     this.camera.updateMatrixWorld();
-    const mark = GOAL.copy(this.gate.mark).project(this.camera);
+    const toGo = ROAD_LENGTH - this.player.s;
+    const mark = (
+      this.roadLine.straight || toGo <= GOAL_AHEAD ? GOAL.copy(this.gate.mark) : this.gate.markAt(this.roadLine, this.player.s + GOAL_AHEAD, GOAL)
+    ).project(this.camera);
     this.hud.update(play, {
       goal: mark.z < 1 && this.player.s < ROAD_LENGTH ? { x: (mark.x + 1) / 2, y: (1 - mark.y) / 2, m: ROAD_LENGTH - this.player.s } : null,
       speedKmh,

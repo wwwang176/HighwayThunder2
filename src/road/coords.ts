@@ -1,4 +1,5 @@
 import { GRASS_GRIP, LANE_COUNT, LANE_WIDTH, MEDIAN_FAR_X, MEDIAN_NEAR_X } from '../config';
+import { OUR_FRAME } from './frame';
 
 /** Tyre grip multiplier at world x: the median is grass. */
 export function surfaceGrip(x: number): number {
@@ -27,12 +28,13 @@ export function lanesOccupied(dMin: number, dMax: number, margin = 0.3): number[
   return out;
 }
 
+/** World point of our road position (s, d), along the road as it lies (OUR_FRAME's line). */
 export function roadToWorld(s: number, d: number): { x: number; z: number } {
-  return { x: d, z: s === 0 ? 0 : -s };
+  return OUR_FRAME.toWorld(s, d);
 }
 
 export function worldToRoad(x: number, z: number): { s: number; d: number } {
-  return { s: z === 0 ? 0 : -z, d: x };
+  return OUR_FRAME.fromWorld(x, z);
 }
 
 /** World-space unit forward vector for a road-relative yaw (yaw > 0 turns toward +d). */

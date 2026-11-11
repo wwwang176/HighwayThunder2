@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { LampPools, type PoolColumn } from '../render/lampPools';
 import { makeFlareMaterial } from '../render/lightFlares';
 import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH } from '../config';
+import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 
 const STRIP_PERIOD = 100; // m; lane-dash (20), rail-post (4) and lamp (50) periods all divide it
 const STRIP_BEHIND = 300;
@@ -81,7 +82,7 @@ function roadTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1, STRIP_LEN / 20);
+  tex.repeat.set(1, 1); // (the road's uv in its own units: across it 0-1, along it every 20 m)
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -97,7 +98,7 @@ const ASPHALT = { file: 'road-small.jpg', tile: 5, strength: 0.85, mean: 0.168 }
 const WET = { sizes: [6.3, 2.2] as const, from: 0.55, to: 0.75, darken: 0.3, roughness: 0.3 };
 const WETNESS = { value: 1 };
 
-/** The grass's picture, tiled every GRASS.tile m (dividing the strip's period, so it doesn't jump), darkened. */
+/** The grass's picture, tiled every GRASS.tile m (its uv in tiles; dividing the strip's period, so it doesn't jump), darkened. */
 const GRASS = {
   file: 'grass-small.jpg',
   tile: 2.5,
@@ -108,9 +109,7 @@ const GRASS = {
 };
 
 function grassTexture(): THREE.Texture {
-  const t = repeating(GRASS.file);
-  t.repeat.set(2000 / GRASS.tile, STRIP_LEN / GRASS.tile);
-  return t;
+  return repeating(GRASS.file);
 }
 
 /**
@@ -248,6 +247,119 @@ diffuseColor.rgb *= 1.0 - ${WET.darken.toFixed(2)} * wet;`,
   return mat;
 }
 
+/** The ribbons' rows along the road (m apart): a bend of R 1000 strays from a 5 m chord by 3 mm. */
+const SEG = 5;
+const ROWS = STRIP_LEN / SEG + 1;
+/** The grass's columns across the road (d, m): close together near the road (where the lamps' pools fall). */
+const GRASS_D = [-900, -300, -150, -90, -60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 60, 90, 150, 300, 900];
+
+/** One face of a sweep: its edge across the road, (d, y) to (d, y) - its face to the left of that way (clockwise round a solid). */
+type Edge = [number, number, number, number];
+
+/** The road's line at each of the strip's rows (from its start, SEG m apart): its point and its normal (toward +d). */
+interface RowFrames {
+  cx: Float64Array;
+  cz: Float64Array;
+  nx: Float64Array;
+  nz: Float64Array;
+}
+
+/**
+ * Faces swept along the road: each an edge across it (d, y) carried along s, its rows SEG m apart over the strip
+ * (placed by layout, on the road's line). Each vertex also has its road position (`roadPos`: d, -s; the lamps'
+ * pools are worked out on it) and a uv: `u` per metre across and at d 0, `v` per metre along from the strip's start
+ * (the same wherever the strip is: set once).
+ */
+class Sweep {
+  readonly geometry = new THREE.BufferGeometry();
+  private readonly pos: Float32Array;
+  private readonly nrm: Float32Array;
+  private readonly road: Float32Array;
+
+  constructor(
+    private readonly edges: Edge[],
+    uv: { u: number; u0: number; v: number } = { u: 0, u0: 0, v: 0 },
+  ) {
+    const n = ROWS * edges.length * 2;
+    this.pos = new Float32Array(n * 3);
+    this.nrm = new Float32Array(n * 3);
+    this.road = new Float32Array(n * 2);
+    const uvs = new Float32Array(n * 2);
+    const index: number[] = [];
+    const v = (e: number, r: number, k: number) => (e * ROWS + r) * 2 + k;
+    for (let e = 0; e < edges.length; e++)
+      for (let r = 0; r < ROWS; r++) {
+        for (let k = 0; k < 2; k++) {
+          const d = edges[e][k * 2];
+          const i = v(e, r, k);
+          uvs[i * 2] = uv.u * d + uv.u0;
+          uvs[i * 2 + 1] = uv.v * r * SEG;
+          this.road[i * 2] = d;
+        }
+        if (r + 1 < ROWS) index.push(v(e, r, 0), v(e, r + 1, 1), v(e, r + 1, 0), v(e, r, 0), v(e, r, 1), v(e, r + 1, 1));
+      }
+    this.geometry.setIndex(index);
+    this.geometry.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geometry.setAttribute('normal', new THREE.BufferAttribute(this.nrm, 3));
+    this.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    this.geometry.setAttribute('roadPos', new THREE.BufferAttribute(this.road, 2));
+  }
+
+  /** Along the road's line at the strip's rows (`rows`), the strip starting at s = `from`. */
+  layout(rows: RowFrames, from: number): void {
+    const { edges, pos, nrm, road } = this;
+    for (let e = 0; e < edges.length; e++) {
+      const [d0, y0, d1, y1] = edges[e];
+      // (its face to the left of the edge's way: (-dy, dd) across and up)
+      const len = Math.hypot(d1 - d0, y1 - y0);
+      const nd = -(y1 - y0) / len;
+      const ny = (d1 - d0) / len;
+      for (let r = 0; r < ROWS; r++) {
+        const cx = rows.cx[r];
+        const cz = rows.cz[r];
+        const nx = rows.nx[r];
+        const nz = rows.nz[r];
+        const ms = -(from + r * SEG);
+        for (let k = 0; k < 2; k++) {
+          const d = k ? d1 : d0;
+          const i = (e * ROWS + r) * 2 + k;
+          pos[i * 3] = cx + d * nx;
+          pos[i * 3 + 1] = k ? y1 : y0;
+          pos[i * 3 + 2] = cz + d * nz;
+          nrm[i * 3] = nd * nx;
+          nrm[i * 3 + 1] = ny;
+          nrm[i * 3 + 2] = nd * nz;
+          road[i * 2 + 1] = ms;
+        }
+      }
+    }
+    for (const name of ['position', 'normal', 'roadPos']) this.geometry.getAttribute(name).needsUpdate = true;
+  }
+}
+
+/** A box's faces (clockwise round it, seen along the road) from d0 to d1 across, y0 to y1 up. */
+function boxEdges(d0: number, d1: number, y0: number, y1: number): Edge[] {
+  return [
+    [d0, y1, d1, y1],
+    [d1, y1, d1, y0],
+    [d1, y0, d0, y0],
+    [d0, y0, d0, y1],
+  ];
+}
+
+/** A pole on the road's side and its arms: where (d), and each arm's way across (+-1) and reach to its lamp head. */
+interface PoleSpec {
+  d: number;
+  arms: [number, number][];
+}
+
+const M4 = new THREE.Matrix4();
+/** The road's line where an instance goes (RoadScene.at). */
+const AT = { cx: 0, cz: 0, nx: 1, nz: 0, q: new THREE.Quaternion() };
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const P3 = new THREE.Vector3();
+const S3 = new THREE.Vector3();
+
 export class RoadScene {
   private strip = new THREE.Group();
   private trees = new THREE.Group();
@@ -261,6 +373,21 @@ export class RoadScene {
   private lampPools!: LampPools;
   private realLights: THREE.SpotLight[] = [];
   private readonly rim = new THREE.DirectionalLight(0xffb35c, NIGHT.rim);
+  /** The road's line, and the strip's start (s) and the trees' as last laid along it (NaN: to be). */
+  private line: Centerline = STRAIGHT_ROAD;
+  private laidS = NaN;
+  private treesS = NaN;
+  private readonly sweeps: Sweep[] = [];
+  private readonly rows: RowFrames = { cx: new Float64Array(ROWS), cz: new Float64Array(ROWS), nx: new Float64Array(ROWS), nz: new Float64Array(ROWS) };
+  private posts!: THREE.InstancedMesh;
+  private poles!: THREE.InstancedMesh;
+  private arms!: THREE.InstancedMesh;
+  private heads!: THREE.InstancedMesh;
+  private lampFlares!: THREE.Points;
+  private poleSpecs: PoleSpec[] = [];
+  private trunks!: THREE.InstancedMesh;
+  private crowns!: THREE.InstancedMesh;
+  private treeBase: { d: number; s: number; k: number }[] = [];
 
   /** The street lights currently shining (for things lit by hand, like tyre smoke). */
   activeLights(): THREE.SpotLight[] {
@@ -291,20 +418,29 @@ export class RoadScene {
     this.buildStrip(renderer);
     this.buildTrees();
     this.buildFar();
+    // (laid along the road round the player: always in view somewhere - and their bounds not worked out anew each time)
+    for (const o of [...this.strip.children, ...this.trees.children]) o.frustumCulled = false;
     scene.add(this.strip, this.trees, this.far);
+    this.layout(0);
+  }
+
+  /** The road to lay the scenery along (a new race's). */
+  setRoad(line: Centerline): void {
+    this.line = line;
+    this.laidS = NaN;
+    this.treesS = NaN;
   }
 
   private buildStrip(renderer: THREE.WebGLRenderer): void {
-    const midZ = -(STRIP_AHEAD - STRIP_BEHIND) / 2;
-
+    // Our carriageway, its texture across it (rail to rail) and every 20 m along.
+    const roadSweep = new Sweep([[-RAIL_D, 0.01, RAIL_D, 0.01]], { u: 1 / (2 * RAIL_D), u0: 0.5, v: 1 / 20 });
     const road = new THREE.Mesh(
-      new THREE.PlaneGeometry(2 * RAIL_D, STRIP_LEN).rotateX(-Math.PI / 2),
+      roadSweep.geometry,
       withAsphalt(
         new THREE.MeshStandardMaterial({ map: roadTexture(renderer), roughness: 0.92 }),
         renderer,
       ),
     );
-    road.position.set(0, 0.01, midZ);
     road.receiveShadow = true;
     this.strip.add(road);
 
@@ -312,25 +448,30 @@ export class RoadScene {
     // next to the median like ours.
     const roadMat2 = withAsphalt((road.material as THREE.MeshStandardMaterial).clone(), renderer); // (a clone leaves its shader changes behind)
     roadMat2.side = THREE.DoubleSide;
-    const road2 = new THREE.Mesh(road.geometry, roadMat2);
-    road2.scale.x = -1;
-    road2.position.set(ONCOMING_X, 0.01, midZ);
+    const road2Sweep = new Sweep([[ONCOMING_X - RAIL_D, 0.01, ONCOMING_X + RAIL_D, 0.01]], {
+      u: -1 / (2 * RAIL_D),
+      u0: (ONCOMING_X + RAIL_D) / (2 * RAIL_D),
+      v: 1 / 20,
+    });
+    const road2 = new THREE.Mesh(road2Sweep.geometry, roadMat2);
     road2.receiveShadow = true;
     this.strip.add(road2);
     this.groundMaterials.push(road.material as THREE.MeshStandardMaterial, roadMat2);
 
+    const grassEdges: Edge[] = [];
+    for (let i = 0; i + 1 < GRASS_D.length; i++) grassEdges.push([GRASS_D[i], -0.02, GRASS_D[i + 1], -0.02]);
+    const grassSweep = new Sweep(grassEdges, { u: 1 / GRASS.tile, u0: 0, v: 1 / GRASS.tile });
     const grass = new THREE.Mesh(
-      new THREE.PlaneGeometry(2000, STRIP_LEN).rotateX(-Math.PI / 2),
+      grassSweep.geometry,
       withPatches(
         new THREE.MeshStandardMaterial({
           map: grassTexture(),
-          normalMap: normalsFrom(GRASS.file, GRASS.relief, new THREE.Vector2(2000 / GRASS.tile, STRIP_LEN / GRASS.tile)),
+          normalMap: normalsFrom(GRASS.file, GRASS.relief, new THREE.Vector2(1, 1)),
           color: GRASS.tint,
           roughness: 1,
         }),
       ),
     );
-    grass.position.set(0, -0.02, midZ);
     grass.receiveShadow = true;
     this.strip.add(grass);
     this.groundMaterials.push(grass.material);
@@ -338,19 +479,19 @@ export class RoadScene {
     // Guardrails: beam + posts every 4 m.
     const metal = new THREE.MeshStandardMaterial({ color: 0xb9bec4, roughness: 0.4, metalness: 0.7 });
     const railX = [RAIL_D, LEFT_RAIL_X];
+    const beamEdges: Edge[] = [];
     for (const x of railX) {
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.34, STRIP_LEN), metal);
-      beam.position.set(x + Math.sign(x) * 0.06, 0.62, midZ);
-      beam.castShadow = true;
-      this.strip.add(beam);
+      const c = x + Math.sign(x) * 0.06;
+      beamEdges.push(...boxEdges(c - 0.06, c + 0.06, 0.62 - 0.17, 0.62 + 0.17));
     }
+    const beamSweep = new Sweep(beamEdges);
+    const beams = new THREE.Mesh(beamSweep.geometry, metal);
+    beams.castShadow = true;
+    this.strip.add(beams);
+    this.sweeps.push(roadSweep, road2Sweep, grassSweep, beamSweep);
     const postCount = (STRIP_LEN / 4) * 2;
-    const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.8, 0.14), metal, postCount);
-    const m = new THREE.Matrix4();
-    let i = 0;
-    for (let s = -STRIP_BEHIND; s < STRIP_AHEAD; s += 4)
-      for (const x of railX) posts.setMatrixAt(i++, m.makeTranslation(x + Math.sign(x) * 0.2, 0.4, -s));
-    this.strip.add(posts);
+    this.posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.8, 0.14), metal, postCount);
+    this.strip.add(this.posts);
 
     // Street lights, opposite arrangement: each row has a lamp on the right shoulder
     // and one on the median facing it, so their pools meet across our carriageway
@@ -359,51 +500,41 @@ export class RoadScene {
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3e44, roughness: 0.6, metalness: 0.5 });
     const headMat = new THREE.MeshBasicMaterial({ color: LAMP_COLOR });
     const medianX = (MEDIAN_NEAR_X + MEDIAN_FAR_X) / 2;
-    // Each pole: position, stagger, and arms as (direction, reach to the lamp head).
-    const poleSpecs: { x: number; offset: number; arms: [number, number][] }[] = [
-      { x: RAIL_D + 1.6, offset: 0, arms: [[-1, 2.3]] },
-      { x: medianX, offset: 0, arms: [[-1, 4.5], [1, 4.5]] },
-      { x: LEFT_RAIL_X - 1.6, offset: 0, arms: [[1, 2.3]] },
+    this.poleSpecs = [
+      { d: RAIL_D + 1.6, arms: [[-1, 2.3]] },
+      { d: medianX, arms: [[-1, 4.5], [1, 4.5]] },
+      { d: LEFT_RAIL_X - 1.6, arms: [[1, 2.3]] },
     ];
     const rows = STRIP_LEN / LAMP_SPACING;
-    const poleCount = rows * poleSpecs.length;
-    const armCount = rows * poleSpecs.reduce((n, p) => n + p.arms.length, 0);
-    const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.16, 10, 8), poleMat, poleCount);
-    const arms = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.12, 0.12), poleMat, armCount);
-    const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.16, 0.4), headMat, armCount);
+    const poleCount = rows * this.poleSpecs.length;
+    const armCount = rows * this.poleSpecs.reduce((n, p) => n + p.arms.length, 0);
+    this.poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.16, 10, 8), poleMat, poleCount);
+    this.arms = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.12, 0.12), poleMat, armCount);
+    this.heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.9, 0.16, 0.4), headMat, armCount);
     const columns: PoolColumn[] = [];
-    let pi = 0;
-    let ai = 0;
     for (let r = 0; r < rows; r++) {
-      for (const spec of poleSpecs) {
-        const sPos = -STRIP_BEHIND + r * LAMP_SPACING + spec.offset;
-        poles.setMatrixAt(pi++, m.makeTranslation(spec.x, 5, -sPos));
+      const sPos = -STRIP_BEHIND + r * LAMP_SPACING;
+      for (const spec of this.poleSpecs) {
         for (const [dir, reach] of spec.arms) {
-          const hx = spec.x + dir * reach;
-          arms.setMatrixAt(
-            ai,
-            m.compose(new THREE.Vector3(spec.x + (dir * (reach + 0.2)) / 2, 9.9, -sPos), new THREE.Quaternion(), new THREE.Vector3(reach + 0.2, 1, 1)),
-          );
-          heads.setMatrixAt(ai, m.makeTranslation(hx, LAMP_HEIGHT, -sPos));
+          const hd = spec.d + dir * reach;
           // Its pool of light centred a little toward the road from the head (the same in every row).
-          if (r === 0) columns.push({ x: hx + dir * 1.0, ours: hx > MEDIAN_NEAR_X - 4 });
-          if (hx > MEDIAN_NEAR_X - 4) {
+          if (r === 0) columns.push({ x: hd + dir * 1.0, ours: hd > MEDIAN_NEAR_X - 4 });
+          if (hd > MEDIAN_NEAR_X - 4) {
             // Over our carriageway: pair it with the row's other lamp.
             const row = this.lampRows.find((w) => w.s === sPos);
             if (row) {
-              row.heads.push(ai);
-              row.x = (row.x + hx) / 2;
-            } else this.lampRows.push({ x: hx, s: sPos, heads: [ai] });
+              row.heads.push(this.lampHeads.length);
+              row.x = (row.x + hd) / 2;
+            } else this.lampRows.push({ x: hd, s: sPos, heads: [this.lampHeads.length] });
           }
-          this.lampHeads.push({ x: hx, s: sPos });
-          ai++;
+          this.lampHeads.push({ x: hd, s: sPos });
         }
       }
     }
-    this.strip.add(poles, arms, heads);
-    // Their pools of light: light in the ground's shaders. The rows' world z: the strip only ever moves by whole
-    // STRIP_PERIODs, which LAMP_SPACING divides.
-    this.lampPools = new LampPools(columns, LAMP_SPACING, (((STRIP_BEHIND - poleSpecs[0].offset) % LAMP_SPACING) + LAMP_SPACING) % LAMP_SPACING, {
+    this.strip.add(this.poles, this.arms, this.heads);
+    // Their pools of light: light in the ground's shaders, by road position (rows every LAMP_SPACING m of s from
+    // 0: the strip starts on a whole STRIP_PERIOD, which LAMP_SPACING divides).
+    this.lampPools = new LampPools(columns, LAMP_SPACING, ((STRIP_BEHIND % LAMP_SPACING) + LAMP_SPACING) % LAMP_SPACING, {
       behind: REAL_LIGHT_BEHIND,
       ahead: REAL_LIGHT_AHEAD,
       fade: REAL_LIGHT_FADE,
@@ -415,8 +546,7 @@ export class RoadScene {
     const fcol = new Float32Array(this.lampHeads.length * 3);
     const fsize = new Float32Array(this.lampHeads.length);
     const c = new THREE.Color(LAMP_COLOR);
-    this.lampHeads.forEach((h, k) => {
-      fpos.set([h.x, LAMP_HEIGHT - 0.15, -h.s], k * 3);
+    this.lampHeads.forEach((_, k) => {
       fcol.set([c.r, c.g, c.b], k * 3);
       fsize[k] = 1.6;
     });
@@ -424,10 +554,71 @@ export class RoadScene {
     fgeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
     fgeo.setAttribute('color', new THREE.BufferAttribute(fcol, 3));
     fgeo.setAttribute('size', new THREE.BufferAttribute(fsize, 1));
-    const lampFlares = new THREE.Points(fgeo, this.lampFlareMaterial);
-    lampFlares.frustumCulled = false;
-    lampFlares.renderOrder = 3;
-    this.strip.add(lampFlares);
+    this.lampFlares = new THREE.Points(fgeo, this.lampFlareMaterial);
+    this.lampFlares.frustumCulled = false;
+    this.lampFlares.renderOrder = 3;
+    this.strip.add(this.lampFlares);
+  }
+
+  /** An instance at road position (s, d), `y` up, turned with the road (its x across it), stretched `sx` across. */
+  /** The road's line at s (into AT): its point, its normal, its turn (for the instances). */
+  private at(s: number): void {
+    const c = this.line.center(s);
+    const th = this.line.heading(s);
+    AT.cx = c.x;
+    AT.cz = c.z;
+    AT.nx = Math.cos(th);
+    AT.nz = Math.sin(th);
+    AT.q.setFromAxisAngle(AXIS_Y, -th);
+  }
+
+  /** An instance `d` across the road where `at` last was, `y` up, turned with the road (its x across it), stretched `sx` across. */
+  private place(mesh: THREE.InstancedMesh, i: number, d: number, y: number, sx = 1, scale = 1): void {
+    P3.set(AT.cx + d * AT.nx, y, AT.cz + d * AT.nz);
+    mesh.setMatrixAt(i, M4.compose(P3, AT.q, S3.set(sx * scale, scale, scale)));
+  }
+
+  /** The strip's scenery laid along the road from s = `stripS` - STRIP_BEHIND. */
+  private layout(stripS: number): void {
+    this.laidS = stripS;
+    const from = stripS - STRIP_BEHIND;
+    const f = this.rows;
+    for (let r = 0; r < ROWS; r++) {
+      const s = from + r * SEG;
+      const c = this.line.center(s);
+      const th = this.line.heading(s);
+      f.cx[r] = c.x;
+      f.cz[r] = c.z;
+      f.nx[r] = Math.cos(th);
+      f.nz[r] = Math.sin(th);
+    }
+    for (const sw of this.sweeps) sw.layout(f, from);
+    let i = 0;
+    for (let s = -STRIP_BEHIND; s < STRIP_AHEAD; s += 4) {
+      this.at(stripS + s);
+      for (const x of [RAIL_D, LEFT_RAIL_X]) this.place(this.posts, i++, x + Math.sign(x) * 0.2, 0.4);
+    }
+    let pi = 0;
+    let ai = 0;
+    const rows = STRIP_LEN / LAMP_SPACING;
+    for (let r = 0; r < rows; r++) {
+      this.at(stripS - STRIP_BEHIND + r * LAMP_SPACING);
+      for (const spec of this.poleSpecs) {
+        this.place(this.poles, pi++, spec.d, 5);
+        for (const [dir, reach] of spec.arms) {
+          this.place(this.arms, ai, spec.d + (dir * (reach + 0.2)) / 2, 9.9, reach + 0.2);
+          this.place(this.heads, ai, spec.d + dir * reach, LAMP_HEIGHT);
+          ai++;
+        }
+      }
+    }
+    const fpos = this.lampFlares.geometry.getAttribute('position') as THREE.BufferAttribute;
+    this.lampHeads.forEach((h, k) => {
+      const w = this.line.toWorld(stripS + h.s, h.x);
+      fpos.setXYZ(k, w.x, LAMP_HEIGHT - 0.15, w.z);
+    });
+    fpos.needsUpdate = true;
+    for (const m of [this.posts, this.poles, this.arms, this.heads]) m.instanceMatrix.needsUpdate = true;
   }
 
   private buildTrees(): void {
@@ -435,37 +626,38 @@ export class RoadScene {
     const per = 70;
     const reps = Math.ceil(STRIP_LEN / TREE_PERIOD) + 1;
     const count = per * reps;
-    const trunks = new THREE.InstancedMesh(
+    this.trunks = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.25, 0.35, 2, 6),
       new THREE.MeshStandardMaterial({ color: 0x3a2a20 }),
       count,
     );
-    const crowns = new THREE.InstancedMesh(
+    this.crowns = new THREE.InstancedMesh(
       new THREE.ConeGeometry(2.2, 6, 7),
       new THREE.MeshStandardMaterial({ color: 0x1f3d1c, flatShading: true }),
       count,
     );
-    const base: { x: number; s: number; k: number }[] = [];
     for (let j = 0; j < per; j++) {
       const right = rnd() < 0.5;
       const off = 6 + rnd() * rnd() * 90;
-      base.push({ x: right ? RAIL_D + off : LEFT_RAIL_X - off, s: rnd() * TREE_PERIOD, k: 0.7 + rnd() * 0.8 });
+      this.treeBase.push({ d: right ? RAIL_D + off : LEFT_RAIL_X - off, s: rnd() * TREE_PERIOD, k: 0.7 + rnd() * 0.8 });
     }
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const scl = new THREE.Vector3();
-    const pos = new THREE.Vector3();
+    this.crowns.castShadow = true;
+    this.trees.add(this.trunks, this.crowns);
+  }
+
+  /** The trees (their pattern repeating every TREE_PERIOD m) along the road from s = `treeS` - STRIP_BEHIND. */
+  private layoutTrees(treeS: number): void {
+    this.treesS = treeS;
+    const reps = Math.ceil(STRIP_LEN / TREE_PERIOD) + 1;
     let i = 0;
     for (let r = 0; r < reps; r++)
-      for (const t of base) {
-        const s = -STRIP_BEHIND + r * TREE_PERIOD + t.s;
-        scl.setScalar(t.k);
-        trunks.setMatrixAt(i, m.compose(pos.set(t.x, 1 * t.k, -s), q, scl));
-        crowns.setMatrixAt(i, m.compose(pos.set(t.x, 4.5 * t.k, -s), q, scl));
+      for (const t of this.treeBase) {
+        this.at(treeS - STRIP_BEHIND + r * TREE_PERIOD + t.s);
+        this.place(this.trunks, i, t.d, 1 * t.k, 1, t.k);
+        this.place(this.crowns, i, t.d, 4.5 * t.k, 1, t.k);
         i++;
       }
-    crowns.castShadow = true;
-    this.trees.add(trunks, crowns);
+    for (const m of [this.trunks, this.crowns]) m.instanceMatrix.needsUpdate = true;
   }
 
   private buildFar(): void {
@@ -501,15 +693,18 @@ export class RoadScene {
   }
 
   /**
-   * Keep the repeating scenery under the player, and hand the real street lights to
-   * the lamp pairs over our carriageway nearest ahead (one light per pair). Their pools of light fade out as
+   * Keep the scenery laid along the road around the player (`playerS` along it), and hand the real street lights
+   * to the lamp pairs over our carriageway nearest ahead (one light per pair). Their pools of light fade out as
    * the real light fades in, so nothing pops.
    */
-  update(playerS: number, _playerX: number): void {
+  update(playerS: number): void {
     const stripS = Math.floor(playerS / STRIP_PERIOD) * STRIP_PERIOD;
-    this.strip.position.z = -stripS;
-    this.trees.position.z = -Math.floor(playerS / TREE_PERIOD) * TREE_PERIOD;
-    this.far.position.z = -playerS;
+    if (stripS !== this.laidS) this.layout(stripS);
+    const treeS = Math.floor(playerS / TREE_PERIOD) * TREE_PERIOD;
+    if (treeS !== this.treesS) this.layoutTrees(treeS);
+    // (the far scenery and the sky go along with the player, its line's point: as far off whichever way it turns)
+    const c = this.line.center(playerS);
+    this.far.position.set(c.x, 0, c.z);
 
     this.lampPools.update(playerS, LAMP_COLOR, NIGHT.poolStrength);
     WETNESS.value = NIGHT.wetness;
@@ -520,11 +715,11 @@ export class RoadScene {
       if (ds <= -REAL_LIGHT_BEHIND || ds >= REAL_LIGHT_AHEAD || li >= this.realLights.length) continue;
       const real = Math.min(1, (ds + REAL_LIGHT_BEHIND) / REAL_LIGHT_FADE, (REAL_LIGHT_AHEAD - ds) / REAL_LIGHT_FADE);
       const l = this.realLights[li++];
-      const z = -(stripS + row.s);
+      const w = this.line.toWorld(stripS + row.s, row.x);
       l.visible = true;
       l.intensity = NIGHT.lampIntensity * real;
-      l.position.set(row.x, LAMP_HEIGHT - 0.2, z);
-      l.target.position.set(row.x, 0, z);
+      l.position.set(w.x, LAMP_HEIGHT - 0.2, w.z);
+      l.target.position.set(w.x, 0, w.z);
       l.target.updateMatrixWorld();
       // (Its pools fade out as it comes on: LampPools, the same fade.)
     }
