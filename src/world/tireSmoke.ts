@@ -37,6 +37,11 @@ const SMOKE_SPILL = 0.08;
  * 0.27, lit round the lamps too (SMOKE_SPILL), a rival's smoke ahead hid the road; 0.18 still too thick.
  */
 const PUFF_OPACITY = 0.09;
+/**
+ * A puff off a tyre that is not spinning (locked under braking, sliding sideways) is this much as thick as a
+ * burnout's (one turning faster than the car goes): a car braking hard ahead hid the road.
+ */
+const NOT_SPINNING_SHARE = 0.5;
 /** A puff's climb (m/s): as it starts, and the most; its lift (m/s², less while it still moves fast). */
 const RISE_FROM = 0.1;
 const RISE_TOP = 0.9;
@@ -131,6 +136,8 @@ export class TireSmoke {
   private readonly alpha = new Float32Array(MAX);
   private readonly turn = new Float32Array(MAX);
   private readonly spin = new Float32Array(MAX);
+  /** Each puff's thickness, of PUFF_OPACITY (NOT_SPINNING_SHARE off a tyre that was not spinning). */
+  private readonly thick = new Float32Array(MAX);
   private readonly geo = new THREE.BufferGeometry();
   private readonly uniforms = {
     lightCount: { value: 0 },
@@ -300,7 +307,8 @@ export class TireSmoke {
 
   /**
    * Emit for wheel `id` at a contact point; `slip` in m/s, carVel = car velocity (world); `kick` (world, m/s): a
-   * spinning tyre's throw (smokeKick) - the puffs shot off it, slowing fast (the air), then drifting up.
+   * spinning tyre's throw (smokeKick) - the puffs shot off it, slowing fast (the air), then drifting up. None: the
+   * tyre is not spinning (locked, sliding), its puffs NOT_SPINNING_SHARE as thick.
    */
   emit(id: number, x: number, z: number, slip: number, carVx: number, carVz: number, dt: number, kickX = 0, kickZ = 0): void {
     if (slip < 3) {
@@ -309,6 +317,7 @@ export class TireSmoke {
     }
     const rate = Math.min(90, (slip - 3) * 9); // puffs per second
     let n = (this.carry.get(id) ?? 0) + rate * dt;
+    const thick = kickX !== 0 || kickZ !== 0 ? 1 : NOT_SPINNING_SHARE;
     while (n >= 1) {
       n -= 1;
       const i = this.next;
@@ -324,6 +333,7 @@ export class TireSmoke {
       this.vel[i * 3 + 2] = carVz * 0.15 + kickZ * k + (Math.random() - 0.5) * 1.2;
       this.turn[i] = Math.random() * Math.PI * 2;
       this.spin[i] = (Math.random() * 2 - 1) * PUFF_SPIN;
+      this.thick[i] = thick;
       this.age[i] = 0;
     }
     this.carry.set(id, n);
@@ -347,7 +357,7 @@ export class TireSmoke {
       }
       const look = puffLook(this.age[i]);
       this.size[i] = look.size;
-      this.alpha[i] = look.alpha;
+      this.alpha[i] = look.alpha * this.thick[i];
     }
     (this.geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('size') as THREE.BufferAttribute).needsUpdate = true;
