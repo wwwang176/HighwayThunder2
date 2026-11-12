@@ -13,7 +13,7 @@ import type GUI from 'lil-gui';
 import { BEST_TIME_KEY, CURVED_BEST_TIME_KEY, MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { Centerline, randomRoad, STRAIGHT_ROAD } from '../road/centerline';
 import { boxToFrame, OUR_FRAME, RoadFrame, useRoad } from '../road/frame';
-import { Sound, type SkidSource } from '../audio/sound';
+import { Sound, IMPACT_PEAK, type SkidSource } from '../audio/sound';
 import { Music, songTitle } from '../audio/music';
 import { NowPlaying } from '../ui/nowPlaying';
 import { tuned } from '../vehicles/tuning';
@@ -305,6 +305,16 @@ export class Game {
       this.startRace(cars, true);
     }, this.settings);
     this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
+    // The menus' click (Sound.uiClick) on a button or anything clicked that has its own click handler (a car in the
+    // list, a paint job, a tuning knob's pip, a pop-up's backdrop) - by mouse, or by the Enter on a focused button.
+    uiRoot.addEventListener(
+      'click',
+      (e) => {
+        for (let el = e.target as HTMLElement | null; el && el !== uiRoot; el = el.parentElement)
+          if (el instanceof HTMLButtonElement || el.onclick) return this.sound.uiClick();
+      },
+      true,
+    );
     // The song playing: in the race under the place (in the HUD, shaking with it), in the garage under its buttons.
     this.nowPlaying = new NowPlaying([uiRoot.querySelector<HTMLElement>('#hud')!, uiRoot.querySelector<HTMLElement>('#garage .g-corner')!]);
     this.music.onSong = (song) => this.nowPlaying.show(songTitle(song));
@@ -381,8 +391,11 @@ export class Game {
     // the finish, the option under the menu's cursor; the settings open (over the garage or the pause), their OK.
     // A button the Tab key is on takes the Enter itself.
     const menu = () => !g.isOpen && (this.flow.phase === 'paused' || (this.flow.phase === 'finished' && this.hud.finishShown));
+    // A menu's key (the garage, its pop-ups, the settings, the pause and finish menus): its click (Sound.uiClick).
+    const click = () => this.sound.uiClick();
     const enter = () => {
       if (document.activeElement instanceof HTMLButtonElement) return;
+      if (set.isOpen || (g.isOpen && !g.keysOpen) || menu()) click();
       if (set.isOpen) return set.confirm();
       if (g.isOpen) {
         if (g.keysOpen) return;
@@ -398,6 +411,8 @@ export class Game {
     // to the garage.
     k.onPress('Escape', () => {
       if (this.loadingRace) return; // (a race being set up: restarted from the pause, Esc would let it run on under the loading)
+      // (the pause opened and closed too, in a race)
+      if (set.isOpen || (g.isOpen && g.popOpen) || menu() || (!g.isOpen && (this.flow.phase === 'racing' || this.flow.phase === 'countdown'))) click();
       if (set.isOpen) return set.close();
       if (g.isOpen) return g.popOpen && g.back();
       if (this.flow.phase === 'finished') return this.hud.finishShown && this.toTitle(); // (in its show: skips it)
@@ -411,6 +426,7 @@ export class Game {
     const picking = () => g.isOpen && !g.popOpen && !g.onTitle;
     const setup = () => g.isOpen && g.setupOpen;
     const arrow = (dy: number, dx: number) => {
+      if (set.isOpen || setup() || (g.isOpen && g.tuneOpen) || picking() || menu()) click();
       if (set.isOpen) return dy ? set.move(dy) : set.adjust(dx);
       if (setup()) return dy ? g.setupMove(dy) : g.setupAdjust(dx);
       if (g.isOpen && g.tuneOpen) {
@@ -421,22 +437,22 @@ export class Game {
       if (menu()) this.hud.menuMove(dy || dx);
     };
     const corner = () => g.isOpen && !g.onTitle && !g.setupOpen;
-    k.onPress('KeyH', () => corner() && !set.isOpen && g.toggleKeys());
-    k.onPress('KeyO', () => corner() && !g.keysOpen && g.toggleSettings());
+    k.onPress('KeyH', () => corner() && !set.isOpen && (click(), g.toggleKeys()));
+    k.onPress('KeyO', () => corner() && !g.keysOpen && (click(), g.toggleSettings()));
     // T: the tuning panel (the car's knobs), or closed again; R in it, the car as built.
-    k.onPress('KeyT', () => corner() && !set.isOpen && !g.keysOpen && !g.resetAsking && g.toggleTune());
+    k.onPress('KeyT', () => corner() && !set.isOpen && !g.keysOpen && !g.resetAsking && (click(), g.toggleTune()));
     k.onPress('ArrowUp', () => arrow(-1, 0));
     k.onPress('ArrowDown', () => arrow(1, 0));
     k.onPress('ArrowLeft', () => arrow(0, -1));
     k.onPress('ArrowRight', () => arrow(0, 1));
-    k.onPress('KeyE', () => picking() && g.openSetup());
+    k.onPress('KeyE', () => picking() && (click(), g.openSetup()));
     for (let n = 0; n <= MAX_RIVALS; n++) {
-      k.onPress(`Digit${n}`, () => setup() && g.setupCount(n));
-      k.onPress(`Numpad${n}`, () => setup() && g.setupCount(n));
+      k.onPress(`Digit${n}`, () => setup() && (click(), g.setupCount(n)));
+      k.onPress(`Numpad${n}`, () => setup() && (click(), g.setupCount(n)));
     }
     // Race keys do nothing in the garage.
     k.onPress('KeyR', () => {
-      if (g.isOpen) return g.tuneOpen && !set.isOpen && g.tuneReset();
+      if (g.isOpen) return g.tuneOpen && !set.isOpen && (click(), g.tuneReset());
       this.tryReset();
     });
     k.onPress('KeyM', () => {
@@ -572,6 +588,7 @@ export class Game {
   /** The countdown on (the intro's last shot still coming round into place): its bars away, the HUD in. */
   private startCountdown(): void {
     this.flow.beginCountdown();
+    this.sound.countdownBeat(false, IMPACT_PEAK); // (3, from its loudest: the next beats and the green ahead of them, fixedStep)
     this.overlay.show(false);
   }
 
@@ -967,8 +984,15 @@ export class Game {
     this.checkNearMisses();
 
     const wasFinished = this.flow.phase === 'finished';
+    const counting = this.flow.phase === 'countdown', countdownWas = this.flow.countdown;
     this.flow.update(dt, this.player.s);
+    // The countdown's impact IMPACT_PEAK s ahead of each number (2, 1) and of the green: its loudest as it shows.
+    if (counting) {
+      const left = this.flow.phase === 'countdown' ? this.flow.countdown : 0;
+      for (const n of [2, 1, 0]) if (countdownWas - IMPACT_PEAK > n && left - IMPACT_PEAK <= n) this.sound.countdownBeat(n === 0);
+    }
     if (!wasFinished && this.flow.phase === 'finished') {
+      this.sound.finishImpact();
       this.beginFinishShow();
       this.sound.fadeAway(); // (slowed down it sounds wrong: away; the music plays on, down to half: Music.update)
     }

@@ -24,7 +24,7 @@ export function finishShare(now: number, finished: boolean, dt: number): number 
   const step = ((1 - MUSIC_FINISH) / MUSIC_FINISH_FADE) * dt;
   return finished ? Math.max(MUSIC_FINISH, now - step) : Math.min(1, now + step);
 }
-const MUSIC_FADE = 0.4;
+const MUSIC_FADE = 0.15; // (0.4: back up after the countdown too slowly)
 /** From one song to the next: this one faded out over `out` s, `gap` s of quiet, the next faded in over `in` s. */
 export interface Switch {
   out: number;
