@@ -675,7 +675,8 @@ export class Garage {
           const good = r.lowerIsBetter ? dd[r.key] < 0 : dd[r.key] > 0;
           el.querySelector('.d-v b')!.textContent = (base[r.key] + dd[r.key]).toFixed(r.digits);
           const ch = el.querySelector<HTMLElement>('.d-ch')!;
-          ch.textContent = moved ? `${dd[r.key] > 0 ? '+' : '−'}${Math.abs(dd[r.key]).toFixed(digits)}` : '';
+          // (better or worse by its arrow and colour - up green a gain, down red a loss - not by its sign: 0-100 shorter is up)
+          ch.innerHTML = moved ? `${dd[r.key] > 0 ? '+' : '−'}${Math.abs(dd[r.key]).toFixed(digits)}<i class="arr">${good ? '▲' : '▼'}</i>` : '';
           ch.className = `d-ch num ${moved ? (good ? 'up' : 'down') : ''}`;
         }
     // The knobs.

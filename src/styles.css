@@ -457,6 +457,8 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage.tune .t-side { visibility: visible; opacity: 1; translate: 0 -50%; transition: opacity 0.3s, translate 0.3s; }
 #garage .d-ch.up { color: #4fe08a; }
 #garage .d-ch.down { color: #ff7a6b; }
+/* The change's arrow: up a gain, down a loss (with its colour), whichever way the number went. */
+#garage .d-ch .arr { font-style: normal; font-size: 0.6em; margin-left: 0.3em; vertical-align: 0.15em; }
 /* The details: a row each (its name, the value as tuned, the change); the feel ones a meter between two words.
    The knob told lights the ones it moves (.hit), the rest fade. */
 #garage .d-group + .d-group { margin-top: 0.9vw; }
