@@ -146,3 +146,27 @@ describe('front tyres braking apart (brakeApart)', () => {
     expect(Math.abs(locked(false).Fy)).toBeLessThan(0.5 * DEFAULT_TIRE.muPeak * Fz);
   });
 });
+
+
+describe('a locked tyre dragged (dragged: the handbrake)', () => {
+  const drag = (deg: number) => {
+    const a = (deg * Math.PI) / 180;
+    return solveWheel(base({ vx: 25 * Math.cos(a), vy: 25 * Math.sin(a), omega: 0, brakeTorque: 3000, dragged: true }));
+  };
+
+  it('pushes straight against its slide: sideways by sin(the slip angle)', () => {
+    for (const deg of [10, 30, 60]) {
+      const r = drag(deg);
+      const total = Math.hypot(r.Fx, r.Fy);
+      expect(r.sliding).toBe(true);
+      expect(-r.Fy / total).toBeCloseTo(Math.sin((deg * Math.PI) / 180), 3);
+      expect(-r.Fx / total).toBeCloseTo(Math.cos((deg * Math.PI) / 180), 3);
+    }
+  });
+
+  it('holds sideways more than one sharing the friction circle, the more the further it swings', () => {
+    const shared = solveWheel(base({ vx: 25 * Math.cos(Math.PI / 6), vy: 25 * Math.sin(Math.PI / 6), omega: 0, brakeTorque: 3000 }));
+    expect(Math.abs(drag(30).Fy)).toBeGreaterThan(3 * Math.abs(shared.Fy));
+    expect(Math.abs(drag(60).Fy)).toBeGreaterThan(Math.abs(drag(30).Fy));
+  });
+});

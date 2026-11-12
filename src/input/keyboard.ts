@@ -30,6 +30,7 @@ export class Keyboard {
       throttle: this.isDown('KeyW', 'ArrowUp') ? 1 : 0,
       brake: this.isDown('KeyS', 'ArrowDown') ? 1 : 0,
       steer: right - left,
+      handbrake: this.isDown('Space'),
       nitro: this.isDown('ShiftLeft', 'ShiftRight'),
     };
   }

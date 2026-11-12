@@ -66,6 +66,7 @@ export const STRINGS = {
   'keys.throttle': { zh: '油門', en: 'Throttle' },
   'keys.brake': { zh: '煞車 / 倒車', en: 'Brake / reverse' },
   'keys.steer': { zh: '轉向', en: 'Steer' },
+  'keys.handbrake': { zh: '手煞車（鎖後輪，甩尾）', en: 'Handbrake (rear wheels lock: the tail slides)' },
   'keys.nitro': { zh: '氮氣', en: 'Nitro' },
   'keys.look': { zh: '看正後方', en: 'Look back' },
   'keys.view': { zh: '切換引擎蓋視角', en: 'Hood camera' },

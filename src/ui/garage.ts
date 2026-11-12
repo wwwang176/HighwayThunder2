@@ -86,6 +86,7 @@ const KEYS: [string, Key][] = [
   ['W / ↑', 'keys.throttle'],
   ['S / ↓', 'keys.brake'],
   ['A D / ← →', 'keys.steer'],
+  ['Space', 'keys.handbrake'],
   ['Shift', 'keys.nitro'],
   ['C', 'keys.look'],
   ['V', 'keys.view'],

@@ -86,6 +86,9 @@ export interface DriveInput {
   throttle: number; // 0..1
   brake: number; // 0..1
   steer: number; // -1 (left) .. 1 (right)
+  /** Held where it stands: all four brakes on, the pedals let be (the grid, the finish's stop). */
+  hold?: boolean;
+  /** The handbrake lever: the rear wheels locked (their grip sideways gone: the tail slides), the drive cut. */
   handbrake?: boolean;
   /** Nitro asked for (it burns only on the throttle, while there's some: nitro.ts). */
   nitro?: boolean;
@@ -116,7 +119,7 @@ export function driveCommand(
   p: CarParams,
   mode: DriveMode = 'D',
 ): { engineForce: number; brake: number; mode: DriveMode; burnout?: boolean } {
-  if (input.handbrake) return { engineForce: 0, brake: 1, mode };
+  if (input.hold) return { engineForce: 0, brake: 1, mode };
   let m = mode;
   if (Math.abs(vForward) < STOPPED) {
     if (input.brake > 0 && input.throttle === 0) m = 'R';

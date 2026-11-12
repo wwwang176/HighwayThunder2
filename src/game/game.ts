@@ -96,7 +96,7 @@ const RIVAL_AWAKE = 60;
 const TRAFFIC_PLAN_EVERY = 2;
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
-const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, handbrake: true };
+const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, hold: true };
 const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
 /** Every lamp state a traffic vehicle shows (brake lights dim and on, indicators off and on): for prewarm. */
 const PREWARM_LAMPS: VehicleLights[] = [
@@ -900,10 +900,10 @@ export class Game {
         return this.player.speed > 1 ? ROLL_OUT : HOLD; // brake to a stop, never into reverse
       case 'countdown': {
         // On the grid the brake is held for the player, whatever else they press: with the throttle that is a
-        // burnout (revving on the line, smoke), let go of at the green. Off the throttle the handbrake (a brake
-        // alone at a standstill selects reverse). The nitro stays full for the start.
+        // burnout (revving on the line, smoke), let go of at the green. Off the throttle it is held (a brake
+        // alone at a standstill selects reverse). The nitro stays full for the start, the handbrake off.
         const keys = this.inputOverride ?? this.keyboard.driving();
-        return keys.throttle > 0 ? { ...keys, brake: 1, nitro: false } : { ...keys, brake: 0, handbrake: true, nitro: false };
+        return keys.throttle > 0 ? { ...keys, brake: 1, handbrake: false, nitro: false } : { ...keys, brake: 0, hold: true, handbrake: false, nitro: false };
       }
       default:
         return HOLD;
