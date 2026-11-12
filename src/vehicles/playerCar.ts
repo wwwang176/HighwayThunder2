@@ -41,6 +41,16 @@ const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 /** The rear tyres' grip in a burnout, times: the front brakes alone hold the car. */
 const BURNOUT_REAR_GRIP = 0.6;
+/**
+ * Launch control (CarParams.launchSlip): it works while the tail follows the nose - the rear axle's slip angle under
+ * LAUNCH_ALIGNED rad - and lets go as the tail steps out, its hold falling off by e every LAUNCH_FADE rad past that
+ * (whatever the steering: a tap to hold the line keeps it, a power slide gets the drive back as it grows). It lets at
+ * least LAUNCH_LEAST of the drive through, and moves its share LAUNCH_RATE per second per target's worth of slip off it.
+ */
+const LAUNCH_ALIGNED = 0.035;
+const LAUNCH_FADE = 0.05;
+const LAUNCH_LEAST = 0.2;
+const LAUNCH_RATE = 8;
 const CONNECTION_Y = 0; // suspension hard points, chassis space
 const RIDE_Y = 0.55; // chassis center height at static ride
 const G = 9.81;
@@ -146,6 +156,10 @@ export class PlayerCar {
   private baseRpm = 900;
   private sinceBite = Infinity;
   private offThrottle = false;
+  /** Launch control's share of the drive it lets through (CarParams.launchSlip): 1 while the rears are not over it. */
+  private launchTrim = 1;
+  /** Of the drive, what launch control lets through: launchTrim as much as it holds (the tail following the nose). */
+  private launchShare = 1;
   /** s on the rev limiter (-1: off it). */
   private onLimiter = -1;
   driveMode: DriveMode = 'D';
@@ -421,6 +435,21 @@ export class PlayerCar {
     if (boost && this.driveMode === 'D') cmd.engineForce *= NITRO.force * (p.nitroForce ?? 1);
     // Stability control also trims power once the car is sliding sideways (never all of it: escPowerTrim).
     if (p.escGain > 0 && cmd.engineForce > 0) cmd.engineForce *= escPowerTrim(bodySlip);
+    // Launch control (launchSlip): the tail following the nose, the drive eased back to hold the rear tyres' slip at its
+    // target - near their grip's peak, a little smoke - not all of it lost spinning them up; the tail stepping out, it
+    // lets them be (power slides).
+    if (p.launchSlip !== undefined && cmd.engineForce > 0 && !cmd.burnout) {
+      // The rear axle's sideways speed: the body's, and the turning swinging the tail (it sits wheelbase / 2 + comFwd
+      // behind the centre of mass); its hold on the drive, 1 while the tail follows the nose, fading as it steps out.
+      const rearLat = this.vLat + this.body.angvel().y * (p.wheelbase / 2 + p.comFwd);
+      const rearSlipAngle = Math.abs(Math.atan2(rearLat, Math.max(Math.abs(this.vLong), 1)));
+      const hold = Math.exp(-Math.max(0, rearSlipAngle - LAUNCH_ALIGNED) / LAUNCH_FADE);
+      const slip = rearOmega * p.wheelRadius - this.vLong;
+      // (Learning as much as it holds: let go in a slide, it comes back where it left off.)
+      this.launchTrim = Math.min(1, Math.max(LAUNCH_LEAST, this.launchTrim + hold * LAUNCH_RATE * dt * ((p.launchSlip - slip) / p.launchSlip)));
+      this.launchShare = 1 - hold * (1 - this.launchTrim);
+      cmd.engineForce *= this.launchShare;
+    } else this.launchTrim = this.launchShare = 1;
     // The brakes' balance (the player's tuning, brakeShift): braking, some of the front tyres' grip straight on moved to
     // the rear, as much as the loads on them come to (all four stop as well as ever) - and the brakes' split with it,
     // each axle as near locking as it was. The rear doing more of the braking, its cornering grip goes sooner.
@@ -439,6 +468,7 @@ export class PlayerCar {
       frontLong *= p.brakeGrip;
       rearLong *= p.brakeGrip;
     }
+    rearLong *= p.rearLongGrip ?? 1;
     const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * bias * 0.5 * p.wheelRadius;
     // A burnout (both keys, stopped): the front brakes hold it, the driven rear wheels spin free of theirs.
     const brakeTorqueRear = cmd.burnout ? 0 : (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - bias) * 0.5 * p.wheelRadius;
