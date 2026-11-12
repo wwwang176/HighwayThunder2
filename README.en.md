@@ -65,6 +65,7 @@ https://highwaythunder2.wwwang.tw/
 | `W` / `↑` | Throttle |
 | `S` / `↓` | Brake / reverse |
 | `A` `D` / `←` `→` | Steer |
+| `Space` | Handbrake (rear wheels lock: the tail slides) |
 | `Shift` | Nitro |
 | `C` | Hold to look back |
 | `V` | Hood camera |

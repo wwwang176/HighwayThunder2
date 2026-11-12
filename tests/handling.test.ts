@@ -86,8 +86,8 @@ describe('driveCommand', () => {
     expect(c.mode).toBe('D');
     expect(c.engineForce).toBeGreaterThan(0);
   });
-  it('handbrake holds the car', () => {
-    const c = driveCommand({ throttle: 0, brake: 0, steer: 0, handbrake: true }, 0, P, 'D');
+  it('hold holds the car', () => {
+    const c = driveCommand({ throttle: 0, brake: 0, steer: 0, hold: true }, 0, P, 'D');
     expect(c.engineForce).toBe(0);
     expect(c.brake).toBe(1);
   });

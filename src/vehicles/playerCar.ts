@@ -396,9 +396,10 @@ export class PlayerCar {
     this.steer = smoothSteer(this.steer, input.steer, p, dt, this.vLong);
     // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
     const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, p);
-    // Stability control: nudge the rotation toward what the steering asks for.
+    // Stability control: nudge the rotation toward what the steering asks for (not on the handbrake: the slide
+    // it asks for let be).
     const yawRate = -this.body.angvel().y;
-    const esc = escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
+    const esc = input.handbrake && !input.hold ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
     if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);
     const bodySlip = Math.abs(Math.atan2(this.vLat, Math.max(Math.abs(this.vLong), 1)));
     const targetThrottle = input.throttle;
@@ -469,10 +470,14 @@ export class PlayerCar {
       rearLong *= p.brakeGrip;
     }
     rearLong *= p.rearLongGrip ?? 1;
-    const brakeTorqueFront = (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * bias * 0.5 * p.wheelRadius;
+    const brakeTorqueFront = (input.hold ? 1 : cmd.brake) * p.brakeForceMax * bias * 0.5 * p.wheelRadius;
     // A burnout (both keys, stopped): the front brakes hold it, the driven rear wheels spin free of theirs.
-    const brakeTorqueRear = cmd.burnout ? 0 : (input.handbrake ? 1 : cmd.brake) * p.brakeForceMax * (1 - bias) * 0.5 * p.wheelRadius;
-    const driveTorqueRear = cmd.engineForce * 0.5 * p.wheelRadius;
+    let brakeTorqueRear = cmd.burnout ? 0 : (input.hold ? 1 : cmd.brake) * p.brakeForceMax * (1 - bias) * 0.5 * p.wheelRadius;
+    // The handbrake lever: the rear wheels alone, locked (the whole brakes' force on them: past any grip), the
+    // drive cut (the clutch down) - skidding, the rear tyres lose their grip sideways, the tail steps out.
+    const lever = !!input.handbrake && !input.hold;
+    if (lever) brakeTorqueRear = Math.max(brakeTorqueRear, p.brakeForceMax * 0.5 * p.wheelRadius);
+    const driveTorqueRear = lever ? 0 : cmd.engineForce * 0.5 * p.wheelRadius;
     setBrake(this.lights, this.showBrake ?? (cmd.brake > 0 && (Math.abs(this.vLong) > 0.5 || !!cmd.burnout)));
 
     // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,

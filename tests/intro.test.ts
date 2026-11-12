@@ -18,7 +18,7 @@ describe('a car held on the grid, put under a braking load (the intro\'s arrival
     const car = new PlayerCar(physics, null);
     car.resetTo(0, 1, 0);
     car.holdInPlace(true);
-    const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
+    const HOLD = { throttle: 0, brake: 0, steer: 0, hold: true };
     const nose = () => {
       const q = car.body.rotation();
       return new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w)).y; // > 0 up

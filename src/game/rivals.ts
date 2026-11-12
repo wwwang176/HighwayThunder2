@@ -137,9 +137,9 @@ const RESET_SPEED_RIVAL = 60 * KMH;
 const RESET_RETRY = 0.5;
 /** Top speed (m/s) once past the finish: it rolls out. */
 export const FINISHED_SPEED = 40 * KMH;
-const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: true };
+const HOLD = { throttle: 0, brake: 0, steer: 0, hold: true };
 /** On the grid in the countdown: both pedals down, as the player's - a burnout on the line (held to its spot). */
-const REV_ON_GRID = { throttle: 1, brake: 1, steer: 0, handbrake: false, nitro: false };
+const REV_ON_GRID = { throttle: 1, brake: 1, steer: 0, hold: false, nitro: false };
 /**
  * Revving on the grid as a driver does: the throttle blipped for `on` s and let go for `off` s (each drawn anew,
  * from..to), over and over, until `launch` s before the green: then held down, waiting for it. `firstWait`: off the
