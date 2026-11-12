@@ -41,6 +41,8 @@ const WHEEL_W = 0.3;
 const HALF_TRACK = 0.8;
 /** The rear tyres' grip in a burnout, times: the front brakes alone hold the car. */
 const BURNOUT_REAR_GRIP = 0.6;
+/** The handbrake: on the rear wheels, this share of the whole brakes' force. */
+const HANDBRAKE = 0.5;
 /**
  * Launch control (CarParams.launchSlip): it works while the tail follows the nose - the rear axle's slip angle under
  * LAUNCH_ALIGNED rad - and lets go as the tail steps out, its hold falling off by e every LAUNCH_FADE rad past that
@@ -473,10 +475,10 @@ export class PlayerCar {
     const brakeTorqueFront = (input.hold ? 1 : cmd.brake) * p.brakeForceMax * bias * 0.5 * p.wheelRadius;
     // A burnout (both keys, stopped): the front brakes hold it, the driven rear wheels spin free of theirs.
     let brakeTorqueRear = cmd.burnout ? 0 : (input.hold ? 1 : cmd.brake) * p.brakeForceMax * (1 - bias) * 0.5 * p.wheelRadius;
-    // The handbrake lever: the rear wheels alone, locked (the whole brakes' force on them: past any grip), the
-    // drive cut (the clutch down) - skidding, the rear tyres lose their grip sideways, the tail steps out.
+    // The handbrake lever: the rear wheels alone (HANDBRAKE of the whole brakes' force on them), the drive cut (the
+    // clutch down) - skidding, the rear tyres lose their grip sideways, the tail steps out.
     const lever = !!input.handbrake && !input.hold;
-    if (lever) brakeTorqueRear = Math.max(brakeTorqueRear, p.brakeForceMax * 0.5 * p.wheelRadius);
+    if (lever) brakeTorqueRear = Math.max(brakeTorqueRear, HANDBRAKE * p.brakeForceMax * 0.5 * p.wheelRadius);
     const driveTorqueRear = lever ? 0 : cmd.engineForce * 0.5 * p.wheelRadius;
     setBrake(this.lights, this.showBrake ?? (cmd.brake > 0 && (Math.abs(this.vLong) > 0.5 || !!cmd.burnout)));
 
