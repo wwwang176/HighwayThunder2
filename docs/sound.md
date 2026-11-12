@@ -151,8 +151,10 @@ the private repository, copied in for the build by the Pages workflow. No playli
   the rest, on the master), each Mute or 10-100 %, full as it comes; heard as they are picked, put back on cancel,
   kept on OK. **M** mutes both (kept too).
 - Past the finish line (its slow motion) the sound fades away over 2.5 s (`Sound.fadeAway`): slowed down it sounds
-  wrong. The music plays on (the same song), down to half (`MUSIC_FINISH`) over the same 2.5 s. Back at once for the
-  next race or the garage, behind the black between them.
+  wrong. The music plays on (the same song), down to half (`MUSIC_FINISH`) over the same 2.5 s. Back at once as the
+  next race's intro comes in (out of the black); silent in the garage (`Sound.quiet`: turned back up there, the old
+  race's engine, still dying away, was heard). Restarted from the pause, the race's sound stays stopped through the
+  fade and the loading too, back (faded in) with the new race's intro.
 - Its own `<audio>` element, streamed, outside the Web Audio graph. Stopped where it is in a pause, and in a hidden
   tab; on from there after, faded in from silence (as the sound after a pause).
 - Its title and how far into it / how long it is (`src/ui/nowPlaying.ts`): in the race under the place (in the HUD,

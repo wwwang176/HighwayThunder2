@@ -334,12 +334,16 @@ export class Game {
     this.openGarage(true); // (the game opens on its title)
     // The sound woken at the first click or key (the browser lets it start only then), so its clips load in the
     // garage, ready for the race's start; the music starts there too.
+    // (Once only, the first of either: the other one later - a first mouse click on the pause's menu after a race
+    // played on the keys - woke the race's sound, stopped by the pause.)
     const wake = (): void => {
+      removeEventListener('pointerdown', wake);
+      removeEventListener('keydown', wake);
       this.sound.init();
       this.music.start();
     };
-    addEventListener('pointerdown', wake, { once: true });
-    addEventListener('keydown', wake, { once: true });
+    addEventListener('pointerdown', wake);
+    addEventListener('keydown', wake);
   }
 
   /** Every shader compiled and picture sent before the first race (prewarm: main.ts, its own step on the loading screen). */
@@ -515,7 +519,9 @@ export class Game {
   startRace(cars?: CarSelection, fromGarage = false): void {
     if (!(picksCars(this.flow.phase) || this.flow.phase === 'paused') || this.starting) return;
     this.starting = true;
-    this.sound.init(); // (in the click or key itself: the browser lets the sound start only there)
+    // (in the click or key itself: the browser lets the sound start only there; paused, the race's sound stays
+    // stopped - silent through the fade and the loading - and comes back with the new race, setUpRace)
+    if (this.flow.phase !== 'paused') this.sound.init();
     if (fromGarage) this.sound.startup(specOf((cars ?? this.cars).player).style);
     this.music.change(); // (a new scene: the song faded out, a moment's quiet, the next one in)
     this.overlay.toBlack(START_FADE_OUT, () => void this.setUpRace(cars));
@@ -533,13 +539,12 @@ export class Game {
     await this.loading.hold();
     await this.loading.next('loading.grid', 0.1);
     this.garage.close();
-    // Restarted while paused: the pause's menu shut, the sound back on (and an intro still running ended).
+    // Restarted while paused: the pause's menu shut (and an intro still running ended); its sound back on only as the
+    // new race comes in (below).
     if (this.introOn) {
       this.introOn = false;
       this.intro?.end();
     }
-    this.sound.suspend(false);
-    this.sound.bringBack();
     // Every race starts with the player driving (I hands the car to the AI again), on the car's own limiter.
     if (this.aiActive) {
       this.aiActive = false;
@@ -565,6 +570,13 @@ export class Game {
     await this.loading.finish('loading.go');
     this.loadingRace = false;
     this.starting = false;
+    // The sound back on (after a pause, faded in from silence; after the finish, its fade-away undone) with the new
+    // race - not under the loading, where the old race's engine, frozen as it was paused, sounded on.
+    // (the old race's engines, squeals, nitro and wind silenced: the new one's own from its first frame)
+    this.sound.silenceEngine();
+    this.sound.hush();
+    this.sound.suspend(false);
+    this.sound.bringBack();
     this.beginIntro();
     this.overlay.fromBlack(START_FADE_IN);
   }
@@ -676,8 +688,10 @@ export class Game {
         this.overlay.show(false);
       }
       this.flow.toTitle();
+      // (the race's sound silent in the garage - after the finish, its fade-away left as it is - back with the next
+      // race: setUpRace)
+      this.sound.quiet();
       this.sound.suspend(false);
-      this.sound.bringBack();
       this.resetWorld();
       this.openGarage();
       this.overlay.fromBlack(START_FADE_IN);
