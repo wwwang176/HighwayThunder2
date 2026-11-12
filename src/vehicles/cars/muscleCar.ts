@@ -81,6 +81,10 @@ export const MUSCLE_CAR: CarSpec = {
     rearGrip: 1.3,
     aeroGrip: 0.4,
     lsd: 600,
+    // Its diff locks only the rear wheels' slip, not their rolling round a bend (lsdTurnFree all of it; not the supercar's
+    // tenth, inherited): locking that too, on a light steer (0.3) it turned 8.0 / 5.9 deg/s at 100 / 200 km/h (the
+    // supercar 13.4 / 11.6), now 10.8 / 7.1 - still the slowest to turn. Launches and power slides as they were.
+    lsdTurnFree: 1,
     escGain: 1_500, // 0: it spins whenever the throttle goes down in a turn
     // Its model's (public/models/muscle-car.glb, tools/models/muscle_car.py): the wheels in its arches, its body.
     wheelRadius: 0.324,
@@ -90,11 +94,12 @@ export const MUSCLE_CAR: CarSpec = {
   }, 1800),
   // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
   ai: {
-    // EXPERIMENT, measured on its drag tyres / four-speed / 743 kW (before: 7 / 7 / 9.1 / 6.3 / 4.3 / 2.7).
+    // Measured 2026-11-13: its launch control at 12 m/s of slip (at 2.5: 9.4 / 9.4 / 5.1 / 6.4 / 5.1 / 3.3; before
+    // its drag tyres / four-speed / 743 kW: 7 / 7 / 9.1 / 6.3 / 4.3 / 2.7).
     accel: [
-      [0, 9.4],
-      [50, 9.4],
-      [100, 5.1], // (the 1-2 shift, at 102 km/h, in its half second)
+      [0, 8.4],
+      [50, 8.4],
+      [100, 4.9], // (the 1-2 shift, at 102 km/h, in its half second)
       [150, 6.4],
       [200, 5.1],
       [250, 3.3],
@@ -108,14 +113,16 @@ export const MUSCLE_CAR: CarSpec = {
       [250, 12.6],
       [300, 13.8],
     ],
+    // Measured 2026-11-13, its diff freeing the wheels' rolling round a bend (lsdTurnFree; before: 8.9 / 8.9 / 10.2 /
+    // 12.3 / 14.5 / 15.3 / 15.4).
     latAccel: [
-      [0, 8.9],
-      [50, 8.9],
-      [100, 10.2],
-      [150, 12.3],
-      [200, 14.5],
-      [250, 15.3],
-      [300, 15.4],
+      [0, 9.6],
+      [50, 9.6],
+      [100, 10.9],
+      [150, 13.4],
+      [200, 14.7],
+      [250, 14.6],
+      [300, 16.7],
     ],
     tracker: MUSCLE_CAR_TRACKER,
     recovery: MUSCLE_CAR_RECOVERY,

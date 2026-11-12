@@ -64,6 +64,9 @@ const SUPERCAR: CarSpec = {
     slipFalloff: 18,
     lsd: 150,
     lsdMax: 1500,
+    // Its diff lets a tenth of the rear wheels' rolling round a bend be (lsdTurnFree): its steering within 1 % of the
+    // diff locking it all (all of it, steady steering 60-200 km/h up to 8.9 % quicker; half, 4.3 %).
+    lsdTurnFree: 0.1,
     counterSteer: 0.8,
     steerSlowdownSpeed: Infinity,
     escGain: 9000,
