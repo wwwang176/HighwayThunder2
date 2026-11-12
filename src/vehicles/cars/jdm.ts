@@ -45,6 +45,9 @@ export const JDM_CAR: CarSpec = {
     muPeak: 1.45,
     slipAnglePeak: 0.09,
     lsd: 200,
+    // Its diff lets 40 % of the rear wheels' rolling round a bend be (lsdTurnFree): its steering within 5 % of the diff
+    // locking it all (steady steering, 60-200 km/h: up to 4.7 % quicker; all of it, 12.8 %).
+    lsdTurnFree: 0.4,
     escGain: 12_000,
     wheelRadius: 0.302, // its model's tyres: 245/30 R18
     wheelbase: 2.42, // its model's

@@ -81,6 +81,10 @@ export const MUSCLE_CAR: CarSpec = {
     rearGrip: 1.3,
     aeroGrip: 0.4,
     lsd: 600,
+    // Its diff locks only the rear wheels' slip, not their rolling round a bend (lsdTurnFree all of it; the supercar's
+    // half, inherited, not): locking that too, on a light steer (0.3) it turned 8.0 / 5.9 deg/s at 100 / 200 km/h (the
+    // supercar 13.4 / 11.6), now 10.8 / 7.1 - still the slowest to turn. Launches and power slides as they were.
+    lsdTurnFree: 1,
     escGain: 1_500, // 0: it spins whenever the throttle goes down in a turn
     // Its model's (public/models/muscle-car.glb, tools/models/muscle_car.py): the wheels in its arches, its body.
     wheelRadius: 0.324,

@@ -492,9 +492,10 @@ export class PlayerCar {
 
     // Limited-slip diff: torque moves from the faster-spinning rear wheel to the slower one,
     // so both rears light up (and hook up) together instead of one-wheel peel. Only past the speeds the turning asks
-    // of them (lsdSpread: the outer wheel rolling faster): one spinning it locks, rolling round a bend it lets them be
-    // (locking those too it held the car straight - the muscle car's 600 turned it half as fast on a light steer).
-    const spread = (this.wheels[2].omega - this.wheels[3].omega) - lsdSpread(yawRate, p.wheelRadius);
+    // of them (lsdSpread: the outer wheel rolling faster; lsdTurnFree of it): one spinning it locks, rolling round a
+    // bend it lets them be (locking those too it holds the car straight - the muscle car's 600 turned it half as fast
+    // as the supercar on a light steer).
+    const spread = (this.wheels[2].omega - this.wheels[3].omega) - (p.lsdTurnFree ?? 1) * lsdSpread(yawRate, p.wheelRadius);
     const lsd = Math.max(-p.lsdMax, Math.min(p.lsdMax, p.lsd * spread));
     this.chassis.setup = this.chassisSetup(this.vLong);
     const speedNow = Math.hypot(this.vLong, this.vLat);

@@ -59,6 +59,7 @@ export interface CarParams {
   slipFalloff: number; // m/s of slip over which sliding friction falls from muPeak to muSlide
   lsd: number; // limited-slip diff: N·m moved to the slower rear wheel per rad/s of speed difference
   lsdMax: number; // N·m, the most it moves
+  lsdTurnFree?: number; // 0..1: this share of the rear wheels' rolling round a bend (the outer one faster) the diff lets be, locking their slip (unset: 1, all of it; 0: it locks that too, holding the car straight)
   counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
   steerSlowdownSpeed: number; // m/s; turn-in rate is halved at this speed (Infinity = never slower)
   escGain: number; // stability control: N·m of yaw correction per rad/s of yaw-rate error (0 = off)
