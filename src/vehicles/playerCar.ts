@@ -495,6 +495,7 @@ export class PlayerCar {
       // In a burnout the spinning rear tyres push less (arcade): the front brakes hold every car, even a tail-heavy one.
       w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1)) * grip;
       w.longScale = w.front ? frontLong : rearLong;
+      w.dragged = lever && !w.front; // (the handbrake's locked rear tyres: dragged, holding sideways as their tail swings out)
     }
     this.chassis.step(
       dt,

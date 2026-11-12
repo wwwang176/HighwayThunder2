@@ -65,6 +65,12 @@ export interface WheelIn {
   brakeApart?: boolean;
   /** This wheel's grip driving / braking straight, times (the brakes' balance shifting it front to rear). */
   longScale?: number;
+  /**
+   * Sliding, the tyre's friction straight against its slide (the tread's speed over the road), as a dragged tyre's:
+   * a locked one (the handbrake's) holds sideways by sin(its slip angle) - little while it runs nearly straight, more
+   * the further the tail swings out. Unset: the sliding force shared out as the gripping one would be.
+   */
+  dragged?: boolean;
 }
 
 export interface WheelOut {
@@ -154,9 +160,18 @@ export function solveWheel(w: WheelIn): WheelOut {
 
   // --- sliding --------------------------------------------------------------
   const kinetic = kineticMu(longSlip, t) * mu * camber * w.Fz;
-  const scale = Math.min(1, kinetic / req);
-  const Fx = FxReq * scale;
-  const Fy = w.brakeApart ? FyReq : FyReq * scale;
+  let Fx: number, Fy: number;
+  const slideX = w.vx - w.omega * R; // (the road under the tread, forward)
+  const slide = Math.hypot(slideX, w.vy);
+  if (w.dragged && slide > 1e-6) {
+    Fx = (-kinetic * slideX) / slide;
+    Fy = (-kinetic * w.vy) / slide;
+    if (Math.abs(Fy) > Math.abs(FyStop)) Fy = FyStop; // (no more than stops its side motion)
+  } else {
+    const scale = Math.min(1, kinetic / req);
+    Fx = FxReq * scale;
+    Fy = w.brakeApart ? FyReq : FyReq * scale;
+  }
   let omega = w.omega + ((w.driveTorque - Fx * R) / I) * dt;
   omega = applyBrake(omega, w.brakeTorque, I, dt);
   // A spinning or locked wheel that comes back to rolling speed must not
