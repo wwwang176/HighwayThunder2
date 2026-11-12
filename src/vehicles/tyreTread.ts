@@ -18,7 +18,7 @@ const H = BAND + 2 * EDGE;
 /** The flat margins' share of v (the sidewalls'). */
 export const TREAD_MARGIN = EDGE / H;
 /** The rubber (linear): the sidewall's and the tread's, the grooves' floor darker (the colour map). */
-const RUBBER = 0.025;
+const RUBBER = 0.012;
 const GROOVE_SHADE = 0.3;
 const ROUGH = { wall: 0.9, tread: 0.78, groove: 0.95 };
 
@@ -184,7 +184,7 @@ function treadMaps(anisotropy: number) {
   return maps;
 }
 
-/** A file's wheel: its tyre (material `tyre`) given the tread (uvs, the maps; the rubber a touch lighter). */
+/** A file's wheel: its tyre (material `tyre`) given the tread (uvs, the maps; the rubber's own colour). */
 export function addTread(wheel: THREE.Object3D, anisotropy = 8): void {
   wheel.traverse((o) => {
     const m = o as THREE.Mesh;
