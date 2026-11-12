@@ -143,6 +143,8 @@ export class Sound {
   private windsBus!: GainNode;
   /** The countdown's, the finish's and the menus' cues: on the player's volume (as master), not faded with the race. */
   private cues!: GainNode;
+  /** The cues playing (quiet: stopped). */
+  private readonly cuesOn = new Set<AudioBufferSourceNode>();
   private nitroOn = false;
   /** How many pops the bank holds; the one last played (not the same one twice running). */
   private popCount = 0;
@@ -411,7 +413,11 @@ export class Sound {
     src.playbackRate.value = rate;
     g.gain.value = volume;
     src.connect(g).connect(this.cues);
-    src.onended = () => g.disconnect();
+    this.cuesOn.add(src);
+    src.onended = () => {
+      g.disconnect();
+      this.cuesOn.delete(src);
+    };
     src.start(0, from);
     if (fade > 0) {
       // (`fade` s: evenly down to nothing, then stopped)
@@ -480,7 +486,27 @@ export class Sound {
     g.linearRampToValueAtTime(0, now + FINISH_FADE);
   }
 
-  /** The next race, or the garage: heard again (at once - behind the black between them). */
+  /**
+   * Back to the garage: the race's sound off at once, till bringBack with the next race - turned back up there, what
+   * the old race left sounding (its engine still dying away) would be heard; a cue still playing (a countdown's
+   * impact, paused mid-way) stopped. Not the menus' (their own context).
+   */
+  quiet(): void {
+    if (!this.ctx) return;
+    const g = this.scene.gain, now = this.ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(0, now);
+    for (const src of this.cuesOn) {
+      try {
+        src.stop();
+      } catch {
+        // (stopped already)
+      }
+    }
+    this.cuesOn.clear();
+  }
+
+  /** The next race: heard again (at once - behind the black, as its intro comes in). */
   bringBack(): void {
     if (!this.ctx) return;
     const g = this.scene.gain, now = this.ctx.currentTime;
