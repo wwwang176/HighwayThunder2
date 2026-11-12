@@ -1,6 +1,6 @@
 import { BUNDLE_RATE, unpackBundle } from './bundleCodec';
 
-/** The crash recordings' bundle (built by tools/build-crash-audio.ts; git-ignored, licensed: docs/audio.md). */
+/** The crash recordings' bundle (built in the private audio repo; git-ignored, licensed: docs/sound.md). */
 export const CRASH_BUNDLE_URL = 'audio/crashes.bin';
 
 /** A crash recording: one hit, and the gain that brings it to the set's common loudness. */

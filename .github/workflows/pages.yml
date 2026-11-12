@@ -1,7 +1,7 @@
 # The game on GitHub Pages at its own domain (https://highwaythunder2.wwwang.tw/: the repo's Pages custom domain; a
 # CNAME there to wwwang176.github.io, at Cloudflare, not proxied), with its sound.
 #
-# The sound bundles are licensed for use inside the game only, never in a public repository (docs/audio.md): they live
+# The sound bundles are licensed for use inside the game only, never in a public repository (docs/sound.md): they live
 # in the private repo wwwang176/HighwayThunder2-audio, checked out here with a read-only deploy key (the secret
 # AUDIO_DEPLOY_KEY) and copied into public/audio just for the build. Run on a push to main or by hand only - never on a
 # pull request (a fork's has no secrets, and none is to be handed it).

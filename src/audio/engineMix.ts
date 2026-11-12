@@ -4,11 +4,11 @@
  * Its clips, each one steady rev of the engine, rise in rpm; each is played at rpm / its own rpm (times the set's
  * pitch), and between two neighbours the sound crossfades (equal power, by log rpm) across a narrow band around
  * their rpms' geometric mean (±HANDOVER, kept within the two). One car, one microphone, its clips matched: a
- * crossfade is all the handover needs (as the pack itself does it).
+ * crossfade is all the handover needs.
  *
  * The game's rpm (idle .. redline) is laid onto the sound's own range: its lowest clip at its own speed for the
- * idle, its highest at TOP times its own for the redline (as the pack itself plays it at its top rpm; a pack's
- * revs reach only so high, and this keeps every clip near its own speed rather than the real car's range). On the
+ * idle, its highest at TOP times its own for the redline (as recorded engines are played at
+ * their top rpm; the recorded revs reach only so high, and this keeps every clip near its own speed rather than the real car's range). On the
  * rev limiter (atLimiter), the set's limiter clip in their place.
  */
 
@@ -16,7 +16,7 @@
 export const HANDOVER = 1.04;
 /** The highest clip's speed at the redline (pushed past its own it only sounded shrill). */
 export const TOP = 1;
-/** On the rev limiter from this share of the redline on (the pack's own threshold), the throttle past LIMITER_THROTTLE. */
+/** On the rev limiter from this share of the redline on (a common threshold), the throttle past LIMITER_THROTTLE. */
 export const LIMITER_FROM = 0.988;
 export const LIMITER_THROTTLE = 0.5;
 

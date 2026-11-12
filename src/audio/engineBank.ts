@@ -1,12 +1,12 @@
 import { BUNDLE_RATE, unpackBundle } from './bundleCodec';
 import { ENGINE_BUNDLE_URL } from './engineCatalog';
 
-/** The tyre squeal's and the nitro's bundle (built by tools/build-effect-audio.ts; git-ignored: docs/audio.md). */
+/** The tyre squeal's, the nitro's and the cues' bundle (built in the private audio repo; git-ignored: docs/sound.md). */
 export const EFFECTS_BUNDLE_URL = 'audio/effects.bin';
 
 /**
  * The engine clips, decoded: each one lap of its loop, as an AudioBuffer by clip id. Null when there's no bundle
- * (a checkout without the licensed pack built: tools/build-engine-audio.ts) or it can't be read: the engines then
+ * (a checkout without the built sounds: docs/sound.md) or it can't be read: the engines then
  * stay silent.
  */
 export function loadEngineBank(ctx: BaseAudioContext): Promise<Map<string, AudioBuffer> | null> {

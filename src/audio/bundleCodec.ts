@@ -1,6 +1,6 @@
 /**
  * The sound bundle's file: every clip packed into one, so the site serves no loose audio files (the recordings are
- * licensed for use inside the game only; docs/audio.md). Its layout: 'HT2E', the index's length (u32, little
+ * licensed for use inside the game only; docs/sound.md). Its layout: 'HT2E', the index's length (u32, little
  * endian), the index (JSON), then each clip's encoded bytes in turn; everything after the first 8 bytes scrambled
  * (XOR with a fixed keystream: a deterrent against lifting the files whole, not encryption).
  */
