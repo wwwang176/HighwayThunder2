@@ -5,7 +5,7 @@ import { PlayerCar } from '../src/vehicles/playerCar';
 import { CARS } from '../src/vehicles/cars';
 import type { Brain } from '../src/ai/brain';
 import { selfStateOf } from '../src/ai/driver';
-import { baseSteer, netDrive } from '../src/ai/netTracker';
+import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
 import { lateralTurn, maxAccel, Plan, planAt, PLANNER } from '../src/ai/planner';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { planPedals, PlannerDriver } from '../src/ai/plannerDriver';
@@ -58,6 +58,13 @@ export const RACE_TRAIN = Number(process.env.RACE_TRAIN ?? 1); // race exams a g
 export const RACE_TRAIN_S = Number(process.env.RACE_TRAIN_S ?? 20);
 export const RACE_WEIGHT = Number(process.env.RACE_WEIGHT ?? 1);
 export const RESET_COST = Number(process.env.RESET_COST ?? 3);
+/**
+ * GAME_CONTACT=1: the race exams (and the gate's races) as the benchmark's game-like contact - the car hits the traffic
+ * for real (a hard hit wrecks the vehicle), put back only once stuck (under 5 km/h for 2 s); each vehicle wrecked costs
+ * WRECK_COST and counts with the resets at the gate. Off: a crash puts it back at 60 km/h (as before).
+ */
+export const GAME_CONTACT = process.env.GAME_CONTACT === '1';
+export const WRECK_COST = Number(process.env.WRECK_COST ?? 3);
 /** The validation's races (one was noise enough to fire the driving guard on brains that raced no worse). */
 export const RACE_VALIDATION_SEEDS = (process.env.RACE_VALIDATION_SEEDS ?? '9001').split(',').map(Number);
 export const RACE_SEEDS = (process.env.RACE_SEEDS ?? '8101,8102,8103,8104,8105,8106').split(',').map(Number);
@@ -352,13 +359,16 @@ function raceOnce(b: Brain | null, seed: number, seconds: number) {
   const driver = new PlannerDriver();
   driver.accel = SPEC.ai.accel;
   driver.latAccel = SPEC.ai.latAccel;
+  driver.brake = SPEC.ai.brake; // (its own brake table and recovery network, as in the game and the benchmark)
+  driver.recovery = trackerFrom(SPEC.ai.recovery);
   driver.tracker = b;
   const stats = driver.measure();
-  const sim = new TrainingSim([driver], seed, { spec: SPEC, speedCap: 300 * KMH, trafficSeesCars: true, resetOnCrash: 60 * KMH, timeLimit: seconds });
+  const sim = new TrainingSim([driver], seed, { spec: SPEC, speedCap: 300 * KMH, trafficSeesCars: true, resetOnCrash: 60 * KMH, timeLimit: seconds, gameContact: GAME_CONTACT });
   while (!sim.done) sim.step();
   const r = sim.ghosts[0].result;
   sim.dispose();
-  return { distance: r.distance, resets: r.resets ?? 0, lags: [...stats.lateralMoving, ...stats.lateralHolding] };
+  const wrecks = GAME_CONTACT ? (r.contacts ?? 0) : 0;
+  return { distance: r.distance, resets: r.resets ?? 0, wrecks, lags: [...stats.lateralMoving, ...stats.lateralHolding] };
 }
 
 /**
@@ -370,18 +380,18 @@ export function raceCost(brains: (Brain | null)[], seed: number): number[] {
     const r = raceOnce(b, seed, RACE_TRAIN_S);
     let c = 0;
     for (const lag of r.lags) c += LAG_WEIGHT * lag * lag * 0.25;
-    return c - PROGRESS * r.distance + RESET_COST * r.resets;
+    return c - PROGRESS * r.distance + RESET_COST * r.resets + WRECK_COST * r.wrecks;
   });
 }
 
-/** A brain (null: the plain tracker) racing `seeds` (the gate's: RACE_SEEDS) for RACE_S s each: metres covered, resets. */
+/** A brain (null: the plain tracker) racing `seeds` (the gate's: RACE_SEEDS) for RACE_S s each: metres covered, resets (and, GAME_CONTACT, vehicles wrecked). */
 export function race(b: Brain | null, seeds = RACE_SEEDS): { distance: number; resets: number } {
   let distance = 0;
   let resets = 0;
   for (const seed of seeds) {
     const r = raceOnce(b, seed, RACE_S);
     distance += r.distance;
-    resets += r.resets;
+    resets += r.resets + r.wrecks;
   }
   return { distance, resets };
 }
