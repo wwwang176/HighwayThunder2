@@ -49,6 +49,17 @@ function changeDigits(change: number, digits: number): number {
   return Math.abs(change) < 10 ** (1 - digits) ? digits + 1 : digits;
 }
 
+/**
+ * A feel meter's mark, -1..1 from stock, for a change `d` where the most any one knob does is `span`: easing toward
+ * the ends, never reaching them - one knob all the way 0.67, two such 0.8, four 0.89 - so knobs added together
+ * still show (straight on, d / span, the tail's and the lean's hit the end with two: their knobs add up to 2-4 x
+ * the strongest one), and a small step shows more than it did (a knob's first step, its median 0.16 of span: 0.24,
+ * was 0.16; the smallest tenth 0.06: 0.11, was 0.06).
+ */
+export function feelMeter(d: number, span: number): number {
+  return span > 0 ? d / (Math.abs(d) + 0.5 * span) : 0;
+}
+
 /** A knob moves a detail (lit while it is the one told: markDetail) when its ends move it this share of the most any knob does. */
 const DETAIL_HIT = 0.15;
 
@@ -666,7 +677,7 @@ export class Garage {
         for (const r of rows) {
           const el = host.querySelector<HTMLElement>(`[data-d="${r.key}"]`)!;
           if (r.feel) {
-            const x = span[r.key] ? Math.max(-1, Math.min(1, dd[r.key] / span[r.key])) : 0;
+            const x = feelMeter(dd[r.key], span[r.key]);
             el.querySelector<HTMLElement>('.mark')!.style.left = `${50 + x * 50}%`;
             continue;
           }
