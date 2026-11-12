@@ -63,6 +63,9 @@ export interface CarParams {
   steerSlowdownSpeed: number; // m/s; turn-in rate is halved at this speed (Infinity = never slower)
   escGain: number; // stability control: N·m of yaw correction per rad/s of yaw-rate error (0 = off)
   escMaxTorque: number; // N·m
+  gearTops?: number[]; // its gearbox: each gear's top speed (km/h, at the redline); unset: GEAR_TOP_KMH
+  launchSlip?: number; // launch control: the tail following the nose, the drive eased to hold the rear tyres' slip at this (m/s); unset: none
+  rearLongGrip?: number; // drag tyres: the rear tyres' grip straight on (driving, braking) times this, always (on rearGrip); unset: 1
   // The player's tuning (src/vehicles/tuning.ts); unset: as built.
   gearScale?: number; // final drive: every gear's top speed (and the limiter's) times this (> 1 taller)
   latGrip?: number; // camber: the tyres' grip cornering, times this ...
@@ -163,8 +166,8 @@ export function smoothSteer(current: number, target: number, p: CarParams, dt: n
 
 /** Top wheel-surface speed of each gear (rev limiter), km/h. */
 export const GEAR_TOP_KMH = [95, 140, 185, 230, 270, 310];
-/** A gear's top speed (km/h) on `p`'s final drive (gearScale). */
-export const gearTopKmh = (gear: number, p: CarParams): number => GEAR_TOP_KMH[gear - 1] * (p.gearScale ?? 1);
+/** A gear's top speed (km/h): the car's gearbox (gearTops, or GEAR_TOP_KMH) on its final drive (gearScale). */
+export const gearTopKmh = (gear: number, p: CarParams): number => (p.gearTops ?? GEAR_TOP_KMH)[gear - 1] * (p.gearScale ?? 1);
 const SHIFT_UP = 0.93;
 const SHIFT_DOWN = 0.6;
 const SHIFT_TIME = 0.25;
@@ -287,7 +290,7 @@ export class Gearbox {
     this.cooldown -= dt;
     if (this.cooldown > 0) return;
     const v = Math.abs(roadSpeed) * 3.6;
-    if (this.gear < GEAR_TOP_KMH.length && v > gearTopKmh(this.gear, p) * SHIFT_UP) {
+    if (this.gear < (p.gearTops ?? GEAR_TOP_KMH).length && v > gearTopKmh(this.gear, p) * SHIFT_UP) {
       this.fromRpm = this.engineRpm(wheelOmega, p);
       this.gear++;
       this.cut = this.shiftLen = p.shiftTime;
