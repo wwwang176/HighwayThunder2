@@ -57,11 +57,11 @@ const stats = (accel: string, a: number, top: string, t: number, grip: string, g
   { icon: 'icon-handling', label: 'Grip', value: grip, unit: 'g', bar: g },
 ];
 
-// training/cornering.train.ts (launch: 0-100, top speed; cornering: full lock at 200 km/h), 2026-11-12; the bars by
+// training/cornering.train.ts (launch: 0-100, top speed; cornering: full lock at 200 km/h), 2026-11-13; the bars by
 // each car's rank (0-100: the muscle car's 3.30 s the quickest).
 export const CAR_CARDS: CarCard[] = [
-  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', stats: stats('3.73', 0.9, '300', 1, '2.02', 0.75), pickable: true },
-  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', stats: stats('3.30', 1, '259', 0.75, '1.48', 0.5), pickable: true },
+  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', stats: stats('3.73', 0.9, '300', 1, '2.03', 0.75), pickable: true },
+  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', stats: stats('3.30', 1, '259', 0.75, '1.50', 0.5), pickable: true },
   { id: JDM_CAR.id, name: JDM_CAR.name, accent: '#2f9bff', icon: 'icon-jdm', stats: stats('4.28', 0.75, '245', 0.6, '2.35', 1), pickable: true },
 ];
 

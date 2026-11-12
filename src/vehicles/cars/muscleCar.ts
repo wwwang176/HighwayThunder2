@@ -112,14 +112,16 @@ export const MUSCLE_CAR: CarSpec = {
       [250, 12.6],
       [300, 13.8],
     ],
+    // Measured 2026-11-13, its diff freeing the wheels' rolling round a bend (lsdTurnFree; before: 8.9 / 8.9 / 10.2 /
+    // 12.3 / 14.5 / 15.3 / 15.4).
     latAccel: [
-      [0, 8.9],
-      [50, 8.9],
-      [100, 10.2],
-      [150, 12.3],
-      [200, 14.5],
-      [250, 15.3],
-      [300, 15.4],
+      [0, 9.6],
+      [50, 9.6],
+      [100, 10.9],
+      [150, 13.4],
+      [200, 14.7],
+      [250, 14.6],
+      [300, 16.7],
     ],
     tracker: MUSCLE_CAR_TRACKER,
     recovery: MUSCLE_CAR_RECOVERY,
