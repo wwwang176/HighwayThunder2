@@ -94,11 +94,12 @@ export const MUSCLE_CAR: CarSpec = {
   }, 1800),
   // training/measureCar.train.ts (the 0 km/h point is the 50 one: from standstill it measures the throttle ramp).
   ai: {
-    // EXPERIMENT, measured on its drag tyres / four-speed / 743 kW (before: 7 / 7 / 9.1 / 6.3 / 4.3 / 2.7).
+    // Measured 2026-11-13: its launch control at 12 m/s of slip (at 2.5: 9.4 / 9.4 / 5.1 / 6.4 / 5.1 / 3.3; before
+    // its drag tyres / four-speed / 743 kW: 7 / 7 / 9.1 / 6.3 / 4.3 / 2.7).
     accel: [
-      [0, 9.4],
-      [50, 9.4],
-      [100, 5.1], // (the 1-2 shift, at 102 km/h, in its half second)
+      [0, 8.4],
+      [50, 8.4],
+      [100, 4.9], // (the 1-2 shift, at 102 km/h, in its half second)
       [150, 6.4],
       [200, 5.1],
       [250, 3.3],
