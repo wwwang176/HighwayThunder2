@@ -1,30 +1,27 @@
 /**
- * The engine sounds: which recordings each vehicle's engine is made of, and the rpm each was recorded at.
+ * The engine sounds: which clips each vehicle's engine is made of, and the rpm each was recorded at.
  *
- * The recordings are licensed recordings:
- * they are NOT in this repository, and must never be committed (docs/audio.md). tools/build-engine-audio.ts makes
- * them, from a local copy of the pack, into public/audio/engines.bin (git-ignored); without that file the game runs
- * with its engines silent.
+ * The recordings are licensed for use inside the game only: they are NOT in this repository and must never be
+ * committed (docs/sound.md). They are built into public/audio/engines.bin (git-ignored) in the private audio
+ * repository; without that file the game runs with its engines silent.
  *
  * Each clip is one steady rev of one engine, a seamless loop. Its rpm: from its harmonics (the engine's firing
  * series), every pair of neighbours confirmed by matching their spectra (the ratio that lines their harmonics up);
- * a pack's numbers are only right relative to each other (what the crossfades need), not the real car's.
+ * one engine's numbers are only right relative to each other (what the crossfades need), not the real car's.
  */
 
-/** One recording: where it is in the pack (its folder, its file without .wav) and the rpm it holds. */
+/** One clip: the rpm it holds. */
 export interface EngineClip {
-  pack: string;
-  file: string;
   rpm: number;
   /**
-   * Made into a rev limiter when it's built (tools/build-engine-audio.ts): the fuel cut put on it, `hz` times a
-   * second (to a whole number of cuts a lap), each `depthDb` down - for a pack whose own limiter recording won't do.
+   * Made into a rev limiter when it's built: the fuel cut put on it, `hz` times a second (to a whole number of cuts
+   * a lap), each `depthDb` down - for an engine whose own limiter recording won't do.
    */
   stutter?: { hz: number; depthDb: number };
 }
 
 /**
- * A vehicle's engine: its clips in rising rpm; its rev limiter (the pack's limiter recording: its top rev, the fuel cut
+ * A vehicle's engine: its clips in rising rpm; its rev limiter (its top rev with the fuel cut
  * stuttering it about 12 times a second - heard at the redline in its place); its start-up (played once, as the
  * race is started); how much higher than recorded it's all played (1: as recorded).
  */
@@ -38,11 +35,11 @@ export interface EngineSet {
 export type EngineKind = 'super' | 'muscle' | 'jdm' | 'sedan' | 'truck' | 'container';
 
 /**
- * Every clip, by id (`<pack tag>-<rev>`; each `-limiter` its pack's limiter recording, its rpm by its spectrum against
- * top rev's; each `-startup` its start-up, a one-shot: no rpm).
+ * Every clip, by id (`<engine>-<rev>`; each `-limiter` its rev limiter, its rpm by its spectrum against its top
+ * rev's; each `-startup` its start-up, a one-shot: no rpm).
  */
 export const ENGINE_CLIPS: Record<string, EngineClip> = {
-  // V10 (a rev below idle left out: it sits below its idle, ~1299 against ~1411).
+  // The supercar's V10 (a rev below its idle left out: ~1299 against ~1411).
   'g10-idle': { rpm: 1411 },
   'g10-low': { rpm: 1819 },
   'g10-low-med': { rpm: 2111 },
@@ -52,7 +49,7 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
   'g10-very-high': { rpm: 4304 },
   'g10-limiter': { rpm: 4304 },
   'g10-startup': { rpm: 0 },
-  // V8 (its idle a lumpy one, no steady harmonics: its rpm from its spectrum against the next
+  // The muscle car's V8 (its idle a lumpy one, no steady harmonics: its rpm from its spectrum against the next
   // three revs').
   'v8c-idle': { rpm: 1920 },
   'v8c-idle-low': { rpm: 2212 },
@@ -65,7 +62,7 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
   // (its own limiter recording a ragged burble, off its top rev's pitch, no steady cut: its top rev, the cut put on it)
   'v8c-limiter': { rpm: 5934, stutter: { hz: 12, depthDb: 16 } },
   'v8c-startup': { rpm: 0 },
-  // JDM four (a rev below idle left out, as the V10's): each rev against the idle's spectrum directly.
+  // The JDM's four (a rev below its idle left out, as the V10's): each rev against the idle's spectrum directly.
   'i4j-idle': { rpm: 1388 },
   'i4j-low': { rpm: 1837 },
   'i4j-low-med': { rpm: 2546 },
@@ -76,7 +73,7 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
   // (its own limiter recording a smeared roar with no steady pitch to it: likewise its top rev, the cut put on it)
   'i4j-limiter': { rpm: 3398, stutter: { hz: 12, depthDb: 16 } },
   'i4j-startup': { rpm: 0 },
-  // sedan four (likewise).
+  // The traffic's sedans' four (likewise).
   'i4g-idle': { rpm: 957 },
   'i4g-low': { rpm: 1227 },
   'i4g-low-med': { rpm: 1480 },
@@ -86,7 +83,7 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
   'i4g-very-high': { rpm: 2810 },
   'i4g-limiter': { rpm: 2810 },
   'i4g-startup': { rpm: 0 },
-  // truck diesel (its idle a six's firing at 30 Hz: 600).
+  // The trucks' diesel (its idle a six's firing at 30 Hz: 600).
   'trk-idle': { rpm: 600 },
   'trk-idle-low': { rpm: 763 },
   'trk-low': { rpm: 907 },
@@ -99,7 +96,7 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
   'trk-startup': { rpm: 0 },
 };
 
-/** A pack's steady revs (its rev limiter and its start-up apart). */
+/** An engine's steady revs (its rev limiter and its start-up apart). */
 const revsOf = (tag: string): string[] =>
   Object.keys(ENGINE_CLIPS).filter((id) => id.startsWith(tag + '-') && id !== `${tag}-limiter` && id !== `${tag}-startup`);
 const setOf = (tag: string, pitch = 1): EngineSet =>
@@ -116,29 +113,26 @@ export const ENGINE_SETS: Record<EngineKind, EngineSet> = {
 };
 
 /**
- * The exhaust's pops (one for each backfire flame, src/audio/sound.ts): the pack's short muffler crackles, as heard
- * from outside (the camera's behind the car: the player's too, as its engine), cut into single pops by
- * tools/build-engine-audio.ts as it builds them with the engines - their ids `pop-1`, `pop-2`, ... (as many as it cut).
+ * The exhaust's pops (one for each backfire flame, src/audio/sound.ts): short muffler crackles, as heard from outside
+ * (the camera's behind the car: the player's too, as its engine), CRACKLE_COUNT of them cut into single pops as they
+ * are built with the engines - their ids `pop-1`, `pop-2`, ... (as many as were cut).
  */
 export const CRACKLE_COUNT = 10;
-export const crackleClip = (n: number): { pack: string; file: string } =>
-  ({});
 export const popId = (n: number): string => `pop-${n}`;
 
 /**
- * A near miss's rush of air: the pack's wind (steady loops, as heard from outside), a WIND_PIECE s stretch of the
- * middle of each cut out by tools/build-engine-audio.ts, its ids `wind-1`, ...; src/audio/sound.ts swells and fades it.
+ * A near miss's rush of air: winds (steady loops, as heard from outside), a WIND_PIECE s stretch of the middle of
+ * each cut out as they are built, their ids `wind-1`, ...; src/audio/sound.ts swells and fades it.
  */
 export const WIND_COUNT = 6;
 export const WIND_PIECE = 0.8; // s
-export const windClip = (n: number): { pack: string; file: string } => ({});
 export const windId = (n: number): string => `wind-${n}`;
-/** The wind past the player's car (src/audio/wind.ts): one of the pack's whole, a loop as the engines'. */
+/** The wind past the player's car (src/audio/wind.ts): one of the winds whole, a loop as the engines'. */
 export const WIND_LOOP = { id: 'wind-loop' };
 
 /**
- * The player's tyre squeal: one of the pack's skid loops, as heard from outside (9.5 s, the steadiest of its four).
- * Built with the engines, a loop as they are.
+ * The player's tyre squeal: a skid loop, as heard from outside (9.5 s, the steadiest of four). Built with the engines,
+ * a loop as they are.
  */
 export const SKID_CLIP = { id: 'skid' };
 

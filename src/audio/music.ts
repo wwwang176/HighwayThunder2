@@ -1,6 +1,6 @@
 /**
  * The background music: songs in public/audio/music/ (licensed: never in this repository - the private audio repo,
- * copied in for the build as the sound bundles are, docs/audio.md), listed in its playlist.json - file names
+ * copied in for the build as the sound bundles are, docs/sound.md), listed in its playlist.json - file names
  * (["a.mp3", ...]) or { "file": "a.mp3", "title": "..." } - played one after another in a shuffled order, round
  * and round. `change()` (a change of scene) fades the song out, waits and fades the next one in; `skip()` (N) the
  * same in half a second, no wait (switched there and then, a song would click). Its own <audio> element, streamed (no song decoded whole into memory) and outside the

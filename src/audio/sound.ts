@@ -24,7 +24,7 @@ const STARTUP_VOLUME = 1;
 const STARTUP_WAIT = 1;
 /**
  * After the start-up its engine idles on (its idle clip) and fades away over STARTUP_TAIL s, in under the start-up's
- * last STARTUP_JOIN s: the pack's start-ups hand over to the idle (the muscle car's stops dead at 0.64 s, still loud).
+ * last STARTUP_JOIN s: the start-ups hand over to the idle (the muscle car's stops dead at 0.64 s, still loud).
  */
 const STARTUP_TAIL = 1.2;
 const STARTUP_JOIN = 0.05;
@@ -86,7 +86,7 @@ const BACKFIRE_REF = 10;
 const BACKFIRE_RANGE = 220;
 const BACKFIRE_PAN = new Float32Array(2);
 /**
- * A near miss's rush of air (the pack's wind, its clips -16 LUFS): at its loudest this loud, NEAR_MISS_RISE s in,
+ * A near miss's rush of air (the winds, their clips -16 LUFS): at its loudest this loud, NEAR_MISS_RISE s in,
  * dying away (time constant NEAR_MISS_FALL s); its pitch falling NEAR_MISS_PITCH[0] to [1] over NEAR_MISS_SWEEP s
  * (the car going by).
  */
@@ -107,7 +107,7 @@ function pickNoRepeat(size: number, last: number): number {
 /**
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - straight into the mix, whichever way the
  * camera looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
- * (recorded, crashBank; silent without their bundle), the tyre squeal (the pack's, with the engines), the nitro
+ * (recorded, crashBank; silent without their bundle), the tyre squeal (built with the engines), the nitro
  * (recorded: effects.bin; silent without it), the traffic's tyres rolling (rolling.ts: effects.bin), the wind past the player's car (wind.ts) and the backfires' pops. Nothing synthesised. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
@@ -238,7 +238,7 @@ export class Sound {
     this.bankLoaded = loadEngineBank(ctx).then((bank) => {
       this.bank = bank;
       if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
-      this.skidLoop = this.startLoop(bank?.get(SKID_CLIP.id), this.skidGain); // (the pack's, with the engines)
+      this.skidLoop = this.startLoop(bank?.get(SKID_CLIP.id), this.skidGain); // (built with the engines)
       const wind = bank?.get(WIND_LOOP.id);
       this.windLoop = this.startLoop(wind, this.windGain);
       if (wind) this.winds = new PlacedLoops(ctx, wind, this.windsBus, WINDS);
@@ -279,7 +279,7 @@ export class Sound {
   /**
    * The rivals' tyres (`sources`, one voice each, kept by its place in the list): each squeals as the player's does
    * on its slip, heard from `ear` as the engines are (panned, full within SKID_OTHERS_REF m, fading with distance;
-   * none past SKID_OTHERS_RANGE), pitched with the race's time. Each its own loop of the pack's (from its own random
+   * none past SKID_OTHERS_RANGE), pitched with the race's time. Each its own loop of the squeal (from its own random
    * point, so two never sound as one). `active` false: all silent. Silent without the recording.
    */
   setOtherSkids(sources: readonly SkidSource[], ear: EarPose, active: boolean): void {

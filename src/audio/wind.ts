@@ -1,7 +1,7 @@
 import type { PlacedLoopSpec } from './placedLoops';
 
 /**
- * The wind past the player's car: the pack's wind (a steady loop: engineCatalog WIND_LOOP), unplaced as its engine,
+ * The wind past the player's car: a wind recording (a steady loop: engineCatalog WIND_LOOP), unplaced as its engine,
  * louder and a little higher with its speed - none at a crawl, about +12 dB each doubling of the speed (1 at its
  * WIND_REF), capped - and pitched with the race's time (sound.ts setWind).
  */
