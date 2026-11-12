@@ -22,6 +22,12 @@ const RESUME_FADE = 0.8;
 /** The start-up this loud (on the engine's own volume); played only if its clips are in within this (s). */
 const STARTUP_VOLUME = 1;
 const STARTUP_WAIT = 1;
+/**
+ * After the start-up its engine idles on (its idle clip) and fades away over STARTUP_TAIL s, in under the start-up's
+ * last STARTUP_JOIN s: the pack's start-ups hand over to the idle (the muscle car's stops dead at 0.64 s, still loud).
+ */
+const STARTUP_TAIL = 1.2;
+const STARTUP_JOIN = 0.05;
 /** A crash recording at full force (k = 1) this loud: -4 dB on its -12 LUFS. */
 const CRASH_VOLUME = 10 ** (-4 / 20);
 /** A crash's second recording, layered under the first this much quieter (dB). */
@@ -43,6 +49,20 @@ const SKID_PAN = new Float32Array(2);
  * top of their distance and speed. (The player's and the rivals' not heard: their engines are.)
  */
 const ROLL_OTHERS_VOLUME = 0.6;
+/**
+ * The countdown's beats (3, 2, 1) and its green, the finish line's impact and the menus' click (effects.bin, each at -16
+ * LUFS, its loudest 0.4 s): this loud. Not the race's sound: on the player's volume, but past the finish's fade-away.
+ */
+const BEAT_VOLUME = 3;
+const GO_VOLUME = 4;
+/** The countdown's beats (3, 2, 1) faded away over this (s): their tails piled up a beat a second. */
+const BEAT_FADE = 1;
+/** The green's impact played this slow: deeper (its tail rings on). */
+const GO_RATE = 0.7;
+const FINISH_IMPACT_VOLUME = 2.5;
+const CLICK_VOLUME = 0.25;
+/** The impact's loudest this far (s) into it (its hit at once: the 50 ms after). */
+export const IMPACT_PEAK = 0.05;
 /** The wind past the player's car (wind.ts; the clip at -16 LUFS) at its reference speed: this loud, under the engine. */
 const WIND_VOLUME = 0.3;
 /** The rivals' wind (wind.ts WINDS), full within its reference distance: this loud on top of its distance and speed. */
@@ -92,6 +112,13 @@ function pickNoRepeat(size: number, last: number): number {
  */
 export class Sound {
   private ctx: AudioContext | null = null;
+  /**
+   * System sounds - the menus' clicks, the start-up - on a context of their own: the race's is stopped while paused
+   * (suspend) and the pause menu clicked silently. On the player's volume (uiOut), straight out (no limiter: one at a
+   * time, short).
+   */
+  private uiCtx: AudioContext | null = null;
+  private uiOut!: GainNode;
   private master!: GainNode;
   private fade!: GainNode;
   /** The scene's level: 1, faded away past the finish (fadeAway), back for the next race or the garage (bringBack). */
@@ -114,6 +141,8 @@ export class Sound {
   /** The rivals' wind (once the clip's in). */
   private winds: PlacedLoops | null = null;
   private windsBus!: GainNode;
+  /** The countdown's, the finish's and the menus' cues: on the player's volume (as master), not faded with the race. */
+  private cues!: GainNode;
   private nitroOn = false;
   /** How many pops the bank holds; the one last played (not the same one twice running). */
   private popCount = 0;
@@ -149,9 +178,14 @@ export class Sound {
   init(): void {
     if (this.ctx) {
       void this.ctx.resume();
+      void this.uiCtx?.resume();
       return;
     }
     const ctx = new AudioContext();
+    this.uiCtx = new AudioContext();
+    this.uiOut = this.uiCtx.createGain();
+    this.uiOut.gain.value = this.masterGain;
+    this.uiOut.connect(this.uiCtx.destination);
     this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.gain.value = this.masterGain;
@@ -162,7 +196,9 @@ export class Sound {
     // the way again if it ever fails (a failed worklet outputs silence for good - the whole mix gone).
     this.fade.connect(ctx.destination);
     void ctx.audioWorklet?.addModule(limiterUrl).then(() => {
-      const node = new AudioWorkletNode(ctx, 'ht2-limiter', { outputChannelCount: [2] });
+      // Its input always stereo (a mono mix spread to both sides): with only mono sounds playing - a menu's click, the
+      // countdown, the start-up - the mix came in mono and the limiter put it out on the left alone.
+      const node = new AudioWorkletNode(ctx, 'ht2-limiter', { outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
       node.onprocessorerror = () => {
         this.limiter = null;
         node.disconnect();
@@ -196,6 +232,9 @@ export class Sound {
     this.windsBus = ctx.createGain();
     this.windsBus.gain.value = WIND_OTHERS_VOLUME;
     this.windsBus.connect(this.master);
+    this.cues = ctx.createGain();
+    this.cues.gain.value = this.masterGain;
+    this.cues.connect(this.fade);
     this.bankLoaded = loadEngineBank(ctx).then((bank) => {
       this.bank = bank;
       if (bank) this.others = new OtherEngines(ctx, bank, this.othersBus);
@@ -331,6 +370,58 @@ export class Sound {
     src.start();
   }
 
+  /**
+   * A countdown's beat (3, 2, 1), or (`go`) its green - played IMPACT_PEAK s ahead of it (its loudest on the number);
+   * `from` s into the clip (the 3, with no time ahead: from its loudest). Silent without its clip.
+   */
+  countdownBeat(go: boolean, from = 0): void {
+    if (go) this.cue('impact', GO_VOLUME, GO_RATE, from);
+    else this.cue('impact', BEAT_VOLUME, 1, from, BEAT_FADE);
+  }
+
+  /** Over the finish line: from the impact's loudest (no time ahead of it). */
+  finishImpact(): void {
+    this.cue('impact', FINISH_IMPACT_VOLUME, 1, IMPACT_PEAK);
+  }
+
+  /**
+   * A menu's button or key (the garage, its tuning and race setup, the settings, the pause and finish menus): on the
+   * menus' own context, heard with the race's stopped (paused). Silent without its clip.
+   */
+  uiClick(): void {
+    const ctx = this.uiCtx, clip = this.effects?.get('click');
+    if (!ctx || !clip) return;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = clip; // (a buffer plays on any context)
+    g.gain.value = CLICK_VOLUME;
+    src.connect(g).connect(this.uiOut);
+    src.onended = () => g.disconnect();
+    src.start();
+  }
+
+  /**
+   * One of effects.bin's one-shots, this loud, at this rate (slower: deeper, longer), from `from` s into it, faded away
+   * over `fade` s (0: played out), on the cues' bus (not the race's: the finish's fade-away leaves it).
+   */
+  private cue(id: string, volume: number, rate = 1, from = 0, fade = 0): void {
+    const ctx = this.ctx, clip = this.effects?.get(id);
+    if (!ctx || !clip || !this.running) return;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = clip;
+    src.playbackRate.value = rate;
+    g.gain.value = volume;
+    src.connect(g).connect(this.cues);
+    src.onended = () => g.disconnect();
+    src.start(0, from);
+    if (fade > 0) {
+      // (`fade` s: evenly down to nothing, then stopped)
+      const now = ctx.currentTime;
+      g.gain.setValueAtTime(volume, now);
+      g.gain.linearRampToValueAtTime(0, now + fade);
+      src.stop(now + fade);
+    }
+  }
+
   toggleMute(): void {
     this.setMuted(!this.muted);
   }
@@ -351,7 +442,10 @@ export class Sound {
   }
 
   private applyMaster(): void {
-    if (this.ctx) this.master.gain.setTargetAtTime(this.masterGain, this.ctx.currentTime, 0.05);
+    if (!this.ctx) return;
+    this.master.gain.setTargetAtTime(this.masterGain, this.ctx.currentTime, 0.05);
+    this.cues.gain.setTargetAtTime(this.masterGain, this.ctx.currentTime, 0.05);
+    if (this.uiCtx) this.uiOut.gain.setTargetAtTime(this.masterGain, this.uiCtx.currentTime, 0.05);
   }
 
   /**
@@ -473,21 +567,38 @@ export class Sound {
   }
 
   /**
-   * The player's car starting up (its engine's start-up, once, unplaced). On the race's first start the clips may
-   * still be loading: then it waits for them, if not for long (STARTUP_WAIT).
+   * The player's car starting up (its engine's start-up, once, unplaced): as the menus' clicks, on their own context
+   * (a system sound: nothing of the race's - its scene, a pause - touches it), as loud as on the engine's bus. On the
+   * race's first start the clips may still be loading: then it waits for them, if not for long (STARTUP_WAIT).
    */
   startup(kind: EngineKind): void {
     const asked = performance.now();
     void this.bankLoaded.then(() => {
-      const ctx = this.ctx, buffer = this.bank?.get(ENGINE_SETS[kind].startup);
+      const ctx = this.uiCtx, buffer = this.bank?.get(ENGINE_SETS[kind].startup);
       if (!ctx || !buffer || performance.now() - asked > STARTUP_WAIT * 1000) return;
       const src = ctx.createBufferSource(), g = ctx.createGain();
-      src.buffer = buffer;
+      src.buffer = buffer; // (a buffer plays on any context)
       src.playbackRate.value = ENGINE_SETS[kind].pitch;
-      g.gain.value = STARTUP_VOLUME;
-      src.connect(g).connect(this.engineBus);
+      g.gain.value = STARTUP_VOLUME * ENGINE_VOLUME;
+      src.connect(g).connect(this.uiOut);
       src.onended = () => g.disconnect();
-      src.start();
+      const now = ctx.currentTime;
+      src.start(now);
+      const idle = this.bank?.get(ENGINE_SETS[kind].clips[0]);
+      if (!idle) return;
+      const tail = ctx.createBufferSource(), tg = ctx.createGain();
+      const at = now + buffer.duration / ENGINE_SETS[kind].pitch - STARTUP_JOIN;
+      const level = STARTUP_VOLUME * ENGINE_VOLUME;
+      tail.buffer = idle;
+      tail.loop = true;
+      tail.playbackRate.value = ENGINE_SETS[kind].pitch;
+      tg.gain.setValueAtTime(0, at);
+      tg.gain.linearRampToValueAtTime(level, at + STARTUP_JOIN);
+      tg.gain.linearRampToValueAtTime(0, at + STARTUP_TAIL);
+      tail.connect(tg).connect(this.uiOut);
+      tail.onended = () => tg.disconnect();
+      tail.start(at);
+      tail.stop(at + STARTUP_TAIL);
     });
   }
 
