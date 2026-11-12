@@ -32,10 +32,13 @@ export const MUSCLE_CAR: CarSpec = {
     shiftTime: 0.2,
     // Four gears, long (the others' six: 95 / 140 / 185 / 230 / 270 / 310 km/h): first to 110, past 100 km/h.
     gearTops: [110, 155, 230, 280],
-    // Launch control: the tail following the nose the rears held at 2.5 m/s of slip, let go as it steps out (the power
+    // Launch control: the tail following the nose the rears held at 6 m/s of slip, let go as it steps out (the power
     // slide as it was: 45 / 27 / 5 deg at 60 / 100 / 150 km/h; by the steering, 45 / 30 / 5).
     // Without it they spin 20+ m/s off the line, far past their grip's peak: 0-60 2.23 s (2.62; the supercar 2.35).
-    launchSlip: 2.5,
+    // 6 m/s, a little past the peak: 0-100 3.12 s, 0-200 7.55 s; skid marks, but little smoke (tireSmoke from 3 m/s, 90
+    // puffs a second at 13: 20-34 a second here). At the peak (2.5 m/s) 2.96 s, ~10 puffs; 12 m/s 3.30 s, 50-70
+    // (the smoke shows); 15 m/s 3.41 s, 66-90.
+    launchSlip: 6,
     // Rear tyres with a drag compound: 15 % more grip straight on (1.3 x 1.15 = 1.5), sideways as before (1.3). Off the
     // line the tyres are its limit, not the engine (more power did nothing below 100 km/h): 0-100 2.96 s (3.60 without;
     // the supercar 3.73), 0-140 4.42 s (5.13), 0-200 7.41 s (8.12); a tap of the keys every 0.6 s to hold the line
