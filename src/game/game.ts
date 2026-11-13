@@ -465,7 +465,11 @@ export class Game {
       this.setVolumes(v);
     });
     k.onPress('KeyN', () => this.music.skip());
-    k.onPress('KeyV', () => !g.isOpen && (this.hoodCam = !this.hoodCam));
+    k.onPress('KeyV', () => {
+      if (g.isOpen) return;
+      this.hoodCam = !this.hoodCam;
+      this.endIntroShot(); // (in the countdown: the view switched seen at once, not after the intro's last shot)
+    });
     k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
     k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
@@ -622,6 +626,11 @@ export class Game {
     if (this.flow.phase !== 'intro' || !this.introOn) return;
     this.startCountdown();
     this.finishIntro();
+  }
+
+  /** The countdown on and the intro's last shot still coming round into place: the chase (or hood) camera now. */
+  private endIntroShot(): void {
+    if (this.flow.phase === 'countdown') this.finishIntro();
   }
 
   /** A key or a click: the intro skipped, or the finish's show (to its end: the panel). */
@@ -1340,10 +1349,13 @@ export class Game {
       ...this.player.smokeLights(),
       ...this.npcBeams.smokeLights(),
     ]);
-    // Held while racing: C looks back, Q to the car's left, E to its right (back first if both).
+    // Held while racing or on the grid (the countdown): C looks back, Q to the car's left, E to its right (back first
+    // if both).
     const kb = this.keyboard;
-    const look: Look =
-      this.flow.phase !== 'racing' ? 'ahead' : kb.isDown('KeyC') ? 'back' : kb.isDown('KeyQ') ? 'left' : kb.isDown('KeyE') ? 'right' : 'ahead';
+    const looking = this.flow.phase === 'racing' || this.flow.phase === 'countdown';
+    const look: Look = !looking ? 'ahead' : kb.isDown('KeyC') ? 'back' : kb.isDown('KeyQ') ? 'left' : kb.isDown('KeyE') ? 'right' : 'ahead';
+    // A look in the countdown while the intro's last shot is still coming round: that shot cut short, the look now.
+    if (look !== 'ahead') this.endIntroShot();
     // An upshift's shake when the new gear takes up (the drive back), not as the old one lets go.
     const gear = this.player.gearbox.gear;
     if (gear > this.lastGear && this.flow.phase === 'racing') this.shiftingFrom = this.lastGear;
