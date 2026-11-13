@@ -551,6 +551,7 @@ function caliperTemplate(t: CarTemplate): { R: THREE.Mesh; L: THREE.Mesh } | nul
       index.setX(i + 2, b);
     }
     c = { R: new THREE.Mesh(src.geometry, src.material), L: new THREE.Mesh(geo, src.material) };
+    c.R.userData.glow = c.L.userData.glow = 'caliper'; // (lit a little by its hot disc: render/heatGlow)
   }
   caliperTemplates.set(t, c);
   return c;

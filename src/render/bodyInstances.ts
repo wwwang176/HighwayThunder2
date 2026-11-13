@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BRAKE3_OFF, BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
+import { GLOW_ATTRIBUTE, glowMaterial, type GlowKind } from './heatGlow';
 
 /** The layer only shadow-casting lights' cameras see (BodyInstances' shadow casters; the view's camera doesn't). */
 export const SHADOW_LAYER = 1;
@@ -15,6 +16,8 @@ const SPHERE = new THREE.Sphere();
 interface Pool {
   mesh: THREE.InstancedMesh;
   n: number;
+  /** A glowing part's (render/heatGlow): each instance's glow. */
+  glow?: THREE.InstancedBufferAttribute;
 }
 
 /**
@@ -81,9 +84,9 @@ export class BodyInstances {
    * A vehicle of model `key` (its template `root`, the first time) at `matrix`, its lights as `lights`.
    * How it is drawn (SEEN: in view; CASTS: casting a shadow; 0: not at all). `as`: a part of a vehicle already
    * added inside its bounds (a wheel) - drawn as that was, not culled itself: what is outside the view or a beam is
-   * not seen there either way.
+   * not seen there either way. `glow`: its glowing parts' (render/heatGlow; a wheel's hot brake), 0 to 1.
    */
-  add(key: string, root: THREE.Object3D, matrix: THREE.Matrix4, lights: VehicleLights, as?: number): number {
+  add(key: string, root: THREE.Object3D, matrix: THREE.Matrix4, lights: VehicleLights, as?: number, glow = 0): number {
     const t = this.templates.get(key) ?? this.register(key, root);
     let seen: boolean;
     let casts: boolean;
@@ -103,7 +106,7 @@ export class BodyInstances {
     for (const p of t.pieces) {
       if (casts && p.shadow) this.put(p.shadow, matrix, p.local);
       if (!seen || (p.role === 'L' && !left) || (p.role === 'R' && !right)) continue;
-      this.put((p.role === 'B' || p.role === 'C') && braking ? p.on! : p.pool, matrix, p.local);
+      this.put((p.role === 'B' || p.role === 'C') && braking ? p.on! : p.pool, matrix, p.local, glow);
     }
     return (seen ? SEEN : 0) | (casts ? CASTS : 0);
   }
@@ -117,11 +120,17 @@ export class BodyInstances {
       m.clearUpdateRanges();
       m.addUpdateRange(0, p.n * 16);
       m.needsUpdate = true;
+      if (p.glow) {
+        p.glow.clearUpdateRanges();
+        p.glow.addUpdateRange(0, p.n);
+        p.glow.needsUpdate = true;
+      }
     }
   }
 
-  private put(pool: Pool, matrix: THREE.Matrix4, local: THREE.Matrix4): void {
+  private put(pool: Pool, matrix: THREE.Matrix4, local: THREE.Matrix4, glow = 0): void {
     if (pool.n === pool.mesh.instanceMatrix.count) this.grow(pool);
+    pool.glow?.setX(pool.n, glow);
     pool.mesh.setMatrixAt(pool.n++, AT.multiplyMatrices(matrix, local));
   }
 
@@ -136,9 +145,10 @@ export class BodyInstances {
       const role = (m.userData.role as Piece['role'] | undefined) ?? 'body';
       const local = new THREE.Matrix4().multiplyMatrices(toRoot, m.matrixWorld);
       const material = m.material as THREE.Material;
+      const glow = m.userData.glow as GlowKind | undefined;
       pieces.push({
         local,
-        pool: this.pool(m.geometry, role === 'B' ? BRAKE_DIM : role === 'C' ? BRAKE3_OFF : material, false),
+        pool: this.pool(m.geometry, role === 'B' ? BRAKE_DIM : role === 'C' ? BRAKE3_OFF : material, false, glow),
         on: role === 'B' || role === 'C' ? this.pool(m.geometry, BRAKE_ON, false) : undefined,
         shadow: role === 'body' && m.castShadow ? this.pool(m.geometry, material, true) : undefined,
         role,
@@ -152,11 +162,15 @@ export class BodyInstances {
   }
 
   /** The pool of a geometry in a material: seen (by the camera), or casting shadows (seen only by the lights). */
-  private pool(geometry: THREE.BufferGeometry, material: THREE.Material, shadow: boolean): Pool {
-    const key = `${geometry.uuid}|${material.uuid}|${shadow}`;
+  private pool(geometry: THREE.BufferGeometry, material: THREE.Material, shadow: boolean, glow?: GlowKind): Pool {
+    const key = `${geometry.uuid}|${material.uuid}|${shadow}|${glow ?? ''}`;
     let p = this.pools.get(key);
     if (!p) {
-      p = { mesh: this.make(geometry, material, shadow, this.capacity), n: 0 };
+      // A glowing part: its geometry its own (each instance's glow on it), its material the glowing copy.
+      const mesh = glow
+        ? this.make(geometry.clone(), glowMaterial(material, glow), shadow, this.capacity)
+        : this.make(geometry, material, shadow, this.capacity);
+      p = { mesh, n: 0, glow: glow ? this.glowOn(mesh) : undefined };
       this.pools.set(key, p);
       this.scene.add(p.mesh);
     }
@@ -174,11 +188,24 @@ export class BodyInstances {
     return mesh;
   }
 
+  /** A glowing part's pool: room for each instance's glow, on its geometry. */
+  private glowOn(mesh: THREE.InstancedMesh): THREE.InstancedBufferAttribute {
+    const a = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count), 1);
+    a.setUsage(THREE.DynamicDrawUsage);
+    mesh.geometry.setAttribute(GLOW_ATTRIBUTE, a);
+    return a;
+  }
+
   /** Twice the room, this frame's instances so far copied over. */
   private grow(p: Pool): void {
     const old = p.mesh;
     const mesh = this.make(old.geometry, old.material as THREE.Material, old.castShadow, old.instanceMatrix.count * 2);
     mesh.instanceMatrix.array.set(old.instanceMatrix.array);
+    if (p.glow) {
+      const was = p.glow;
+      p.glow = this.glowOn(mesh); // (the same geometry: its glow made roomier)
+      p.glow.array.set(was.array);
+    }
     this.scene.remove(old);
     old.dispose(); // (its geometry and material stay: shared with the templates)
     this.scene.add(mesh);

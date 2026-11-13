@@ -103,6 +103,7 @@ export function addDiscSlots(wheel: THREE.Object3D, anisotropy = 8): void {
     for (let i = 0; i < p.count; i++) uv.set(discUv(p.getY(i), p.getZ(i), r), i * 2);
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     m.geometry = geo;
+    m.userData.glow = 'disc'; // (glowing hot: drawn with its brake's heat, render/heatGlow)
     mat.map = discMap(anisotropy);
     mat.needsUpdate = true;
   });

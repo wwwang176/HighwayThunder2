@@ -17,6 +17,7 @@ import type { LightFlares } from '../render/lightFlares';
 import type { BodyInstances } from '../render/bodyInstances';
 import { TireParams } from './tireModel';
 import { ChassisWheel, makeWheel, TyreChassis } from './tyreChassis';
+import { BRAKE_HEAT, discGlow, discHeatStep } from './brakeHeat';
 
 /** How to build a PlayerCar (the player's, a rival's, or a training ghost). */
 export interface PlayerCarOptions {
@@ -142,6 +143,8 @@ export class PlayerCar {
   private held = false;
   private readonly backfire = new Backfire();
   private readonly visuals: ReturnType<typeof buildWheel>[] = [];
+  /** Its brake discs' temperatures (°C; the wheels' order: FL, FR, RL, RR). */
+  readonly discTemp = [BRAKE_HEAT.ambient, BRAKE_HEAT.ambient, BRAKE_HEAT.ambient, BRAKE_HEAT.ambient];
   /**
    * For show (the race's intro, game/intro): drawn this far ahead of where it is (m; behind: < 0), its wheels
    * rolled to it; the engine's rpm and throttle as heard and seen at the exhaust, and its brake lights (null: its
@@ -509,12 +512,17 @@ export class PlayerCar {
       w.longScale = w.front ? frontLong : rearLong;
       w.dragged = lever && !w.front; // (the handbrake's locked rear tyres: dragged, holding sideways as their tail swings out)
     }
-    this.chassis.step(
-      dt,
-      [steerAngleCmd, steerAngleCmd, 0, 0],
-      [0, 0, driveTorqueRear - lsd, driveTorqueRear + lsd],
-      [brakeTorqueFront, brakeTorqueFront, brakeTorqueRear, brakeTorqueRear],
-    );
+    const brakes = [brakeTorqueFront, brakeTorqueFront, brakeTorqueRear, brakeTorqueRear];
+    this.chassis.step(dt, [steerAngleCmd, steerAngleCmd, 0, 0], [0, 0, driveTorqueRear - lsd, driveTorqueRear + lsd], brakes);
+    // The brake discs heated by what their brakes take out of the wheels, cooled by the air - each wheel as if turning
+    // at least with the road (a full brake locks them - no ABS - and a locked disc would take in nothing: heated as
+    // a real car's, its ABS keeping them turning), but for the handbrake's rear wheels, locked as they are.
+    const rolling = Math.abs(this.vLong) / p.wheelRadius;
+    for (let i = 0; i < 4; i++) {
+      const omega = Math.abs(this.wheels[i].omega);
+      const turning = lever && i >= 2 ? omega : Math.max(omega, rolling);
+      this.discTemp[i] = discHeatStep(this.discTemp[i], brakes[i], turning, speedNow, dt);
+    }
 
     // 3) Aerodynamics: drag against motion, downforce growing with speed.
     const lv = this.body.linvel();
@@ -663,6 +671,7 @@ export class PlayerCar {
     this.backfire.reset();
     this.gearbox.reset();
     this.driveMode = 'D';
+    this.discTemp.fill(BRAKE_HEAT.ambient); // (put back on the road: its discs cold)
     for (const w of this.wheels) {
       w.omega = speed / p.wheelRadius;
       w.susp = p.suspensionRest - (p.mass * G) / 4 / p.springK; // the same at every corner (springs as stiff as it is heavy)
@@ -699,12 +708,13 @@ export class PlayerCar {
   addWheels(bodies: BodyInstances): void {
     if (!this.visuals.some((v) => v.file)) return;
     this.mesh.updateMatrixWorld(true);
-    for (const v of this.visuals) {
-      if (!v.file) continue;
-      bodies.add(v.file.key, v.file.wheel, v.file.wheel.matrixWorld, NO_LIGHTS);
+    this.visuals.forEach((v, i) => {
+      if (!v.file) return;
+      const glow = discGlow(this.discTemp[i]); // (its disc glowing hot, its caliper lit by it)
+      bodies.add(v.file.key, v.file.wheel, v.file.wheel.matrixWorld, NO_LIGHTS, undefined, glow);
       const c = v.file.caliper;
-      if (c) bodies.add(c.key, c.template, c.mirrored ? CALIPER_AT.multiplyMatrices(c.place.matrixWorld, MIRROR_X) : c.place.matrixWorld, NO_LIGHTS);
-    }
+      if (c) bodies.add(c.key, c.template, c.mirrored ? CALIPER_AT.multiplyMatrices(c.place.matrixWorld, MIRROR_X) : c.place.matrixWorld, NO_LIGHTS, undefined, glow);
+    });
   }
 
   /** The high beam on (X held: the game sets it each frame): its lamps plain spots aimed level, brighter (HEADLIGHTS.high: the game sets their brightness). */
