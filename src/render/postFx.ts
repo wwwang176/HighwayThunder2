@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { FullResBloomPass } from './bloomPass';
 import { FlarePass } from './flarePass';
-import { SpeedBlurPass } from './speedBlur';
+import { SpeedBlurPass, type BlurMask } from './speedBlur';
 import { ToneMapFxaaPass } from './toneMapFxaaPass';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -88,12 +88,12 @@ export class PostFx {
   }
 
   /** This frame's speed blur: where the camera is going on the screen, how much, and across by its turning. */
-  motion(center: THREE.Vector2, amount: number, sweep: THREE.Vector2): void {
+  motion(center: THREE.Vector2, amount: number, sweep: THREE.Vector2, mask?: BlurMask): void {
     const a = POST.speedBlur ? amount : 0;
     const s = POST.speedBlur ? sweep : ZERO;
     // With FXAA, folded into its pass (a full-screen pass fewer); else a pass of its own.
-    this.fxaa.blur(center, a, s);
-    this.blur.set(center, a, s, POST.antialias === 'fxaa');
+    this.fxaa.blur(center, a, s, mask);
+    this.blur.set(center, a, s, mask, POST.antialias === 'fxaa');
   }
 
   render(): void {
