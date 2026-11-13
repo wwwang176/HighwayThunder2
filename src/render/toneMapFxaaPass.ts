@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
-import { setSpeedBlur, SPEED_BLUR_GLSL, speedBlurUniforms } from './speedBlur';
+import { setSpeedBlur, SPEED_BLUR_GLSL, speedBlurUniforms, type BlurMask } from './speedBlur';
 
 const SAMPLE = 'return texture( tex2D, uv );';
 const LUMA = 'return dot( Sample( tex2D, uv ).rgb, vec3( 0.3, 0.59, 0.11 ) );';
@@ -62,8 +62,8 @@ export class ToneMapFxaaPass extends ShaderPass {
   }
 
   /** This frame's speed blur (render/speedBlur), smeared into what it shows. */
-  blur(center: THREE.Vector2, amount: number, sweep: THREE.Vector2): void {
-    setSpeedBlur(this.material.uniforms, center, amount, sweep);
+  blur(center: THREE.Vector2, amount: number, sweep: THREE.Vector2, mask?: BlurMask): void {
+    setSpeedBlur(this.material.uniforms, center, amount, sweep, mask);
   }
 
   render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget, deltaTime: number, maskActive: boolean): void {

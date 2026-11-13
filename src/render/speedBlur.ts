@@ -3,18 +3,31 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 
 /** Most taps along a pixel's smear (one every 2 pixels of it: a pixel near where the car is going takes one). */
 const MAX_TAPS = 12;
+/** The unblurred ellipse's blur full from this many times its radii (fading in from 1). */
+const MASK_FEATHER = 1.6;
+
+/** Where the speed blur is held off (screen 0..1, y up): an ellipse, its centre and radii; radius x 0: nowhere. */
+export interface BlurMask {
+  center: THREE.Vector2;
+  radius: THREE.Vector2;
+}
 
 /**
  * The speed blur in GLSL, for a pass of its own or folded into another (ToneMapFxaaPass): `speedBlurred` is the
  * picture at `uv` smeared toward and away from `blurCenter`, the farther the more (`blurAmount` of the way), and
- * across by `blurSweep`; `texel` is a pixel's size (1 / the picture's).
+ * across by `blurSweep`; `texel` is a pixel's size (1 / the picture's). None inside the ellipse `blurMaskCenter`,
+ * radii `blurMaskRadius` (0: no ellipse), fading in out to MASK_FEATHER times them: where the eye is on (the
+ * car's own body looking to a side; ahead, where it goes).
  */
 export const SPEED_BLUR_GLSL = /* glsl */ `
 uniform vec2 blurCenter;
 uniform float blurAmount;
 uniform vec2 blurSweep;
+uniform vec2 blurMaskCenter;
+uniform vec2 blurMaskRadius;
 vec3 speedBlurred( sampler2D tex, vec2 uv, vec2 texel ) {
   vec2 smear = ( uv - blurCenter ) * blurAmount + blurSweep;
+  if ( blurMaskRadius.x > 0.0 ) smear *= smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, length( ( uv - blurMaskCenter ) / blurMaskRadius ) );
   int n = int( clamp( length( smear / texel ) * 0.5, 1.0, ${MAX_TAPS.toFixed(1)} ) );
   if ( n <= 1 ) return texture( tex, uv ).rgb;
   vec3 sum = vec3( 0.0 );
@@ -27,14 +40,24 @@ vec3 speedBlurred( sampler2D tex, vec2 uv, vec2 texel ) {
 
 /** The speed blur's uniforms (SPEED_BLUR_GLSL's), off. */
 export function speedBlurUniforms() {
-  return { blurCenter: { value: new THREE.Vector2(0.5, 0.5) }, blurAmount: { value: 0 }, blurSweep: { value: new THREE.Vector2() } };
+  return {
+    blurCenter: { value: new THREE.Vector2(0.5, 0.5) },
+    blurAmount: { value: 0 },
+    blurSweep: { value: new THREE.Vector2() },
+    blurMaskCenter: { value: new THREE.Vector2(0.5, 0.5) },
+    blurMaskRadius: { value: new THREE.Vector2() },
+  };
 }
 
 /** Set a material's speed blur uniforms; whether there is any blur. */
-export function setSpeedBlur(uniforms: Record<string, THREE.IUniform>, center: THREE.Vector2, amount: number, sweep: THREE.Vector2): boolean {
+export function setSpeedBlur(uniforms: Record<string, THREE.IUniform>, center: THREE.Vector2, amount: number, sweep: THREE.Vector2, mask?: BlurMask): boolean {
   uniforms.blurCenter.value.copy(center);
   uniforms.blurAmount.value = amount;
   uniforms.blurSweep.value.copy(sweep);
+  if (mask) {
+    uniforms.blurMaskCenter.value.copy(mask.center);
+    uniforms.blurMaskRadius.value.copy(mask.radius);
+  } else uniforms.blurMaskRadius.value.set(0, 0);
   return amount > 1e-4 || sweep.lengthSq() > 1e-8;
 }
 
@@ -91,7 +114,7 @@ export class SpeedBlurPass extends ShaderPass {
   }
 
   /** This frame's blur (none, or `off`: the pass is skipped). */
-  set(center: THREE.Vector2, amount: number, sweep: THREE.Vector2, off = false): void {
-    this.enabled = setSpeedBlur(this.material.uniforms, center, amount, sweep) && !off;
+  set(center: THREE.Vector2, amount: number, sweep: THREE.Vector2, mask?: BlurMask, off = false): void {
+    this.enabled = setSpeedBlur(this.material.uniforms, center, amount, sweep, mask) && !off;
   }
 }

@@ -4,7 +4,7 @@ import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { PlanPath } from '../render/planPath';
 import { POST, PostFx } from '../render/postFx';
-import { blurAmount, motionCenter } from '../render/speedBlur';
+import { blurAmount, motionCenter, type BlurMask } from '../render/speedBlur';
 import { flameTextures } from '../render/exhaustFlames';
 import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
@@ -37,7 +37,7 @@ import { HandlingInput } from '../vehicles/handling';
 import { allTrafficModels, NpcVehicle } from '../vehicles/npcVehicle';
 import { BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
 import { NitroAi } from '../vehicles/nitro';
-import { PlayerCar } from '../vehicles/playerCar';
+import { PLAYER_H, PlayerCar } from '../vehicles/playerCar';
 import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PlannerDriver } from '../ai/plannerDriver';
 import { trackerFrom } from '../ai/netTracker';
@@ -117,6 +117,14 @@ const LOOK_BLUR = {
   left: new THREE.Vector2(2, 0.5),
   sideShare: 0.2,
 };
+/**
+ * Where the speed blur is held off (render/speedBlur BlurMask), where the eye is: looking ahead or back an ellipse
+ * `focus` across (of the screen's width; half as tall as wide on the screen) round the point it goes to or comes
+ * from; looking to a side round the car's own body (its box on the screen, `car` times its half-sizes: the corners,
+ * the wheels' bottoms, blurred a little).
+ */
+const BLUR_MASK = { focus: 0.09, car: 1.1 };
+const MASK_CORNER = new THREE.Vector3();
 const RESIZE_V = new THREE.Vector2();
 const EAR_FWD = new THREE.Vector3();
 const EAR_UP = new THREE.Vector3();
@@ -247,6 +255,8 @@ export class Game {
   private camYaw: number | null = null;
   /** Last frame's look (speedBlur: a cut to another is no turn). */
   private blurLook: Look = 'ahead';
+  /** Where the speed blur is held off (BLUR_MASK; held while paused, as the blur). */
+  private readonly blurMask: BlurMask = { center: new THREE.Vector2(0.5, 0.5), radius: new THREE.Vector2() };
   /** The race's intro, whether it is on; a race starting (the fade). */
   private intro: Intro | null = null;
   private introOn = false;
@@ -1139,7 +1149,9 @@ export class Game {
    * its point is held where it would be going straight: the middle looking back (the road streaming into it), off
    * the screen's side the car goes to looking to a side (LOOK_BLUR: the road streaming across, a little fanned) -
    * not projected from the motion: square to the view, as the car slid that point jumped from far off to a side
-   * (the picture smeared into broken streaks) to behind (none). The cut to a look and back is no turn.
+   * (the picture smeared into broken streaks) to behind (none) - looking back, where it comes from (the motion's
+   * opposite), held on the screen. The cut to a look and back is no turn. Held off round where the eye is
+   * (BLUR_MASK): the point ahead or behind, or the car's own body looking to a side (it moves with the camera).
    */
   private speedBlur(play: number, look: Look): void {
     this.camera.getWorldDirection(BLUR_V);
@@ -1153,12 +1165,20 @@ export class Game {
       let center: THREE.Vector2 | null = null;
       if (shot) center = null;
       else if (look === 'ahead') center = motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
-      else if (look === 'back') center = LOOK_BLUR.back;
-      else {
+      else if (look === 'back') {
+        const from = motionCenter(this.camera, BLUR_V.set(-v.x, -v.y, -v.z));
+        center = from ? from.clampScalar(0, 1) : LOOK_BLUR.back; // (sliding hard: kept on the screen)
+      } else {
         center = look === 'right' ? LOOK_BLUR.right : LOOK_BLUR.left;
         share = LOOK_BLUR.sideShare;
       }
       if (center) this.blurCenter.copy(center);
+      if (look === 'left' || look === 'right') this.carOnScreen(this.blurMask);
+      else {
+        const r = BLUR_MASK.focus / 2;
+        this.blurMask.center.copy(this.blurCenter);
+        this.blurMask.radius.set(r, (r * this.camera.aspect) / 2);
+      }
       this.blurAmount = center
         ? share * blurAmount(Math.abs(this.player.speed) * 3.6, this.player.nitro.active, { from: POST.blurFrom, full: POST.blurFull, strength: POST.blurStrength, nitro: POST.blurNitro })
         : 0;
@@ -1170,7 +1190,25 @@ export class Game {
       this.blurSweep.set(shot || look !== 'ahead' ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
     }
     this.camYaw = yaw;
-    this.post.motion(this.blurCenter, this.blurAmount, this.blurSweep);
+    this.post.motion(this.blurCenter, this.blurAmount, this.blurSweep, this.blurMask);
+  }
+
+  /** The player's car on the screen (0..1, y up) as an ellipse: round its box's corners' (BLUR_MASK.car of them). */
+  private carOnScreen(mask: BlurMask): void {
+    const mesh = this.player.mesh, p = this.player.params;
+    mesh.updateWorldMatrix(true, false);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      MASK_CORNER.set(((i & 1) - 0.5) * p.width, (((i >> 1) & 1) - 0.5) * PLAYER_H, (((i >> 2) & 1) - 0.5) * p.length);
+      MASK_CORNER.applyMatrix4(mesh.matrixWorld).project(this.camera);
+      x0 = Math.min(x0, MASK_CORNER.x);
+      x1 = Math.max(x1, MASK_CORNER.x);
+      y0 = Math.min(y0, MASK_CORNER.y);
+      y1 = Math.max(y1, MASK_CORNER.y);
+    }
+    // (normalised device -1..1 to the screen's 0..1: halved)
+    mask.center.set((x0 + x1) / 4 + 0.5, (y0 + y1) / 4 + 0.5);
+    mask.radius.set(((x1 - x0) / 4) * BLUR_MASK.car, ((y1 - y0) / 4) * BLUR_MASK.car);
   }
 
   /**
