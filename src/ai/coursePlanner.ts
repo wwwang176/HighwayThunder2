@@ -15,11 +15,14 @@ import { STREET_RACER } from '../vehicles/cars/streetRacer';
  * along the road).
  */
 export const COURSE = {
-  step: 0.25, // s between plan points
+  step: 0.25, // s between plan points, and a step for the first `fine` s
+  fine: 2,
+  /** s a step after that (its points' halves filled in): the far end needs less detail. */
+  longStep: 0.5,
   horizon: 8, // s looked ahead
-  sub: 5, // sub-steps a step (moved along and checked)
+  sub: 3, // sub-steps a step (moved along and checked)
   /** Shares of the tightest turn a step may hold. */
-  turns: [-1, -0.5, -0.2, 0, 0.2, 0.5, 1],
+  turns: [-1, -0.4, 0, 0.4, 1], // (seven, with 0.2 and 0.5: no better, half as fast again)
   /** Nodes kept per step (the most promising). */
   beam: 250,
   /** States closer than these count as the same: m across, m/s, rad of course. */
@@ -47,6 +50,9 @@ interface Node {
   psi: number; // course, rad off the road's heading (+ toward +d)
   beta: number; // the nose off the course (rad)
   score: number;
+  t: number; // s into the plan
+  /** What the beam keeps it by (value: the score, the speed it has, the turn it still has to make). */
+  val: number;
   parent: Node | null;
 }
 
@@ -110,20 +116,24 @@ function startNode(ego: PlanEgo): Node {
   const speed = Math.hypot(vS, vD);
   const moving = speed > COURSE.still;
   const psi = moving ? Math.atan2(vD, vS) : yaw;
-  return { s: ego.s, d: ego.d, v: speed, psi, beta: moving ? wrap(yaw - psi) : 0, score: 0, parent: null };
+  return { s: ego.s, d: ego.d, v: speed, psi, beta: moving ? wrap(yaw - psi) : 0, score: 0, t: 0, val: 0, parent: null };
 }
 
 function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: PreviousPlan | null, relaxed: boolean): Plan | null {
   const P = PLANNER, K = COURSE;
-  const dt = K.step, h = dt / K.sub;
-  const steps = Math.round(K.horizon / dt);
+  // The steps: fine ones first, then longer.
+  const stepAt: number[] = [];
+  for (let t = 0; t < K.horizon - 1e-9; ) {
+    const dt = t < K.fine - 1e-9 ? K.step : K.longStep;
+    stepAt.push(dt);
+    t += dt;
+  }
   const hl = ego.halfLength ?? 2.2, hw = ego.halfWidth ?? 0.93;
   const side = relaxed ? 0 : P.sideMargin;
   const along = relaxed ? 0 : P.gapBehind;
   const margin = relaxed ? 0 : 1;
   const turnMax = K.lockShare * (ego.turnMax ?? Math.tan(0.55) / 2.5);
   const latTable = ego.latAccel ?? STREET_RACER.ai.latAccel;
-  const decay = Math.exp(-K.slipDecay * h);
   // How far out its centre may go: the paved road's edge (as the lattice planner), or - off it already, or across the
   // road (a crash: ACROSS) - up to the rail, the shoulder at a cost (OFF_ROAD). (Allowed always, it passed a car on
   // the shoulder rather than take the gap.)
@@ -153,8 +163,11 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
 
   let layer: Node[] = [start];
   let deepest: Node[] = [start];
-  for (let k = 0; k < steps; k++) {
-    const tA = k * dt;
+  let tA = 0;
+  for (let k = 0; k < stepAt.length; tA += stepAt[k], k++) {
+    const dt = stepAt[k], h = dt / K.sub;
+    const decay = Math.exp(-K.slipDecay * h);
+    const w = dt / K.step; // (costs a point: per K.step s)
     const next = new Map<number, Node>();
     // Boxes that can be near this step's nodes.
     let sLo = Infinity, sHi = -Infinity;
@@ -174,6 +187,15 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
       const accels = [top, top / 2, 0, -P.softBrake, -brakeMax];
       const grip = K.latGrip * maxAccel(n.v, latTable);
       const kMax = n.v > 1 ? Math.min(turnMax, grip / (n.v * n.v)) : turnMax;
+      // The boxes its body can touch this step, wherever its moves take it (most of `near` is lanes away).
+      const run = Math.max(n.v, n.v + top * dt) * dt;
+      const reachS = run + hl + along + 1, reachD = run + hl + hw + side + 1;
+      const local = near.filter((b) => {
+        const bs = b.s + b.v * (tA + dt / 2);
+        return Math.abs(bs - n.s) < reachS + b.length / 2 + Math.abs(b.v - n.v) * dt && b.dMax > n.d - reachD && b.dMin < n.d + reachD;
+      });
+      // ...and those ahead it may have to brake for (in its way, however far).
+      const inWay = near.filter((b) => b.dMax > n.d - reachD && b.dMin < n.d + reachD);
       for (const f of K.turns) {
         const kappa = f * kMax;
         const aLat = kappa * n.v * n.v;
@@ -198,35 +220,42 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
               beta = 0;
             }
             if (Math.abs(d) > edge && Math.abs(d) > Math.abs(n.d)) hit = true; // (the edge: `edge`)
-            else hit = touches(s, d, psi + beta, hl + along, hw + side, near, tA + j * h);
+            else hit = touches(s, d, psi + beta, hl + along, hw + side, local, tA + j * h);
           }
           if (hit) continue;
-          if (!relaxed && tooClose(s, d, v, psi + beta, psi, hl, hw, side, near, tA + dt, margin, ego)) continue;
+          if (!relaxed && tooClose(s, d, v, psi + beta, psi, hl, hw, side, inWay, tA + dt, margin, ego)) continue;
           let score = n.score + (s - n.s);
-          if (Math.abs(d) > ROAD_HALF_WIDTH) score -= OFF_ROAD;
-          else if (Math.abs(d - laneCenter(laneAt(d))) > ON_CENTRE) score -= P.lineCost;
-          if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus;
-          if (P.passCost > 0) score -= passShort(near, s, d, hl, hw, tA + dt);
+          if (Math.abs(d) > ROAD_HALF_WIDTH) score -= OFF_ROAD * w;
+          else if (Math.abs(d - laneCenter(laneAt(d))) > ON_CENTRE) score -= P.lineCost * w;
+          if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus * w;
+          if (P.passCost > 0) score -= passShort(local, s, d, hl, hw, tA + dt) * w;
           const key = (Math.round(d / K.dCell) * 1000 + Math.round(v / K.vCell)) * 1000 + Math.round(wrap(psi) / K.psiCell) + 500;
           const old = next.get(key);
-          if (old && value(old) >= score + P.endSpeedValue * v * Math.cos(psi)) continue;
-          next.set(key, { s, d, v, psi, beta, score, parent: n });
+          if (old && old.score >= score) continue; // (the same state: the same speed and turn left)
+          const node: Node = { s, d, v, psi, beta, score, t: tA + dt, val: 0, parent: n };
+          node.val = value(node);
+          next.set(key, node);
         }
       }
     }
     if (next.size === 0) break;
     let nodes = [...next.values()];
     if (K.beam > 0 && nodes.length > K.beam) {
-      // The most promising, but some of every way it is heading (SECTORS): turning one way round and the other both
-      // kept, not only what looks best this early.
-      nodes.sort((x, y) => value(y) - value(x));
-      const quota = Math.ceil(K.beam / (2 * SECTORS));
-      const per = new Array(SECTORS).fill(0);
+      // The most promising, but half the beam shared out over where across the road it is (half lanes) and which way
+      // it is heading (SECTORS): waiting to take a gap on the left and passing on the right both kept, and turning
+      // one way round and the other - not only what looks best this early. (By value alone, with 250 kept, nodes
+      // speeding off to the right filled it and the way through a gap on the left was lost; with 1000 it was found.)
+      nodes.sort((x, y) => y.val - x.val);
+      const group = (n: Node) => Math.round(n.d / (LANE_WIDTH / 2)) * SECTORS + Math.min(SECTORS - 1, Math.floor(((n.psi + Math.PI) / (2 * Math.PI)) * SECTORS));
+      const groups = new Set(nodes.map(group)).size;
+      const quota = Math.max(2, Math.floor(K.beam / (2 * groups)));
+      const per = new Map<number, number>();
       const kept: Node[] = [], rest: Node[] = [];
       for (const n of nodes) {
-        const sec = Math.min(SECTORS - 1, Math.floor(((n.psi + Math.PI) / (2 * Math.PI)) * SECTORS));
-        if (per[sec] < quota) {
-          per[sec]++;
+        const g = group(n);
+        const k = per.get(g) ?? 0;
+        if (k < quota && kept.length < K.beam) {
+          per.set(g, k + 1);
           kept.push(n);
         } else rest.push(n);
       }
@@ -236,12 +265,23 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     deepest = nodes;
   }
   let best: Node | null = null;
-  for (const n of deepest) if (!best || value(n) > value(best)) best = n;
+  for (const n of deepest) if (!best || n.val > best.val) best = n;
   const chain: Node[] = [];
   for (let n = best; n; n = n.parent) chain.push(n);
   chain.reverse();
   if (chain.length === 1) return null;
-  return { points: chain.map((n, i): PlanPoint => ({ t: i * dt, s: n.s, d: n.d, v: n.v, psi: n.psi })) };
+  // Points every K.step: a longer step's in between filled in on its straight.
+  const points: PlanPoint[] = [];
+  for (let i = 0; i < chain.length; i++) {
+    const n = chain[i], m = chain[i + 1];
+    points.push({ t: n.t, s: n.s, d: n.d, v: n.v, psi: n.psi });
+    if (!m) break;
+    for (let t = n.t + K.step; t < m.t - 1e-9; t += K.step) {
+      const u = (t - n.t) / (m.t - n.t);
+      points.push({ t, s: n.s + (m.s - n.s) * u, d: n.d + (m.d - n.d) * u, v: n.v + (m.v - n.v) * u, psi: n.psi + wrap(m.psi - n.psi) * u });
+    }
+  }
+  return { points };
 }
 
 /** Whether the body (centre s, d; pointing `heading` off the road's; half length / width) overlaps a box at time t. */
