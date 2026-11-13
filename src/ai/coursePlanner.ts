@@ -57,6 +57,8 @@ interface Node {
 }
 
 const ON_CENTRE = 0.3; // m off a lane centre that still counts as on it
+/** Other ways besides the plan it hands back (Plan.alts: drawn fainter beside it). */
+const ALTERNATIVES = 2;
 /** Ways it may be heading the beam keeps some of each of (45 deg each). */
 const SECTORS = 8;
 /** Value taken off a dead end (heading for the edge, no room to turn either way). */
@@ -276,24 +278,72 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     layer = nodes;
     deepest = nodes;
   }
-  let best: Node | null = null;
-  for (const n of deepest) if (!best || n.val > best.val) best = n;
+  // The best end, and the next best that go another way (another order of lanes along it): shown beside the plan.
+  const ends = [...deepest].sort((x, y) => y.val - x.val);
+  if (!ends.length || !ends[0].parent) return null;
+  const picked: Node[] = [], ways = new Set<string>(), paths: number[][] = [];
+  for (const n of ends) {
+    const way = lanesOf(n);
+    if (ways.has(way)) continue;
+    // ...and apart from each picked: on average DISTINCT m across (two ways that only lean toward a line and back,
+    // a little differently, are one way).
+    const path = acrossOf(n);
+    if (paths.some((q) => meanApart(q, path) < DISTINCT)) continue;
+    ways.add(way);
+    paths.push(path);
+    picked.push(n);
+    if (picked.length === 1 + ALTERNATIVES) break;
+  }
+  return { points: pointsOf(picked[0]), alts: picked.slice(1).map(pointsOf) };
+}
+
+/**
+ * The lanes a plan ending at `n` settles in, in order (near a lane's centre: crossing one on the way over is no
+ * settling - cutting across now and a moment later are the same way, holding back in a lane between is another).
+ */
+function lanesOf(n: Node): string {
+  const lanes: number[] = [];
+  for (let m: Node | null = n; m; m = m.parent) {
+    const lane = Math.round((m.d - laneCenter(0)) / LANE_WIDTH);
+    if (Math.abs(m.d - laneCenter(0) - lane * LANE_WIDTH) > SETTLED) continue;
+    if (lanes[lanes.length - 1] !== lane) lanes.push(lane);
+  }
+  return lanes.join(',');
+}
+/** m off a lane's centre that counts as settled in it (lanesOf). */
+const SETTLED = 0.6;
+/** m two ways must be apart across, on average, to be shown as two. */
+const DISTINCT = 1;
+
+/** Where across the road a plan ending at `n` is, node by node from the start. */
+function acrossOf(n: Node): number[] {
+  const out: number[] = [];
+  for (let m: Node | null = n; m; m = m.parent) out.push(m.d);
+  return out.reverse();
+}
+const meanApart = (a: number[], b: number[]) => {
+  const k = Math.min(a.length, b.length);
+  let sum = 0;
+  for (let i = 0; i < k; i++) sum += Math.abs(a[i] - b[i]);
+  return k ? sum / k : 0;
+};
+
+/** The plan ending at `n`: its points every COURSE.step (a longer step's in between filled in on its straight). */
+function pointsOf(end: Node): PlanPoint[] {
   const chain: Node[] = [];
-  for (let n = best; n; n = n.parent) chain.push(n);
+  for (let n: Node | null = end; n; n = n.parent) chain.push(n);
   chain.reverse();
-  if (chain.length === 1) return null;
-  // Points every K.step: a longer step's in between filled in on its straight.
   const points: PlanPoint[] = [];
   for (let i = 0; i < chain.length; i++) {
     const n = chain[i], m = chain[i + 1];
     points.push({ t: n.t, s: n.s, d: n.d, v: n.v, psi: n.psi });
     if (!m) break;
-    for (let t = n.t + K.step; t < m.t - 1e-9; t += K.step) {
+    for (let t = n.t + COURSE.step; t < m.t - 1e-9; t += COURSE.step) {
       const u = (t - n.t) / (m.t - n.t);
       points.push({ t, s: n.s + (m.s - n.s) * u, d: n.d + (m.d - n.d) * u, v: n.v + (m.v - n.v) * u, psi: n.psi + wrap(m.psi - n.psi) * u });
     }
   }
-  return { points };
+  return points;
 }
 
 /** Whether the body (centre s, d; pointing `heading` off the road's; half length / width) overlaps a box at time t. */

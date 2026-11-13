@@ -270,6 +270,8 @@ export interface PlanPoint {
 
 export interface Plan {
   points: PlanPoint[];
+  /** The next best ways it found (another order of lanes): shown fainter beside it (coursePlanner only). */
+  alts?: PlanPoint[][];
 }
 
 /** The plan being followed, and how long ago it was made: the next plan sticks to it unless clearly better. */
