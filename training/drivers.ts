@@ -9,6 +9,7 @@ import type { CarSpec } from '../src/vehicles/cars';
  * The AI driver the sims use, by DRIVER:
  * - lattice (unset): as in the game - the lattice planner, the car's networks, the emergency brake;
  * - course-net: the same driver, its plans by direction of travel (src/ai/coursePlanner.ts);
+ * - course-tracker: the same, but no recovery network (across the road too the tracker network follows the plans);
  * - course: plans by direction of travel followed by a plain pursuit (src/ai/courseDriver.ts), no networks.
  */
 export const DRIVER = process.env.DRIVER ?? 'lattice';
@@ -22,11 +23,12 @@ export function makeDriver(spec: CarSpec, source: PlanSource | null = null): Sim
     c.latAccel = spec.ai.latAccel;
     return c;
   }
-  const d = new PlannerDriver(DRIVER === 'course-net' ? courseSource() : source);
+  const d = new PlannerDriver(DRIVER === 'course-net' || DRIVER === 'course-tracker' ? courseSource() : source);
   d.accel = spec.ai.accel;
   d.latAccel = spec.ai.latAccel;
   d.tracker = trackerFrom(spec.ai.tracker);
-  d.recovery = trackerFrom(spec.ai.recovery);
+  // (course-tracker: no recovery network - across the road too the tracker network follows the course plans)
+  d.recovery = DRIVER === 'course-tracker' ? null : trackerFrom(spec.ai.recovery);
   d.reset();
   return d;
 }
