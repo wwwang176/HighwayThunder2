@@ -25,13 +25,16 @@ import { openGround } from './openGround';
  * rest, sideways speed as its body enters lane 1's cars' band, speed then. MAXLAT=<cells a step>: the plans' sideways
  * cap raised (PLANNER.maxLateral: 6, 11 m/s).
  *   DVS=0,30,50,100 GAPS=5,6,8,10,15,20 npx vitest run --config training/vitest.config.ts training/flickGap.train.ts
+ * The right-front car gone, swinging out into lane 3: HOLE=-5,40 SWINGS=0,2,4,6,8.
  */
 const env = (k: string, d: string) => process.env[k] ?? d;
 const LANE1 = Number(env('LANE1', '150')) * KMH;
 const SLOW = Number(env('SLOW', '100')) * KMH;
 const DVS = env('DVS', '0,30,50,100').split(',').map(Number);
 const GAPS = env('GAPS', '5,6,8,10,15,20').split(',').map(Number);
-const SWINGS = env('SWINGS', '0,1,2,3').split(',').map(Number); // cells (LANE_WIDTH / 8 each)
+const SWINGS = env('SWINGS', '0,1,2,3').split(',').map(Number); // cells (LANE_WIDTH / 8 each; 8: lane 3's middle)
+/** HOLE=a,b: lane 3's cars starting a..b m on left out (the right-front car gone: room to swing out into lane 3). */
+const HOLE = process.env.HOLE ? process.env.HOLE.split(',').map(Number) : null;
 const AT = Number(env('AT', '30'));
 const A2 = Number(env('A2', '80'));
 /** Bumper to bumper in lane 1's queue (m): too short to get through, the gap the only way. */
@@ -58,7 +61,7 @@ function scene(gap: number): Box[] {
   const F = box(2, AT + gap / 2 + LEN / 2, 1, LANE1, 'gap');
   const out = [R, F];
   for (let k = 1; k <= 40; k++) out.push(box(100 + k, R.s - k * (LEN + QUEUE), 1, LANE1, 'queue'), box(200 + k, F.s + k * (LEN + QUEUE), 1, LANE1, 'queue'));
-  for (let s = -40; s <= 500; s += 14) out.push(box(1000 + s, s, 3, SLOW, 'row'));
+  for (let s = -40; s <= 500; s += 14) if (!(HOLE && s >= HOLE[0] && s <= HOLE[1])) out.push(box(1000 + s, s, 3, SLOW, 'row'));
   // A slow car ahead in lane 2 (A2 m on): the reason to get across (the AI's too); 'row' with the others.
   out.push(box(3000, A2, 2, SLOW, 'row'));
   return out;
