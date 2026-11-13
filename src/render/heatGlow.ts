@@ -29,10 +29,10 @@ export function glowMaterial(material: THREE.Material, kind: GlowKind): THREE.Ma
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nattribute float ${GLOW_ATTRIBUTE};\nvarying float vGlow;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvGlow = ${GLOW_ATTRIBUTE};`);
-    // dull red just hot, brightening to orange (and past white, a little, at full)
+    // dull red just hot, brightening to a bright red (a touch of orange; past white, a little, at full)
     const heat = `
       float g = vGlow;
-      vec3 hot = mix(vec3(0.55, 0.04, 0.0), vec3(1.0, 0.38, 0.06), g) * (0.25 + 2.35 * g * g) * smoothstep(0.0, 0.2, g);`;
+      vec3 hot = mix(vec3(0.5, 0.015, 0.0), vec3(1.0, 0.15, 0.02), g) * (0.25 + 2.6 * g * g) * smoothstep(0.0, 0.2, g);`;
     const disc = `
       #ifdef USE_MAP
         float rho = length(vMapUv - 0.5) * 2.0;
