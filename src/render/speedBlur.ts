@@ -5,6 +5,8 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 const MAX_TAPS = 12;
 /** The unblurred ellipse's blur full from this many times its radii (fading in from 1). */
 const MASK_FEATHER = 1.6;
+/** Inside it still this share of the blur: a very light one (the car's own body looking to a side not quite sharp). */
+const MASK_FLOOR = 0.15;
 
 /** Where the speed blur is held off (screen 0..1, y up): an ellipse, its centre and radii; radius x 0: nowhere. */
 export interface BlurMask {
@@ -15,7 +17,7 @@ export interface BlurMask {
 /**
  * The speed blur in GLSL, for a pass of its own or folded into another (ToneMapFxaaPass): `speedBlurred` is the
  * picture at `uv` smeared toward and away from `blurCenter`, the farther the more (`blurAmount` of the way), and
- * across by `blurSweep`; `texel` is a pixel's size (1 / the picture's). None inside the ellipse `blurMaskCenter`,
+ * across by `blurSweep`; `texel` is a pixel's size (1 / the picture's). Little (MASK_FLOOR) inside the ellipse `blurMaskCenter`,
  * radii `blurMaskRadius` (0: no ellipse), fading in out to MASK_FEATHER times them: where the eye is on (the
  * car's own body looking to a side; ahead, where it goes).
  */
@@ -27,7 +29,7 @@ uniform vec2 blurMaskCenter;
 uniform vec2 blurMaskRadius;
 vec3 speedBlurred( sampler2D tex, vec2 uv, vec2 texel ) {
   vec2 smear = ( uv - blurCenter ) * blurAmount + blurSweep;
-  if ( blurMaskRadius.x > 0.0 ) smear *= smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, length( ( uv - blurMaskCenter ) / blurMaskRadius ) );
+  if ( blurMaskRadius.x > 0.0 ) smear *= mix( ${MASK_FLOOR.toFixed(2)}, 1.0, smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, length( ( uv - blurMaskCenter ) / blurMaskRadius ) ) );
   int n = int( clamp( length( smear / texel ) * 0.5, 1.0, ${MAX_TAPS.toFixed(1)} ) );
   if ( n <= 1 ) return texture( tex, uv ).rgb;
   vec3 sum = vec3( 0.0 );
