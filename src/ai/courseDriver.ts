@@ -1,5 +1,6 @@
 import { PHYSICS_DT } from '../config';
-import { CarParams, DEFAULT_CAR, HandlingInput, steerRange } from '../vehicles/handling';
+import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
+import { followSteer, STANDING, tractionShare } from './courseFollow';
 import type { Driver } from './driver';
 import { coursePlan } from './coursePlanner';
 import { emergencyBrake, planPedals, REPLAN_EVERY, type PlanSource } from './plannerDriver';
@@ -7,29 +8,6 @@ import { planAt, type AccelTable, type Plan, type PlanEgo, type PreviousPlan } f
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
 
-/** s ahead on the plan it steers for, and the least distance (m) it looks. */
-const LEAD = 0.4;
-const LEAD_MIN = 3;
-/** m/s of rear wheelspin the throttle starts coming off at, and all off this much past it. */
-const SPIN_FROM = 3;
-const SPIN_SPAN = 6;
-/** m/s: slower than this it counts as standing (the brake pedal would select reverse). */
-const STANDING = 0.5;
-
-/**
- * Steering (-1..1) toward where the plan is LEAD s on (pure pursuit: the arc from the nose's direction through that
- * point), whatever the car's angle to the road - across it, standing, after a crash.
- */
-export function followSteer(plan: Plan, age: number, self: SelfState, p: CarParams): number {
-  const aim = planAt(plan, age + LEAD);
-  const ds = aim.s - self.s, dd = aim.d - self.d;
-  const fwd = ds * Math.cos(self.yaw) + dd * Math.sin(self.yaw);
-  const right = -ds * Math.sin(self.yaw) + dd * Math.cos(self.yaw);
-  const look = Math.max(LEAD_MIN, Math.hypot(fwd, right));
-  const alpha = Math.atan2(right, Math.max(fwd, 0.1));
-  const wheel = Math.atan((2 * p.wheelbase * Math.sin(alpha)) / look);
-  return Math.max(-1, Math.min(1, wheel / steerRange(self.vLong, p)));
-}
 
 /** The state the planners plan from, the car's as it is. */
 export function egoOf(self: SelfState, p: CarParams, accel: AccelTable, latAccel: AccelTable, brake: AccelTable | null): PlanEgo {
@@ -102,10 +80,7 @@ export class CourseDriver implements Driver {
     const age = this.planAge;
     const steer = followSteer(this.plan, age, self, p);
     const pedals = planPedals(this.plan, age, self.vLong, this.accel, this.brake);
-    // Traction control: off the throttle as the rear tyres spin past their grip (flat out turning, they spun 25 m/s
-    // and the tail slid out).
-    const spin = self.rearSpin ?? 0;
-    if (spin > SPIN_FROM) pedals.throttle *= Math.max(0, 1 - (spin - SPIN_FROM) / SPIN_SPAN);
+    pedals.throttle *= tractionShare(self); // (traction control)
     // Standing, the brake pedal would put it in reverse: held where it stands instead.
     if (pedals.brake > 0 && Math.abs(self.vLong) < STANDING) return { steer, throttle: 0, brake: 0, hold: true };
     const paths = [{ plan: this.plan, age }, ...this.earlier.map((e) => ({ plan: e.plan, age: this.clock - e.t }))];

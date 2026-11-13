@@ -118,6 +118,7 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
       DRIVER_TUNING.netTracker = grids[k][1];
       a.controllersRecursive().forEach((c) => c.updateDisplay());
     });
+  a.add(DRIVER_TUNING, 'coursePlanner').name('新規劃器：行徑方向（關：原本的格子規劃）');
   a.add(DRIVER_TUNING, 'netTracker').name('方向盤用神經網路（關：原本的公式）');
   a.add(PLANNER, 'lookBehind').name('換道看後方（關：完全不管後車）');
   a.add(PLANNER, 'diagonal').name('斜線換道（關：換道整步佔滿橫向寬度）');
