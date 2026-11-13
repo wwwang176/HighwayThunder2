@@ -37,6 +37,10 @@ const SWINGS = env('SWINGS', '0,1,2,3').split(',').map(Number); // cells (LANE_W
 const HOLE = process.env.HOLE ? process.env.HOLE.split(',').map(Number) : null;
 const AT = Number(env('AT', '30'));
 const A2 = Number(env('A2', '80'));
+/** A2V: lane 2's car ahead, km/h (SLOW unset). */
+const A2V = Number(env('A2V', String(SLOW / KMH))) * KMH;
+/** RF=s,kmh: lane 3 just one car, s m on at that speed (the row of slow cars left out): the right-front one, blocking. */
+const RF = process.env.RF ? process.env.RF.split(',').map(Number) : null;
 /** Bumper to bumper in lane 1's queue (m): too short to get through, the gap the only way. */
 const QUEUE = Number(env('QUEUE', '2'));
 const LINE = Number(env('LINE', '300'));
@@ -61,9 +65,10 @@ function scene(gap: number): Box[] {
   const F = box(2, AT + gap / 2 + LEN / 2, 1, LANE1, 'gap');
   const out = [R, F];
   for (let k = 1; k <= 40; k++) out.push(box(100 + k, R.s - k * (LEN + QUEUE), 1, LANE1, 'queue'), box(200 + k, F.s + k * (LEN + QUEUE), 1, LANE1, 'queue'));
-  for (let s = -40; s <= 500; s += 14) if (!(HOLE && s >= HOLE[0] && s <= HOLE[1])) out.push(box(1000 + s, s, 3, SLOW, 'row'));
-  // A slow car ahead in lane 2 (A2 m on): the reason to get across (the AI's too); 'row' with the others.
-  out.push(box(3000, A2, 2, SLOW, 'row'));
+  if (RF) out.push(box(4000, RF[0], 3, RF[1] * KMH, 'row'));
+  else for (let s = -40; s <= 500; s += 14) if (!(HOLE && s >= HOLE[0] && s <= HOLE[1])) out.push(box(1000 + s, s, 3, SLOW, 'row'));
+  // A slow car ahead in lane 2 (A2 m on, A2V): the reason to get across (the AI's too); 'row' with the others.
+  out.push(box(3000, A2, 2, A2V, 'row'));
   return out;
 }
 
