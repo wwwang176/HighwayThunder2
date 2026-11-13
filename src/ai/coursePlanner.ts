@@ -1,4 +1,4 @@
-import { LANE_WIDTH, RAIL_D, ROAD_HALF_WIDTH } from '../config';
+import { GRASS_GRIP, LANE_WIDTH, MEDIAN_FAR_X, MEDIAN_NEAR_X, RAIL_D, ROAD_HALF_WIDTH, SHOULDER } from '../config';
 import { laneAt, laneCenter } from '../road/coords';
 import type { TrafficBox } from './sensors';
 import { maxAccel, maxBrake, PLANNER, planAt, type Plan, type PlanEgo, type PlanPoint, type PreviousPlan } from './planner';
@@ -66,6 +66,10 @@ const TURN_COST = 20;
 const TURN_FREE = 0.5;
 /** m of progress a plan point on the shoulder costs (past the paved road's edge: allowed up to the rail). */
 const OFF_ROAD = 5;
+/** m of progress a plan point costs per m it is outside where it may go (it heads back in). */
+const OUT_COST = 2;
+/** The ground's grip at d (the median's grass) as a share of the road's. */
+const surface = (d: number) => (d < MEDIAN_NEAR_X ? GRASS_GRIP : 1);
 /** rad its nose off the road beyond which it is across the road (a crash): the shoulder allowed. */
 const ACROSS = 0.4;
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -138,6 +142,12 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   // road (a crash: ACROSS) - up to the rail, the shoulder at a cost (OFF_ROAD). (Allowed always, it passed a car on
   // the shoulder rather than take the gap.)
   const edge = Math.abs(start.d) > ROAD_HALF_WIDTH || Math.abs(start.psi + start.beta) > ACROSS ? RAIL_D - hw : ROAD_HALF_WIDTH;
+  // Outside that (on the median's grass, say) it still plans - going out further only to turn back in, at a cost the
+  // further out (OUT_COST); once in it never goes out again. (Outside, every move out was refused: heading away from
+  // the road it could not even start turning back, and stood braking.) Never past our rail, nor past the median onto
+  // the oncoming road's lanes (its traffic is not in the boxes).
+  const out = (d: number) => Math.abs(d) > edge;
+  const hardHi = RAIL_D - hw, hardLo = MEDIAN_FAR_X - SHOULDER + hw; // (the oncoming shoulder is room to turn round on: to the median's side only, 90 deg across 6 m out it stood)
   // How far (rad) a node still has to turn to run along the road, the way round there is room for at its tightest
   // turn: the short way (toward the edge it is heading for), or else the long way (away from it, through backward);
   // Infinity: neither - a dead end, kept only if nothing else is. Turning a long way round costs (TURN_COST) in the
@@ -146,10 +156,11 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   const turnLeft = (n: Node) => {
     const a = Math.abs(n.psi);
     if (a < 1e-3) return 0;
-    // (to its edge: `edge`)
-    const toward = n.psi > 0 ? edge - n.d : edge + n.d;
-    const away = n.psi > 0 ? edge + n.d : edge - n.d;
-    const grip = K.latGrip * maxAccel(n.v, latTable);
+    // (to its edge: `edge`; outside, to the hard limits)
+    const hi = out(n.d) ? hardHi : edge, lo = out(n.d) ? hardLo : -edge;
+    const toward = n.psi > 0 ? hi - n.d : n.d - lo;
+    const away = n.psi > 0 ? n.d - lo : hi - n.d;
+    const grip = K.latGrip * maxAccel(n.v, latTable) * surface(n.d);
     const r = Math.max(1 / turnMax, (n.v * n.v) / Math.max(1, grip));
     const c = Math.cos(a);
     if (r * (1 - c) <= toward + 0.05) return a;
@@ -182,10 +193,11 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     });
     const wasD = previous ? planAt(previous.plan, previous.age + tA + dt).d : null;
     for (const n of layer) {
-      const top = maxAccel(n.v, ego.accel);
-      const brakeMax = maxBrake(n.v, ego.brake);
-      const accels = [top, top / 2, 0, -P.softBrake, -brakeMax];
-      const grip = K.latGrip * maxAccel(n.v, latTable);
+      const surf = surface(n.d); // (the grass: less of everything)
+      const top = maxAccel(n.v, ego.accel) * surf;
+      const brakeMax = maxBrake(n.v, ego.brake) * surf;
+      const accels = [top, top / 2, 0, -P.softBrake * surf, -brakeMax];
+      const grip = K.latGrip * maxAccel(n.v, latTable) * surf;
       const kMax = n.v > 1 ? Math.min(turnMax, grip / (n.v * n.v)) : turnMax;
       // The boxes its body can touch this step, wherever its moves take it (most of `near` is lanes away).
       const run = Math.max(n.v, n.v + top * dt) * dt;
@@ -219,13 +231,13 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
               psi = wrap(psi + beta); // (standing: it goes where its nose points)
               beta = 0;
             }
-            if (Math.abs(d) > edge && Math.abs(d) > Math.abs(n.d)) hit = true; // (the edge: `edge`)
+            if ((d > hardHi && d > n.d) || (d < hardLo && d < n.d) || (!out(n.d) && out(d))) hit = true; // (`edge`, `out`)
             else hit = touches(s, d, psi + beta, hl + along, hw + side, local, tA + j * h);
           }
           if (hit) continue;
           if (!relaxed && tooClose(s, d, v, psi + beta, psi, hl, hw, side, inWay, tA + dt, margin, ego)) continue;
           let score = n.score + (s - n.s);
-          if (Math.abs(d) > ROAD_HALF_WIDTH) score -= OFF_ROAD * w;
+          if (Math.abs(d) > ROAD_HALF_WIDTH) score -= (OFF_ROAD + (out(d) ? OUT_COST * (Math.abs(d) - edge) : 0)) * w;
           else if (Math.abs(d - laneCenter(laneAt(d))) > ON_CENTRE) score -= P.lineCost * w;
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus * w;
           if (P.passCost > 0) score -= passShort(local, s, d, hl, hw, tA + dt) * w;
