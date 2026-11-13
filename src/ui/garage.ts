@@ -100,6 +100,7 @@ const KEYS: [string, Key][] = [
   ['Space', 'keys.handbrake'],
   ['Shift', 'keys.nitro'],
   ['C', 'keys.look'],
+  ['Q / E', 'keys.lookSides'],
   ['V', 'keys.view'],
   ['R', 'keys.reset'],
   ['I', 'keys.ai'],

@@ -69,6 +69,7 @@ export const STRINGS = {
   'keys.handbrake': { zh: '手煞車（鎖後輪，甩尾）', en: 'Handbrake (rear wheels lock: the tail slides)' },
   'keys.nitro': { zh: '氮氣', en: 'Nitro' },
   'keys.look': { zh: '看正後方', en: 'Look back' },
+  'keys.lookSides': { zh: '看左／右側', en: 'Look left / right' },
   'keys.view': { zh: '切換引擎蓋視角', en: 'Hood camera' },
   'keys.reset': { zh: '重置到車道上', en: 'Back on the road' },
   'keys.ai': { zh: 'AI 接手駕駛', en: 'AI takes the wheel' },

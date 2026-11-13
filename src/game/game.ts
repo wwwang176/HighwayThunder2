@@ -24,7 +24,7 @@ import type { LoopSource } from '../audio/placedLoops';
 import { createTuningPanel } from '../debug/tuning';
 import { Keyboard } from '../input/keyboard';
 import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
-import { CameraRig } from '../render/cameraRig';
+import { CameraRig, type Look } from '../render/cameraRig';
 import { TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
@@ -1340,7 +1340,10 @@ export class Game {
       ...this.player.smokeLights(),
       ...this.npcBeams.smokeLights(),
     ]);
-    const lookBack = this.flow.phase === 'racing' && this.keyboard.isDown('KeyC');
+    // Held while racing: C looks back, Q to the car's left, E to its right (back first if both).
+    const kb = this.keyboard;
+    const look: Look =
+      this.flow.phase !== 'racing' ? 'ahead' : kb.isDown('KeyC') ? 'back' : kb.isDown('KeyQ') ? 'left' : kb.isDown('KeyE') ? 'right' : 'ahead';
     // An upshift's shake when the new gear takes up (the drive back), not as the old one lets go.
     const gear = this.player.gearbox.gear;
     if (gear > this.lastGear && this.flow.phase === 'racing') this.shiftingFrom = this.lastGear;
@@ -1356,8 +1359,8 @@ export class Game {
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     if (this.introOn) this.intro!.placeCamera();
     else if (show) show.placeCamera();
-    else if (this.hoodCam && !lookBack) this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
-    else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, lookBack);
+    else if (this.hoodCam && look === 'ahead') this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
+    else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
       this.hud.revealFinish();
