@@ -105,6 +105,18 @@ const PREWARM_LAMPS: VehicleLights[] = [
 ];
 const PLAYER_OBSTACLE_ID = -1;
 const BLUR_V = new THREE.Vector3();
+/**
+ * The speed blur's point looking back (the middle) and to a side (on the horizon, a screen's width past the side the
+ * car goes to - E looks right: the car goes to the left - its streaks near level), and its share there: at the view's
+ * far side 0.6 of looking ahead at a corner, the car in the middle less (at 0.35: ~90 px streaks at 12 taps, sharp
+ * wheels and cars in copies).
+ */
+const LOOK_BLUR = {
+  back: new THREE.Vector2(0.5, 0.5),
+  right: new THREE.Vector2(-1, 0.5),
+  left: new THREE.Vector2(2, 0.5),
+  sideShare: 0.2,
+};
 const RESIZE_V = new THREE.Vector2();
 const EAR_FWD = new THREE.Vector3();
 const EAR_UP = new THREE.Vector3();
@@ -233,8 +245,8 @@ export class Game {
   private readonly blurSweep = new THREE.Vector2();
   private blurAmount = 0;
   private camYaw: number | null = null;
-  /** Last frame a look back or to a side (speedBlur: none then). */
-  private blurLooking = false;
+  /** Last frame's look (speedBlur: a cut to another is no turn). */
+  private blurLook: Look = 'ahead';
   /** The race's intro, whether it is on; a race starting (the fade). */
   private intro: Intro | null = null;
   private introOn = false;
@@ -1123,29 +1135,39 @@ export class Game {
    * The speed blur (render/speedBlur; call with the camera placed): out from where the car is going on the
    * screen (off the middle as it slides), the more the faster (POST.blurFrom km/h up, more with the nitro), and
    * across by the camera's turning (as a 1/60 s exposure would smear it). Paused, it holds as it was (the
-   * picture stays); none at the title, nor in the intro's or the finish's shots, nor looking back or to a side
-   * (`looking`: the way the car goes square to the view or behind it - just ahead of it, its point on the screen far
-   * off to a side, the blur smeared the picture into broken streaks - and the cut to it and back no turn).
+   * picture stays); none at the title, nor in the intro's or the finish's shots. Looking back or to a side (`look`)
+   * its point is held where it would be going straight: the middle looking back (the road streaming into it), off
+   * the screen's side the car goes to looking to a side (LOOK_BLUR: the road streaming across, a little fanned) -
+   * not projected from the motion: square to the view, as the car slid that point jumped from far off to a side
+   * (the picture smeared into broken streaks) to behind (none). The cut to a look and back is no turn.
    */
-  private speedBlur(play: number, looking: boolean): void {
+  private speedBlur(play: number, look: Look): void {
     this.camera.getWorldDirection(BLUR_V);
     const yaw = Math.atan2(BLUR_V.x, BLUR_V.z);
-    if (looking !== this.blurLooking) this.camYaw = null; // (the cut: no turn)
-    this.blurLooking = looking;
-    const shot =
-      looking || this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null);
+    if (look !== this.blurLook) this.camYaw = null; // (the cut: no turn)
+    this.blurLook = look;
+    const shot = this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null);
     if (play > 0) {
       const v = this.player.body.linvel();
-      const center = shot ? null : motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
+      let share = 1;
+      let center: THREE.Vector2 | null = null;
+      if (shot) center = null;
+      else if (look === 'ahead') center = motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
+      else if (look === 'back') center = LOOK_BLUR.back;
+      else {
+        center = look === 'right' ? LOOK_BLUR.right : LOOK_BLUR.left;
+        share = LOOK_BLUR.sideShare;
+      }
       if (center) this.blurCenter.copy(center);
       this.blurAmount = center
-        ? blurAmount(Math.abs(this.player.speed) * 3.6, this.player.nitro.active, { from: POST.blurFrom, full: POST.blurFull, strength: POST.blurStrength, nitro: POST.blurNitro })
+        ? share * blurAmount(Math.abs(this.player.speed) * 3.6, this.player.nitro.active, { from: POST.blurFrom, full: POST.blurFull, strength: POST.blurStrength, nitro: POST.blurNitro })
         : 0;
       // (A jump of the camera - a reset - is no turn: at most 3 rad/s.)
       const turned = this.camYaw === null ? 0 : Math.atan2(Math.sin(yaw - this.camYaw), Math.cos(yaw - this.camYaw));
       const rate = Math.min(3, Math.abs(turned) / play);
       const hFov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * this.camera.aspect);
-      this.blurSweep.set(shot ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
+      // (none looking back or to a side: that camera turns with the car at once, unsmoothed - its every twitch a smear)
+      this.blurSweep.set(shot || look !== 'ahead' ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
     }
     this.camYaw = yaw;
     this.post.motion(this.blurCenter, this.blurAmount, this.blurSweep);
@@ -1388,7 +1410,7 @@ export class Game {
     this.gate.pass(-1, this.player.s, this.player.d);
     for (const r of this.rivals.list) this.gate.pass(r.index, r.car.s, r.car.d);
     this.gate.update(play, this.camera.position);
-    this.speedBlur(play, look !== 'ahead');
+    this.speedBlur(play, look);
     // The traffic's bodies, those in this frame's view (the camera placed).
     this.bodies.begin(this.camera, this.shadowLights()); // (the lights casting shadows)
     for (const npc of this.npcs.values()) npc.addBodies(this.bodies);
