@@ -169,6 +169,15 @@ let trace: number[][] | null = null;
 let planTrace: { t: number; pts: number[][] }[] | null = null;
 
 function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'): Result {
+  // A new world and car each run: a reset kept some of the last run (its gearbox, revs, launch control...), and a
+  // world bodies came and went in steps a little differently - a run came out different after another (6.43 / 6.36 s
+  // the same run twice).
+  car.dispose(physics);
+  physics.free();
+  physics = openGround();
+  physics.timestep = PHYSICS_DT;
+  car = new PlayerCar(physics, null, { spec: SPEC });
+  car.params.maxSpeed = CAP;
   car.resetTo(0, 2, v0);
   trace?.push([0, car.s, car.d, car.yaw, v0 / KMH, 0]);
   const ai = how === 'ai' ? new PlannerDriver(null) : null;

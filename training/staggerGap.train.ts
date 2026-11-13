@@ -154,6 +154,17 @@ let traceOthers: number[][][] | null = null;
 /** Driven: a forced move (the network steering) or the AI as in the game. */
 function drive(stagger: number, v0: number, how: Move | 'ai'): Result {
   const at = layout(stagger);
+  // A new world and cars each run: a reset kept some of the last run (gearbox, revs, launch control...), and a world
+  // bodies came and went in steps a little differently - runs came out a little different after one another.
+  car.dispose(physics);
+  for (const o of others) o.dispose(physics);
+  physics.free();
+  physics = openGround();
+  physics.timestep = PHYSICS_DT;
+  car = new PlayerCar(physics, null, { spec: SPEC, entity: { type: 'player' } });
+  car.params.maxSpeed = CAP;
+  others = [0, 1, 2, 3].map((k) => new PlayerCar(physics, null, { spec: SPEC, entity: { type: 'rival', id: k + 1 } }));
+  for (const o of others) o.params.maxSpeed = CAP;
   car.resetTo(0, 2, v0);
   others.forEach((o, i) => o.resetTo(at[i].s, at[i].lane, V));
   const lanes = at.map((a) => a.lane);
