@@ -233,6 +233,8 @@ export class Game {
   private readonly blurSweep = new THREE.Vector2();
   private blurAmount = 0;
   private camYaw: number | null = null;
+  /** Last frame a look back or to a side (speedBlur: none then). */
+  private blurLooking = false;
   /** The race's intro, whether it is on; a race starting (the fade). */
   private intro: Intro | null = null;
   private introOn = false;
@@ -1121,12 +1123,17 @@ export class Game {
    * The speed blur (render/speedBlur; call with the camera placed): out from where the car is going on the
    * screen (off the middle as it slides), the more the faster (POST.blurFrom km/h up, more with the nitro), and
    * across by the camera's turning (as a 1/60 s exposure would smear it). Paused, it holds as it was (the
-   * picture stays); none at the title, nor in the intro's or the finish's shots.
+   * picture stays); none at the title, nor in the intro's or the finish's shots, nor looking back or to a side
+   * (`looking`: the way the car goes square to the view or behind it - just ahead of it, its point on the screen far
+   * off to a side, the blur smeared the picture into broken streaks - and the cut to it and back no turn).
    */
-  private speedBlur(play: number): void {
+  private speedBlur(play: number, looking: boolean): void {
     this.camera.getWorldDirection(BLUR_V);
     const yaw = Math.atan2(BLUR_V.x, BLUR_V.z);
-    const shot = this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null);
+    if (looking !== this.blurLooking) this.camYaw = null; // (the cut: no turn)
+    this.blurLooking = looking;
+    const shot =
+      looking || this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null);
     if (play > 0) {
       const v = this.player.body.linvel();
       const center = shot ? null : motionCenter(this.camera, BLUR_V.set(v.x, v.y, v.z));
@@ -1381,7 +1388,7 @@ export class Game {
     this.gate.pass(-1, this.player.s, this.player.d);
     for (const r of this.rivals.list) this.gate.pass(r.index, r.car.s, r.car.d);
     this.gate.update(play, this.camera.position);
-    this.speedBlur(play);
+    this.speedBlur(play, look !== 'ahead');
     // The traffic's bodies, those in this frame's view (the camera placed).
     this.bodies.begin(this.camera, this.shadowLights()); // (the lights casting shadows)
     for (const npc of this.npcs.values()) npc.addBodies(this.bodies);
