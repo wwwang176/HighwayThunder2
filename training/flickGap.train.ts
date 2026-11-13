@@ -1,6 +1,6 @@
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { PLANNER, planAt, type Plan } from '../src/ai/planner';
+import { PLAN_STATS, PLANNER, planAt, type Plan } from '../src/ai/planner';
 import { PlannerDriver, planPedals } from '../src/ai/plannerDriver';
 import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
 import { selfStateOf } from '../src/ai/driver';
@@ -320,5 +320,7 @@ it('flick gap', async () => {
       dump.push(row);
     }
   }
+  const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
+  process.stdout.write(`plans: ${plans}, ${(PLAN_STATS.ms / Math.max(1, plans)).toFixed(1)} ms a plan (slowest ${PLAN_STATS.slowest.toFixed(0)})\n`);
   if (process.env.OUT) writeFileSync(process.env.OUT, JSON.stringify(dump, null, 1));
 }, 7_200_000);

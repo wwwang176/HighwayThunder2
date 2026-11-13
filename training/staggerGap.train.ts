@@ -1,6 +1,6 @@
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { plan, PLANNER, planAt, type Plan, type PlanEgo, type PreviousPlan } from '../src/ai/planner';
+import { plan, PLAN_STATS, PLANNER, planAt, type Plan, type PlanEgo, type PreviousPlan } from '../src/ai/planner';
 import { DRIVER_TUNING, PlannerDriver, planPedals, type PlanSource } from '../src/ai/plannerDriver';
 import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
 import { selfStateOf } from '../src/ai/driver';
@@ -348,12 +348,15 @@ it('stagger gap', async () => {
           else (PLANNER as Record<string, unknown>)[k] = Number(v);
         }
       rows[set] = [];
+      Object.assign(PLAN_STATS, { normal: 0, relaxed: 0, reused: 0, fallback: 0, ms: 0, slowest: 0 });
       for (const dv of DVS)
         for (const stagger of STAGGERS) {
           const r = drive(stagger, V + dv * KMH, 'ai');
           rows[set].push(r);
           say(`[${set}] dv ${dv} stagger ${stagger}: ${show(r)}`);
         }
+      const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
+      say(`[${set}] plans ${plans}, ${(PLAN_STATS.ms / Math.max(1, plans)).toFixed(1)} ms a plan (slowest ${PLAN_STATS.slowest.toFixed(0)})`);
     }
     Object.assign(PLANNER, baseP);
     Object.assign(DRIVER_TUNING, baseD);
@@ -412,5 +415,7 @@ it('stagger gap', async () => {
       dump.push(row);
     }
   }
+  const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
+  process.stdout.write(`plans: ${plans}, ${(PLAN_STATS.ms / Math.max(1, plans)).toFixed(1)} ms a plan (slowest ${PLAN_STATS.slowest.toFixed(0)})\n`);
   if (process.env.OUT) writeFileSync(process.env.OUT, JSON.stringify(dump, null, 1));
 }, 7_200_000);
