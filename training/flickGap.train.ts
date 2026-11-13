@@ -160,6 +160,8 @@ let brain: ReturnType<typeof trackerFrom>;
 /** Driven: a forced move (by the network, or `plain`: the plain tracker), or the AI as in the game (`ai`). */
 /** TRACE: the car's way, every 1/30 s (t, s, d, yaw, km/h, sideways m/s). */
 let trace: number[][] | null = null;
+/** TRACE, the AI driving: each plan it takes up (when, its points' s and d). */
+let planTrace: { t: number; pts: number[][] }[] | null = null;
 
 function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'): Result {
   car.resetTo(0, 2, v0);
@@ -174,6 +176,7 @@ function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'
   }
   const steps = how === 'ai' ? null : new Steps(how.m);
   let plan: Plan | null = null, madeAt = 0;
+  let lastPlan: Plan | null = null;
   let gapRoom = Infinity, otherRoom = Infinity, entryVD = NaN, entryV = NaN, crossed = false;
   const n = Math.round(SIM_S / PHYSICS_DT);
   for (let i = 0; i < n; i++) {
@@ -204,6 +207,10 @@ function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'
     car.postPhysics();
     if (trace && i % 4 === 3)
       trace.push([+(t + PHYSICS_DT).toFixed(4), +car.s.toFixed(3), +car.d.toFixed(3), +car.yaw.toFixed(4), +(car.vLong / KMH).toFixed(1), +(car.vLong * Math.sin(car.yaw) + car.vLat * Math.cos(car.yaw)).toFixed(2)]);
+    if (planTrace && ai?.plan && ai.plan !== lastPlan) {
+      lastPlan = ai.plan;
+      planTrace.push({ t: +(t + PHYSICS_DT).toFixed(4), pts: ai.plan.points.map((p) => [+p.s.toFixed(2), +p.d.toFixed(3)]) });
+    }
     const tt = t + PHYSICS_DT;
     if (i % 3 === 2) {
       for (const b of boxes) {
@@ -249,11 +256,14 @@ it('flick gap', async () => {
       const boxes = scene(r.gap);
       const v0 = LANE1 + r.dv * KMH;
       trace = [];
+      planTrace = [];
       const res = drive(boxes, v0, r.w === undefined ? 'ai' : { m: { w: r.w, at: r.at!, vc: r.vc! * KMH }, plain: false });
       const way = trace;
+      const plans = planTrace;
       trace = null;
+      planTrace = null;
       const near = boxes.filter((b) => b.group !== 'queue' || Math.abs(b.s - AT) < 160);
-      return { ...r, res, way, cars: near.map((b) => ({ s: b.s, d: (b.dMin + b.dMax) / 2, v: b.v / KMH, len: b.length, group: b.id === 1 || b.id === 2 ? 'gap' : b.id === 3000 ? 'slow' : b.group })) };
+      return { ...r, res, way, plans, cars: near.map((b) => ({ s: b.s, d: (b.dMin + b.dMax) / 2, v: b.v / KMH, len: b.length, group: b.id === 1 || b.id === 2 ? 'gap' : b.id === 3000 ? 'slow' : b.group })) };
     });
     writeFileSync(outPath, JSON.stringify({ lane1: LANE1 / KMH, at: AT, line: LINE, lanes: [L0, L1, L2, laneCenter(3)], laneW: LANE_WIDTH, hw: HW, hl: HL, runs: out }));
     say('traced ' + out.map((o) => `${o.label}: ${f(o.res.time)} s${touched(o.res) ? ' TOUCHED' : ''}`).join(', '));
