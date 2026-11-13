@@ -68,6 +68,7 @@ https://highwaythunder2.wwwang.tw/
 | `Space` | Handbrake (rear wheels lock: the tail slides) |
 | `Shift` | Nitro |
 | `C` | Hold to look back |
+| `Q` / `E` | Hold to look left / right |
 | `V` | Hood camera |
 | `X` | Hold for high beam |
 | `R` | Back on the road |

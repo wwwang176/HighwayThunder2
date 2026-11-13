@@ -78,10 +78,18 @@ export function lookBackYaw(carYaw: number): number {
   return wrapAngle(carYaw + Math.PI);
 }
 
+/** Where the held look keys turn the view: ahead (none), back (C), or to the car's left / right (Q / E). */
+export type Look = 'ahead' | 'back' | 'left' | 'right';
+
+/** Camera yaw for a look to the side: square to the car's nose, to its left (- yaw) or right. */
+export function lookSideYaw(carYaw: number, side: 'left' | 'right'): number {
+  return wrapAngle(carYaw + (side === 'right' ? 1 : -1) * (Math.PI / 2));
+}
+
 /**
  * Chase camera that trails the car along its direction of travel (never
  * locked to the road / finish line). Holding the look-back key swings it to the
- * front of the car, looking straight back.
+ * front of the car, looking straight back; the look-left / look-right keys, across it, looking out to that side.
  */
 export class CameraRig {
   params = { ...DEFAULT_CAMERA };
@@ -117,7 +125,7 @@ export class CameraRig {
     vel: { x: number; z: number },
     vForward: number,
     maxSpeed: number,
-    lookBack = false,
+    look: Look = 'ahead',
   ): void {
     const p = this.params;
     this.reversing = reverseView(this.reversing, vForward);
@@ -127,8 +135,9 @@ export class CameraRig {
       this.initialized = true;
     }
     this.camYaw = wrapAngle(approachAngle(this.camYaw, targetYaw, 1 - Math.exp(-dt / p.yawTau)));
-    // Look-back is an instant cut (like glancing in the mirror) and back again.
-    const viewYaw = lookBack ? lookBackYaw(carYaw) : this.camYaw;
+    // Looking back or to a side is an instant cut (like glancing in the mirror, or over a shoulder) and back again:
+    // the camera across the car from where it looks, the car in the near side of the view.
+    const viewYaw = look === 'back' ? lookBackYaw(carYaw) : look === 'ahead' ? this.camYaw : lookSideYaw(carYaw, look);
 
     const fx = Math.sin(viewYaw);
     const fz = -Math.cos(viewYaw);
