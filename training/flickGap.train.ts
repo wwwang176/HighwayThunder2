@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { PLAN_STATS, PLANNER, planAt, type Plan } from '../src/ai/planner';
-import { PlannerDriver, planPedals } from '../src/ai/plannerDriver';
+import { PLANNER, planAt, type Plan } from '../src/ai/planner';
+import { planPedals } from '../src/ai/plannerDriver';
+import { makeDriver, planStats } from './drivers';
 import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
 import { selfStateOf } from '../src/ai/driver';
 import { PlayerCar } from '../src/vehicles/playerCar';
@@ -180,14 +181,7 @@ function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'
   car.params.maxSpeed = CAP;
   car.resetTo(0, 2, v0);
   trace?.push([0, car.s, car.d, car.yaw, v0 / KMH, 0]);
-  const ai = how === 'ai' ? new PlannerDriver(null) : null;
-  if (ai) {
-    ai.accel = SPEC.ai.accel;
-    ai.latAccel = SPEC.ai.latAccel;
-    ai.tracker = trackerFrom(SPEC.ai.tracker);
-    ai.recovery = trackerFrom(SPEC.ai.recovery);
-    ai.reset();
-  }
+  const ai = how === 'ai' ? makeDriver(SPEC) : null; // (DRIVER: the planner and driver - drivers.ts)
   const steps = how === 'ai' ? null : new Steps(how.m);
   let plan: Plan | null = null, madeAt = 0;
   let lastPlan: Plan | null = null;
@@ -345,7 +339,6 @@ it('flick gap', async () => {
       dump.push(row);
     }
   }
-  const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
-  process.stdout.write(`plans: ${plans}, ${(PLAN_STATS.ms / Math.max(1, plans)).toFixed(1)} ms a plan (slowest ${PLAN_STATS.slowest.toFixed(0)})\n`);
+  process.stdout.write(`plans: ${planStats()}\n`);
   if (process.env.OUT) writeFileSync(process.env.OUT, JSON.stringify(dump, null, 1));
 }, 7_200_000);

@@ -10,6 +10,7 @@ import { baseSteer, trackerFrom } from '../src/ai/netTracker';
 import type { Brain } from '../src/ai/brain';
 import { PLAN_STATS, planAt } from '../src/ai/planner';
 import { PlannerDriver, planPedals } from '../src/ai/plannerDriver';
+import { DRIVER, makeDriver, planStats } from './drivers';
 
 /**
  * How the AI drives off after a crash left it standing across the road: the car stopped in the middle lane at a
@@ -73,11 +74,8 @@ it('recovery', async () => {
           physics.step(() => {});
           car.postPhysics();
         }
-        const driver = new PlannerDriver();
-        driver.accel = spec.ai.accel;
-        driver.latAccel = spec.ai.latAccel;
-        driver.tracker = trackerFrom(spec.ai.tracker);
-        driver.recovery = PROBE_RECOVERY === undefined ? trackerFrom(spec.ai.recovery) : PROBE_RECOVERY;
+        const driver = makeDriver(spec); // (DRIVER: the planner and driver - drivers.ts)
+        if (driver instanceof PlannerDriver && PROBE_RECOVERY !== undefined) driver.recovery = PROBE_RECOVERY;
         const start = car.yaw;
         const d0 = car.d;
         let braked = 0, planStop = 0, maxD = 0;
@@ -123,5 +121,5 @@ it('recovery', async () => {
     }
     lines.push(`${id}: away ${away}/${total}, turned ${(turned / total).toFixed(0)} deg a run on average, rails ${rails}`, ...rows);
   }
-  process.stdout.write([...lines, ...trace].join('\n') + '\n');
+  process.stdout.write([...lines, ...trace, `${DRIVER}: ${planStats()}`].join('\n') + '\n');
 }, 600_000);

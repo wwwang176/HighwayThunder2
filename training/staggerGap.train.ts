@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { plan, PLAN_STATS, PLANNER, planAt, type Plan, type PlanEgo, type PreviousPlan } from '../src/ai/planner';
-import { DRIVER_TUNING, PlannerDriver, planPedals, type PlanSource } from '../src/ai/plannerDriver';
+import { plan, PLANNER, planAt, type Plan, type PlanEgo, type PreviousPlan } from '../src/ai/planner';
+import { DRIVER_TUNING, planPedals, type PlanSource } from '../src/ai/plannerDriver';
+import { makeDriver, planStats, resetStats } from './drivers';
 import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
 import { selfStateOf } from '../src/ai/driver';
 import { PlayerCar } from '../src/vehicles/playerCar';
@@ -169,14 +170,7 @@ function drive(stagger: number, v0: number, how: Move | 'ai'): Result {
   others.forEach((o, i) => o.resetTo(at[i].s, at[i].lane, V));
   const lanes = at.map((a) => a.lane);
   // (WHY: its plans made through a source that keeps each request - ego, traffic, last plan - to plan again later)
-  const ai = how === 'ai' ? new PlannerDriver(why ? whySource() : null) : null;
-  if (ai) {
-    ai.accel = SPEC.ai.accel;
-    ai.latAccel = SPEC.ai.latAccel;
-    ai.tracker = trackerFrom(SPEC.ai.tracker);
-    ai.recovery = trackerFrom(SPEC.ai.recovery);
-    ai.reset();
-  }
+  const ai = how === 'ai' ? makeDriver(SPEC, why ? whySource() : null) : null; // (DRIVER: the planner and driver - drivers.ts)
   const steps = how === 'ai' ? null : new Steps(how);
   let plan: Plan | null = null, madeAt = 0;
   const theirs: { plan: Plan | null; madeAt: number }[] = others.map(() => ({ plan: null, madeAt: 0 }));
@@ -359,15 +353,14 @@ it('stagger gap', async () => {
           else (PLANNER as Record<string, unknown>)[k] = Number(v);
         }
       rows[set] = [];
-      Object.assign(PLAN_STATS, { normal: 0, relaxed: 0, reused: 0, fallback: 0, ms: 0, slowest: 0 });
+      resetStats();
       for (const dv of DVS)
         for (const stagger of STAGGERS) {
           const r = drive(stagger, V + dv * KMH, 'ai');
           rows[set].push(r);
           say(`[${set}] dv ${dv} stagger ${stagger}: ${show(r)}`);
         }
-      const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
-      say(`[${set}] plans ${plans}, ${(PLAN_STATS.ms / Math.max(1, plans)).toFixed(1)} ms a plan (slowest ${PLAN_STATS.slowest.toFixed(0)})`);
+      say(`[${set}] ${planStats()}`);
     }
     Object.assign(PLANNER, baseP);
     Object.assign(DRIVER_TUNING, baseD);
@@ -426,7 +419,6 @@ it('stagger gap', async () => {
       dump.push(row);
     }
   }
-  const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
-  process.stdout.write(`plans: ${plans}, ${(PLAN_STATS.ms / Math.max(1, plans)).toFixed(1)} ms a plan (slowest ${PLAN_STATS.slowest.toFixed(0)})\n`);
+  process.stdout.write(`plans: ${planStats()}\n`);
   if (process.env.OUT) writeFileSync(process.env.OUT, JSON.stringify(dump, null, 1));
 }, 7_200_000);

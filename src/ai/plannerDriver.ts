@@ -263,6 +263,10 @@ export class PlannerDriver implements Driver {
         ...(this.brake ? { brake: this.brake } : {}),
         halfWidth: self.halfWidth,
         halfLength: self.halfLength,
+        // (for plans by direction of travel: the lattice planner goes by vD)
+        yaw: self.yaw,
+        vLat: self.vLat,
+        turnMax: Math.tan(p.maxSteer) / p.wheelbase,
       };
       if (!this.source) this.adopt(plan(ego, traffic, previous), this.clock);
       else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);

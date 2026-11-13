@@ -264,6 +264,8 @@ export interface PlanPoint {
   s: number;
   d: number;
   v: number;
+  /** Its course there (rad off the road's heading, + toward +d): plans made by direction of travel (coursePlanner) only. */
+  psi?: number;
 }
 
 export interface Plan {
@@ -292,6 +294,11 @@ export interface PlanEgo {
   /** Half its body's width and length (m; default: the street racer's, 0.93 x 2.2). */
   halfWidth?: number;
   halfLength?: number;
+  /** Its nose off the road's heading (rad, + toward +d) and its sideways speed off its nose (m/s, + to its right): plans by direction of travel only. */
+  yaw?: number;
+  vLat?: number;
+  /** The tightest it can turn on its steering lock (1/m: tan(maxSteer) / wheelbase): plans by direction of travel only. */
+  turnMax?: number;
 }
 
 interface Node {
