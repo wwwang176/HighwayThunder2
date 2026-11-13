@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { plan, PLANNER, planAt, type Plan, type PlanEgo, type PreviousPlan } from '../src/ai/planner';
-import { DRIVER_TUNING, PlannerDriver, planPedals, type PlanSource } from '../src/ai/plannerDriver';
+import { DRIVER_TUNING, planPedals, type PlanSource } from '../src/ai/plannerDriver';
+import { makeDriver, planStats, resetStats } from './drivers';
 import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
 import { selfStateOf } from '../src/ai/driver';
 import { PlayerCar } from '../src/vehicles/playerCar';
@@ -154,18 +155,22 @@ let traceOthers: number[][][] | null = null;
 /** Driven: a forced move (the network steering) or the AI as in the game. */
 function drive(stagger: number, v0: number, how: Move | 'ai'): Result {
   const at = layout(stagger);
+  // A new world and cars each run: a reset kept some of the last run (gearbox, revs, launch control...), and a world
+  // bodies came and went in steps a little differently - runs came out a little different after one another.
+  car.dispose(physics);
+  for (const o of others) o.dispose(physics);
+  physics.free();
+  physics = openGround();
+  physics.timestep = PHYSICS_DT;
+  car = new PlayerCar(physics, null, { spec: SPEC, entity: { type: 'player' } });
+  car.params.maxSpeed = CAP;
+  others = [0, 1, 2, 3].map((k) => new PlayerCar(physics, null, { spec: SPEC, entity: { type: 'rival', id: k + 1 } }));
+  for (const o of others) o.params.maxSpeed = CAP;
   car.resetTo(0, 2, v0);
   others.forEach((o, i) => o.resetTo(at[i].s, at[i].lane, V));
   const lanes = at.map((a) => a.lane);
   // (WHY: its plans made through a source that keeps each request - ego, traffic, last plan - to plan again later)
-  const ai = how === 'ai' ? new PlannerDriver(why ? whySource() : null) : null;
-  if (ai) {
-    ai.accel = SPEC.ai.accel;
-    ai.latAccel = SPEC.ai.latAccel;
-    ai.tracker = trackerFrom(SPEC.ai.tracker);
-    ai.recovery = trackerFrom(SPEC.ai.recovery);
-    ai.reset();
-  }
+  const ai = how === 'ai' ? makeDriver(SPEC, why ? whySource() : null) : null; // (DRIVER: the planner and driver - drivers.ts)
   const steps = how === 'ai' ? null : new Steps(how);
   let plan: Plan | null = null, madeAt = 0;
   const theirs: { plan: Plan | null; madeAt: number }[] = others.map(() => ({ plan: null, madeAt: 0 }));
@@ -348,12 +353,14 @@ it('stagger gap', async () => {
           else (PLANNER as Record<string, unknown>)[k] = Number(v);
         }
       rows[set] = [];
+      resetStats();
       for (const dv of DVS)
         for (const stagger of STAGGERS) {
           const r = drive(stagger, V + dv * KMH, 'ai');
           rows[set].push(r);
           say(`[${set}] dv ${dv} stagger ${stagger}: ${show(r)}`);
         }
+      say(`[${set}] ${planStats()}`);
     }
     Object.assign(PLANNER, baseP);
     Object.assign(DRIVER_TUNING, baseD);
@@ -412,5 +419,6 @@ it('stagger gap', async () => {
       dump.push(row);
     }
   }
+  process.stdout.write(`plans: ${planStats()}\n`);
   if (process.env.OUT) writeFileSync(process.env.OUT, JSON.stringify(dump, null, 1));
 }, 7_200_000);

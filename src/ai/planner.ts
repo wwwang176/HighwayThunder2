@@ -221,8 +221,9 @@ function gridFor(shoulders: boolean, perLane: number): Grid {
   if (!g) grids.set(k, (g = new Grid(shoulders, perLane)));
   return g;
 }
-/** Sideways moves per step, in cells, up to PLANNER.maxLateral. */
-const MOVES = [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6];
+/** Sideways moves per step, in cells: 0, -1, 1, -2, 2 ... up to the most any setting allows (PLANNER.maxLateral picks). */
+const MAX_MOVE = 24;
+const MOVES = [0, ...Array.from({ length: MAX_MOVE }, (_, i) => [-(i + 1), i + 1]).flat()];
 /** m/s sideways `swingMargin` is given for (a lane a second). */
 const SWING_PER = 3.75;
 
@@ -263,10 +264,14 @@ export interface PlanPoint {
   s: number;
   d: number;
   v: number;
+  /** Its course there (rad off the road's heading, + toward +d): plans made by direction of travel (coursePlanner) only. */
+  psi?: number;
 }
 
 export interface Plan {
   points: PlanPoint[];
+  /** The next best ways it found (another order of lanes): shown fainter beside it (coursePlanner only). */
+  alts?: PlanPoint[][];
 }
 
 /** The plan being followed, and how long ago it was made: the next plan sticks to it unless clearly better. */
@@ -291,6 +296,11 @@ export interface PlanEgo {
   /** Half its body's width and length (m; default: the street racer's, 0.93 x 2.2). */
   halfWidth?: number;
   halfLength?: number;
+  /** Its nose off the road's heading (rad, + toward +d) and its sideways speed off its nose (m/s, + to its right): plans by direction of travel only. */
+  yaw?: number;
+  vLat?: number;
+  /** The tightest it can turn on its steering lock (1/m: tan(maxSteer) / wheelbase): plans by direction of travel only. */
+  turnMax?: number;
 }
 
 interface Node {
@@ -305,7 +315,7 @@ interface Node {
 }
 
 /** How plans came out (normal search / relaxed replan / from the last plan's state / boxed-in fallback): for benchmarks. */
-export const PLAN_STATS = { normal: 0, relaxed: 0, reused: 0, fallback: 0 };
+export const PLAN_STATS = { normal: 0, relaxed: 0, reused: 0, fallback: 0, ms: 0, slowest: 0 };
 
 /**
  * The fastest way through the traffic for the next `horizon` seconds, assuming
@@ -325,6 +335,15 @@ export const PLAN_STATS = { normal: 0, relaxed: 0, reused: 0, fallback: 0 };
  * two lanes.
  */
 export function plan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null = null): Plan {
+  const t0 = performance.now();
+  const p = planned(ego, traffic, previous);
+  const ms = performance.now() - t0;
+  PLAN_STATS.ms += ms;
+  PLAN_STATS.slowest = Math.max(PLAN_STATS.slowest, ms);
+  return p;
+}
+
+function planned(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null): Plan {
   egoHalfW = ego.halfWidth ?? 0.93;
   egoHalfL = ego.halfLength ?? 2.2;
   egoBrake = ego.brake;
@@ -451,7 +470,7 @@ function search(ego: PlanEgo, boxes: TrafficBox[], merging: Set<number>, previou
           let score = n.score + (s - n.s) - moveCost - lineCost - P.brakeCost * Math.max(0, n.v - v);
           if (onCourse) score += P.keepCourseBonus;
           if (passing && passing[cell].length) score -= passShort(passing[cell], d, s, t0 + dt);
-          const kk = (keyBase + Math.round(v / P.speedCell)) * 16 + latKey(move);
+          const kk = (keyBase + Math.round(v / P.speedCell)) * LAT_KEYS + latKey(move);
           const old = next.get(kk);
           if (old && score <= old.score) continue; // something as good gets there already: no need to check this way is clear
           if (
@@ -505,8 +524,9 @@ export function planAt(p: Plan, t: number): PlanPoint & { dRate: number } {
 }
 
 /** A node's state: cell, speed and (when the sideways change is limited) sideways move. */
-const key = (cell: number, v: number, lat: number) => (cell * 1000 + Math.round(v / PLANNER.speedCell)) * 16 + latKey(lat);
-const latKey = (lat: number) => (PLANNER.maxLateral > 1 || PLANNER.latGrip > 0 ? Math.round(lat) + 7 : 0);
+const key = (cell: number, v: number, lat: number) => (cell * 1000 + Math.round(v / PLANNER.speedCell)) * LAT_KEYS + latKey(lat);
+const LAT_KEYS = 2 * MAX_MOVE + 1;
+const latKey = (lat: number) => (PLANNER.maxLateral > 1 || PLANNER.latGrip > 0 ? Math.round(lat) + MAX_MOVE : 0);
 
 /** m of `swingMargin` room for moving `cells` a step sideways (it is given per SWING_PER m/s). */
 function swingFor(cells: number, cell: number, dt: number): number {

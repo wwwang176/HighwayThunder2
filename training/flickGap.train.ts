@@ -1,7 +1,8 @@
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PLANNER, planAt, type Plan } from '../src/ai/planner';
-import { PlannerDriver, planPedals } from '../src/ai/plannerDriver';
+import { planPedals } from '../src/ai/plannerDriver';
+import { makeDriver, planStats } from './drivers';
 import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
 import { selfStateOf } from '../src/ai/driver';
 import { PlayerCar } from '../src/vehicles/playerCar';
@@ -25,15 +26,22 @@ import { openGround } from './openGround';
  * rest, sideways speed as its body enters lane 1's cars' band, speed then. MAXLAT=<cells a step>: the plans' sideways
  * cap raised (PLANNER.maxLateral: 6, 11 m/s).
  *   DVS=0,30,50,100 GAPS=5,6,8,10,15,20 npx vitest run --config training/vitest.config.ts training/flickGap.train.ts
+ * The right-front car gone, swinging out into lane 3: HOLE=-5,40 SWINGS=0,2,4,6,8.
  */
 const env = (k: string, d: string) => process.env[k] ?? d;
 const LANE1 = Number(env('LANE1', '150')) * KMH;
 const SLOW = Number(env('SLOW', '100')) * KMH;
 const DVS = env('DVS', '0,30,50,100').split(',').map(Number);
 const GAPS = env('GAPS', '5,6,8,10,15,20').split(',').map(Number);
-const SWINGS = env('SWINGS', '0,1,2,3').split(',').map(Number); // cells (LANE_WIDTH / 8 each)
+const SWINGS = env('SWINGS', '0,1,2,3').split(',').map(Number); // cells (LANE_WIDTH / 8 each; 8: lane 3's middle)
+/** HOLE=a,b: lane 3's cars starting a..b m on left out (the right-front car gone: room to swing out into lane 3). */
+const HOLE = process.env.HOLE ? process.env.HOLE.split(',').map(Number) : null;
 const AT = Number(env('AT', '30'));
 const A2 = Number(env('A2', '80'));
+/** A2V: lane 2's car ahead, km/h (SLOW unset). */
+const A2V = Number(env('A2V', String(SLOW / KMH))) * KMH;
+/** RF=s,kmh: lane 3 just one car, s m on at that speed (the row of slow cars left out): the right-front one, blocking. */
+const RF = process.env.RF ? process.env.RF.split(',').map(Number) : null;
 /** Bumper to bumper in lane 1's queue (m): too short to get through, the gap the only way. */
 const QUEUE = Number(env('QUEUE', '2'));
 const LINE = Number(env('LINE', '300'));
@@ -58,9 +66,10 @@ function scene(gap: number): Box[] {
   const F = box(2, AT + gap / 2 + LEN / 2, 1, LANE1, 'gap');
   const out = [R, F];
   for (let k = 1; k <= 40; k++) out.push(box(100 + k, R.s - k * (LEN + QUEUE), 1, LANE1, 'queue'), box(200 + k, F.s + k * (LEN + QUEUE), 1, LANE1, 'queue'));
-  for (let s = -40; s <= 500; s += 14) out.push(box(1000 + s, s, 3, SLOW, 'row'));
-  // A slow car ahead in lane 2 (A2 m on): the reason to get across (the AI's too); 'row' with the others.
-  out.push(box(3000, A2, 2, SLOW, 'row'));
+  if (RF) out.push(box(4000, RF[0], 3, RF[1] * KMH, 'row'));
+  else for (let s = -40; s <= 500; s += 14) if (!(HOLE && s >= HOLE[0] && s <= HOLE[1])) out.push(box(1000 + s, s, 3, SLOW, 'row'));
+  // A slow car ahead in lane 2 (A2 m on, A2V): the reason to get across (the AI's too); 'row' with the others.
+  out.push(box(3000, A2, 2, A2V, 'row'));
   return out;
 }
 
@@ -157,20 +166,25 @@ let brain: ReturnType<typeof trackerFrom>;
 /** Driven: a forced move (by the network, or `plain`: the plain tracker), or the AI as in the game (`ai`). */
 /** TRACE: the car's way, every 1/30 s (t, s, d, yaw, km/h, sideways m/s). */
 let trace: number[][] | null = null;
+/** TRACE, the AI driving: each plan it takes up (when, its points' s and d). */
+let planTrace: { t: number; pts: number[][] }[] | null = null;
 
 function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'): Result {
+  // A new world and car each run: a reset kept some of the last run (its gearbox, revs, launch control...), and a
+  // world bodies came and went in steps a little differently - a run came out different after another (6.43 / 6.36 s
+  // the same run twice).
+  car.dispose(physics);
+  physics.free();
+  physics = openGround();
+  physics.timestep = PHYSICS_DT;
+  car = new PlayerCar(physics, null, { spec: SPEC });
+  car.params.maxSpeed = CAP;
   car.resetTo(0, 2, v0);
   trace?.push([0, car.s, car.d, car.yaw, v0 / KMH, 0]);
-  const ai = how === 'ai' ? new PlannerDriver(null) : null;
-  if (ai) {
-    ai.accel = SPEC.ai.accel;
-    ai.latAccel = SPEC.ai.latAccel;
-    ai.tracker = trackerFrom(SPEC.ai.tracker);
-    ai.recovery = trackerFrom(SPEC.ai.recovery);
-    ai.reset();
-  }
+  const ai = how === 'ai' ? makeDriver(SPEC) : null; // (DRIVER: the planner and driver - drivers.ts)
   const steps = how === 'ai' ? null : new Steps(how.m);
   let plan: Plan | null = null, madeAt = 0;
+  let lastPlan: Plan | null = null;
   let gapRoom = Infinity, otherRoom = Infinity, entryVD = NaN, entryV = NaN, crossed = false;
   const n = Math.round(SIM_S / PHYSICS_DT);
   for (let i = 0; i < n; i++) {
@@ -201,6 +215,11 @@ function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'
     car.postPhysics();
     if (trace && i % 4 === 3)
       trace.push([+(t + PHYSICS_DT).toFixed(4), +car.s.toFixed(3), +car.d.toFixed(3), +car.yaw.toFixed(4), +(car.vLong / KMH).toFixed(1), +(car.vLong * Math.sin(car.yaw) + car.vLat * Math.cos(car.yaw)).toFixed(2)]);
+    const now = ai ? ai.plan : plan; // (the AI's, or the forced move's)
+    if (planTrace && now && now !== lastPlan) {
+      lastPlan = now;
+      planTrace.push({ t: +(t + PHYSICS_DT).toFixed(4), pts: now.points.map((p) => [+p.s.toFixed(2), +p.d.toFixed(3)]) });
+    }
     const tt = t + PHYSICS_DT;
     if (i % 3 === 2) {
       for (const b of boxes) {
@@ -246,11 +265,14 @@ it('flick gap', async () => {
       const boxes = scene(r.gap);
       const v0 = LANE1 + r.dv * KMH;
       trace = [];
+      planTrace = [];
       const res = drive(boxes, v0, r.w === undefined ? 'ai' : { m: { w: r.w, at: r.at!, vc: r.vc! * KMH }, plain: false });
       const way = trace;
+      const plans = planTrace;
       trace = null;
+      planTrace = null;
       const near = boxes.filter((b) => b.group !== 'queue' || Math.abs(b.s - AT) < 160);
-      return { ...r, res, way, cars: near.map((b) => ({ s: b.s, d: (b.dMin + b.dMax) / 2, v: b.v / KMH, len: b.length, group: b.id === 1 || b.id === 2 ? 'gap' : b.id === 3000 ? 'slow' : b.group })) };
+      return { ...r, res, way, plans, cars: near.map((b) => ({ s: b.s, d: (b.dMin + b.dMax) / 2, v: b.v / KMH, len: b.length, group: b.id === 1 || b.id === 2 ? 'gap' : b.id === 3000 ? 'slow' : b.group })) };
     });
     writeFileSync(outPath, JSON.stringify({ lane1: LANE1 / KMH, at: AT, line: LINE, lanes: [L0, L1, L2, laneCenter(3)], laneW: LANE_WIDTH, hw: HW, hl: HL, runs: out }));
     say('traced ' + out.map((o) => `${o.label}: ${f(o.res.time)} s${touched(o.res) ? ' TOUCHED' : ''}`).join(', '));
@@ -317,5 +339,6 @@ it('flick gap', async () => {
       dump.push(row);
     }
   }
+  process.stdout.write(`plans: ${planStats()}\n`);
   if (process.env.OUT) writeFileSync(process.env.OUT, JSON.stringify(dump, null, 1));
 }, 7_200_000);

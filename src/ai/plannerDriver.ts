@@ -4,6 +4,8 @@ import type { Driver } from './driver';
 import type { Brain } from './brain';
 import { ACROSS_YAW, baseSteer, netDrive, trackerFrom } from './netTracker';
 import { AccelTable, maxAccel, maxBrake, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
+import { coursePlan } from './coursePlanner';
+import { followSteer, STANDING, tractionShare } from './courseFollow';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
 
@@ -80,6 +82,12 @@ export const DRIVER_TUNING = {
   trustUpTo: Infinity,
   /** Steer with the car type's trained network (PlannerDriver.tracker) where it has one; off: the plain tracker. */
   netTracker: true,
+  /**
+   * Plan by direction of travel (coursePlanner.ts) - and across the road (a crash) follow those plans plainly
+   * (courseFollow.ts) in place of the recovery network. Off: the lattice planner and the networks. Off here for the
+   * training and benchmarks (as they were measured); the game turns it on (main.ts).
+   */
+  coursePlanner: false,
 };
 /** m/s sideways that counts as getting out of the way. */
 const SWERVING = 0.5;
@@ -263,8 +271,12 @@ export class PlannerDriver implements Driver {
         ...(this.brake ? { brake: this.brake } : {}),
         halfWidth: self.halfWidth,
         halfLength: self.halfLength,
+        // (for plans by direction of travel: the lattice planner goes by vD)
+        yaw: self.yaw,
+        vLat: self.vLat,
+        turnMax: Math.tan(p.maxSteer) / p.wheelbase,
       };
-      if (!this.source) this.adopt(plan(ego, traffic, previous), this.clock);
+      if (!this.source) this.adopt((DRIVER_TUNING.coursePlanner ? coursePlan : plan)(ego, traffic, previous), this.clock);
       else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);
     }
     const answer = this.source?.take();
@@ -280,7 +292,13 @@ export class PlannerDriver implements Driver {
     let steer: number;
     let reverse = 0;
     const brain = this.recovery && Math.abs(self.yaw) > ACROSS_YAW ? this.recovery : this.tracker;
-    if (DRIVER_TUNING.netTracker && brain) {
+    if (DRIVER_TUNING.coursePlanner && Math.abs(self.yaw) > ACROSS_YAW) {
+      // Across the road (a crash): the plan by direction of travel followed plainly - the networks did not follow a
+      // turn round (standing across the road 18/18 away so, 13-16/18 with the networks).
+      steer = followSteer(this.plan, age, self, p);
+      pedals.throttle *= tractionShare(self);
+      if (pedals.brake > 0 && Math.abs(self.vLong) < STANDING) return { steer, throttle: 0, brake: 0, hold: true }; // (the brake would select reverse)
+    } else if (DRIVER_TUNING.netTracker && brain) {
       const net = netDrive(brain, this.plan, age, self, p, pedals.throttle);
       steer = net.steer;
       pedals.throttle = net.throttle;

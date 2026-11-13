@@ -1,5 +1,5 @@
 import { Plan, PlanEgo, PLANNER, PreviousPlan } from './planner';
-import type { PlanSource } from './plannerDriver';
+import { DRIVER_TUNING, type PlanSource } from './plannerDriver';
 import type { TrafficBox } from './sensors';
 
 export interface PlanRequest {
@@ -8,6 +8,8 @@ export interface PlanRequest {
   traffic: TrafficBox[];
   previous: PreviousPlan | null;
   settings: typeof PLANNER;
+  /** Plan by direction of travel (DRIVER_TUNING.coursePlanner). */
+  course: boolean;
 }
 
 export interface PlanAnswer {
@@ -38,7 +40,7 @@ export class WorkerPlanSource implements PlanSource {
 
   request(stamp: number, ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null): void {
     this.waiting = true;
-    const msg: PlanRequest = { stamp, ego, traffic, previous, settings: { ...PLANNER } };
+    const msg: PlanRequest = { stamp, ego, traffic, previous, settings: { ...PLANNER }, course: DRIVER_TUNING.coursePlanner };
     this.worker.postMessage(msg);
   }
 

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { KMH, LANE_COUNT, PHYSICS_DT } from '../src/config';
@@ -10,6 +10,7 @@ import { baseSteer, trackerFrom } from '../src/ai/netTracker';
 import type { Brain } from '../src/ai/brain';
 import { PLAN_STATS, planAt } from '../src/ai/planner';
 import { PlannerDriver, planPedals } from '../src/ai/plannerDriver';
+import { DRIVER, makeDriver, planStats } from './drivers';
 
 /**
  * How the AI drives off after a crash left it standing across the road: the car stopped in the middle lane at a
@@ -51,6 +52,8 @@ it('recovery', async () => {
   const cars = process.env.CAR ? [process.env.CAR] : Object.keys(CARS);
   const lines: string[] = [];
   const trace: string[] = [];
+  // WAYS=<out.json>: every run's way (t, s, d, yaw, km/h, sideways m/s; every 1/30 s) and the plans it took up, for replays.
+  const ways: unknown[] = [];
   for (const id of cars) {
     const spec = CARS[id];
     if (!spec) throw new Error(`no car "${id}"`);
@@ -73,16 +76,15 @@ it('recovery', async () => {
           physics.step(() => {});
           car.postPhysics();
         }
-        const driver = new PlannerDriver();
-        driver.accel = spec.ai.accel;
-        driver.latAccel = spec.ai.latAccel;
-        driver.tracker = trackerFrom(spec.ai.tracker);
-        driver.recovery = PROBE_RECOVERY === undefined ? trackerFrom(spec.ai.recovery) : PROBE_RECOVERY;
+        const driver = makeDriver(spec); // (DRIVER: the planner and driver - drivers.ts)
+        if (driver instanceof PlannerDriver && PROBE_RECOVERY !== undefined) driver.recovery = PROBE_RECOVERY;
         const start = car.yaw;
         const d0 = car.d;
         let braked = 0, planStop = 0, maxD = 0;
         const fallback0 = PLAN_STATS.fallback;
         let rotation = 0, overshoot = 0, awayAt = NaN, awaySince = NaN, touched = false;
+        const way: number[][] = [], plans: { t: number; pts: number[][] }[] = [];
+        let lastPlan: unknown = null;
         for (let i = 0; i < Math.round(RUN_S / PHYSICS_DT); i++) {
           const t = i * PHYSICS_DT;
           const self = selfStateOf(car, cap);
@@ -106,6 +108,13 @@ it('recovery', async () => {
             if (x.type === 'static' || y.type === 'static') touched = true; // (a rail: the ground's under the wheels, not the body)
           });
           car.postPhysics();
+          if (process.env.WAYS) {
+            if (i % 4 === 3) way.push([+(t + PHYSICS_DT).toFixed(4), +car.s.toFixed(3), +car.d.toFixed(3), +car.yaw.toFixed(4), +((car.vLong / KMH).toFixed(1)), +(car.vLong * Math.sin(car.yaw) + car.vLat * Math.cos(car.yaw)).toFixed(2)]);
+            if (driver.plan && driver.plan !== lastPlan) {
+              lastPlan = driver.plan;
+              plans.push({ t: +(t + PHYSICS_DT).toFixed(4), pts: driver.plan.points.map((p) => [+p.s.toFixed(2), +p.d.toFixed(3)]) });
+            }
+          }
           rotation += Math.abs(car.yawRate) * PHYSICS_DT;
           if (Math.sign(car.yaw) === -Math.sign(start)) overshoot = Math.max(overshoot, Math.abs(car.yaw));
           const ok = Math.abs(car.yaw) < AWAY_YAW && car.vLong > AWAY_KMH * KMH;
@@ -114,6 +123,7 @@ it('recovery', async () => {
           if (Number.isNaN(awayAt) && !Number.isNaN(awaySince) && t - awaySince >= AWAY_HOLD) awayAt = awaySince;
         }
         physics.free();
+        if (process.env.WAYS) ways.push({ car: id, deg: side * deg, away: Number.isNaN(awayAt) ? null : awayAt, turned: rotation * DEG, hw: spec.params.width / 2, hl: spec.params.length / 2, way, plans });
         total++;
         turned += rotation * DEG;
         if (!Number.isNaN(awayAt)) away++;
@@ -123,5 +133,6 @@ it('recovery', async () => {
     }
     lines.push(`${id}: away ${away}/${total}, turned ${(turned / total).toFixed(0)} deg a run on average, rails ${rails}`, ...rows);
   }
-  process.stdout.write([...lines, ...trace].join('\n') + '\n');
+  if (process.env.WAYS) writeFileSync(process.env.WAYS, JSON.stringify(ways));
+  process.stdout.write([...lines, ...trace, `${DRIVER}: ${planStats()}`].join('\n') + '\n');
 }, 600_000);
