@@ -207,9 +207,10 @@ function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'
     car.postPhysics();
     if (trace && i % 4 === 3)
       trace.push([+(t + PHYSICS_DT).toFixed(4), +car.s.toFixed(3), +car.d.toFixed(3), +car.yaw.toFixed(4), +(car.vLong / KMH).toFixed(1), +(car.vLong * Math.sin(car.yaw) + car.vLat * Math.cos(car.yaw)).toFixed(2)]);
-    if (planTrace && ai?.plan && ai.plan !== lastPlan) {
-      lastPlan = ai.plan;
-      planTrace.push({ t: +(t + PHYSICS_DT).toFixed(4), pts: ai.plan.points.map((p) => [+p.s.toFixed(2), +p.d.toFixed(3)]) });
+    const now = ai ? ai.plan : plan; // (the AI's, or the forced move's)
+    if (planTrace && now && now !== lastPlan) {
+      lastPlan = now;
+      planTrace.push({ t: +(t + PHYSICS_DT).toFixed(4), pts: now.points.map((p) => [+p.s.toFixed(2), +p.d.toFixed(3)]) });
     }
     const tt = t + PHYSICS_DT;
     if (i % 3 === 2) {
