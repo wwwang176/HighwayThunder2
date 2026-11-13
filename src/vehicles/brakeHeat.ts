@@ -2,14 +2,14 @@
  * The brake discs' heat: what the brakes take out of a turning wheel (brake torque x its turning speed; one held
  * still, nothing - PlayerCar has a full brake's locked wheels turn with the road, as ABS would keep them) goes into
  * the disc, which cools to the air - the faster the car, the quicker - and glows dull red from BRAKE_HEAT.glowFrom up
- * to bright red at glowFull. Exaggerated (gain 2): full braking 250 -> 150 km/h ~530-740 °C at the front (a dull red),
- * 300 -> 0 the most; 150 -> 0 ~400-540 (training/brakeHeat; the heavy muscle car the hottest).
+ * to bright red at glowFull. Exaggerated (gain 4): full braking 250 -> 150 km/h or 200 -> 100 the front at ~900-1000 °C
+ * (full), 150 -> 0 ~770-1000; half braking 250 -> 150 ~680-890 (training/brakeHeat; the heavy muscle car the hottest).
  */
 export const BRAKE_HEAT = {
   /** A disc's heat capacity (J/K): about 9 kg of cast iron. */
   capacity: 4200,
   /** The heat put in, times this (real: 1). */
-  gain: 2,
+  gain: 4,
   /** The air (°C), where a disc starts and cools to. */
   ambient: 25,
   /** Its cooling (1/s of how far above the air): standing, and more per m/s of the car's speed. */
