@@ -60,6 +60,8 @@ const TURN_COST = 20;
 const TURN_FREE = 0.5;
 /** m of progress a plan point on the shoulder costs (past the paved road's edge: allowed up to the rail). */
 const OFF_ROAD = 5;
+/** rad its nose off the road beyond which it is across the road (a crash): the shoulder allowed. */
+const ACROSS = 0.4;
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** The plan for the next `COURSE.horizon` s (see COURSE). Falls back to braking along its course when nothing is clear. */
@@ -122,6 +124,10 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   const turnMax = K.lockShare * (ego.turnMax ?? Math.tan(0.55) / 2.5);
   const latTable = ego.latAccel ?? STREET_RACER.ai.latAccel;
   const decay = Math.exp(-K.slipDecay * h);
+  // How far out its centre may go: the paved road's edge (as the lattice planner), or - off it already, or across the
+  // road (a crash: ACROSS) - up to the rail, the shoulder at a cost (OFF_ROAD). (Allowed always, it passed a car on
+  // the shoulder rather than take the gap.)
+  const edge = Math.abs(start.d) > ROAD_HALF_WIDTH || Math.abs(start.psi + start.beta) > ACROSS ? RAIL_D - hw : ROAD_HALF_WIDTH;
   // How far (rad) a node still has to turn to run along the road, the way round there is room for at its tightest
   // turn: the short way (toward the edge it is heading for), or else the long way (away from it, through backward);
   // Infinity: neither - a dead end, kept only if nothing else is. Turning a long way round costs (TURN_COST) in the
@@ -130,7 +136,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   const turnLeft = (n: Node) => {
     const a = Math.abs(n.psi);
     if (a < 1e-3) return 0;
-    const edge = RAIL_D - hw; // (the rail: the shoulder is room too, at a cost)
+    // (to its edge: `edge`)
     const toward = n.psi > 0 ? edge - n.d : edge + n.d;
     const away = n.psi > 0 ? edge + n.d : edge - n.d;
     const grip = K.latGrip * maxAccel(n.v, latTable);
@@ -191,7 +197,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
               psi = wrap(psi + beta); // (standing: it goes where its nose points)
               beta = 0;
             }
-            if (Math.abs(d) > RAIL_D - hw && Math.abs(d) > Math.abs(n.d)) hit = true; // (the rail; the shoulder costs: OFF_ROAD)
+            if (Math.abs(d) > edge && Math.abs(d) > Math.abs(n.d)) hit = true; // (the edge: `edge`)
             else hit = touches(s, d, psi + beta, hl + along, hw + side, near, tA + j * h);
           }
           if (hit) continue;
