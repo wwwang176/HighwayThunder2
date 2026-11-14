@@ -7,7 +7,6 @@ import { KMH } from '../src/config';
 
 const AI = STREET_RACER.ai;
 const ROOM = 3.4;
-const G = 9.81;
 const HAIRPIN = new Centerline([...straight(150), ...bend(18, 180, 12), ...straight(250)], { turnBack: true });
 
 describe('racingLine', () => {

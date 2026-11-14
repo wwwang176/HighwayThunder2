@@ -39,7 +39,7 @@ export function racingLine(road: Centerline, room: number, step = 2): Float64Arr
   const n = Math.floor((road.length + PAST_END) / step) + 1;
   const kc = new Float64Array(n);
   for (let i = 0; i < n; i++) kc[i] = road.curvature(i * step);
-  let d = new Float64Array(n);
+  let d: Float64Array = new Float64Array(n);
   // Gauss-Newton: the offset line's curvature κ / (1 - κ d) + d'' linearised about the last line (the inside of a
   // tight bend tighter than the road by its offset), a few times over.
   for (let outer = 0; outer < GN_ROUNDS; outer++) d = leastCurved(kc, d, room, step);
@@ -71,7 +71,7 @@ function leastCurved(kc: Float64Array, d0: Float64Array, room: number, step: num
   }
   for (let i = 0; i < n; i++) A[0][i] += EPS;
   const held = new Map<number, number>();
-  let d = new Float64Array(n);
+  let d: Float64Array = new Float64Array(n);
   for (let iter = 0; iter < 400; iter++) {
     d = solveBand(A, b, held);
     let changed = false;
