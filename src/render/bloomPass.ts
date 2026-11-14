@@ -53,10 +53,10 @@ const pickShader = {
  */
 /**
  * How much each of the bloom's five blurs (each twice as wide as the one before) adds: most of it close round the
- * light, little far out (three's own 1, 0.8, 0.6, 0.4, 0.2 spread every glow wide). Mutable: one array, read by
- * the pass as it draws.
+ * light, a faint haze far out, each about half the one before (three's own 1, 0.8, 0.6, 0.4, 0.2 spread every glow
+ * wide; 1, 0.5, 0.2, 0.05, 0 cut it off too sharply). Mutable: one array, read by the pass as it draws.
  */
-export const BLOOM_FACTORS = [1.0, 0.5, 0.2, 0.05, 0.0];
+export const BLOOM_FACTORS = [1.0, 0.6, 0.3, 0.12, 0.04];
 
 export class FullResBloomPass extends UnrealBloomPass {
   private readonly picked = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
