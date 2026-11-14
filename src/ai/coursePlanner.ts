@@ -38,10 +38,39 @@ export const COURSE = {
   /** Share of the tightest turn its steering lock gives (PlanEgo.turnMax) a plan may hold: the car never quite gets
    * it (turning out of a crossways start at full lock it ran wide onto the shoulder and stopped). */
   lockShare: 0.8,
+  /** s: a plan cut short (ending more than `reuseShort` s before the horizon) is made again from where the last one,
+   * at most this old, has the car now (0: never). */
+  reuseAge: 0.3,
+  reuseShort: 0.5,
+  /** Speed bands (over a step's speeds) the beam's shared-out half is also kept by; 0 / 1: none. */
+  speedBands: 3,
+  /**
+   * Room round the traffic kept by a cost rather than walls (0: walls - PLANNER.sideMargin, gapBehind, headway).
+   * On: walls only `softWall` m round the body (and braking for what is ahead), and a cost the nearer anything comes,
+   * rising steeply (exponentially): `softCost` (m of progress a step) times e^-x, x the room in e-folds - across
+   * `softSideFall` m, ahead `softAheadFall` s of its speed spare over braking for it, behind `softBehindFall` m (the
+   * two together diagonally) - none from `softReach` e-folds out. A few cm off its last plan is then a little dearer,
+   * not closed; already beside a car it goes on through (leaving costs too), not yet there it may go round.
+   */
+  soft: 0,
+  softWall: 0.03,
+  softCost: 5,
+  softSideFall: 0.4,
+  softAheadFall: 0.3,
+  softBehindFall: 1,
+  softReach: 4,
+  /** The cost of a car the more, the faster this one comes at it: times 1 + softClose (at most), reached coming at it
+   * across at softCloseSide m/s or from behind at softCloseAhead m/s (the two added; 0: off). */
+  softClose: 0,
+  softCloseSide: 3,
+  softCloseAhead: 20,
+  /** Every way ends against something before the horizon (cut short): 1 - the plan that ends slowest (braking the
+   * most; the most promising of those), not the one going on furthest and fastest; 0 - as any plan. */
+  deadEnd: 1,
 };
 
 /** How plans came out, and the time they took (benchmarks). */
-export const COURSE_STATS = { normal: 0, relaxed: 0, fallback: 0, ms: 0, slowest: 0 };
+export const COURSE_STATS = { normal: 0, relaxed: 0, fallback: 0, reused: 0, deadEnd: 0, ms: 0, slowest: 0 };
 
 interface Node {
   s: number;
@@ -74,6 +103,9 @@ const OUT_COST = 2;
 const surface = (d: number) => (d < MEDIAN_NEAR_X ? GRASS_GRIP : 1);
 /** rad its nose off the road beyond which it is across the road (a crash): the shoulder allowed. */
 const ACROSS = 0.4;
+/** m across / along the car may be off the last plan for it to be planned again from there (COURSE.reuseAge). */
+const REUSE_NEAR_D = 1;
+const REUSE_NEAR_S = 5;
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** The plan for the next `COURSE.horizon` s (see COURSE). Falls back to braking along its course when nothing is clear. */
@@ -89,6 +121,26 @@ export function coursePlan(ego: PlanEgo, traffic: TrafficBox[], previous: Previo
   else {
     found = search(ego, start, boxes.filter((t) => t.s + t.length / 2 > ego.s - hl), previous, true);
     if (found) COURSE_STATS.relaxed++;
+  }
+  // Cut short (every way ends against something within the horizon) or none at all: planned again from where the last
+  // plan has the car now, if that one is recent (reuseAge) - its plans ride the edge of what is clear (the side room,
+  // the room to brake), and a few cm or km/h off the last one the way it was on can be closed to it (as the lattice
+  // planner's reuseAge).
+  const ends = (p: Plan | null) => (p ? p.points[p.points.length - 1].t : 0);
+  if (COURSE.reuseAge > 0 && previous && previous.age <= COURSE.reuseAge && ends(found) < COURSE.horizon - COURSE.reuseShort) {
+    const at = planAt(previous.plan, previous.age);
+    const pts = previous.plan.points;
+    const k = Math.min(pts.length - 1, Math.floor(previous.age / COURSE.step));
+    const u = k + 1 < pts.length ? (previous.age - pts[k].t) / (pts[k + 1].t - pts[k].t) : 0;
+    const psi = (pts[k].psi ?? 0) + (k + 1 < pts.length ? wrap((pts[k + 1].psi ?? 0) - (pts[k].psi ?? 0)) * Math.min(1, Math.max(0, u)) : 0);
+    const onIt: PlanEgo = { ...ego, s: at.s, d: at.d, v: at.v, vD: at.v * Math.sin(psi), yaw: psi, vLat: 0 };
+    const from = startNode(onIt);
+    // (only near it: a car knocked off it - a crash - plans from where it is)
+    const again = Math.abs(ego.d - at.d) > REUSE_NEAR_D || Math.abs(ego.s - at.s) > REUSE_NEAR_S ? null : search(onIt, from, boxes, previous, false) ?? search(onIt, from, boxes.filter((t) => t.s + t.length / 2 > ego.s - hl), previous, true);
+    if (again && ends(again) > ends(found)) {
+      found = again;
+      COURSE_STATS.reused++;
+    }
   }
   if (!found) {
     COURSE_STATS.fallback++;
@@ -135,9 +187,10 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     t += dt;
   }
   const hl = ego.halfLength ?? 2.2, hw = ego.halfWidth ?? 0.93;
-  const side = relaxed ? 0 : P.sideMargin;
-  const along = relaxed ? 0 : P.gapBehind;
-  const margin = relaxed ? 0 : 1;
+  const soft = !relaxed && K.soft > 0;
+  const side = relaxed ? 0 : soft ? K.softWall : P.sideMargin;
+  const along = relaxed ? 0 : soft ? K.softWall : P.gapBehind;
+  const margin = relaxed || soft ? 0 : 1;
   const turnMax = K.lockShare * (ego.turnMax ?? Math.tan(0.55) / 2.5);
   const latTable = ego.latAccel ?? STREET_RACER.ai.latAccel;
   // How far out its centre may go: the paved road's edge (as the lattice planner), or - off it already, or across the
@@ -210,6 +263,9 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
       });
       // ...and those ahead it may have to brake for (in its way, however far).
       const inWay = near.filter((b) => b.dMax > n.d - reachD && b.dMin < n.d + reachD);
+      // (COURSE.soft: those it can come within softReach of across this step - at most its tightest turn's move across)
+      const sideRun = n.v * dt * Math.min(1, Math.abs(Math.sin(n.psi)) + kMax * n.v * dt) + hl + hw + K.softReach * K.softSideFall + 0.5;
+      const costed = soft ? inWay.filter((b) => b.dMax > n.d - sideRun && b.dMin < n.d + sideRun) : inWay;
       for (const f of K.turns) {
         const kappa = f * kMax;
         const aLat = kappa * n.v * n.v;
@@ -219,6 +275,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
           if ((aLat / grip) ** 2 + (a / (a < 0 ? brakeMax : grip)) ** 2 > 1 + 1e-9) continue;
           let s = n.s, d = n.d, v = n.v, psi = n.psi, beta = n.beta;
           let hit = false;
+          let close = 0; // (COURSE.soft: the cost of the room left, over the step's sub-steps)
           for (let j = 1; j <= K.sub && !hit; j++) {
             const v1 = Math.max(0, Math.min(ego.speedCap, v + a * h));
             const vm = (v + v1) / 2;
@@ -235,6 +292,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
             }
             if ((d > hardHi && d > n.d) || (d < hardLo && d < n.d) || (!out(n.d) && out(d))) hit = true; // (`edge`, `out`)
             else hit = touches(s, d, psi + beta, hl + along, hw + side, local, tA + j * h);
+            if (soft && !hit) close += nearness(s, d, v, psi + beta, psi, hl, hw, costed, tA + j * h, ego) * (h / K.step);
           }
           if (hit) continue;
           if (!relaxed && tooClose(s, d, v, psi + beta, psi, hl, hw, side, inWay, tA + dt, margin, ego)) continue;
@@ -242,7 +300,8 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
           if (Math.abs(d) > ROAD_HALF_WIDTH) score -= (OFF_ROAD + (out(d) ? OUT_COST * (Math.abs(d) - edge) : 0)) * w;
           else if (Math.abs(d - laneCenter(laneAt(d))) > ON_CENTRE) score -= P.lineCost * w;
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus * w;
-          if (P.passCost > 0) score -= passShort(local, s, d, hl, hw, tA + dt) * w;
+          if (soft) score -= close;
+          else if (P.passCost > 0) score -= passShort(local, s, d, hl, hw, tA + dt) * w;
           const key = (Math.round(d / K.dCell) * 1000 + Math.round(v / K.vCell)) * 1000 + Math.round(wrap(psi) / K.psiCell) + 500;
           const old = next.get(key);
           if (old && old.score >= score) continue; // (the same state: the same speed and turn left)
@@ -260,7 +319,15 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
       // one way round and the other - not only what looks best this early. (By value alone, with 250 kept, nodes
       // speeding off to the right filled it and the way through a gap on the left was lost; with 1000 it was found.)
       nodes.sort((x, y) => y.val - x.val);
-      const group = (n: Node) => Math.round(n.d / (LANE_WIDTH / 2)) * SECTORS + Math.min(SECTORS - 1, Math.floor(((n.psi + Math.PI) / (2 * Math.PI)) * SECTORS));
+      // (speedBands: and how fast it goes, in that many bands over this step's speeds)
+      let vLo = Infinity, vHi = -Infinity;
+      for (const n of nodes) {
+        vLo = Math.min(vLo, n.v);
+        vHi = Math.max(vHi, n.v);
+      }
+      const bands = K.speedBands, vSpan = Math.max(1e-6, vHi - vLo);
+      const band = (n: Node) => (bands > 1 ? Math.min(bands - 1, Math.floor(((n.v - vLo) / vSpan) * bands)) : 0);
+      const group = (n: Node) => (Math.round(n.d / (LANE_WIDTH / 2)) * SECTORS + Math.min(SECTORS - 1, Math.floor(((n.psi + Math.PI) / (2 * Math.PI)) * SECTORS))) * 8 + band(n);
       const groups = new Set(nodes.map(group)).size;
       const quota = Math.max(2, Math.floor(K.beam / (2 * groups)));
       const per = new Map<number, number>();
@@ -279,7 +346,10 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     deepest = nodes;
   }
   // The best end, and the next best that go another way (another order of lanes along it): shown beside the plan.
-  const ends = [...deepest].sort((x, y) => y.val - x.val);
+  const cut = deepest[0].t < K.horizon - 1e-6;
+  const slowest = (x: Node, y: Node) => Math.round(x.v / K.vCell) - Math.round(y.v / K.vCell) || y.val - x.val;
+  const ends = [...deepest].sort(cut && K.deadEnd > 0 ? slowest : (x, y) => y.val - x.val);
+  if (cut && K.deadEnd > 0 && ends.length && ends[0].parent) COURSE_STATS.deadEnd++;
   if (!ends.length || !ends[0].parent) return null;
   const picked: Node[] = [], ways = new Set<string>(), paths: number[][] = [];
   for (const n of ends) {
@@ -388,6 +458,39 @@ function tooClose(s: number, d: number, v: number, heading: number, psi: number,
     if (gap < keep) return true;
   }
   return false;
+}
+
+/**
+ * COURSE.soft: the cost (m of progress, a step) of the room left round the body at (s, d) - pointing `heading`, going
+ * v along `psi` - at time t: for each box, its room in e-folds across (m), and ahead (s of its speed spare over
+ * braking down to the box's) or behind (m), diagonally the two together; e^-x, none from softReach out.
+ */
+function nearness(s: number, d: number, v: number, heading: number, psi: number, hl: number, hw: number, boxes: TrafficBox[], t: number, ego: PlanEgo): number {
+  const K = COURSE;
+  const c = Math.abs(Math.cos(heading)), si = Math.abs(Math.sin(heading));
+  const halfW = hw * c + hl * si, halfL = hl * c + hw * si;
+  const vS = v * Math.cos(psi);
+  const floor = Math.exp(-K.softReach);
+  let cost = 0;
+  for (const b of boxes) {
+    const bw = (b.dMax - b.dMin) / 2, bd = (b.dMin + b.dMax) / 2;
+    const across = Math.max(0, Math.abs(bd - d) - bw - halfW) / K.softSideFall;
+    if (across >= K.softReach) continue;
+    const bs = b.s + b.v * t, bl = b.length / 2;
+    let along = 0;
+    // How fast the car comes at it, in shares of softCloseSide (across) / softCloseAhead (from behind it).
+    let rate = 0;
+    if (K.softClose > 0) rate = Math.max(0, (bd > d ? 1 : -1) * v * Math.sin(psi)) / K.softCloseSide;
+    if (bs - bl > s + halfL) {
+      const closing = vS - b.v;
+      const need = closing > 0 ? (closing * closing) / (2 * maxBrake(v - closing / 2, ego.brake)) : 0;
+      along = Math.max(0, bs - bl - (s + halfL) - need) / (Math.max(v, 5) * K.softAheadFall);
+      if (K.softClose > 0) rate += Math.max(0, closing) / K.softCloseAhead;
+    } else if (bs + bl < s - halfL) along = (s - halfL - (bs + bl)) / K.softBehindFall;
+    const x = Math.hypot(across, along);
+    if (x < K.softReach) cost += (Math.exp(-x) - floor) * (1 + K.softClose * Math.min(1, rate));
+  }
+  return K.softCost * cost;
 }
 
 /** passCost for the car at (s, d) at time t: what it is short of passRoom beside the boxes it is level with. */

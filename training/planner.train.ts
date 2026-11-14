@@ -1,7 +1,8 @@
 import { it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PLAN_STATS, PLANNER } from '../src/ai/planner';
+import { PLAN_STATS, PLANNER, planAt } from '../src/ai/planner';
+import { COURSE, COURSE_STATS } from '../src/ai/coursePlanner';
 import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { LANE_TUNING } from '../src/ai/laneController';
@@ -25,6 +26,8 @@ const f = (x: number) => x.toFixed(2);
 it('planner', async () => {
   // PLANNER_JSON='{"hardBrake":11}': try planner settings without editing the code.
   if (process.env.PLANNER_JSON) Object.assign(PLANNER, JSON.parse(process.env.PLANNER_JSON));
+  // COURSE_JSON='{"beam":1000}': the course planner's settings changed without editing the code (investigation).
+  if (process.env.COURSE_JSON) Object.assign(COURSE, JSON.parse(process.env.COURSE_JSON));
   if (process.env.EMERGENCY_FROM) DRIVER_TUNING.emergencyFrom = Number(process.env.EMERGENCY_FROM);
   // DRIVER_JSON='{"pathAgree":99}': the driver's settings changed without editing the code.
   if (process.env.DRIVER_JSON) Object.assign(DRIVER_TUNING, JSON.parse(process.env.DRIVER_JSON));
@@ -55,6 +58,51 @@ it('planner', async () => {
       // stuck (under 5 km/h for 2 s, as a rival in the game); "light contacts" then counts the vehicles it wrecked.
       gameContact: process.env.GAME_CONTACT === '1',
     });
+    // TRACE_CONTACT=1 (investigation): the last TRACE_S s before each wreck / reset, every 0.1 s.
+    const trace = process.env.TRACE_CONTACT === '1';
+    const ring: string[] = [];
+    const traceKeep = Math.round(Number(process.env.TRACE_S ?? 3) * 10);
+    let lastContacts = 0, lastResets = 0, stepN = 0, lastOver = 0, planKind = 'N';
+    const planCount: Record<string, number> = { N: 0, R: 0, F: 0, U: 0, short: 0 };
+    let lastEmerT = -99;
+    const snaps: any[] = [], wreckTimes: number[] = [];
+    if (trace) {
+      const orig = driver.drive.bind(driver);
+      driver.drive = (self, traffic, p) => {
+        const c0 = { ...COURSE_STATS }, l0 = { ...PLAN_STATS }, was = driver.plan, ageBefore = driver.planAge;
+        const out = orig(self, traffic, p);
+        stepN++;
+        if (driver.plan && driver.plan !== was) {
+          planKind = COURSE_STATS.reused > c0.reused ? 'U' : COURSE_STATS.fallback > c0.fallback || PLAN_STATS.fallback > l0.fallback ? 'F' : COURSE_STATS.relaxed > c0.relaxed || PLAN_STATS.relaxed > l0.relaxed ? 'R' : 'N';
+          const end = driver.plan.points[driver.plan.points.length - 1].t;
+          planCount[planKind]++;
+          if (planKind !== 'F' && end < 7.5) planCount.short++;
+          // A collapse: a full plan followed by one ending within 1.5 s (not the fallback) - snapshot it for replay.
+          const wasEnd = was ? was.points[was.points.length - 1].t : 0;
+          if (was && planKind !== 'F' && end < 1.5 && wasEnd >= 7.5) {
+            const age = ageBefore + 1 / 120;
+            const at = planAt(was, age);
+            const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
+            const ego = { s: self.s, d: self.d, v: self.vLong, speedCap: self.speedCap, vD, accel: driver.accel, latAccel: driver.latAccel, ...(driver.brake ? { brake: driver.brake } : {}),
+              halfWidth: self.halfWidth, halfLength: self.halfLength, yaw: self.yaw, vLat: self.vLat, turnMax: Math.tan(p.maxSteer) / p.wheelbase };
+            snaps.push({ seed, t: stepN / 120, kind: planKind, end, ego, traffic: traffic.map((b) => ({ ...b })), previous: { plan: was, age }, err: { d: self.d - at.d, s: self.s - at.s, v: self.vLong - at.v },
+              emerRecent: stepN / 120 - lastEmerT < 0.5, yaw: self.yaw, vLat: self.vLat, wreckAfter: null as number | null });
+          }
+        }
+        const emer = driver.overrides > lastOver;
+        if (emer) lastEmerT = stepN / 120;
+        lastOver = driver.overrides;
+        if (stepN % 12 === 0 && driver.plan) {
+          const a = driver.planAge, P = driver.plan;
+          const pa = (x: number) => planAt(P, a + x);
+          const n = traffic.filter((b) => b.s - self.s < 45 && b.s - self.s > -8 && Math.abs((b.dMin + b.dMax) / 2 - self.d) < 6)
+            .map((b) => `${b.phantom ? 'p' : ''}#${b.id}[ds ${(b.s - b.length / 2 - self.s - (self.halfLength ?? 2.2)).toFixed(1)} d ${b.dMin.toFixed(1)}..${b.dMax.toFixed(1)} v ${(b.v * 3.6).toFixed(0)}]`).join(' ');
+          ring.push(`  t ${(stepN / 120).toFixed(1)} s ${self.s.toFixed(0)} d ${self.d.toFixed(2)} yaw ${self.yaw.toFixed(3)} v ${(self.vLong * 3.6).toFixed(0)} vLat ${self.vLat.toFixed(2)} | in st ${out.steer.toFixed(2)} th ${out.throttle.toFixed(2)} br ${out.brake.toFixed(2)}${emer ? ' EMER' : ''} | plan d ${pa(0).d.toFixed(2)}/${pa(0.5).d.toFixed(2)}/${pa(1).d.toFixed(2)}/${pa(2).d.toFixed(2)} v ${(pa(0).v * 3.6).toFixed(0)}/${(pa(1).v * 3.6).toFixed(0)} dRate ${pa(0).dRate.toFixed(2)} ${planKind}${P.points[P.points.length - 1].t.toFixed(2)} | ${n}`);
+          if (ring.length > traceKeep) ring.shift();
+        }
+        return out;
+      };
+    }
     let maxV = 0;
     let offCentre = 0;
     let outward = 0; // past an outer lane's centre (0.25 m+)
@@ -64,6 +112,28 @@ it('planner', async () => {
     while (!sim.done) {
       sim.step();
       const c = sim.ghosts[0].car;
+      if (trace) {
+        const rr = sim.ghosts[0].result;
+        if ((rr.contacts ?? 0) > lastContacts || (rr.resets ?? 0) > lastResets) {
+          if ((rr.contacts ?? 0) > lastContacts) wreckTimes.push(sim.time);
+          out.push(`${seed} ${(rr.contacts ?? 0) > lastContacts ? 'WRECK' : 'RESET'} at t ${sim.time.toFixed(2)} s ${c.s.toFixed(0)} d ${c.d.toFixed(2)} yaw ${c.yaw.toFixed(3)} v ${(c.speed * 3.6).toFixed(0)}`, ...ring);
+          // Each vehicle wrecked this step: where it was against the car (ahead / behind / level, body to body), how fast.
+          for (const w of sim.wrecks.splice(0)) {
+            const b = w.box;
+            if (!b) {
+              out.push(`${seed} WRECKED ? closing ${(w.closing * 3.6).toFixed(0)}`);
+              continue;
+            }
+            const hl = spec.params.length / 2, hw = spec.params.width / 2;
+            const front = b.s - b.length / 2 - (w.s + hl), back = w.s - hl - (b.s + b.length / 2);
+            const side = Math.max(b.dMin - (w.d + hw), w.d - hw - b.dMax);
+            const where = front > -0.5 ? 'AHEAD' : back > -0.5 ? 'BEHIND' : 'LEVEL';
+            out.push(`${seed} WRECKED ${where} gap along ${Math.max(front, back).toFixed(2)} across ${side.toFixed(2)} its v ${(b.v * 3.6).toFixed(0)} ours ${(w.speed * 3.6).toFixed(0)} closing ${(w.closing * 3.6).toFixed(0)} yaw ${w.yaw.toFixed(3)} n ${w.nx.toFixed(2)},${w.nz.toFixed(2)}`);
+          }
+          lastContacts = rr.contacts ?? 0;
+          lastResets = rr.resets ?? 0;
+        }
+      }
       maxV = Math.max(maxV, c.speed);
       steps++;
       if (Math.abs(c.d - laneCenter(laneAt(c.d))) > 0.5) offCentre++;
@@ -71,6 +141,12 @@ it('planner', async () => {
       if (Math.abs(c.d) + spec.params.width / 2 > ROAD_HALF_WIDTH) overEdge++;
     }
     const ms = performance.now() - t0;
+    if (trace && process.env.SNAP_DIR) {
+      for (const sn of snaps) sn.wreckAfter = wreckTimes.find((w) => w >= sn.t && w - sn.t < 3) ?? null;
+      writeFileSync(`${process.env.SNAP_DIR}/${process.env.CAR ?? 'street-racer'}.${seed}.json`, JSON.stringify(snaps));
+    }
+    if (trace) out.push(`${seed} collapses ${snaps.length} (followed by a wreck within 3 s: ${snaps.filter((x) => wreckTimes.some((w) => w >= x.t && w - x.t < 3)).length}), wrecks ${wreckTimes.length} (a collapse within 3 s before: ${wreckTimes.filter((w) => snaps.some((x) => w >= x.t && w - x.t < 3)).length})`);
+    if (trace) out.push(`${seed} plans normal ${planCount.N} relaxed ${planCount.R} fallback ${planCount.F} reused ${planCount.U}; non-fallback ending before 7.5 s: ${planCount.short}`);
     const g = sim.ghosts[0];
     const r = g.result;
     const end = r.finishTime !== null ? `FINISH ${r.finishTime.toFixed(0)}s` : r.crashed ? `CRASH at ${Math.round(r.distance)} m` : `timeout at ${Math.round(r.distance)} m`;
@@ -94,6 +170,8 @@ it('planner', async () => {
   );
   const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
   out.push(`plans: ${plans}, relaxed ${Math.round((100 * PLAN_STATS.relaxed) / plans)}%, boxed-in fallback ${Math.round((100 * PLAN_STATS.fallback) / plans)}%, ${(PLAN_STATS.ms / plans).toFixed(1)} ms a plan (slowest ${PLAN_STATS.slowest.toFixed(0)})`);
+  const cp = COURSE_STATS.normal + COURSE_STATS.relaxed + COURSE_STATS.fallback;
+  if (cp) out.push(`course plans: ${cp}, reused ${COURSE_STATS.reused}, relaxed ${Math.round((100 * COURSE_STATS.relaxed) / cp)}%, fallback ${Math.round((100 * COURSE_STATS.fallback) / cp)}%, ${(COURSE_STATS.ms / cp).toFixed(1)} ms a plan`);
   const sa = all.speedAtOverride;
   out.push(`at emergency brake: speed over plan p50 ${f(pct(sa, 0.5))} m/s, faster than plan ${Math.round((100 * sa.filter((x) => x > 0).length) / Math.max(1, sa.length))}% of the time`);
   process.stdout.write(out.join('\n') + '\n');
