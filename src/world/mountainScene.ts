@@ -27,8 +27,12 @@ const CLIFF: [number, number][] = [
   [40, -55],
   [110, -140],
 ];
-/** Chevron boards outside bends tighter than this radius (m), this far apart along it. */
-const CHEVRON = { radius: 60, spacing: 7, size: 0.75, height: 1.1 };
+/**
+ * Chevron boards outside bends tighter than this radius (m), this far apart along it. No light of their own: they
+ * reflect what reaches them `reflect` times as strongly as paint (a reflective sheeting's) - faint under the moon,
+ * bright in the low beam, glaring in the high beam (the player's real lamps).
+ */
+const CHEVRON = { radius: 60, spacing: 7, size: 0.75, height: 1.1, reflect: 3.5, roughness: 0.35 };
 /**
  * The amber lamp blinking on top of each chevron board: no light of its own, only bright enough (over white: the
  * bloom's) to glow. Its colour times `bright` lit, `dim` between; lit `on` of every `period` s (race time).
@@ -173,8 +177,12 @@ export class MountainScene implements Scenery {
     const dirt = repeating('grass-small.jpg');
     dirt.repeat.set(1, 1);
     this.cliffMat = new THREE.MeshStandardMaterial({ map: dirt, color: 0x4a5040, roughness: 1, side: THREE.DoubleSide });
-    this.chevronMat = new THREE.MeshStandardMaterial({ map: chevronTexture(), emissive: 0xffffff, emissiveIntensity: 0.12, roughness: 0.6, side: THREE.DoubleSide });
-    this.chevronMat.emissiveMap = this.chevronMat.map;
+    this.chevronMat = new THREE.MeshStandardMaterial({
+      map: chevronTexture(),
+      color: new THREE.Color(1, 1, 1).multiplyScalar(CHEVRON.reflect),
+      roughness: CHEVRON.roughness,
+      side: THREE.DoubleSide,
+    });
     this.buildFar();
     scene.add(this.course, this.far);
   }
