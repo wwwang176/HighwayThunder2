@@ -32,6 +32,8 @@ export const RIVAL_TUNING = {
   /** ...rising evenly to `maxBoost` (+60 % each) this far behind. */
   boostFull: 300,
   maxBoost: 0.6,
+  /** Trial: this boost all the time, wherever it is (0: the rubber band's, by the gap). */
+  fixedBoost: 0.6,
   /** Ahead by more than this, its top speed comes down... */
   waitFrom: 100,
   /** ...to `waitSpeed` x the player's speed this far ahead (it waits for the player: as fast, holding the gap). */
@@ -285,7 +287,8 @@ export class Rivals {
       r.car.holdInPlace(false);
       const own = Math.min(view.speedCap, (view.topShare ?? 1) * r.base.maxSpeed); // (the difficulty's share of its car's)
       const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), own);
-      r.boost += (band.boost - r.boost) * Math.min(1, dt / BAND_SMOOTH);
+      const want = RIVAL_TUNING.fixedBoost > 0 ? RIVAL_TUNING.fixedBoost : band.boost;
+      r.boost += (want - r.boost) * Math.min(1, dt / BAND_SMOOTH);
       this.applyBoost(r);
       const top = Math.min(band.speedCap, r.base.maxSpeed); // its own top speed (as tuned) when lower than the AI's cap
       const cap = r.finishTime === null ? top : Math.min(top, FINISHED_SPEED);
