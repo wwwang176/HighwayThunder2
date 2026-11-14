@@ -1,0 +1,382 @@
+import * as THREE from 'three';
+import { makeFlareMaterial } from '../render/lightFlares';
+import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
+import { MOUNTAIN, wallSides } from '../road/mountain';
+import { roadRows } from '../road/surface';
+import { repeating, type Scenery, withAsphalt } from './roadScene';
+
+/** Night on the mountain: no street lights - the cars' lamps, the moon and the stars. */
+const SKY = 0x04060d;
+const FOG = 0x06080f;
+const LIGHT = {
+  hemi: 0.5,
+  moon: 0.35,
+};
+/** The road's markings: the centre's double yellow line, white edge lines (d, m). */
+const CENTRE_LINE = { off: 0.12, width: 0.1 };
+const EDGE_LINE = { d: MOUNTAIN.halfWidth - 0.15, width: 0.12 };
+/** The rock wall: how high (m, between, varying along the road), and its tapering in and out where it changes sides (m). */
+const WALL = { low: 7, high: 15, taper: 10, color: 0x5d564e };
+/** The guardrail: its beam's bottom and top over the road, posts and reflectors (m apart). */
+const RAIL = { y0: 0.5, y1: 0.82, post: 4, reflector: 8 };
+/** The ground falling away below the rail: (d past the rail, y below the road) pairs. */
+const CLIFF: [number, number][] = [
+  [0.3, -0.25],
+  [3, -3],
+  [12, -18],
+  [40, -55],
+  [110, -140],
+];
+/** Chevron boards outside bends tighter than this radius (m), this far apart along it. */
+const CHEVRON = { radius: 60, spacing: 7, size: 0.75, height: 1.1 };
+
+const RUN_FROM = -MOUNTAIN.before;
+const RUN_TO = () => MOUNTAIN.length + MOUNTAIN.after;
+
+function seeded(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+/** The markings over the asphalt: 2 x edge m across (shoulder to shoulder), 20 m along. */
+function markingsTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
+  const W = 256;
+  const H = 512;
+  const span = 2 * MOUNTAIN.edge;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const x = (d: number) => ((d + MOUNTAIN.edge) / span) * W;
+  g.fillStyle = '#45474b';
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = '#4f5054'; // (the shoulders)
+  g.fillRect(0, 0, x(-MOUNTAIN.halfWidth), H);
+  g.fillRect(x(MOUNTAIN.halfWidth), 0, W - x(MOUNTAIN.halfWidth), H);
+  g.fillStyle = '#e8eaec';
+  for (const s of [-1, 1]) g.fillRect(x(s * EDGE_LINE.d - EDGE_LINE.width / 2), 0, (EDGE_LINE.width / span) * W, H);
+  g.fillStyle = '#e0b020';
+  for (const s of [-1, 1]) g.fillRect(x(s * CENTRE_LINE.off - CENTRE_LINE.width / 2), 0, (CENTRE_LINE.width / span) * W, H);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** A yellow chevron board pointing right (a left bend's: flipped). */
+function chevronTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#111';
+  g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#f2c200';
+  g.beginPath();
+  g.moveTo(30, 14);
+  g.lineTo(74, 64);
+  g.lineTo(30, 114);
+  g.lineTo(54, 114);
+  g.lineTo(98, 64);
+  g.lineTo(54, 14);
+  g.closePath();
+  g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * A strip along the road: at each row (s), a cross-section of points (`cols(s, i)`: road d and height over the road),
+ * joined row to row. `u` along the cross-section's points (0..1), `v` along the road (s / vScale).
+ */
+function strip(road: Centerline, rows: number[], ncol: number, cols: (s: number, i: number, out: [number, number][]) => void, vScale: number): THREE.BufferGeometry {
+  const n = rows.length;
+  const pos = new Float32Array(n * ncol * 3);
+  const uv = new Float32Array(n * ncol * 2);
+  const pts: [number, number][] = Array.from({ length: ncol }, () => [0, 0]);
+  rows.forEach((s, r) => {
+    cols(s, r, pts);
+    const h = road.height(s);
+    for (let j = 0; j < ncol; j++) {
+      const w = road.toWorld(s, pts[j][0]);
+      const k = r * ncol + j;
+      pos[3 * k] = w.x;
+      pos[3 * k + 1] = h + pts[j][1];
+      pos[3 * k + 2] = w.z;
+      uv[2 * k] = j / (ncol - 1);
+      uv[2 * k + 1] = s / vScale;
+    }
+  });
+  const idx: number[] = [];
+  for (let r = 0; r + 1 < n; r++)
+    for (let j = 0; j + 1 < ncol; j++) {
+      const a = r * ncol + j;
+      const b = a + 1;
+      const c = a + ncol;
+      const d = c + 1;
+      idx.push(a, b, c, b, d, c);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** A smooth bumpy value along the road (m), between 0 and 1, for the rock's height and shape. */
+function bumps(s: number, seed: number): number {
+  return 0.5 + 0.25 * Math.sin(s / 23 + seed) + 0.15 * Math.sin(s / 7.3 + 2.1 * seed) + 0.1 * Math.sin(s / 3.1 + 4.7 * seed);
+}
+
+/**
+ * The mountain road's scenery, the whole course laid once a race (setRoad): the asphalt with its markings, the rock
+ * wall on the bends' inside (wallSides), the guardrail with its reflectors on the other side and the slope falling
+ * away below it, chevron boards outside the tight bends; the night sky, the moon, far ridges.
+ */
+export class MountainScene implements Scenery {
+  readonly lampFlareMaterial = makeFlareMaterial(2.5);
+  readonly groundMaterials: THREE.MeshStandardMaterial[] = [];
+  private line: Centerline = STRAIGHT_ROAD;
+  private readonly course = new THREE.Group();
+  private readonly far = new THREE.Group();
+  private readonly roadMat: THREE.MeshStandardMaterial;
+  private readonly wallMat = new THREE.MeshStandardMaterial({ color: WALL.color, roughness: 1, flatShading: true, side: THREE.DoubleSide });
+  private readonly cliffMat: THREE.MeshStandardMaterial;
+  private readonly railMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide });
+  private readonly postMat = new THREE.MeshStandardMaterial({ color: 0x8a8e94, metalness: 0.4, roughness: 0.5 });
+  private readonly reflectorMat = new THREE.MeshBasicMaterial({ color: 0xffa640 });
+  private readonly chevronMat: THREE.MeshStandardMaterial;
+
+  constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
+    scene.background = new THREE.Color(SKY);
+    scene.fog = new THREE.Fog(FOG, 50, 520);
+    scene.add(new THREE.HemisphereLight(0x22304c, 0x07080a, LIGHT.hemi));
+    const moon = new THREE.DirectionalLight(0x9fb2e0, LIGHT.moon);
+    moon.position.set(-300, 400, 150);
+    scene.add(moon);
+    this.roadMat = withAsphalt(new THREE.MeshStandardMaterial({ map: markingsTexture(renderer), roughness: 0.92 }), renderer);
+    this.groundMaterials.push(this.roadMat);
+    const dirt = repeating('grass-small.jpg');
+    dirt.repeat.set(1, 1);
+    this.cliffMat = new THREE.MeshStandardMaterial({ map: dirt, color: 0x4a5040, roughness: 1, side: THREE.DoubleSide });
+    this.chevronMat = new THREE.MeshStandardMaterial({ map: chevronTexture(), emissive: 0xffffff, emissiveIntensity: 0.12, roughness: 0.6, side: THREE.DoubleSide });
+    this.chevronMat.emissiveMap = this.chevronMat.map;
+    this.buildFar();
+    scene.add(this.course, this.far);
+  }
+
+  activeLights(): THREE.SpotLight[] {
+    return [];
+  }
+
+  setRoad(line: Centerline): void {
+    this.line = line;
+    this.clearCourse();
+    const road = line;
+    const rows = roadRows(road, RUN_FROM, RUN_TO());
+    const sides = wallSides(road, rows);
+    // Runs of rows with the wall on one side: each one's start and end (for the taper).
+    const runStart = new Float64Array(rows.length);
+    const runEnd = new Float64Array(rows.length);
+    for (let i = 0; i < rows.length; i++) runStart[i] = i > 0 && sides[i] === sides[i - 1] ? runStart[i - 1] : rows[i];
+    for (let i = rows.length - 1; i >= 0; i--) runEnd[i] = i + 1 < rows.length && sides[i] === sides[i + 1] ? runEnd[i + 1] : rows[i];
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    const taper = (i: number) => {
+      // (into the run from where the wall changes sides: none at the course's own ends)
+      const fromStart = runStart[i] === first ? Infinity : rows[i] - runStart[i];
+      const toEnd = runEnd[i] === last ? Infinity : runEnd[i] - rows[i];
+      return Math.min(1, Math.max(0, Math.min(fromStart, toEnd) / WALL.taper));
+    };
+
+    // The road (shoulder to shoulder).
+    const E = MOUNTAIN.edge;
+    const roadGeo = strip(road, rows, 2, (_s, _i, p) => {
+      p[0] = [-E, 0.01];
+      p[1] = [E, 0.01];
+    }, 20);
+    const roadMesh = new THREE.Mesh(roadGeo, this.roadMat);
+    roadMesh.receiveShadow = true;
+    this.course.add(roadMesh);
+
+    // Both sides: the rock wall where it is (its height the taper's share), the cliff where it is.
+    for (const side of [-1, 1] as const) {
+      const wall = strip(road, rows, 6, (s, i, p) => {
+        const on = sides[i] === side ? taper(i) : 0;
+        const h = (WALL.low + (WALL.high - WALL.low) * bumps(s, side * 3.1)) * on;
+        const b = bumps(s, side * 1.7 + 5);
+        p[0] = [side * E, -0.3];
+        p[1] = [side * (E + 0.3), 0.25 * h];
+        p[2] = [side * (E + 0.8 + 0.6 * b), 0.55 * h];
+        p[3] = [side * (E + 1.6 + b), 0.85 * h];
+        p[4] = [side * (E + 3 + 2 * b), h];
+        p[5] = [side * (E + 9 + 4 * b), h + 4 * on];
+      }, 8);
+      const wallMesh = new THREE.Mesh(wall, this.wallMat);
+      wallMesh.receiveShadow = true;
+      this.course.add(wallMesh);
+
+      // The cliff's slope where the wall isn't (folded flat under the wall where it is).
+      const cliff = strip(road, rows, CLIFF.length, (_s, i, p) => {
+        const on = sides[i] === side ? 0 : 1;
+        CLIFF.forEach(([dd, y], j) => {
+          p[j] = [side * (E + dd * (j === 0 ? 1 : on) + (1 - on) * 0.3 * j), on ? y : -0.3 - 0.01 * j];
+        });
+      }, 12);
+      this.course.add(new THREE.Mesh(cliff, this.cliffMat));
+
+      // The rail's beam (a ribbon), its posts and reflectors - only along the cliff.
+      const runs = this.cliffRuns(rows, sides, side);
+      for (const [a, b] of runs) {
+        const rr = rows.filter((s) => s >= a && s <= b);
+        if (rr.length < 2) continue;
+        const beam = strip(road, rr, 3, (_s, _i, p) => {
+          p[0] = [side * (E + 0.05), RAIL.y0];
+          p[1] = [side * (E + 0.12), (RAIL.y0 + RAIL.y1) / 2];
+          p[2] = [side * (E + 0.05), RAIL.y1];
+        }, 4);
+        this.course.add(new THREE.Mesh(beam, this.railMat));
+      }
+      this.addPosts(road, runs, side);
+    }
+    this.addChevrons(road);
+  }
+
+  update(playerS: number): void {
+    // (the far ridges and the sky go along with the player: as far off whichever way it turns)
+    const c = this.line.center(playerS);
+    this.far.position.set(c.x, this.line.height(playerS), c.z);
+  }
+
+  /** Stretches (s from, to) where `side` is the cliff's (the wall the other side). */
+  private cliffRuns(rows: number[], sides: Int8Array, side: number): [number, number][] {
+    const out: [number, number][] = [];
+    let from: number | null = null;
+    rows.forEach((s, i) => {
+      const cliff = sides[i] !== side;
+      if (cliff && from === null) from = s;
+      if (!cliff && from !== null) {
+        out.push([from, rows[i - 1]]);
+        from = null;
+      }
+    });
+    if (from !== null) out.push([from, rows[rows.length - 1]]);
+    return out;
+  }
+
+  private addPosts(road: Centerline, runs: [number, number][], side: number): void {
+    const posts: number[] = [];
+    const reflectors: number[] = [];
+    for (const [a, b] of runs) {
+      for (let s = Math.ceil(a / RAIL.post) * RAIL.post; s <= b; s += RAIL.post) {
+        posts.push(s);
+        if (Math.round(s / RAIL.post) % (RAIL.reflector / RAIL.post) === 0) reflectors.push(s);
+      }
+    }
+    const E = MOUNTAIN.edge;
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const p = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
+    const place = (mesh: THREE.InstancedMesh, list: number[], d: number, y: number) => {
+      list.forEach((s, i) => {
+        const w = road.toWorld(s, d);
+        q.setFromAxisAngle(up, -road.heading(s));
+        m.compose(p.set(w.x, road.height(s) + y, w.z), q, one);
+        mesh.setMatrixAt(i, m);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.frustumCulled = false;
+      this.course.add(mesh);
+    };
+    place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.95, 0.12), this.postMat, Math.max(1, posts.length)), posts, side * (E + 0.2), 0.47);
+    place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, 0.09, 0.14), this.reflectorMat, Math.max(1, reflectors.length)), reflectors, side * (E + 0.02), RAIL.y1 + 0.06);
+  }
+
+  /** Chevron boards outside each bend tighter than CHEVRON.radius, facing the cars coming to it. */
+  private addChevrons(road: Centerline): void {
+    const spots: { s: number; dir: number }[] = [];
+    let s = 0;
+    while (s < road.length) {
+      const k = road.curvature(s);
+      if (Math.abs(k) > 1 / CHEVRON.radius) {
+        const dir = Math.sign(k);
+        let end = s;
+        while (end < road.length && Math.abs(road.curvature(end)) > 1 / CHEVRON.radius && Math.sign(road.curvature(end)) === dir) end += 1;
+        for (let t = s; t <= end; t += CHEVRON.spacing) spots.push({ s: t, dir });
+        s = end + 1;
+      } else s += 1;
+    }
+    const geo = new THREE.PlaneGeometry(CHEVRON.size, CHEVRON.size);
+    const boards = new THREE.InstancedMesh(geo, this.chevronMat, Math.max(1, spots.length));
+    const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, CHEVRON.height, 0.06), this.postMat, Math.max(1, spots.length));
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const p = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    spots.forEach(({ s, dir }, i) => {
+      const d = -dir * (MOUNTAIN.edge + 0.5); // (outside the bend)
+      const w = road.toWorld(s, d);
+      const h = road.height(s);
+      q.setFromEuler(e.set(0, -road.heading(s), 0)); // (its face toward the cars coming)
+      m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.size / 2, w.z), q, sc.set(dir, 1, 1));
+      boards.setMatrixAt(i, m);
+      m.compose(p.set(w.x, h + CHEVRON.height / 2, w.z), q, sc.set(1, 1, 1));
+      poles.setMatrixAt(i, m);
+    });
+    for (const mesh of [boards, poles]) {
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.frustumCulled = false;
+      this.course.add(mesh);
+    }
+  }
+
+  private clearCourse(): void {
+    for (const o of [...this.course.children]) {
+      this.course.remove(o);
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
+    }
+  }
+
+  private buildFar(): void {
+    const rnd = seeded(17);
+    // Ridges round about, dark against the sky (beyond the fog: their own colour).
+    const mats = [0x0b0f18, 0x0d121c, 0x0a0d15].map((color) => new THREE.MeshBasicMaterial({ color, fog: false }));
+    for (let i = 0; i < 40; i++) {
+      const az = (i / 40) * Math.PI * 2 + rnd() * 0.15;
+      const r = 900 + rnd() * 700;
+      const h = 150 + rnd() * 350;
+      const mtn = new THREE.Mesh(new THREE.ConeGeometry(h * (1.2 + rnd()), h, 5), mats[i % 3]);
+      mtn.position.set(Math.cos(az) * r, h / 2 - 160, Math.sin(az) * r);
+      mtn.rotation.y = rnd() * Math.PI;
+      this.far.add(mtn);
+    }
+    // Stars, and the moon (where its light comes from).
+    const n = 1400;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const az = rnd() * Math.PI * 2;
+      const el = 0.1 + Math.pow(rnd(), 0.7) * 1.4;
+      const r = 1800;
+      pos[i * 3] = Math.cos(az) * Math.cos(el) * r;
+      pos[i * 3 + 1] = Math.sin(el) * r;
+      pos[i * 3 + 2] = Math.sin(az) * Math.cos(el) * r;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.far.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xc8d2ea, size: 1.6, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.8 })));
+    const moon = new THREE.Mesh(new THREE.CircleGeometry(38, 32), new THREE.MeshBasicMaterial({ color: 0xe8ecf6, fog: false }));
+    const dir = new THREE.Vector3(-300, 400, 150).normalize();
+    moon.position.copy(dir.multiplyScalar(1700));
+    moon.lookAt(0, 0, 0);
+    this.far.add(moon);
+  }
+}

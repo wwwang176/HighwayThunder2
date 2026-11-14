@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { MOUNTAIN, mountainRoad, wallSide } from '../src/road/mountain';
+import { MOUNTAIN, mountainRoad, wallSide, wallSides } from '../src/road/mountain';
 import { mulberry32 } from '../src/ai/rng';
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -78,6 +78,18 @@ describe('mountainRoad', () => {
     const b = mountainRoad(mulberry32(7));
     expect(a.pieces).toEqual(b.pieces);
     expect(a.height(2000)).toBe(b.height(2000));
+  });
+});
+
+describe('wallSides', () => {
+  it('is wallSide at every row, all at once (but where two bends are as near, to a row)', () => {
+    for (const road of roads.slice(0, 5)) {
+      const ss: number[] = [];
+      for (let s = -100; s <= road.length + 300; s += 3.7) ss.push(s);
+      const sides = wallSides(road, ss);
+      const differ = ss.filter((s, i) => sides[i] !== wallSide(road, s)).length;
+      expect(differ).toBeLessThanOrEqual(ss.length * 0.01);
+    }
   });
 });
 

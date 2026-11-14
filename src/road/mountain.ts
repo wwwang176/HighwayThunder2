@@ -183,6 +183,35 @@ function profile(rand: Rand): GradePiece[] {
   return out;
 }
 
+/** wallSide at each of `ss` (ascending), at once: from the curvature's sign there or at the nearest bent one. */
+export function wallSides(road: Centerline, ss: number[]): Int8Array {
+  const n = ss.length;
+  const sign = ss.map((s) => Math.sign(road.curvature(s)));
+  const out = new Int8Array(n).fill(1);
+  const back = new Float64Array(n).fill(Infinity); // (distance to the last bent one behind, its sign)
+  const backSign = new Int8Array(n).fill(1);
+  let last = -Infinity;
+  let lastSign = 1;
+  for (let i = 0; i < n; i++) {
+    if (sign[i] !== 0) {
+      last = ss[i];
+      lastSign = sign[i];
+    }
+    back[i] = ss[i] - last;
+    backSign[i] = lastSign;
+  }
+  let next = Infinity;
+  let nextSign = backSign[n - 1];
+  for (let i = n - 1; i >= 0; i--) {
+    if (sign[i] !== 0) {
+      next = ss[i];
+      nextSign = sign[i];
+    }
+    out[i] = next - ss[i] < back[i] ? nextSign : backSign[i];
+  }
+  return out;
+}
+
 /** Which side the rock wall is on at s (+1: +d, the right): the inside of the bend there or nearest it (the cliff's rail outside). */
 export function wallSide(road: Centerline, s: number): 1 | -1 {
   for (let k = 0; k <= 600; k++) {

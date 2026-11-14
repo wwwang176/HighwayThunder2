@@ -16,8 +16,8 @@ export interface SurfaceMesh {
   d: Float32Array;
 }
 
-/** The road's surface from s = `from` to `to`, `halfWidth` m either side of its centre line (flat across, at height(s)). */
-export function surfaceMesh(road: Centerline, from: number, to: number, halfWidth: number): SurfaceMesh {
+/** Where the rows across the road go (s), from `from` to `to`: closer where it bends hard (ROW_SAG). */
+export function roadRows(road: Centerline, from: number, to: number): number[] {
   const rows: number[] = [];
   let s = from;
   for (;;) {
@@ -27,6 +27,12 @@ export function surfaceMesh(road: Centerline, from: number, to: number, halfWidt
     const step = k > 0 ? Math.min(ROW_MAX, Math.max(ROW_MIN, ROW_SAG / k)) : ROW_MAX;
     s = Math.min(to, s + step);
   }
+  return rows;
+}
+
+/** The road's surface from s = `from` to `to`, `halfWidth` m either side of its centre line (flat across, at height(s)). */
+export function surfaceMesh(road: Centerline, from: number, to: number, halfWidth: number): SurfaceMesh {
+  const rows = roadRows(road, from, to);
   const n = rows.length;
   const positions = new Float32Array(n * 6);
   const ss = new Float32Array(n * 2);
