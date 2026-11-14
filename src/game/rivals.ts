@@ -5,7 +5,8 @@ import { PlannerDriver, PlanSource } from '../ai/plannerDriver';
 import type { TrafficBox } from '../ai/sensors';
 import { G_NPC_LIVE, G_WRECK, type PhysicsWorld } from '../physics/physicsWorld';
 import type { LightFlares } from '../render/lightFlares';
-import { lanesOccupied, surfaceGrip } from '../road/coords';
+import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
+import type { RivalDriver } from '../ai/driver';
 import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
 import type { Centerline } from '../road/centerline';
 import type { Occupant } from '../traffic/spawner';
@@ -173,12 +174,12 @@ export function placeOf(playerS: number, playerFinish: number | null, rivals: { 
 export type ResetReason = 'stuck' | 'spun' | 'off-road' | 'far-behind' | 'far-ahead';
 
 /** Whether a rival has to be put back into the race, and why (null: it is racing, or the player is too near to see it put back). */
-export function needsReset(r: { s: number; d: number; yaw: number; speed: number; stuckFor: number; playerS: number }): ResetReason | null {
+export function needsReset(r: { s: number; d: number; yaw: number; speed: number; stuckFor: number; playerS: number }, edge = RAIL_D): ResetReason | null {
   const T = RIVAL_TUNING;
   if (r.playerS - r.s > T.teleportBehind) return 'far-behind';
   if (r.s - r.playerS > T.teleportAhead) return 'far-ahead';
   if (Math.abs(r.s - r.playerS) < T.resetClear) return null; // (the player would see it pop)
-  if (Math.abs(r.d) > RAIL_D) return 'off-road';
+  if (Math.abs(r.d) > edge) return 'off-road';
   if (Math.abs(r.yaw) > T.spunYaw) return 'spun';
   if (r.speed < T.stuckSpeed && r.stuckFor > T.stuckTime) return 'stuck';
   return null;
@@ -211,6 +212,8 @@ const GRID: [number, number][] = [
 /** Ids for rivals in box lists: clear of NPCs (+), the player (-1), wreck parts and training ghosts. */
 const RIVAL_BOX_ID = -1_000_000;
 export const PLAYER_BOX_ID = -1;
+/** This far under a road that climbs (m), a car has gone through it: put back. */
+const FALLEN = 5;
 /** s: how fast the rubber band follows the gap (no flicker when cars trade places). */
 const BAND_SMOOTH = 1;
 /** Speed (m/s) it is put back on the road at when stuck, spun or off the road. */
@@ -256,7 +259,7 @@ export function gridRevStep(g: GridRev, dt: number, toGo: number, rng: () => num
   return g.on;
 }
 
-export interface Rival {
+export interface Rival<D extends RivalDriver = PlannerDriver> {
   index: number;
   /** Its car type: its AI tables. */
   spec: CarSpec;
@@ -265,7 +268,7 @@ export interface Rival {
   /** Its car as tuned: the base its rubber band boosts from, its own top speed. */
   base: CarParams;
   car: PlayerCar;
-  driver: PlannerDriver;
+  driver: D;
   /** s it has been slower than RIVAL_TUNING.stuckSpeed. */
   stuckFor: number;
   /** The rubber band's push now (0..1, smoothed: rubberBand). */
@@ -301,18 +304,32 @@ export interface RaceView {
  * near the player by the rubber band and put back into the race when stuck,
  * spun, off the road or hopelessly far behind.
  */
-export class Rivals {
-  readonly list: Rival[] = [];
+export class Rivals<D extends RivalDriver = PlannerDriver> {
+  readonly list: Rival<D>[] = [];
   private readonly boxBuf: TrafficBox[] = [];
+  /** Where each starts (d, s), and how far either side of the centre line it is off the road (m). */
+  private readonly grid: [number, number][];
+  private readonly edge: number;
+  /** Its own road's put-back (the mountain road's two lanes), else the highway's (clearResetSpot). */
+  private readonly ownLanes: number[] | null;
 
-  /** `specs`: each rival's car type, one rival each (up to the start grid's size). */
+  /**
+   * `specs`: each rival's car type, one rival each (up to the start grid's size). `opts`: another road's - each
+   * rival's driver (`makeDriver`; none: the planner, plans from `makeSource`), its grid (d, s), its grip push
+   * (RIVAL_TUNING.gripBoost's), its road's edge and its lanes (d) to be put back in.
+   */
   constructor(
     private readonly physics: PhysicsWorld,
     scene: THREE.Scene | null,
     makeSource: () => PlanSource | null,
     specs: CarSpec[] = Array.from({ length: RIVAL_TUNING.count }, () => STREET_RACER),
+    opts: { makeDriver?: (spec: CarSpec) => D; grid?: [number, number][]; gripBoost?: number; edge?: number; lanes?: number[] } = {},
   ) {
-    for (let i = 0; i < Math.min(specs.length, GRID.length); i++) {
+    this.grid = opts.grid ?? GRID.map(([lane, s]) => [laneCenter(lane), s]);
+    this.edge = opts.edge ?? RAIL_D;
+    this.ownLanes = opts.lanes ?? null;
+    const gripBoost = opts.gripBoost ?? RIVAL_TUNING.gripBoost;
+    for (let i = 0; i < Math.min(specs.length, this.grid.length); i++) {
       const spec = specs[i];
       const car = new PlayerCar(physics, scene, {
         spec,
@@ -321,14 +338,19 @@ export class Rivals {
         livery: randomLivery(spec.style), // a car with paint jobs wears one at random (its colour is for the HUD)
         realLights: false, // (their real lamps are a pool shared by them all: game/rivalLights)
       });
-      const driver = new PlannerDriver(makeSource());
-      driver.accel = spec.ai.accel;
-      driver.latAccel = spec.ai.latAccel;
-      driver.brake = spec.ai.brake;
-      driver.tracker = trackerFrom(spec.ai.tracker);
-      driver.recovery = trackerFrom(spec.ai.recovery);
-      const r: Rival = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, push: 0, ghost: false, blind: false, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
-      car.surfaceGrip = (x) => surfaceGrip(x) * (1 + RIVAL_TUNING.gripBoost * r.push);
+      let driver: D;
+      if (opts.makeDriver) driver = opts.makeDriver(spec);
+      else {
+        const planner = new PlannerDriver(makeSource());
+        planner.accel = spec.ai.accel;
+        planner.latAccel = spec.ai.latAccel;
+        planner.brake = spec.ai.brake;
+        planner.tracker = trackerFrom(spec.ai.tracker);
+        planner.recovery = trackerFrom(spec.ai.recovery);
+        driver = planner as unknown as D;
+      }
+      const r: Rival<D> = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, push: 0, ghost: false, blind: false, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
+      car.surfaceGrip = (x) => surfaceGrip(x) * (1 + gripBoost * r.push);
       this.list.push(r);
     }
     this.place();
@@ -341,7 +363,10 @@ export class Rivals {
 
   /** The road they drive on (their s, d and yaw along it). */
   setRoad(line: Centerline): void {
-    for (const r of this.list) r.car.road = line;
+    for (const r of this.list) {
+      r.car.road = line;
+      (r.driver as { setRoad?: (l: Centerline, ai: CarSpec['ai']) => void }).setRoad?.(line, r.spec.ai); // (a driver with a line of its own: worked out for the road)
+    }
   }
 
   /** Line them up on the start grid (each tuned anew: tuneAtRandom). */
@@ -352,9 +377,9 @@ export class Rivals {
         r.base = tuned(r.spec.params, r.tuning, TUNE_CAL[r.spec.id]);
         Object.assign(r.car.params, r.base);
       }
-      const [lane, s] = GRID[r.index];
-      r.car.resetTo(s, lane, 0);
-      r.driver.reset();
+      const [d, s] = this.grid[r.index];
+      r.car.resetAt(s, d, 0);
+      r.driver.reset(d);
       r.car.nitro.reset();
       r.nitroAi.reset();
       r.stuckFor = 0;
@@ -427,8 +452,10 @@ export class Rivals {
       r.stuckFor = c.speed < RIVAL_TUNING.stuckSpeed ? r.stuckFor + dt : 0;
       r.resetWait = Math.max(0, r.resetWait - dt);
       if (r.resetWait > 0) continue;
-      const why = needsReset({ s: c.s, d: c.d, yaw: c.yaw, speed: c.speed, stuckFor: r.stuckFor, playerS: view.player.s });
-      if (why && r.finishTime === null) this.putBack(r, why, view, blockers);
+      // Under a road that climbs (through its surface: a mesh has no inside): off the road, wherever it is.
+      const under = c.road.hilly && c.body.translation().y < c.road.height(c.s) - FALLEN;
+      const why = under ? 'off-road' : needsReset({ s: c.s, d: c.d, yaw: c.yaw, speed: c.speed, stuckFor: r.stuckFor, playerS: view.player.s }, this.edge);
+      if (why && (r.finishTime === null || under)) this.putBack(r, why, view, blockers);
     }
   }
 
@@ -483,7 +510,7 @@ export class Rivals {
    * Everything but `r` on its road: traffic (not while it is blind to it; going through it, not what it is in - it
    * plans its way out round the rest), the player, the other rivals.
    */
-  private othersAsBoxes(r: Rival, view: RaceView): TrafficBox[] {
+  private othersAsBoxes(r: Rival<D>, view: RaceView): TrafficBox[] {
     const out = this.boxBuf;
     out.length = 0;
     const me = r.ghost ? r.car.footprint() : null;
@@ -494,20 +521,25 @@ export class Rivals {
   }
 
   /** The engine with the rubber band's push (the grip's: `surfaceGrip`, set up with the car). */
-  private applyBoost(r: Rival): void {
+  private applyBoost(r: Rival<D>): void {
     const base = r.base;
     const k = 1 + RIVAL_TUNING.engineBoost * r.push;
     r.car.params.power = base.power * k;
     r.car.params.engineTorque = base.engineTorque * k;
     r.car.params.maxDriveForce = base.maxDriveForce * k;
     r.driver.accelScale = k;
+    if (r.driver.push !== undefined) r.driver.push = r.push;
   }
 
-  private putBack(r: Rival, why: ResetReason, view: RaceView, blockers: Blocker[]): void {
+  private putBack(r: Rival<D>, why: ResetReason, view: RaceView, blockers: Blocker[]): void {
     const p = view.player;
     const at = putBackAt(why, r.car.s, p);
     const all: Blocker[] = [...blockers, { ...p.footprint(), v: Math.max(0, p.speed) }];
     for (const o of this.list) if (o !== r) all.push({ ...o.car.footprint(), v: Math.max(0, o.car.speed) });
+    if (this.ownLanes) {
+      this.putBackOnLanes(r, at, all);
+      return;
+    }
     // Only somewhere clear - never on top of another car - looking on from a spot ahead of the player, back from one
     // behind it (never past the player into the lead, nor back behind it). No room yet: it waits and tries again.
     const spot = clearResetSpot(at.s, r.car.d, all, at.speed, at.s >= p.s ? 1 : -1);
@@ -516,8 +548,31 @@ export class Rivals {
       return;
     }
     r.car.resetTo(spot.s, spot.lane, at.speed);
-    r.driver.reset();
+    r.driver.reset(r.car.d);
     r.stuckFor = 0;
     r.resets++;
+  }
+
+  /**
+   * On a road of its own lanes (the mountain road's): in the first lane clear of the others (none within a few car
+   * lengths) at `at.s`, or a little further back; at a speed it can take the bends just ahead at. None clear: later.
+   */
+  private putBackOnLanes(r: Rival<D>, at: { s: number; speed: number }, all: Blocker[]): void {
+    const road = r.car.road;
+    for (let back = 0; back <= 60; back += 6) {
+      const s = Math.max(0, at.s - back);
+      for (const d of this.ownLanes ?? []) {
+        if (all.some((b) => Math.abs(b.s - s) < 12 && b.dMax > d - 1.5 && b.dMin < d + 1.5)) continue;
+        let k = 0;
+        for (let a = 0; a <= 40; a += 4) k = Math.max(k, Math.abs(road.curvature(s + a)));
+        const speed = Math.min(at.speed, k > 0 ? Math.sqrt((0.5 * 9.81) / k) : at.speed);
+        r.car.resetAt(s, d, speed);
+        r.driver.reset(d);
+        r.stuckFor = 0;
+        r.resets++;
+        return;
+      }
+    }
+    r.resetWait = RESET_RETRY;
   }
 }

@@ -55,13 +55,21 @@ import { FinishShow } from './finishShow';
 /** A car type by id (the supercar for an id no longer known). */
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
 /** Rivals on the mountain road (two lanes: fewer than the highway's). */
-const MOUNTAIN_RIVALS = 0;
+const MOUNTAIN_RIVALS = 3;
 /** The mountain road: the player's lane (d), where its grid is (s); below the road this far, a car has fallen off (put back). */
 const MOUNTAIN_LANE = MOUNTAIN.halfWidth / 2;
+/** The rivals' grid on the mountain road (d, s): beside the player, and a row behind. */
+const MOUNTAIN_GRID: [number, number][] = [
+  [-MOUNTAIN_LANE, -3],
+  [MOUNTAIN_LANE, -11],
+  [-MOUNTAIN_LANE, -11],
+];
 const FALLEN = 5;
 import { FinishGate, type SparkEmitter } from '../world/finishGate';
 import { RoadScene, type Scenery } from '../world/roadScene';
 import { MountainScene } from '../world/mountainScene';
+import { MountainDriver } from '../ai/mountainDriver';
+import type { RivalDriver } from '../ai/driver';
 import { MOUNTAIN, mountainRoad } from '../road/mountain';
 import { surfaceMesh } from '../road/surface';
 import { SkidMarks } from '../world/skidMarks';
@@ -233,7 +241,7 @@ export class Game {
   showPlan = true;
   private planPath!: PlanPath;
   /** The rival racers (RIVAL_TUNING.count of them). */
-  rivals!: Rivals;
+  rivals!: Rivals<RivalDriver>;
   private rivalTraffic: TrafficBox[] = [];
   private rivalBoxes: TrafficBox[] = [];
   /** Velocities (world x/z) of the player [0] and the rivals [1..] going into the physics step. */
@@ -318,8 +326,7 @@ export class Game {
     this.player.surfaceGrip = surfaceGrip;
     this.bodies = new BodyInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
-    this.rivals = new Rivals(physics, this.scene, () => new WorkerPlanSource(), this.rivalCars.map(specOf));
-    this.rivals.tuneAtRandom = true; // (each race its rivals' perf knobs at random)
+    this.rivals = this.makeRivals(this.rivalCars.map(specOf)); // (each race its rivals' perf knobs at random)
     this.rivalLights = new RivalLightPool(this.scene);
     this.trafficWorld = new TrafficWorld(physics, Math.random, { oncoming: true, bothWays: true, edge: TRAFFIC_EDGE, gone: TRAFFIC_GONE, planEvery: TRAFFIC_PLAN_EVERY }); // (any way the player goes)
     this.skids = new SkidMarks(this.scene);
@@ -597,6 +604,7 @@ export class Game {
       this.applyCars(cars);
       this.rivalTopShare = applyDifficulty(cars.difficulty);
     }
+    if (this.mountain) this.mountainBudget();
     // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
     const spec = specOf(this.cars.player);
     Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
@@ -716,8 +724,7 @@ export class Game {
     const rivals = this.mountain ? drawn.slice(0, MOUNTAIN_RIVALS) : drawn;
     if (rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {
       this.rivals.dispose();
-      this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), rivals.map(specOf));
-      this.rivals.tuneAtRandom = true;
+      this.rivals = this.makeRivals(rivals.map(specOf));
     }
     this.rivalCars = rivals;
     this.cars = { ...cars, rivals: [...cars.rivals], paint: { ...cars.paint } };
@@ -811,6 +818,8 @@ export class Game {
       this.rivals.setRoad(this.roadLine);
       this.road.setRoad(this.roadLine);
       this.gate.setRoad(this.roadLine);
+      // (the player's AI - the I key, past the finish - on the mountain road: its line worked out for this road)
+      if (this.aiDriver instanceof MountainDriver) this.aiDriver.setRoad(this.roadLine, specOf(this.cars.player).ai);
     }
     if (this.mountain) this.player.resetAt(-3, MOUNTAIN_LANE, 0);
     else this.player.resetTo(-3, 1, 0);
@@ -859,6 +868,32 @@ export class Game {
     this.skids.cut();
     this.flow.markReset();
     this.rig.snap();
+  }
+
+  /**
+   * The rivals on these cars, their perf knobs at random each race: the highway's (the planner AI, plans in a worker),
+   * or the mountain road's (its racing-line drivers, its two lanes, no grip push, its grid behind and beside the player).
+   */
+  private makeRivals(specs: CarSpec[]): Rivals<RivalDriver> {
+    const rivals = this.mountain
+      ? new Rivals<RivalDriver>(this.physics, this.scene, () => null, specs, {
+          makeDriver: () => new MountainDriver(),
+          grid: MOUNTAIN_GRID,
+          gripBoost: 0,
+          edge: MOUNTAIN.edge,
+          lanes: [MOUNTAIN_LANE, -MOUNTAIN_LANE],
+        })
+      : new Rivals<RivalDriver>(this.physics, this.scene, () => new WorkerPlanSource(), specs);
+    rivals.tuneAtRandom = true;
+    rivals.length = this.courseLength;
+    if (this.mountain) rivals.setRoad(this.roadLine);
+    return rivals;
+  }
+
+  /** The mountain drivers' line at the race's difficulty: its share of the rivals' top speed taken as their share of the grip. */
+  private mountainBudget(): void {
+    const budget = Math.min(0.97, Math.max(0.8, this.rivalTopShare - 0.03));
+    for (const r of this.rivals.list) if (r.driver instanceof MountainDriver) r.driver.budget = budget;
   }
 
   /**

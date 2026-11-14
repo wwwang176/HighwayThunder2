@@ -34,6 +34,13 @@ export interface Driver {
   reset(d: number): void;
 }
 
+/** A rival's driver: the rubber band scales its engine (`accelScale`) and, where it heeds it, pushes it on (`push`, 0..1). */
+export interface RivalDriver extends Driver {
+  accelScale: number;
+  push?: number;
+  dispose(): void;
+}
+
 /** The AI car's state as the sensors expect it. */
 export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
   return {

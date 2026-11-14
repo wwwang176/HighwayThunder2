@@ -36,6 +36,20 @@ export interface LineCar {
  * go of those pulling inward - till none is past and none pulls in. Wide into a bend, the inside at its apex, wide out.
  */
 export function racingLine(road: Centerline, room: number, step = 2): Float64Array {
+  // (every racer on a road the same line: worked out once a road)
+  const key = `${room}|${step}`;
+  let lines = LINES.get(road);
+  if (!lines) LINES.set(road, (lines = new Map()));
+  const known = lines.get(key);
+  if (known) return known;
+  const d = leastCurvedLine(road, room, step);
+  lines.set(key, d);
+  return d;
+}
+
+const LINES = new WeakMap<Centerline, Map<string, Float64Array>>();
+
+function leastCurvedLine(road: Centerline, room: number, step: number): Float64Array {
   const n = Math.floor((road.length + PAST_END) / step) + 1;
   const kc = new Float64Array(n);
   for (let i = 0; i < n; i++) kc[i] = road.curvature(i * step);
