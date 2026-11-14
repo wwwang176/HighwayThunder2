@@ -1,4 +1,5 @@
-import { Game } from './game/game';
+import { AUTOSTART, Game } from './game/game';
+import { loadSelection } from './game/carSelection';
 import { PhysicsWorld } from './physics/physicsWorld';
 import { DRIVER_TUNING, PlannerDriver } from './ai/plannerDriver';
 import { WorkerPlanSource } from './ai/workerPlanSource';
@@ -36,10 +37,11 @@ async function boot() {
     }),
   ]);
   await loading.next('loading.scene', 0.7);
-  // The road bends (?straight: the straight road as ever, its own record); ?mountain: the mountain road.
+  // The road bends (?straight: the straight road as ever, its own record); the mountain road when picked in the
+  // garage (?mountain / ?highway: that one whatever was picked).
   const params = new URLSearchParams(location.search);
   const curved = !params.has('straight');
-  const mountain = params.has('mountain');
+  const mountain = params.has('mountain') || (!params.has('highway') && !params.has('straight') && loadSelection(localStorage).course === 'mountain');
   const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved, mountain });
   (window as unknown as { __game: Game }).__game = game;
   // I hands the car to the AI: the path planner, driven by plain controllers for now
@@ -50,6 +52,15 @@ async function boot() {
   game.warmUp();
   game.start();
   await loading.finish('loading.ready');
+  // Loaded again on another course (picked in the garage, its start pressed): its race straight away.
+  let autostart = false;
+  try {
+    autostart = sessionStorage.getItem(AUTOSTART) === '1';
+    sessionStorage.removeItem(AUTOSTART);
+  } catch {
+    // (no session storage: the garage)
+  }
+  if (autostart) game.startRace(loadSelection(localStorage), true);
 }
 
 boot();

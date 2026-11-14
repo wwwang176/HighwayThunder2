@@ -63,6 +63,10 @@ describe('MountainDriver', () => {
     expect(input.throttle).toBe(0);
   });
 
+  it('has no `plan` (the game draws a driver\'s `plan`, the planner\'s path, on the road)', () => {
+    expect((driver() as unknown as { plan?: unknown }).plan).toBeUndefined();
+  });
+
   it('past the finish it brakes down (the road runs out), whatever speed it is let keep', () => {
     const m = driver();
     const self = { ...onLine(m, ROAD.length + 20), vLong: 40, speedCap: 40 };

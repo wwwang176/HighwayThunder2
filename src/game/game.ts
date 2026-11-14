@@ -54,6 +54,8 @@ import { FinishShow } from './finishShow';
 
 /** A car type by id (the supercar for an id no longer known). */
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
+/** sessionStorage: the race to start as the game comes up (the course changed in the garage: reloaded on it). */
+export const AUTOSTART = 'ht2.autostart';
 /** Rivals on the mountain road (two lanes: fewer than the highway's). */
 const MOUNTAIN_RIVALS = 3;
 /** The mountain road: the player's lane (d), where its grid is (s); below the road this far, a car has fallen off (put back). */
@@ -348,6 +350,17 @@ export class Game {
     this.setVolumes(loadVolumes(localStorage));
     this.garage = new Garage(uiRoot, RIVAL_COLORS, (cars) => {
       saveSelection(localStorage, cars);
+      // Another course: the game is built for one (its road, scenery, rivals), so it is loaded again on it, the
+      // race started as it comes up (main.ts: AUTOSTART).
+      if ((cars.course === 'mountain') !== this.mountain) {
+        try {
+          sessionStorage.setItem(AUTOSTART, '1');
+        } catch {
+          // (no session storage: the garage again after the reload)
+        }
+        location.search = '';
+        return;
+      }
       this.startRace(cars, true);
     }, this.settings);
     this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
@@ -554,7 +567,8 @@ export class Game {
     this.sound.silenceEngine();
     this.sound.hush(); // (the squeals, the nitro, the wind: at once, even from a pause - its clock not yet running again)
     this.hud.hide();
-    this.garage.open(loadSelection(localStorage), title);
+    // (its course the one the game is on: picked from the URL, ?mountain, it is that, whatever was saved)
+    this.garage.open({ ...loadSelection(localStorage), course: this.mountain ? 'mountain' : 'highway' }, title);
   }
 
   /**

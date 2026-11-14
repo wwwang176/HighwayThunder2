@@ -70,17 +70,18 @@ export class MountainDriver implements RivalDriver {
   set budget(b: number) {
     if (b === this.budgetNow) return;
     this.budgetNow = b;
-    this.plan();
+    this.layLine();
   }
 
   /** A new road (a new race), and the car's limits (CarSpec.ai). */
   setRoad(road: Centerline, car: LineCar): void {
     this.road = road;
     this.car = car;
-    this.plan();
+    this.layLine();
   }
 
-  private plan(): void {
+  /** Its line and speeds for the road and budget (not `plan`: the game draws a driver's `plan` - the planner's path). */
+  private layLine(): void {
     if (!this.road || !this.car) return;
     const d = racingLine(this.road, this.room);
     this.line = speedProfile(this.road, d, this.car, this.budgetNow, MOUNTAIN_DRIVER.vMax);
