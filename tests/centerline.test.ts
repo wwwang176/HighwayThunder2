@@ -110,3 +110,53 @@ describe('randomRoad', () => {
     expect(bent).toBe(20);
   });
 });
+
+describe('centerline height and turn-back', () => {
+  const HILL = [
+    { len: 100, g: 0 },
+    { len: 50, g: 0.1 },
+    { len: 200, g: 0.1 },
+    { len: 50, g: 0 },
+  ];
+  const hilly = new Centerline([...straight(500)], { grades: HILL });
+
+  it('height is the grade integrated: level, a vertical curve, a slope, level again', () => {
+    expect(hilly.hilly).toBe(true);
+    expect(hilly.height(100)).toBeCloseTo(0, 9);
+    expect(hilly.height(150)).toBeCloseTo(0.1 * 25, 9); // (half the curve's length at the mean grade)
+    expect(hilly.height(350)).toBeCloseTo(0.1 * 25 + 0.1 * 200, 9);
+    expect(hilly.height(400)).toBeCloseTo(0.1 * 25 + 0.1 * 200 + 0.1 * 25, 9);
+    expect(hilly.height(900)).toBeCloseTo(25, 9);
+    expect(hilly.height(-30)).toBe(0);
+    expect(hilly.grade(250)).toBeCloseTo(0.1, 12);
+    expect(hilly.grade(125)).toBeCloseTo(0.05, 12);
+    expect(hilly.grade(900)).toBe(0);
+  });
+
+  it('no grades: flat (height 0, not hilly)', () => {
+    expect(RIGHT.hilly).toBe(false);
+    expect(RIGHT.height(500)).toBe(0);
+    expect(RIGHT.grade(500)).toBe(0);
+  });
+
+  const HAIRPIN = [...straight(100), ...bend(18, 180, 15), ...straight(200)];
+
+  it('a road turning back is refused unless built to (turnBack)', () => {
+    expect(() => new Centerline(HAIRPIN)).toThrow();
+    expect(() => new Centerline(HAIRPIN, { turnBack: true })).not.toThrow();
+  });
+
+  it('project inverts toWorld round a hairpin, with and without a hint', () => {
+    const road = new Centerline(HAIRPIN, { turnBack: true });
+    for (const s of [50, 120, 140, 150, 250, 350]) {
+      for (const d of [-4.7, 0, 4.7]) {
+        const w = road.toWorld(s, d);
+        for (const hint of [s, undefined]) {
+          const p = road.project(w.x, w.z, hint);
+          expect(p.s).toBeCloseTo(s, 3);
+          expect(p.d).toBeCloseTo(d, 3);
+        }
+      }
+    }
+  });
+});
