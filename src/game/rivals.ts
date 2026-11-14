@@ -315,6 +315,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
    * no teleports either (far behind or ahead it races on: the rubber band alone keeps it near).
    */
   private readonly ownLanes: number[] | null;
+  private readonly setup: { params: (p: CarParams, spec: CarSpec) => CarParams; ai: (ai: CarSpec['ai'], spec: CarSpec) => CarSpec['ai'] } | null;
 
   /**
    * `specs`: each rival's car type, one rival each (up to the start grid's size). `opts`: another road's - each
@@ -326,8 +327,17 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
     scene: THREE.Scene | null,
     makeSource: () => PlanSource | null,
     specs: CarSpec[] = Array.from({ length: RIVAL_TUNING.count }, () => STREET_RACER),
-    opts: { makeDriver?: (spec: CarSpec) => D; grid?: [number, number][]; gripBoost?: number; edge?: number; lanes?: number[] } = {},
+    opts: {
+      makeDriver?: (spec: CarSpec) => D;
+      grid?: [number, number][];
+      gripBoost?: number;
+      edge?: number;
+      lanes?: number[];
+      /** The road's own setup of the cars (vehicles/mountainSetup): their params as built or tuned, their AI tables. */
+      setup?: { params: (p: CarParams, spec: CarSpec) => CarParams; ai: (ai: CarSpec['ai'], spec: CarSpec) => CarSpec['ai'] };
+    } = {},
   ) {
+    this.setup = opts.setup ?? null;
     this.grid = opts.grid ?? GRID.map(([lane, s]) => [laneCenter(lane), s]);
     this.edge = opts.edge ?? RAIL_D;
     this.ownLanes = opts.lanes ?? null;
@@ -352,7 +362,9 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
         planner.recovery = trackerFrom(spec.ai.recovery);
         driver = planner as unknown as D;
       }
-      const r: Rival<D> = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, push: 0, ghost: false, blind: false, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
+      const base = this.setup ? this.setup.params(spec.params, spec) : spec.params;
+      if (this.setup) Object.assign(car.params, base);
+      const r: Rival<D> = { index: i, spec, tuning: {}, base, car, driver, stuckFor: 0, push: 0, ghost: false, blind: false, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + gripBoost * r.push);
       this.list.push(r);
     }
@@ -368,7 +380,9 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
   setRoad(line: Centerline): void {
     for (const r of this.list) {
       r.car.road = line;
-      (r.driver as { setRoad?: (l: Centerline, ai: CarSpec['ai']) => void }).setRoad?.(line, r.spec.ai); // (a driver with a line of its own: worked out for the road)
+      // (a driver with a line of its own: worked out for the road, by its car's tables as set up)
+      const ai = this.setup ? this.setup.ai(r.spec.ai, r.spec) : r.spec.ai;
+      (r.driver as { setRoad?: (l: Centerline, ai: CarSpec['ai']) => void }).setRoad?.(line, ai);
     }
   }
 
@@ -378,6 +392,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
       if (this.tuneAtRandom) {
         r.tuning = randomPerfTuning();
         r.base = tuned(r.spec.params, r.tuning, TUNE_CAL[r.spec.id]);
+        if (this.setup) r.base = this.setup.params(r.base, r.spec);
         Object.assign(r.car.params, r.base);
       }
       const [d, s] = this.grid[r.index];

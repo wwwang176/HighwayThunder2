@@ -7,6 +7,7 @@ import { laneCenter } from '../src/road/coords';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { MUSCLE_CAR, STREET_RACER } from '../src/vehicles/cars';
+import { MountainDriver } from '../src/ai/mountainDriver';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -246,5 +247,32 @@ describe('revving on the grid', () => {
       expect(r.s).toBeGreaterThanOrEqual(lo - dt);
       expect(r.s).toBeLessThanOrEqual(hi + dt);
     }
+  });
+});
+
+describe('Rivals on a road of their own setup (the mountain road\'s)', () => {
+  const grip = (p: { latGrip?: number }) => ({ ...p, latGrip: 1.25 });
+
+  it('their cars set up as given, as built and when tuned afresh each race; their drivers given its tables', () => {
+    const physics = PhysicsWorld.createSync();
+    const seen: number[] = [];
+    const rivals = new Rivals<MountainDriver>(physics, null, () => null, [MUSCLE_CAR], {
+      makeDriver: () => new MountainDriver(),
+      setup: {
+        params: grip as never,
+        ai: (ai) => {
+          seen.push(ai.latAccel[0][1]);
+          return ai;
+        },
+      },
+    });
+    expect(rivals.list[0].car.params.latGrip).toBe(1.25);
+    rivals.tuneAtRandom = true;
+    rivals.place();
+    expect(rivals.list[0].car.params.latGrip).toBe(1.25);
+    expect(rivals.list[0].base.latGrip).toBe(1.25);
+    rivals.setRoad(rivals.list[0].car.road);
+    expect(seen.length).toBeGreaterThan(0);
+    physics.free();
   });
 });

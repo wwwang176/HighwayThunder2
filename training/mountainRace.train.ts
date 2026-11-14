@@ -10,6 +10,10 @@ import { MOUNTAIN, mountainRoad } from '../src/road/mountain';
 import { surfaceMesh } from '../src/road/surface';
 import { CARS, STREET_RACER } from '../src/vehicles/cars';
 import { PlayerCar } from '../src/vehicles/playerCar';
+import { mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
+
+/** SETUP=0: the cars as set up for the highway (else the mountain road's, as the game's). */
+const SETUP = process.env.SETUP !== '0';
 
 /**
  * Mountain races without drawing (Task 10 of docs/superpowers/plans/2026-11-15-mountain-road.md): the player's car
@@ -34,6 +38,12 @@ const DEBUG = !!process.env.DEBUG;
 const log: string[] = [];
 const RIVAL_CARS =[STREET_RACER, CARS['muscle-car'] ?? STREET_RACER, CARS.jdm ?? STREET_RACER];
 
+/** How upright a car is (its roof's way up: 1 on its wheels, < 0 on its roof). */
+function upY(car: PlayerCar): number {
+  const q = car.body.rotation();
+  return 1 - 2 * (q.x * q.x + q.z * q.z);
+}
+
 interface CarStats {
   time: number | null;
   s: number;
@@ -49,11 +59,12 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
   physics.setRoad(road, { rails: { left: -MOUNTAIN.edge, right: MOUNTAIN.edge }, ground: surfaceMesh(road, -MOUNTAIN.before, MOUNTAIN.length + MOUNTAIN.after, MOUNTAIN.edge + 1.5) });
   const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
   player.road = road;
+  if (SETUP) Object.assign(player.params, mountainSetup(player.params, mountainSetupOf(STREET_RACER.id))); // (as the game's)
   player.resetAt(-3, LANE, 0);
   const t0 = performance.now();
   const playerAi = new MountainDriver();
   playerAi.budget = BUDGET;
-  playerAi.setRoad(road, STREET_RACER.ai);
+  playerAi.setRoad(road, SETUP ? mountainAi(STREET_RACER.ai, mountainSetupOf(STREET_RACER.id)) : STREET_RACER.ai);
   const lineMs = performance.now() - t0;
   const rivals = new Rivals<MountainDriver>(physics, null, () => null, RIVAL_CARS, {
     makeDriver: () => new MountainDriver(),
@@ -61,6 +72,7 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
     gripBoost: 0,
     edge: MOUNTAIN.edge,
     lanes: [LANE, -LANE],
+    setup: SETUP ? { params: (p, spec) => mountainSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) } : undefined,
   });
   rivals.length = MOUNTAIN.length;
   rivals.setRoad(road);
@@ -89,11 +101,12 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
       }
     });
     const resetsBefore = rivals.list.map((r) => r.resets);
+    const poseBefore = rivals.list.map((r) => `yaw ${r.car.yaw.toFixed(2)} up ${upY(r.car).toFixed(2)} ${(r.car.speed / KMH).toFixed(0)} km/h stuck ${r.stuckFor.toFixed(1)} d ${r.car.d.toFixed(2)}`);
     player.postPhysics();
     time += PHYSICS_DT;
     rivals.after(PHYSICS_DT, view, []);
     if (DEBUG) rivals.list.forEach((r, i) => {
-      if (r.resets > resetsBefore[i] && r.resets <= 4) log.push(`  reset R${i + 1} t ${time.toFixed(1)} s ${r.car.s.toFixed(0)} player s ${player.s.toFixed(0)}`);
+      if (r.resets > resetsBefore[i] && r.resets <= 4) log.push(`  reset R${i + 1} t ${time.toFixed(1)} s ${r.car.s.toFixed(0)} player s ${player.s.toFixed(0)} (was ${poseBefore[i]})`);
     });
     // The player's put-back as the game's (under the road, or stuck).
     playerStuck = player.speed < 2 ? playerStuck + PHYSICS_DT : 0;
@@ -103,8 +116,8 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
       break;
     }
     stats[0].under = Math.min(stats[0].under, pt.y - road.height(player.s));
-    if (pt.y < road.height(player.s) - 5 || playerStuck > 3) {
-      if (DEBUG) log.push(`  reset P t ${time.toFixed(1)} s ${player.s.toFixed(0)} y-h ${(pt.y - road.height(player.s)).toFixed(2)} stuck ${playerStuck.toFixed(1)}`);
+    if (pt.y < road.height(player.s) - 5 || (playerStuck > 3 && stats[0].time === null)) { // (finished: it stops on purpose)
+      if (DEBUG) log.push(`  reset P t ${time.toFixed(1)} s ${player.s.toFixed(0)} y-h ${(pt.y - road.height(player.s)).toFixed(2)} stuck ${playerStuck.toFixed(1)} yaw ${player.yaw.toFixed(2)} up ${upY(player).toFixed(2)} d ${player.d.toFixed(2)}`);
       player.resetAt(player.s, LANE, 15);
       playerAi.reset();
       stats[0].resets++;

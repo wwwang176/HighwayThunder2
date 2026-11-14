@@ -10,7 +10,7 @@ import { surfaceMesh } from '../src/road/surface';
 import { MOUNTAIN } from '../src/road/mountain';
 import { MountainDriver } from '../src/ai/mountainDriver';
 import { selfStateOf } from '../src/ai/driver';
-import { MOUNTAIN_SETUP, mountainSetup, type MountainSetup } from '../src/vehicles/mountainSetup';
+import { MOUNTAIN_SETUP, mountainSetup, mountainSetupOf, type MountainSetup } from '../src/vehicles/mountainSetup';
 
 /**
  * The cars as set up for the highway against the mountain road's setup (src/vehicles/mountainSetup):
@@ -83,10 +83,10 @@ function hairpin(params: CarParams, ai: (typeof CARS)[string]['ai']) {
 
 it('mountain setup', async () => {
   await RAPIER.init();
-  const setup = { ...MOUNTAIN_SETUP, ...OVERRIDE };
-  const out: string[] = [`setup ${JSON.stringify(setup)}`];
+  const out: string[] = [`setup ${JSON.stringify({ ...MOUNTAIN_SETUP, ...OVERRIDE })} (each car's own over it: MOUNTAIN_SETUP_BY_CAR)`];
   for (const id of CAR_IDS) {
     const spec = CARS[id];
+    const setup = { ...mountainSetupOf(id), ...OVERRIDE };
     for (const [name, p] of [['highway', spec.params], ['mountain', mountainSetup(spec.params, setup)]] as const) {
       const row: string[] = [];
       for (const kmh of [45, 60]) {

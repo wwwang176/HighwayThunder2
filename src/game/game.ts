@@ -71,6 +71,7 @@ import { FinishGate, type SparkEmitter } from '../world/finishGate';
 import { RoadScene, type Scenery } from '../world/roadScene';
 import { MountainScene } from '../world/mountainScene';
 import { MountainDriver } from '../ai/mountainDriver';
+import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
 import type { RivalDriver } from '../ai/driver';
 import { keepOverRoad, MOUNTAIN, mountainRoad } from '../road/mountain';
 import { surfaceMesh } from '../road/surface';
@@ -628,6 +629,7 @@ export class Game {
     // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
     const spec = specOf(this.cars.player);
     Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
+    if (this.mountain) Object.assign(this.player.params, mountainSetup(this.player.params, mountainSetupOf(spec.id))); // (the mountain road's setup on top: vehicles/mountainSetup)
     this.hud.setAccent(accent);
     await this.loading.next('loading.road', 0.35);
     this.resetWorld();
@@ -840,7 +842,7 @@ export class Game {
       this.road.setRoad(this.roadLine);
       this.gate.setRoad(this.roadLine);
       // (the player's AI - the I key, past the finish - on the mountain road: its line worked out for this road)
-      if (this.aiDriver instanceof MountainDriver) this.aiDriver.setRoad(this.roadLine, specOf(this.cars.player).ai);
+      if (this.aiDriver instanceof MountainDriver) this.aiDriver.setRoad(this.roadLine, mountainAi(specOf(this.cars.player).ai, mountainSetupOf(this.cars.player)));
     }
     if (this.mountain) this.player.resetAt(-3, MOUNTAIN_LANE, 0);
     else this.player.resetTo(-3, 1, 0);
@@ -903,6 +905,7 @@ export class Game {
           gripBoost: 0,
           edge: MOUNTAIN.edge,
           lanes: [MOUNTAIN_LANE, -MOUNTAIN_LANE],
+          setup: { params: (p, spec) => mountainSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) },
         })
       : new Rivals<RivalDriver>(this.physics, this.scene, () => new WorkerPlanSource(), specs);
     rivals.tuneAtRandom = true;
