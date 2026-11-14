@@ -1,6 +1,6 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { GRID_REV, gridRevStart, gridRevStep, needsReset, placeOf, putBackAt, Rivals, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
+import { clearOf, ghostMode, GRID_REV, gridRevStart, gridRevStep, needsReset, placeOf, putBackAt, Rivals, rubberBand, RIVAL_TUNING } from '../src/game/rivals';
 import { mulberry32 } from '../src/ai/rng';
 import { KMH } from '../src/config';
 import { laneCenter } from '../src/road/coords';
@@ -42,6 +42,49 @@ describe('rubberBand', () => {
     expect(full.push).toBe(0);
     expect(rubberBand(T.waitFull * 2, 40, cap).speedCap).toBeCloseTo(40 * T.waitSpeed, 5);
     expect(rubberBand(T.waitFull, 2, cap).speedCap).toBeGreaterThanOrEqual(T.waitMinSpeed); // never parks on the road
+  });
+});
+
+describe('ghostMode', () => {
+  const solid = { ghost: false, blind: false };
+
+  it('near: solid and seeing the traffic; past ghostFrom through it; past blindFrom (and the slack) not seeing it', () => {
+    expect(ghostMode(T.ghostFrom - 1, solid, true)).toEqual(solid);
+    expect(ghostMode(T.ghostFrom, solid, true)).toEqual({ ghost: true, blind: false });
+    expect(ghostMode(T.blindFrom + T.ghostSlack - 1, { ghost: true, blind: false }, true)).toEqual({ ghost: true, blind: false });
+    expect(ghostMode(T.blindFrom + T.ghostSlack, { ghost: true, blind: false }, true)).toEqual({ ghost: true, blind: true });
+  });
+
+  it('coming back: seeing again under blindFrom (less the slack), solid again under ghostFrom (less the slack) - only with room round it', () => {
+    const blind = { ghost: true, blind: true };
+    expect(ghostMode(T.blindFrom - T.ghostSlack + 1, blind, true).blind).toBe(true);
+    expect(ghostMode(T.blindFrom - T.ghostSlack - 1, blind, true)).toEqual({ ghost: true, blind: false });
+    const ghost = { ghost: true, blind: false };
+    expect(ghostMode(T.ghostFrom - T.ghostSlack + 1, ghost, true).ghost).toBe(true);
+    expect(ghostMode(T.ghostFrom - T.ghostSlack - 1, ghost, true).ghost).toBe(false);
+    expect(ghostMode(0, ghost, false).ghost).toBe(true); // inside a car: still through it
+  });
+});
+
+describe('clearOf', () => {
+  const me = { s: 100, dMin: 1, dMax: 3, length: 4.5 };
+  const box = (s: number, dMin: number, extra = {}) => ({ s, dMin, dMax: dMin + 2, length: 4.5, v: 0, ...extra });
+
+  it('room along and across the road from every box; a phantom (a lane about to be taken) is no car', () => {
+    expect(clearOf(me, 0, [])).toBe(true);
+    expect(clearOf(me, 0, [box(100 + 4.5 + T.clearS + 0.1, 1)])).toBe(true);
+    expect(clearOf(me, 0, [box(100 + 4.5 + T.clearS - 0.1, 1)])).toBe(false);
+    expect(clearOf(me, 0, [box(100, 3 + T.clearD + 0.1)])).toBe(true);
+    expect(clearOf(me, 0, [box(100, 3 + T.clearD - 0.1)])).toBe(false);
+    expect(clearOf(me, 0, [box(100, 1, { phantom: true })])).toBe(true);
+  });
+
+  it('along, as far again as either closes on the other in clearTime', () => {
+    const room = 4.5 + T.clearS + 20 * T.clearTime;
+    expect(clearOf(me, 20, [box(100 + room - 0.1, 1)])).toBe(false); // closing 20 m/s on one ahead
+    expect(clearOf(me, 20, [box(100 + room + 0.1, 1)])).toBe(true);
+    expect(clearOf(me, 0, [box(100 - room + 0.1, 1, { v: 20 })])).toBe(false); // one behind closing on it
+    expect(clearOf(me, 0, [box(100 + 4.5 + T.clearS + 0.1, 1, { v: 20 })])).toBe(true); // one ahead pulling away
   });
 });
 
