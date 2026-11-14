@@ -22,6 +22,8 @@ export class GameFlow {
   constructor(
     private storage: KV,
     private readonly bestKey = BEST_TIME_KEY,
+    /** The race's length (m): past it, finished. */
+    readonly length = ROAD_LENGTH,
   ) {
     const raw = Number(storage.getItem(bestKey));
     this.best = Number.isFinite(raw) && raw > 0 ? raw : null;
@@ -64,7 +66,7 @@ export class GameFlow {
     if (this.phase !== 'racing') return;
     this.raceTime += dt;
     this.resetCooldown = Math.max(0, this.resetCooldown - dt);
-    if (playerS >= ROAD_LENGTH) this.finish();
+    if (playerS >= this.length) this.finish();
   }
 
   private finish(): void {

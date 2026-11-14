@@ -1,5 +1,4 @@
 import { formatTime, GameFlow } from '../game/gameState';
-import { ROAD_LENGTH } from '../config';
 import { closestBehind, hudShake, overtook, progress, ResetHint } from './hudMath';
 import { applyLang, onLangChange, t, tx } from './i18n';
 
@@ -209,7 +208,7 @@ export class Hud {
               <div class="rows">
                 <div><span class="lbl">Near miss</span><b class="num" data-id="fNear"></b></div>
                 <div><span class="lbl">Top speed</span><b class="num" data-id="fTop"></b></div>
-                <div><span class="lbl">Distance</span><b class="num">${(ROAD_LENGTH / 1000).toFixed(2)}<small>km</small></b></div>
+                <div><span class="lbl">Distance</span><b class="num">${(flow.length / 1000).toFixed(2)}<small>km</small></b></div>
               </div>
             </div>
           </div>
@@ -378,7 +377,7 @@ export class Hud {
         this.el.pTime.innerHTML = timeHtml(flow.raceTime);
         this.el.pPlaceBox.style.display = many ? '' : 'none';
         this.el.pPlace.innerHTML = `${f.place}<small>/${f.racers.length}</small>`;
-        this.el.pRemain.innerHTML = `${(Math.max(0, ROAD_LENGTH - f.playerS) / 1000).toFixed(2)}<small>km</small>`;
+        this.el.pRemain.innerHTML = `${(Math.max(0, this.flow.length - f.playerS) / 1000).toFixed(2)}<small>km</small>`;
       }
       if (phase === 'finished') {
         this.el.finishTime.innerHTML = timeHtml(flow.finishTime ?? 0);
@@ -401,7 +400,7 @@ export class Hud {
     }
 
     this.el.time.innerHTML = timeHtml(phase === 'finished' ? (flow.finishTime ?? 0) : flow.raceTime);
-    this.el.remain.textContent = (Math.max(0, ROAD_LENGTH - f.playerS) / 1000).toFixed(2);
+    this.el.remain.textContent = (Math.max(0, this.flow.length - f.playerS) / 1000).toFixed(2);
     // Place, and an overtake (racing only: the grid shuffles at the start).
     this.el.placeBox.style.display = many ? '' : 'none';
     this.el.place.textContent = String(f.place);
@@ -490,9 +489,9 @@ export class Hud {
       d.style.display = r ? '' : 'none';
       if (!r) return;
       d.className = `car-dot${r.me ? ' me' : ''}`;
-      d.style.left = `${progress(r.s) * 100}%`;
+      d.style.left = `${progress(r.s, this.flow.length) * 100}%`;
       d.style.setProperty('--c', r.color);
     });
-    this.el.done.style.width = `${progress(f.playerS) * 100}%`;
+    this.el.done.style.width = `${progress(f.playerS, this.flow.length) * 100}%`;
   }
 }

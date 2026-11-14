@@ -33,6 +33,8 @@ export interface ChassisWheel {
   fy: number;
   alpha: number;
   contactX: number;
+  /** Its contact point's height (0 on flat ground). */
+  contactY: number;
   contactZ: number;
   dirX: number;
   dirZ: number;
@@ -102,7 +104,7 @@ export function makeWheel(
   return {
     ...w,
     omega: 0, spin: 0, susp, steer: 0, inContact: true, sliding: false, slip: 0, load: 0, longScale: 1, dragged: false,
-    fx: 0, fy: 0, alpha: 0, contactX: 0, contactZ: 0, dirX: 0, dirZ: -1,
+    fx: 0, fy: 0, alpha: 0, contactX: 0, contactY: 0, contactZ: 0, dirX: 0, dirZ: -1,
   };
 }
 
@@ -243,6 +245,7 @@ export class TyreChassis {
       w.fy = res.Fy;
       w.alpha = alpha;
       w.contactX = CONTACT.x;
+      w.contactY = sloped ? CONTACT.y : 0;
       w.contactZ = CONTACT.z;
       w.dirX = FWD.x;
       w.dirZ = FWD.z;

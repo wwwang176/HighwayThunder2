@@ -10,7 +10,7 @@ import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
-import { BEST_TIME_KEY, CURVED_BEST_TIME_KEY, MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
+import { BEST_TIME_KEY, CURVED_BEST_TIME_KEY, MAX_FRAME_DT, MAX_SUBSTEPS, MOUNTAIN_BEST_TIME_KEY, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { Centerline, randomRoad, STRAIGHT_ROAD } from '../road/centerline';
 import { boxToFrame, OUR_FRAME, RoadFrame, useRoad } from '../road/frame';
 import { Sound, IMPACT_PEAK, type SkidSource } from '../audio/sound';
@@ -54,8 +54,16 @@ import { FinishShow } from './finishShow';
 
 /** A car type by id (the supercar for an id no longer known). */
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
+/** Rivals on the mountain road (two lanes: fewer than the highway's). */
+const MOUNTAIN_RIVALS = 0;
+/** The mountain road: the player's lane (d), where its grid is (s); below the road this far, a car has fallen off (put back). */
+const MOUNTAIN_LANE = MOUNTAIN.halfWidth / 2;
+const FALLEN = 5;
 import { FinishGate, type SparkEmitter } from '../world/finishGate';
-import { RoadScene } from '../world/roadScene';
+import { RoadScene, type Scenery } from '../world/roadScene';
+import { MountainScene } from '../world/mountainScene';
+import { MOUNTAIN, mountainRoad } from '../road/mountain';
+import { surfaceMesh } from '../road/surface';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeKick, smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
@@ -173,7 +181,7 @@ export class Game {
   readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 3000);
   readonly keyboard = new Keyboard();
   readonly rig = new CameraRig(this.camera);
-  readonly road: RoadScene;
+  readonly road: Scenery;
   /** The player's car (rebuilt when another car type is picked: applyCars). */
   player: PlayerCar;
   /** The race picked (the cars on the grid now: the player's, and the rivals' as `rivalCars`). */
@@ -188,6 +196,10 @@ export class Game {
   readonly flow: GameFlow;
   /** The road bends (laid out at random each race: road/centerline randomRoad), else straight as ever. */
   readonly curved: boolean;
+  /** The mountain road (road/mountain: two lanes, hairpins, climbs; no traffic) instead of the highway. */
+  readonly mountain: boolean;
+  /** The race's length (m). */
+  readonly courseLength: number;
   /** The road's centre line this race. */
   roadLine: Centerline = STRAIGHT_ROAD;
   readonly sound = new Sound();
@@ -279,9 +291,11 @@ export class Game {
   /** Debug: stop the real-time loop from advancing the simulation. */
   freeze = false;
 
-  constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld, opts: { curved?: boolean } = {}) {
-    this.curved = opts.curved ?? false;
-    this.flow = new GameFlow(localStorage, this.curved ? CURVED_BEST_TIME_KEY : BEST_TIME_KEY);
+  constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld, opts: { curved?: boolean; mountain?: boolean } = {}) {
+    this.mountain = opts.mountain ?? false;
+    this.curved = !this.mountain && (opts.curved ?? false);
+    this.courseLength = this.mountain ? MOUNTAIN.length : ROAD_LENGTH;
+    this.flow = new GameFlow(localStorage, this.mountain ? MOUNTAIN_BEST_TIME_KEY : this.curved ? CURVED_BEST_TIME_KEY : BEST_TIME_KEY, this.courseLength);
     physics.timestep = PHYSICS_DT;
     // (No antialiasing of its own: the picture's edges are smoothed in render/postFx.)
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -296,8 +310,9 @@ export class Game {
     container.appendChild(this.renderer.domElement);
     this.post = new PostFx(this.renderer, this.scene, this.camera);
     this.flares = new LightFlares(this.post.flares.scene, 2000, this.post.flares.depth); // (faded by how hidden, not cut)
-    this.road = new RoadScene(this.scene, this.renderer);
-    this.gate = new FinishGate(this.scene);
+    this.road = this.mountain ? new MountainScene(this.scene, this.renderer) : new RoadScene(this.scene, this.renderer);
+    this.gate = this.mountain ? new FinishGate(this.scene, { left: -MOUNTAIN.edge - 0.6, right: MOUNTAIN.edge + 0.6, length: this.courseLength }) : new FinishGate(this.scene);
+    if (this.mountain) this.rivalCars = this.rivalCars.slice(0, MOUNTAIN_RIVALS);
     for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = surfaceGrip;
@@ -697,7 +712,8 @@ export class Game {
       this.aiDriver.tracker = trackerFrom(spec.ai.tracker);
       this.aiDriver.recovery = trackerFrom(spec.ai.recovery);
     }
-    const rivals = raceRivals(cars, Math.random); // (at random: drawn afresh each race, the same race again too)
+    const drawn = raceRivals(cars, Math.random); // (at random: drawn afresh each race, the same race again too)
+    const rivals = this.mountain ? drawn.slice(0, MOUNTAIN_RIVALS) : drawn;
     if (rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {
       this.rivals.dispose();
       this.rivals = new Rivals(this.physics, this.scene, () => new WorkerPlanSource(), rivals.map(specOf));
@@ -782,17 +798,22 @@ export class Game {
     this.prevRelS.clear();
     this.touched.clear();
     this.contactSoundAt.clear();
-    if (this.curved) {
+    if (this.curved || this.mountain) {
       // A new road each race (and on the title's road too).
-      this.roadLine = randomRoad(Math.random, ROAD_LENGTH);
+      this.roadLine = this.mountain ? mountainRoad(Math.random) : randomRoad(Math.random, ROAD_LENGTH);
       useRoad(this.roadLine); // (both carriageways' frames: the traffic's places, the obstacles every AI sees)
-      this.physics.setRoad(this.roadLine);
+      if (this.mountain) {
+        const E = MOUNTAIN.edge;
+        const ground = surfaceMesh(this.roadLine, -MOUNTAIN.before, this.courseLength + MOUNTAIN.after, E + 1.5); // (past the walls: no edge to fall off)
+        this.physics.setRoad(this.roadLine, { rails: { left: -E, right: E }, ground });
+      } else this.physics.setRoad(this.roadLine);
       this.player.road = this.roadLine;
       this.rivals.setRoad(this.roadLine);
       this.road.setRoad(this.roadLine);
       this.gate.setRoad(this.roadLine);
     }
-    this.player.resetTo(-3, 1, 0);
+    if (this.mountain) this.player.resetAt(-3, MOUNTAIN_LANE, 0);
+    else this.player.resetTo(-3, 1, 0);
     this.player.nitro.reset();
     this.playerNitroAi.reset();
     this.aiDriver?.reset(this.player.d);
@@ -807,11 +828,16 @@ export class Game {
     this.sparks.clear();
     this.rig.snap();
     this.trafficWorld.spacing = this.trafficSettings.spacing;
-    this.trafficWorld.reset(this.focus(), (f) => this.playerOccupants(f));
+    this.trafficWorld.reset(this.focus(), (f) => this.playerOccupants(f), !this.mountain); // (the mountain road: no traffic)
   }
 
   tryReset(): void {
     if (!this.flow.canReset()) return;
+    if (this.mountain) {
+      this.putBackOnMountain();
+      this.flow.markReset();
+      return;
+    }
     const blockers: Blocker[] = [];
     for (const npc of this.npcs.values()) {
       const agent = this.trafficWorld.sideOf(npc.id)?.name === 'ours' ? this.traffic.agents.get(npc.id) : undefined;
@@ -833,6 +859,40 @@ export class Game {
     this.skids.cut();
     this.flow.markReset();
     this.rig.snap();
+  }
+
+  /**
+   * The mountain road's put-back (R, or fallen off): in its lane where it is (further back while a rival is within a
+   * few car lengths), pointing along the road, at a speed it can take the bends ahead at.
+   */
+  private putBackOnMountain(): void {
+    const road = this.roadLine;
+    const rivals = this.rivals.boxes(this.rivalBoxes);
+    let s = Math.max(0, Math.min(this.player.s, this.courseLength));
+    for (let back = 0; back < 20 && rivals.some((b) => Math.abs(b.s - s) < 12 && b.dMax > MOUNTAIN_LANE - 2 && b.dMin < MOUNTAIN_LANE + 2); back++) s = Math.max(0, s - 6);
+    let k = 0;
+    for (let a = 0; a <= 40; a += 4) k = Math.max(k, Math.abs(road.curvature(s + a)));
+    const speed = Math.min(RESET_SPEED, k > 0 ? Math.sqrt((0.5 * 9.81) / k) : RESET_SPEED);
+    this.player.resetAt(s, MOUNTAIN_LANE, speed);
+    this.aiDriver?.reset(this.player.d);
+    this.skids.cut();
+    this.rig.snap();
+  }
+
+  /**
+   * The chase camera held over the mountain road (between its wall and rail, above its surface): swinging wide round
+   * a hairpin it went into the rock. Moved in, it looks at the car again.
+   */
+  private keepCameraOnRoad(car: THREE.Vector3): void {
+    const cam = this.camera.position;
+    const road = this.roadLine;
+    const at = road.project(cam.x, cam.z, this.player.s);
+    const room = MOUNTAIN.edge - 0.6;
+    const floor = road.height(at.s) + 0.8;
+    if (Math.abs(at.d) <= room && cam.y >= floor) return;
+    const w = road.toWorld(at.s, Math.max(-room, Math.min(room, at.d)));
+    cam.set(w.x, Math.max(cam.y, floor), w.z);
+    this.camera.lookAt(car.x, car.y + 0.9, car.z);
   }
 
   // --- loop -----------------------------------------------------------------
@@ -992,6 +1052,8 @@ export class Game {
       if (!(ground && upright)) this.sparks.touch(t, dt);
     });
     this.player.postPhysics();
+    // Under the mountain road (got through its surface: a mesh has no inside): put back on it.
+    if (this.mountain && this.player.body.translation().y < this.roadLine.height(this.player.s) - FALLEN) this.putBackOnMountain();
     this.trafficWorld.afterPhysics();
     this.rivals.after(dt, view, this.trafficWorld.ourBoxes(this.rivalTraffic), racing);
     const pv = this.player.body.linvel();
@@ -1002,9 +1064,9 @@ export class Game {
     this.player.wheels.forEach((w, i) => {
       const sliding = w.inContact && w.sliding;
       const k = sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
-      this.skids.add(i, w.contactX, w.contactZ, w.dirX, w.dirZ, k);
+      this.skids.add(i, w.contactX, w.contactZ, w.dirX, w.dirZ, k, w.contactY);
       const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, pv.x, pv.z); // (spinning: thrown back)
-      this.smoke.emit(i, w.contactX, w.contactZ, sliding ? w.slip : 0, pv.x, pv.z, dt, kick.x, kick.z);
+      this.smoke.emit(i, w.contactX, w.contactZ, sliding ? w.slip : 0, pv.x, pv.z, dt, kick.x, kick.z, w.contactY);
     });
     // The rivals' tyres smoke as the player's (their burnouts on the grid too). (Their keys 10 on: the player's 0..3,
     // the wrecks' 100 on.)
@@ -1013,7 +1075,7 @@ export class Game {
       r.car.wheels.forEach((w, i) => {
         const slip = w.inContact && w.sliding && near(w.contactX, w.contactZ) ? w.slip : 0;
         const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, rv.x, rv.z);
-        this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, slip, rv.x, rv.z, dt, kick.x, kick.z);
+        this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, slip, rv.x, rv.z, dt, kick.x, kick.z, w.contactY);
       });
     }
     // Wrecks run on the same tyre model, so they leave marks and smoke too.
@@ -1033,7 +1095,7 @@ export class Game {
     }
 
     this.trafficWorld.spacing = this.trafficSettings.spacing;
-    this.trafficWorld.maintain(dt, this.focus(), (f) => this.playerOccupants(f));
+    if (!this.mountain) this.trafficWorld.maintain(dt, this.focus(), (f) => this.playerOccupants(f));
     this.forgetRemovedNpcs();
     this.checkNearMisses();
 
@@ -1446,7 +1508,10 @@ export class Game {
     if (this.introOn) this.intro!.placeCamera();
     else if (show) show.placeCamera();
     else if (this.hoodCam && look === 'ahead') this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
-    else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
+    else {
+      this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
+      if (this.mountain) this.keepCameraOnRoad(p);
+    }
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
       this.hud.revealFinish();
@@ -1481,12 +1546,14 @@ export class Game {
     // The finish ahead, where it is on the screen (behind the camera: none). On a bend it may be off to a side, out
     // of sight: marked over the road GOAL_AHEAD m ahead, the finish itself once nearer.
     this.camera.updateMatrixWorld();
-    const toGo = ROAD_LENGTH - this.player.s;
+    const toGo = this.courseLength - this.player.s;
     const mark = (
       this.roadLine.straight || toGo <= GOAL_AHEAD ? GOAL.copy(this.gate.mark) : this.gate.markAt(this.roadLine, this.player.s + GOAL_AHEAD, GOAL)
     ).project(this.camera);
+    // (the mountain road winds too much for a mark far ahead: the finish only once it is near)
+    const goalShown = mark.z < 1 && toGo > 0 && (!this.mountain || toGo <= GOAL_AHEAD);
     this.hud.update(play, {
-      goal: mark.z < 1 && this.player.s < ROAD_LENGTH ? { x: (mark.x + 1) / 2, y: (1 - mark.y) / 2, m: ROAD_LENGTH - this.player.s } : null,
+      goal: goalShown ? { x: (mark.x + 1) / 2, y: (1 - mark.y) / 2, m: toGo } : null,
       speedKmh,
       reverse: this.player.driveMode === 'R',
       playerS: this.player.s,

@@ -35,9 +35,11 @@ async function boot() {
     }),
   ]);
   await loading.next('loading.scene', 0.7);
-  // The road bends (?straight: the straight road as ever, its own record).
-  const curved = !new URLSearchParams(location.search).has('straight');
-  const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved });
+  // The road bends (?straight: the straight road as ever, its own record); ?mountain: the mountain road.
+  const params = new URLSearchParams(location.search);
+  const curved = !params.has('straight');
+  const mountain = params.has('mountain');
+  const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved, mountain });
   (window as unknown as { __game: Game }).__game = game;
   // I hands the car to the AI: the path planner, driven by plain controllers for now
   // (a trained network is to take over the driving part). Plans are worked out in a worker.

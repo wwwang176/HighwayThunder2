@@ -336,6 +336,8 @@ export class Rivals {
 
   /** A race's start: each rival's perf knobs at random (the game's; off: as built, as the training's races). */
   tuneAtRandom = false;
+  /** The race's length (m): past it, a rival has finished. */
+  length = ROAD_LENGTH;
 
   /** The road they drive on (their s, d and yaw along it). */
   setRoad(line: Centerline): void {
@@ -421,7 +423,7 @@ export class Rivals {
       r.car.postPhysics();
       if (!racing) continue;
       const c = r.car;
-      if (r.finishTime === null && c.s >= ROAD_LENGTH) r.finishTime = view.raceTime;
+      if (r.finishTime === null && c.s >= this.length) r.finishTime = view.raceTime;
       r.stuckFor = c.speed < RIVAL_TUNING.stuckSpeed ? r.stuckFor + dt : 0;
       r.resetWait = Math.max(0, r.resetWait - dt);
       if (r.resetWait > 0) continue;
