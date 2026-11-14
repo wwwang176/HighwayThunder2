@@ -1,5 +1,5 @@
 import { KMH, PHYSICS_DT, ROAD_LENGTH } from '../config';
-import { knocksOut } from '../game/contact';
+import { closingSpeed, knocksOut } from '../game/contact';
 import { PhysicsWorld } from '../physics/physicsWorld';
 import { laneAt, laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
@@ -142,6 +142,9 @@ export class TrainingSim {
   private velBefore: { x: number; z: number }[] = [];
   time = 0;
   private boxes: TrafficBox[] = [];
+  /** With gameContact (investigation): each vehicle wrecked - by which ghost, when, the vehicle's box going into the
+   * step, the car's place and speed along / across, the closing speed (m/s) and the contact normal (world x/z). */
+  readonly wrecks: { ghost: number; time: number; box: TrafficBox | null; s: number; d: number; yaw: number; speed: number; closing: number; nx: number; nz: number }[] = [];
   private touched: TrafficBox[] = [];
 
   constructor(drivers: (Brain | Driver)[], seed: number, opts: TrainingSimOptions) {
@@ -225,6 +228,9 @@ export class TrainingSim {
         this.traffic.wreck(id);
         const g = this.ghosts[r.id];
         g.result.contacts = (g.result.contacts ?? 0) + 1;
+        const box = this.boxes.find((b) => b.id === id && !b.phantom) ?? null;
+        this.wrecks.push({ ghost: r.id, time: this.time, box: box && { ...box }, s: g.car.s, d: g.car.d, yaw: g.car.yaw, speed: g.car.speed,
+          closing: closingSpeed(this.velBefore[r.id], nv, n), nx: n ? n.x : 0, nz: n ? n.z : 0 });
       }
     });
     for (const g of this.ghosts) if (g.alive) g.car.postPhysics();
