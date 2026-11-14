@@ -6,7 +6,7 @@ import { CHEVRON_LEVELS, chevronSpots } from '../src/world/mountainScene';
 const road = (r: number, deg: number) => new Centerline([...straight(100), ...bend(r, deg, 10), ...straight(100)], { turnBack: true });
 
 describe('chevronSpots', () => {
-  it('a hairpin: boards of three chevrons, close together; a medium bend two, further apart; a big bend one, further still', () => {
+  it('the sharper the bend, the closer together its boards: a hairpin\'s, a medium bend\'s, a big bend\'s', () => {
     for (const [r, level] of [[20, 3], [70, 2], [120, 1]] as const) {
       const spots = chevronSpots(road(r, 90));
       expect(spots.length).toBeGreaterThan(1);
