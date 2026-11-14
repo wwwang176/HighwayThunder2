@@ -41,6 +41,12 @@ export const MOUNTAIN = {
   vcurveMin: 30,
   /** The chance a climb is followed by a descent (and the other way). */
   gradeFlip: 0.75,
+  /**
+   * Its bends banked into them (Centerline.crossSlope): `max` (rad) from `full` curvature on (R 40 and tighter: its
+   * hairpins), less in proportion below, eased in and out over `ease` m. 8°: about 0.14 g more cornering, and the car
+   * leaned into the bend, not out.
+   */
+  bank: { max: (8 * Math.PI) / 180, full: 1 / 40, ease: 20 },
   /** Parts of the road more than `sepArc` apart along it keep `minSep` apart (its centre line), the run-up before it and past the finish too. */
   minSep: 24,
   sepArc: 70,
@@ -62,7 +68,7 @@ const ROAD_TRIES = 200;
 export function mountainRoad(rand: Rand): Centerline {
   for (let i = 0; i < ROAD_TRIES; i++) {
     const pieces = layOut(rand);
-    if (pieces) return new Centerline(pieces, { grades: profile(rand), turnBack: true });
+    if (pieces) return new Centerline(pieces, { grades: profile(rand), turnBack: true, bank: MOUNTAIN.bank });
   }
   throw new Error('mountainRoad: no road laid out clear of itself');
 }
@@ -189,9 +195,10 @@ function profile(rand: Rand): GradePiece[] {
  */
 export function keepOverRoad(road: Centerline, p: { x: number; y: number; z: number }, hint: number, room: number, lift: number): boolean {
   const at = road.project(p.x, p.z, hint);
-  const floor = road.height(at.s) + lift;
+  const d = Math.max(-room, Math.min(room, at.d));
+  const floor = road.surfaceHeight(at.s, d) + lift;
   if (Math.abs(at.d) <= room && p.y >= floor) return false;
-  const w = road.toWorld(at.s, Math.max(-room, Math.min(room, at.d)));
+  const w = road.toWorld(at.s, d);
   p.x = w.x;
   p.z = w.z;
   p.y = Math.max(p.y, floor);

@@ -184,27 +184,31 @@ export function speedProfile(road: Centerline, d: Float64Array, car: LineCar, bu
   kappa[0] = kappa[1];
   kappa[n - 1] = kappa[n - 2];
   const lat = (v: number) => budget * maxAccel(v, car.latAccel);
+  // The bank's share of the turn (m/s²): g x its slope down toward the inside of the line's turn there (a bend banked
+  // against the line's own turn: less).
+  const bank = new Float64Array(n);
+  for (let i = 0; i < n; i++) bank[i] = -G * road.crossSlope(i * step) * Math.sign(kappa[i]);
   const v = new Float64Array(n);
   const cap = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     const k = Math.abs(kappa[i]);
     let u = vMax;
-    if (k > 1e-9) for (let it = 0; it < 8; it++) u = Math.min(vMax, Math.sqrt(lat(u) / k));
+    if (k > 1e-9) for (let it = 0; it < 8; it++) u = Math.min(vMax, Math.sqrt(Math.max(0, lat(u) + bank[i]) / k));
     cap[i] = u;
   }
-  /** What the cornering at speed u leaves of the grip for speeding up or braking (share). */
-  const circle = (u: number, k: number) => {
-    const used = (u * u * Math.abs(k)) / Math.max(1e-6, lat(u));
+  /** What the cornering at speed u leaves of the tyres' grip for speeding up or braking (share; the bank's part of the turn not theirs). */
+  const circle = (u: number, i: number) => {
+    const used = Math.max(0, u * u * Math.abs(kappa[i]) - bank[i]) / Math.max(1e-6, lat(u));
     return Math.max(CIRCLE_FLOOR, Math.sqrt(Math.max(0, 1 - used * used)));
   };
   const ds = (i: number) => Math.hypot(px[i + 1] - px[i], pz[i + 1] - pz[i]);
   v[0] = 0;
   for (let i = 0; i + 1 < n; i++) {
-    const a = Math.max(0.3, maxAccel(v[i], car.accel) * circle(v[i], kappa[i]) - G * road.grade(i * step));
+    const a = Math.max(0.3, maxAccel(v[i], car.accel) * circle(v[i], i) - G * road.grade(i * step));
     v[i + 1] = Math.min(cap[i + 1], Math.sqrt(v[i] * v[i] + 2 * ds(i) * a));
   }
   for (let i = n - 2; i >= 0; i--) {
-    const a = Math.max(0.5, budget * maxAccel(v[i + 1], car.brake) * circle(v[i + 1], kappa[i + 1]) + G * road.grade(i * step));
+    const a = Math.max(0.5, budget * maxAccel(v[i + 1], car.brake) * circle(v[i + 1], i + 1) + G * road.grade(i * step));
     v[i] = Math.min(v[i], Math.sqrt(v[i + 1] * v[i + 1] + 2 * ds(i) * a));
   }
   return { step, d, v, kappa };

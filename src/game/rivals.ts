@@ -363,7 +363,10 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
         driver = planner as unknown as D;
       }
       const base = this.setup ? this.setup.params(spec.params, spec) : spec.params;
-      if (this.setup) Object.assign(car.params, base);
+      if (this.setup) {
+        Object.assign(car.params, base);
+        car.applyMass(); // (a setup may move its centre of mass)
+      }
       const r: Rival<D> = { index: i, spec, tuning: {}, base, car, driver, stuckFor: 0, push: 0, ghost: false, blind: false, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + gripBoost * r.push);
       this.list.push(r);
@@ -394,6 +397,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
         r.base = tuned(r.spec.params, r.tuning, TUNE_CAL[r.spec.id]);
         if (this.setup) r.base = this.setup.params(r.base, r.spec);
         Object.assign(r.car.params, r.base);
+        if (this.setup) r.car.applyMass();
       }
       const [d, s] = this.grid[r.index];
       r.car.resetAt(s, d, 0);

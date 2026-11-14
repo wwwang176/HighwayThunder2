@@ -86,7 +86,7 @@ export class FinishShow {
     const th = road.heading(car.s);
     const along = this.ahead.x * Math.sin(th) - this.ahead.z * Math.cos(th); // (its heading along the road's)
     const spot = road.toWorld(car.s + along * goes, x);
-    this.roadside.set(spot.x, road.height(car.s + along * goes) + 1.0, spot.z); // (over the road there: a road that climbs, its height)
+    this.roadside.set(spot.x, road.surfaceHeight(car.s + along * goes, x) + 1.0, spot.z); // (over the road there: a road that climbs, its height)
     // The shots after it from that side of the car, so it keeps going the same way across the picture.
     const side = Math.sign((x - at) * (this.right.x * Math.cos(th) + this.right.z * Math.sin(th)) + 1e-6);
     this.shots = [
@@ -172,7 +172,7 @@ export class FinishShow {
   /** The car's frame now (as it is drawn: its mesh). */
   private frame(): void {
     const m = this.car.mesh;
-    this.origin.set(m.position.x, this.car.road.height(this.car.s), m.position.z); // (on the road: 0 flat)
+    this.origin.set(m.position.x, this.car.road.surfaceHeight(this.car.s, this.car.d), m.position.z); // (on the road under it: 0 flat)
     this.ahead.set(0, 0, -1).applyQuaternion(m.quaternion).setY(0).normalize();
     this.right.set(-this.ahead.z, 0, this.ahead.x);
   }

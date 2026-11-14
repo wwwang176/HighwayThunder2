@@ -73,6 +73,22 @@ describe('mountainRoad', () => {
     }
   });
 
+  it('its hairpins and tight bends banked into them (MOUNTAIN.bank), eased in over MOUNTAIN.bank.ease m, flat off the grid', () => {
+    for (const r of roads.slice(0, 10)) {
+      let steepest = 0;
+      let fastest = 0;
+      for (let s = 0; s <= r.length; s += 1) {
+        const slope = r.crossSlope(s);
+        if (Math.abs(r.curvature(s)) >= MOUNTAIN.bank.full) expect(Math.sign(slope)).toBe(-Math.sign(r.curvature(s))); // (the inside lower)
+        steepest = Math.max(steepest, Math.abs(slope));
+        fastest = Math.max(fastest, Math.abs(r.crossSlope(s + 1) - slope));
+      }
+      expect(steepest).toBeCloseTo(Math.tan(MOUNTAIN.bank.max), 6); // (its hairpins tighter than `full`, long enough)
+      expect(fastest).toBeLessThanOrEqual((2 * Math.tan(MOUNTAIN.bank.max)) / MOUNTAIN.bank.ease + 1e-9);
+      expect(r.crossSlope(10)).toBe(0); // (the grid level and flat)
+    }
+  });
+
   it('is the same road for the same seed', () => {
     const a = mountainRoad(mulberry32(7));
     const b = mountainRoad(mulberry32(7));

@@ -103,6 +103,15 @@ export function quatFromYaw(yaw: number): { x: number; y: number; z: number; w: 
   return { x: 0, y: Math.sin(-yaw / 2), z: 0, w: Math.cos(-yaw / 2) };
 }
 
+/** A car's inertia (kg·m²) about its own axes: a box its length and width, 0.8 m high. */
+function inertiaOf(p: CarParams): { x: number; y: number; z: number } {
+  return {
+    x: (p.mass / 12) * (0.8 * 0.8 + p.length * p.length),
+    y: (p.mass / 12) * (p.width * p.width + p.length * p.length),
+    z: (p.mass / 12) * (p.width * p.width + 0.8 * 0.8),
+  };
+}
+
 const TMP_Q = new THREE.Quaternion();
 const RESET_EULER = new THREE.Euler();
 const TMP_V = new THREE.Vector3();
@@ -214,17 +223,12 @@ export class PlayerCar {
     const p = this.params;
     const ghost = !opts.entity && scene === null;
     const entity = opts.entity ?? { type: 'player' };
-    const inertia = {
-      x: (p.mass / 12) * (0.8 * 0.8 + p.length * p.length),
-      y: (p.mass / 12) * (p.width * p.width + p.length * p.length),
-      z: (p.mass / 12) * (p.width * p.width + 0.8 * 0.8),
-    };
     // The mass is the body's own (COM at body y + comY, comFwd toward the nose), not its colliders' (they
     // weigh nothing): the collision shape can follow the car's body without changing how it drives.
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(laneCenter(1), RIDE_Y, 0)
       .setCanSleep(false)
-      .setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: -p.comFwd }, inertia, { x: 0, y: 0, z: 0, w: 1 });
+      .setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: -p.comFwd }, inertiaOf(p), { x: 0, y: 0, z: 0, w: 1 });
     if (ghost) {
       // No collider at all: a ghost stands on its wheel rays only, and with dozens
       // of them stacked on the start line, the rays must not have to test each other.
@@ -586,6 +590,12 @@ export class PlayerCar {
     this.prevQuat.copy(this.currQuat);
   }
 
+  /** Its body given its params' mass, centre of mass and inertia anew (read only when it was built: a setup changing them, vehicles/mountainSetup). */
+  applyMass(): void {
+    const p = this.params;
+    this.body.setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: -p.comFwd }, inertiaOf(p), { x: 0, y: 0, z: 0, w: 1 }, true);
+  }
+
   /** Place the car in a lane, upright, pointing down the road, at the given speed. */
   /** Take the car out of the world for good (another car type takes its place): body, collider, model and lights. */
   dispose(physics: PhysicsWorld): void {
@@ -655,15 +665,16 @@ export class PlayerCar {
     this.resetAt(s, laneCenter(lane), speed);
   }
 
-  /** Place the car at road position (s, d), upright on the road (pitched to its grade), pointing down it, at `speed`. */
+  /** Place the car at road position (s, d), upright on the road (pitched to its grade, leaning with its bank), pointing down it, at `speed`. */
   resetAt(s: number, d: number, speed: number): void {
     const p = this.params;
     if (this.road.hilly) {
       const at = this.road.toWorld(s, d);
       const th = this.road.heading(s);
       const pitch = Math.atan(this.road.grade(s));
-      this.body.setTranslation({ x: at.x, y: this.road.height(s) + RIDE_Y + 0.02, z: at.z }, true);
-      const q = TMP_Q.setFromEuler(RESET_EULER.set(pitch, -th, 0, 'YXZ'));
+      const roll = Math.atan(this.road.crossSlope(s)); // (+: its right side up)
+      this.body.setTranslation({ x: at.x, y: this.road.surfaceHeight(s, d) + RIDE_Y + 0.02, z: at.z }, true);
+      const q = TMP_Q.setFromEuler(RESET_EULER.set(pitch, -th, roll, 'YXZ'));
       this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
       const c = Math.cos(pitch);
       this.body.setLinvel({ x: speed * c * Math.sin(th), y: speed * Math.sin(pitch), z: -speed * c * Math.cos(th) }, true);

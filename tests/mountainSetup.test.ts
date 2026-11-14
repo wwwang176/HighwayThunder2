@@ -5,19 +5,26 @@ import { JDM_CAR, MUSCLE_CAR, STREET_RACER } from '../src/vehicles/cars';
 describe('mountainSetup', () => {
   for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
     const p = spec.params;
-    const m = mountainSetup(p);
+    const s = mountainSetupOf(spec.id);
+    const m = mountainSetup(p, s);
 
-    it(`${spec.id}: the front's anti-roll bar softer and the rear's stiffer (less understeer)`, () => {
-      expect(m.antiRollFront).toBeCloseTo(p.antiRollFront * MOUNTAIN_SETUP.arbFront, 6);
-      expect(m.antiRollRear).toBeCloseTo(p.antiRollRear * MOUNTAIN_SETUP.arbRear, 6);
-      expect(m.antiRollFront / m.antiRollRear).toBeLessThan(p.antiRollFront / p.antiRollRear);
+    it(`${spec.id}: its centre of mass lower (it leans and tips less), its front anti-roll bar as built, its rear's as set`, () => {
+      expect(m.comY).toBeCloseTo(p.comY - MOUNTAIN_SETUP.comDrop, 9);
+      expect(m.antiRollFront).toBe(p.antiRollFront);
+      expect(m.antiRollRear).toBeCloseTo(p.antiRollRear * s.arbRear, 6);
     });
 
-    it(`${spec.id}: its diff lets the rear wheels roll round a tight bend; braking a little more on the rear; the stability control lighter; quicker steering`, () => {
+    it(`${spec.id}: grips harder braking and driving (straight on), its cornering grip as built`, () => {
+      expect(m.longGrip).toBeCloseTo((p.longGrip ?? 1) * MOUNTAIN_SETUP.longGrip, 9);
+      expect(m.latGrip).toBe(p.latGrip);
+      expect(m.rollInfluence).toBe(p.rollInfluence);
+    });
+
+    it(`${spec.id}: its diff lets the rear wheels roll round a tight bend; brakes, stability control and steering as set`, () => {
       expect(m.lsdTurnFree).toBeGreaterThanOrEqual(MOUNTAIN_SETUP.lsdTurnFree);
       expect(m.lsdTurnFree).toBeGreaterThanOrEqual(p.lsdTurnFree ?? 1);
-      expect(m.brakeFrontBias).toBeCloseTo(p.brakeFrontBias + MOUNTAIN_SETUP.brakeBias, 6);
-      expect(m.escGain).toBeCloseTo(p.escGain * MOUNTAIN_SETUP.esc, 6);
+      expect(m.brakeFrontBias).toBeCloseTo(p.brakeFrontBias + s.brakeBias, 6);
+      expect(m.escGain).toBeCloseTo(p.escGain * s.esc, 6);
       expect(m.steerRise).toBeCloseTo(p.steerRise * MOUNTAIN_SETUP.steerRise, 6);
     });
 
@@ -29,43 +36,22 @@ describe('mountainSetup', () => {
     });
   }
 
-  it('grips harder cornering: its cornering grip times MOUNTAIN_SETUP.grip (1.25), on top of its own camber', () => {
-    expect(MOUNTAIN_SETUP.grip).toBe(1.25);
-    expect(mountainSetup(STREET_RACER.params).latGrip).toBeCloseTo(1.25, 9);
-    expect(mountainSetup({ ...STREET_RACER.params, latGrip: 1.1 }).latGrip).toBeCloseTo(1.375, 9);
-  });
-
-  it('its AI tables as set up: cornering as much harder, speeding up and braking as they were', () => {
+  it('its AI tables as set up: braking as much harder (the long grip), cornering and speeding up as they were', () => {
     const ai = mountainAi(STREET_RACER.ai);
-    STREET_RACER.ai.latAccel.forEach(([kmh, a], i) => expect(ai.latAccel[i]).toEqual([kmh, a * MOUNTAIN_SETUP.grip]));
+    STREET_RACER.ai.brake.forEach(([kmh, a], i) => expect(ai.brake[i]).toEqual([kmh, a * MOUNTAIN_SETUP.longGrip]));
+    expect(ai.latAccel).toEqual(STREET_RACER.ai.latAccel);
     expect(ai.accel).toEqual(STREET_RACER.ai.accel);
-    expect(ai.brake).toEqual(STREET_RACER.ai.brake);
   });
 
-  it('the muscle car (its tail loose already, its stability control light): only its front bar softer and the grip', () => {
+  it('the muscle car (its tail loose already, its stability control light): its rear, brakes and stability control as built', () => {
     const s = mountainSetupOf(MUSCLE_CAR.id);
-    expect(s.arbFront).toBe(MOUNTAIN_SETUP.arbFront);
-    expect(s.grip).toBe(MOUNTAIN_SETUP.grip);
     expect(s.arbRear).toBe(1);
     expect(s.brakeBias).toBe(0);
     expect(s.esc).toBe(1);
+    expect(s.comDrop).toBe(MOUNTAIN_SETUP.comDrop);
+    expect(s.longGrip).toBe(MOUNTAIN_SETUP.longGrip);
     expect(mountainSetupOf(STREET_RACER.id)).toEqual(MOUNTAIN_SETUP);
     expect(mountainSetupOf('no-such-car')).toEqual(MOUNTAIN_SETUP);
-  });
-
-  it("its AI's cornering: as much harder as the car's own `aiGrip` (the muscle car's less: its tail, not its grip, the limit)", () => {
-    expect(mountainSetupOf(STREET_RACER.id).aiGrip).toBe(MOUNTAIN_SETUP.grip);
-    const muscle = mountainSetupOf(MUSCLE_CAR.id);
-    expect(muscle.aiGrip).toBeLessThan(muscle.grip);
-    const ai = mountainAi(MUSCLE_CAR.ai, muscle);
-    expect(ai.latAccel[2][1]).toBeCloseTo(MUSCLE_CAR.ai.latAccel[2][1] * muscle.aiGrip, 9);
-  });
-
-  it('gripping harder it leans no more: the rolling torque its body gets as much less (it tipped the muscle car over)', () => {
-    for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
-      const s = mountainSetupOf(spec.id);
-      expect(mountainSetup(spec.params, s).rollInfluence).toBeCloseTo(spec.params.rollInfluence / s.grip, 9);
-    }
   });
 
   it('a car whose diff is already free (lsdTurnFree 1) stays free', () => {

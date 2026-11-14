@@ -47,6 +47,37 @@ export function bend(radius: number, angleDeg: number, ease: number): Piece[] {
 
 /** Sample spacing of the precomputed positions (m). */
 const STEP = 1;
+/** Sample spacing of the bank's slope (m), and how far its easing reaches before and after a bend (m) unless given. */
+const BANK_STEP = 1;
+const BANK_EASE = 20;
+
+/**
+ * A road's slope across (see Centerline.crossSlope) every BANK_STEP m from s = -from to its end + from: each point's
+ * by its curvature (the inside lower: `slope` from `full` curvature on, in proportion below), then averaged twice over
+ * `ease` m (a box of ease / 2 either side, twice): eased in and out over `ease` m before and after, its change at
+ * most its whole over `ease` m.
+ */
+function bankSlopes(road: Centerline, slope: number, full: number, ease: number, from: number): Float64Array {
+  const n = Math.ceil((road.length + 2 * from) / BANK_STEP) + 1;
+  let a = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const k = road.curvature(i * BANK_STEP - from);
+    a[i] = k === 0 ? 0 : -Math.sign(k) * slope * Math.min(1, Math.abs(k) / full);
+  }
+  const h = Math.round(ease / 2 / BANK_STEP);
+  for (let pass = 0; pass < 2; pass++) {
+    const sum = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) sum[i + 1] = sum[i] + a[i];
+    const out = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const lo = Math.max(0, i - h);
+      const hi = Math.min(n - 1, i + h);
+      out[i] = (sum[hi + 1] - sum[lo]) / (2 * h + 1); // (past the ends: flat)
+    }
+    a = out;
+  }
+  return a;
+}
 
 export class Centerline {
   /** Its length (m); beyond it, straight on. */
@@ -74,9 +105,13 @@ export class Centerline {
   private readonly gradesEnd: number = 0;
   private readonly hEnd: number = 0;
 
+  /** Its bends banked (see crossSlope): the slope across every BANK_STEP m from s = -bankFrom, eased (null: flat). */
+  private readonly banks: Float64Array | null = null;
+  private readonly bankFrom: number = 0;
+
   constructor(
     readonly pieces: Piece[],
-    opts: { grades?: GradePiece[]; turnBack?: boolean } = {},
+    opts: { grades?: GradePiece[]; turnBack?: boolean; bank?: { max: number; full: number; ease?: number } } = {},
   ) {
     this.turnBack = opts.turnBack ?? false;
     let gs = 0;
@@ -126,6 +161,11 @@ export class Centerline {
     }
     // Monotonic along -z (projection's first guess relies on it) - unless it may turn back (then its nearest point).
     if (!this.turnBack) for (let i = 1; i < n; i++) if (!(this.zs[i] < this.zs[i - 1])) throw new Error('Centerline: the road must keep heading along -z (|heading| < 90°)');
+    if (opts.bank) {
+      const ease = opts.bank.ease ?? BANK_EASE;
+      this.bankFrom = ease + 1;
+      this.banks = bankSlopes(this, Math.tan(opts.bank.max), opts.bank.full, ease, this.bankFrom);
+    }
   }
 
   /** The road's height at s (m; 0 flat): its grades integrated, level before 0 and past their end. */
@@ -135,6 +175,26 @@ export class Centerline {
     const i = this.gradePieceAt(s);
     const t = s - this.gStarts[i];
     return this.h0[i] + this.g0[i] * t + ((this.g1[i] - this.g0[i]) * t * t) / (2 * this.gLen[i]);
+  }
+
+  /**
+   * How it slopes across at s (rise per metre toward +d): its bends banked into them - the inside lower - by its
+   * curvature (as steep as `bank.max` from `bank.full` on, less in proportion below), eased in and out over
+   * `bank.ease` m before and after (a hairpin's own clothoids, 10 m, banked it in 4: its edges rose 0.7 m in a few
+   * metres, a step in the road). Flat on a straight away from bends, and on a road built without banking.
+   */
+  crossSlope(s: number): number {
+    const b = this.banks;
+    if (!b) return 0;
+    const x = (s + this.bankFrom) / BANK_STEP;
+    if (x <= 0 || x >= b.length - 1) return 0;
+    const i = Math.floor(x);
+    return b[i] + (b[i + 1] - b[i]) * (x - i);
+  }
+
+  /** The road's surface height at (s, d): its centre line's height, and its slope across (crossSlope). */
+  surfaceHeight(s: number, d: number): number {
+    return this.height(s) + this.crossSlope(s) * d;
   }
 
   /** Its grade at s (rise over run; > 0 climbing along +s). */

@@ -16,7 +16,7 @@ describe('surfaceMesh', () => {
       const d = mesh.d[i];
       const w = road.toWorld(s, d);
       expect(mesh.positions[3 * i]).toBeCloseTo(w.x, 3);
-      expect(mesh.positions[3 * i + 1]).toBeCloseTo(road.height(s), 3);
+      expect(mesh.positions[3 * i + 1]).toBeCloseTo(road.surfaceHeight(s, d), 3); // (its bends banked)
       expect(mesh.positions[3 * i + 2]).toBeCloseTo(w.z, 3);
       expect(Math.abs(d)).toBeCloseTo(6, 6);
     }

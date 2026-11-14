@@ -110,12 +110,12 @@ function strip(road: Centerline, rows: number[], ncol: number, cols: (s: number,
   const pts: [number, number][] = Array.from({ length: ncol }, () => [0, 0]);
   rows.forEach((s, r) => {
     cols(s, r, pts);
-    const h = road.height(s);
     for (let j = 0; j < ncol; j++) {
-      const w = road.toWorld(s, pts[j][0]);
+      const d = pts[j][0];
+      const w = road.toWorld(s, d);
       const k = r * ncol + j;
       pos[3 * k] = w.x;
-      pos[3 * k + 1] = h + pts[j][1];
+      pos[3 * k + 1] = edgeHeight(road, s, d) + pts[j][1];
       pos[3 * k + 2] = w.z;
       uv[2 * k] = j / (ncol - 1);
       uv[2 * k + 1] = s / vScale;
@@ -136,6 +136,14 @@ function strip(road: Centerline, rows: number[], ncol: number, cols: (s: number,
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
+}
+
+/**
+ * The height things are set on at (s, d): the road's banked surface, its bank carried no further than its edge (the
+ * wall and the slope below the rail go on from where it ends, not tilted on out with it).
+ */
+function edgeHeight(road: Centerline, s: number, d: number): number {
+  return road.surfaceHeight(s, Math.max(-MOUNTAIN.edge, Math.min(MOUNTAIN.edge, d)));
 }
 
 /** A smooth bumpy value along the road (m), between 0 and 1, for the rock's height and shape. */
@@ -308,7 +316,7 @@ export class MountainScene implements Scenery {
       list.forEach((s, i) => {
         const w = road.toWorld(s, d);
         q.setFromAxisAngle(up, -road.heading(s));
-        m.compose(p.set(w.x, road.height(s) + y, w.z), q, one);
+        m.compose(p.set(w.x, edgeHeight(road, s, d) + y, w.z), q, one);
         mesh.setMatrixAt(i, m);
       });
       mesh.instanceMatrix.needsUpdate = true;
@@ -345,7 +353,7 @@ export class MountainScene implements Scenery {
     spots.forEach(({ s, dir }, i) => {
       const d = -dir * (MOUNTAIN.edge + 0.5); // (outside the bend)
       const w = road.toWorld(s, d);
-      const h = road.height(s);
+      const h = edgeHeight(road, s, d);
       q.setFromEuler(e.set(0, -road.heading(s), 0)); // (its face toward the cars coming)
       m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.size / 2, w.z), q, sc.set(dir, 1, 1));
       boards.setMatrixAt(i, m);

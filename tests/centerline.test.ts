@@ -160,3 +160,45 @@ describe('centerline height and turn-back', () => {
     }
   });
 });
+
+describe('centerline banking', () => {
+  const BANK = { max: (8 * Math.PI) / 180, full: 1 / 40, ease: 20 };
+  // A right hairpin R 20 (its inside +d), a straight, a long left bend R 80, a straight, an S: R 30 right into R 30 left.
+  const hairpinLen = 20 * Math.PI + 10;
+  const leftLen = 80 * (Math.PI / 2) + 20;
+  const sStart = 100 + hairpinLen + 100 + leftLen + 100;
+  const road = new Centerline(
+    [...straight(100), ...bend(20, 180, 10), ...straight(100), ...bend(80, -90, 20), ...straight(100), ...bend(30, 60, 10), ...bend(30, -60, 10), ...straight(100)],
+    { turnBack: true, bank: BANK },
+  );
+  const hairpinMid = 100 + hairpinLen / 2;
+  const leftMid = 100 + hairpinLen + 100 + leftLen / 2;
+
+  it('flat across where it runs straight (well away from a bend), and without banking', () => {
+    expect(road.crossSlope(50)).toBe(0);
+    expect(new Centerline([...straight(100), ...bend(20, 90, 10)], { turnBack: true }).crossSlope(hairpinMid)).toBe(0);
+  });
+
+  it('a bend banked into it: its inside lower (a right bend: down toward +d), as far as `max` from `full` curvature on', () => {
+    expect(road.crossSlope(hairpinMid)).toBeCloseTo(-Math.tan(BANK.max), 9);
+    expect(road.crossSlope(leftMid)).toBeCloseTo(Math.tan(BANK.max) * (1 / 80 / BANK.full), 9); // (a left bend: up toward +d, less: gentler)
+  });
+
+  it('eased in and out over `ease` m, whatever the bend\'s own easing (a hairpin\'s is short): a step in the edges no more', () => {
+    let steepest = 0;
+    for (let s = 0; s < road.length; s += 0.5) steepest = Math.max(steepest, Math.abs(road.crossSlope(s + 0.5) - road.crossSlope(s)) / 0.5);
+    // (all of a hairpin's bank over `ease` m; from one way to the other in an S, twice that over as long)
+    expect(steepest).toBeLessThanOrEqual((2 * Math.tan(BANK.max)) / BANK.ease + 1e-9);
+    // Begun before the bend: the edges rising on the straight into it.
+    expect(road.crossSlope(100 - 5)).toBeLessThan(0);
+    expect(road.crossSlope(100 - BANK.ease)).toBe(0);
+    // The S: banked one way, then the other.
+    expect(road.crossSlope(sStart + 25)).toBeLessThan(0);
+    expect(road.crossSlope(sStart + 80)).toBeGreaterThan(0);
+  });
+
+  it('the surface at (s, d): the centre line\'s height plus the cross slope times d', () => {
+    expect(road.surfaceHeight(hairpinMid, 4)).toBeCloseTo(road.height(hairpinMid) + 4 * road.crossSlope(hairpinMid), 9);
+    expect(road.surfaceHeight(50, 4)).toBe(road.height(50));
+  });
+});

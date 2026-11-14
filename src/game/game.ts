@@ -337,7 +337,11 @@ export class Game {
     this.sparks = new Sparks(this.scene);
     // (the mountain road climbs and falls: its sparks bounce off it where they were struck - found with no hint, any
     // racer's, on whichever leg of the road)
-    if (this.mountain) this.sparks.floorAt = (x, z) => this.roadLine.height(this.roadLine.project(x, z).s);
+    if (this.mountain)
+      this.sparks.floorAt = (x, z) => {
+        const at = this.roadLine.project(x, z);
+        return this.roadLine.surfaceHeight(at.s, Math.max(-MOUNTAIN.edge, Math.min(MOUNTAIN.edge, at.d))); // (its bank to its edge)
+      };
     this.stats.dom.style.cssText = 'position:fixed;left:3.1vw;top:8.4vw;z-index:20;opacity:0.85;cursor:pointer'; // (under the HUD's time)
     document.body.appendChild(this.stats.dom);
     setLang(loadSettings(localStorage, navigator.language).lang); // (the screens below are built in it)
@@ -629,7 +633,11 @@ export class Game {
     // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
     const spec = specOf(this.cars.player);
     Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
-    if (this.mountain) Object.assign(this.player.params, mountainSetup(this.player.params, mountainSetupOf(spec.id))); // (the mountain road's setup on top: vehicles/mountainSetup)
+    if (this.mountain) {
+      // (the mountain road's setup on top: vehicles/mountainSetup - its centre of mass lower, its body given it anew)
+      Object.assign(this.player.params, mountainSetup(this.player.params, mountainSetupOf(spec.id)));
+      this.player.applyMass();
+    }
     this.hud.setAccent(accent);
     await this.loading.next('loading.road', 0.35);
     this.resetWorld();
