@@ -28,11 +28,50 @@ const CLIFF: [number, number][] = [
   [110, -140],
 ];
 /**
- * Chevron boards outside bends tighter than this radius (m), this far apart along it. No light of their own: they
- * reflect what reaches them `reflect` times as strongly as paint (a reflective sheeting's) - faint under the moon,
- * bright in the low beam, glaring in the high beam (the player's real lamps).
+ * Chevron boards outside the bends, two-faced (one for each way): `size` m high, as wide again for each chevron
+ * more, `height` m up. No light of their own: they reflect what reaches them `reflect` times as strongly as paint (a
+ * reflective sheeting's) - faint under the moon, bright in the low beam, glaring in the high beam (the player's real
+ * lamps).
  */
-const CHEVRON = { radius: 60, spacing: 7, size: 0.75, height: 1.1, reflect: 3.5, roughness: 0.35 };
+const CHEVRON = { size: 0.75, height: 1.1, reflect: 3.5, roughness: 0.35, back: 0.03 };
+/**
+ * How sharp a bend is, by its tightest radius (m): its boards' chevrons (1-3) and how far apart they stand (m) - a
+ * big bend (to R 130: at 150 km/h it wants more grip than the cars have from R 100 down) one chevron every 16 m, a
+ * hairpin three every 6.
+ */
+export const CHEVRON_LEVELS = [
+  { radius: 130, chevrons: 1, spacing: 16 },
+  { radius: 80, chevrons: 2, spacing: 10 },
+  { radius: 40, chevrons: 3, spacing: 6 },
+];
+
+/** Where the chevron boards stand along the road: each bend tighter than the first level's radius, by its tightest. */
+export function chevronSpots(road: Centerline): { s: number; dir: number; level: number }[] {
+  const spots: { s: number; dir: number; level: number }[] = [];
+  const kMin = 1 / CHEVRON_LEVELS[0].radius;
+  let s = 0;
+  while (s < road.length) {
+    const k = road.curvature(s);
+    if (Math.abs(k) <= kMin) {
+      s += 1;
+      continue;
+    }
+    const dir = Math.sign(k);
+    let end = s;
+    let tightest = Infinity;
+    while (end < road.length && Math.abs(road.curvature(end)) > kMin && Math.sign(road.curvature(end)) === dir) {
+      tightest = Math.min(tightest, 1 / Math.abs(road.curvature(end)));
+      end += 1;
+    }
+    let level = 1;
+    CHEVRON_LEVELS.forEach((l, i) => {
+      if (tightest <= l.radius) level = i + 1;
+    });
+    for (let t = s; t <= end; t += CHEVRON_LEVELS[level - 1].spacing) spots.push({ s: t, dir, level });
+    s = end + 1;
+  }
+  return spots;
+}
 /**
  * The amber lamp blinking on top of each chevron board: no light of its own, only bright enough (over white: the
  * bloom's) to glow. Its colour times `bright` lit, `dim` between; lit `on` of every `period` s (race time).
@@ -77,23 +116,27 @@ function markingsTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   return tex;
 }
 
-/** A yellow chevron board pointing right (a left bend's: flipped). */
-function chevronTexture(): THREE.CanvasTexture {
+/** A yellow chevron board of `n` chevrons pointing right (a left bend's: flipped), 128 px high, 64 px wider each more. */
+function chevronTexture(n: number): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = c.height = 128;
+  c.width = 128 + 64 * (n - 1);
+  c.height = 128;
   const g = c.getContext('2d')!;
   g.fillStyle = '#111';
-  g.fillRect(0, 0, 128, 128);
+  g.fillRect(0, 0, c.width, 128);
   g.fillStyle = '#f2c200';
-  g.beginPath();
-  g.moveTo(30, 14);
-  g.lineTo(74, 64);
-  g.lineTo(30, 114);
-  g.lineTo(54, 114);
-  g.lineTo(98, 64);
-  g.lineTo(54, 14);
-  g.closePath();
-  g.fill();
+  for (let k = 0; k < n; k++) {
+    const x = 64 * k;
+    g.beginPath();
+    g.moveTo(x + 30, 14);
+    g.lineTo(x + 74, 64);
+    g.lineTo(x + 30, 114);
+    g.lineTo(x + 54, 114);
+    g.lineTo(x + 98, 64);
+    g.lineTo(x + 54, 14);
+    g.closePath();
+    g.fill();
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -168,7 +211,8 @@ export class MountainScene implements Scenery {
   private readonly railMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide });
   private readonly postMat = new THREE.MeshStandardMaterial({ color: 0x8a8e94, metalness: 0.4, roughness: 0.5 });
   private readonly reflectorMat = new THREE.MeshBasicMaterial({ color: 0xffa640 });
-  private readonly chevronMat: THREE.MeshStandardMaterial;
+  /** The chevron boards' faces, one a level (CHEVRON_LEVELS: 1-3 chevrons). */
+  private readonly chevronMats: THREE.MeshStandardMaterial[];
   private readonly beaconMat = new THREE.MeshBasicMaterial({ color: BEACON.color.clone(), toneMapped: false, fog: false });
   /** Race time (s) the beacons blink by. */
   private time = 0;
@@ -185,12 +229,15 @@ export class MountainScene implements Scenery {
     const dirt = repeating('grass-small.jpg');
     dirt.repeat.set(1, 1);
     this.cliffMat = new THREE.MeshStandardMaterial({ map: dirt, color: 0x4a5040, roughness: 1, side: THREE.DoubleSide });
-    this.chevronMat = new THREE.MeshStandardMaterial({
-      map: chevronTexture(),
-      color: new THREE.Color(1, 1, 1).multiplyScalar(CHEVRON.reflect),
-      roughness: CHEVRON.roughness,
-      side: THREE.DoubleSide,
-    });
+    this.chevronMats = CHEVRON_LEVELS.map(
+      (l) =>
+        new THREE.MeshStandardMaterial({
+          map: chevronTexture(l.chevrons),
+          color: new THREE.Color(1, 1, 1).multiplyScalar(CHEVRON.reflect),
+          roughness: CHEVRON.roughness,
+          side: THREE.DoubleSide, // (a face mirrored for a left bend: either side drawn)
+        }),
+    );
     this.buildFar();
     scene.add(this.course, this.far);
   }
@@ -327,42 +374,48 @@ export class MountainScene implements Scenery {
     place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, 0.09, 0.14), this.reflectorMat, Math.max(1, reflectors.length)), reflectors, side * (E + 0.02), RAIL.y1 + 0.06);
   }
 
-  /** Chevron boards outside each bend tighter than CHEVRON.radius, facing the cars coming to it. */
+  /**
+   * Chevron boards outside each bend (chevronSpots: one to three chevrons by how sharp it is), two faces back to back
+   * on each post - one toward the cars coming each way, its chevrons pointing round the bend (toward its inside,
+   * the same side of the road either way) - and the amber lamp on top.
+   */
   private addChevrons(road: Centerline): void {
-    const spots: { s: number; dir: number }[] = [];
-    let s = 0;
-    while (s < road.length) {
-      const k = road.curvature(s);
-      if (Math.abs(k) > 1 / CHEVRON.radius) {
-        const dir = Math.sign(k);
-        let end = s;
-        while (end < road.length && Math.abs(road.curvature(end)) > 1 / CHEVRON.radius && Math.sign(road.curvature(end)) === dir) end += 1;
-        for (let t = s; t <= end; t += CHEVRON.spacing) spots.push({ s: t, dir });
-        s = end + 1;
-      } else s += 1;
-    }
-    const geo = new THREE.PlaneGeometry(CHEVRON.size, CHEVRON.size);
-    const boards = new THREE.InstancedMesh(geo, this.chevronMat, Math.max(1, spots.length));
+    const spots = chevronSpots(road);
     const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, CHEVRON.height, 0.06), this.postMat, Math.max(1, spots.length));
     const beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(BEACON.radius, 10, 8), this.beaconMat, Math.max(1, spots.length));
+    const boards = CHEVRON_LEVELS.map((l, i) => {
+      const n = spots.filter((sp) => sp.level === i + 1).length;
+      const geo = new THREE.PlaneGeometry(CHEVRON.size * (1 + 0.5 * (l.chevrons - 1)), CHEVRON.size);
+      return { mesh: new THREE.InstancedMesh(geo, this.chevronMats[i], Math.max(1, 2 * n)), next: 0 };
+    });
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
     const p = new THREE.Vector3();
     const sc = new THREE.Vector3();
-    spots.forEach(({ s, dir }, i) => {
+    spots.forEach(({ s, dir, level }, i) => {
       const d = -dir * (MOUNTAIN.edge + 0.5); // (outside the bend)
       const w = road.toWorld(s, d);
       const h = edgeHeight(road, s, d);
-      q.setFromEuler(e.set(0, -road.heading(s), 0)); // (its face toward the cars coming)
-      m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.size / 2, w.z), q, sc.set(dir, 1, 1));
-      boards.setMatrixAt(i, m);
+      const th = road.heading(s);
+      const fx = Math.sin(th);
+      const fz = -Math.cos(th);
+      const b = boards[level - 1];
+      const y = h + CHEVRON.height + CHEVRON.size / 2;
+      // Its face toward the cars coming up the road (toward -s), and back to back with it the one toward those coming
+      // down it - turned round, so mirrored the other way: its chevrons pointing to the same side of the road.
+      for (const [way, turn, mirror] of [[-1, 0, dir], [1, Math.PI, -dir]] as const) {
+        q.setFromEuler(e.set(0, -th + turn, 0));
+        m.compose(p.set(w.x + (way * fx * CHEVRON.back) / 2, y, w.z + (way * fz * CHEVRON.back) / 2), q, sc.set(mirror, 1, 1));
+        b.mesh.setMatrixAt(b.next++, m);
+      }
+      q.setFromEuler(e.set(0, -th, 0));
       m.compose(p.set(w.x, h + CHEVRON.height / 2, w.z), q, sc.set(1, 1, 1));
       poles.setMatrixAt(i, m);
       m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.size + BEACON.radius + 0.03, w.z), q, sc.set(1, 1, 1));
       beacons.setMatrixAt(i, m);
     });
-    for (const mesh of [boards, poles, beacons]) {
+    for (const mesh of [...boards.map((b) => b.mesh), poles, beacons]) {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.frustumCulled = false;
       this.course.add(mesh);

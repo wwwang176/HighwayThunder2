@@ -42,11 +42,12 @@ export const MOUNTAIN = {
   /** The chance a climb is followed by a descent (and the other way). */
   gradeFlip: 0.75,
   /**
-   * Its bends banked into them (Centerline.crossSlope): `max` (rad) from `full` curvature on (R 40 and tighter: its
-   * hairpins), less in proportion below, eased in and out over `ease` m. 8°: about 0.14 g more cornering, and the car
-   * leaned into the bend, not out.
+   * Its bends banked into them (Centerline.crossSlope): `max` (rad) from `full` curvature on, less in proportion below
+   * (R 150: 5.3°), eased in and out over `ease` m. 8°: about 0.14 g more cornering, and the car leaned into the bend,
+   * not out. R 100 and tighter (not only the hairpins: R 40 at first): at 150 km/h R 100 needs 1.77 g, the supercar's
+   * own limit, and half the big bends (R 60-150) are tighter.
    */
-  bank: { max: (8 * Math.PI) / 180, full: 1 / 40, ease: 20 },
+  bank: { max: (8 * Math.PI) / 180, full: 1 / 100, ease: 20 },
   /** Parts of the road more than `sepArc` apart along it keep `minSep` apart (its centre line), the run-up before it and past the finish too. */
   minSep: 24,
   sepArc: 70,
