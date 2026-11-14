@@ -51,6 +51,13 @@ const pickShader = {
  * own bright pass made a plain copy of that (threshold 0, reading ours). The rest of it - its blurs, its mix over
  * the picture - as it was.
  */
+/**
+ * How much each of the bloom's five blurs (each twice as wide as the one before) adds: most of it close round the
+ * light, a faint haze far out, each about half the one before (three's own 1, 0.8, 0.6, 0.4, 0.2 spread every glow
+ * wide; 1, 0.5, 0.2, 0.05, 0 cut it off too sharply). Mutable: one array, read by the pass as it draws.
+ */
+export const BLOOM_FACTORS = [1.0, 0.6, 0.3, 0.12, 0.04];
+
 export class FullResBloomPass extends UnrealBloomPass {
   private readonly picked = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
   private readonly pick = new THREE.ShaderMaterial({
@@ -62,6 +69,7 @@ export class FullResBloomPass extends UnrealBloomPass {
 
   constructor(resolution: THREE.Vector2, strength: number, radius: number, threshold: number) {
     super(resolution, strength, radius, threshold);
+    (this.compositeMaterial.uniforms as Record<string, THREE.IUniform>).bloomFactors.value = BLOOM_FACTORS;
     this.picked.texture.generateMipmaps = false;
     // Its bright pass reads ours, whatever it is told to read (it sets its source every render).
     const picked = this.picked;
