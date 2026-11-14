@@ -142,7 +142,16 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   const r = gui.addFolder('電腦對手（橡皮筋）');
   r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
   r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');
-  r.add(RIVAL_TUNING, 'maxBoost', 0, 1, 0.05).name('最多加強（抓地＋引擎）');
+  r.add(RIVAL_TUNING, 'engineBoost', 0, 1, 0.05).name('最多加強引擎');
+  r.add(RIVAL_TUNING, 'gripBoost', 0, 0.6, 0.05).name('最多加強抓地');
+  r.add(RIVAL_TUNING, 'topLift', 0, 1, 0.05).name('極速往原車極速拉高（比例）');
+  r.add(RIVAL_TUNING, 'nitroEager', 0, 1, 0.05).name('氮氣積極度');
+  r.add(RIVAL_TUNING, 'ghostFrom', 100, 2000, 10).name('落後幾 m 起穿透路人車');
+  r.add(RIVAL_TUNING, 'blindFrom', 100, 2000, 10).name('落後幾 m 起不看路人車（直線）');
+  r.add(RIVAL_TUNING, 'clearS', 0, 20, 0.5).name('恢復碰撞：前後要空幾 m');
+  r.add(RIVAL_TUNING, 'clearD', 0, 3, 0.1).name('恢復碰撞：左右要空幾 m');
+  r.add(RIVAL_TUNING, 'clearTime', 0, 3, 0.1).name('恢復碰撞：前後再加幾秒的接近距離');
+  r.add(RIVAL_TUNING, 'ghostSlack', 0, 50, 1).name('切換緩衝 m（不來回切）');
   r.add(RIVAL_TUNING, 'waitFrom', 50, 600, 10).name('領先幾 m 開始等');
   r.add(RIVAL_TUNING, 'waitFull', 100, 1000, 10).name('領先幾 m 等到最慢');
   r.add(RIVAL_TUNING, 'waitSpeed', 0.5, 1, 0.05).name('等待時速度 × 玩家車速');

@@ -3,7 +3,7 @@ import { KMH, RAIL_D, ROAD_LENGTH } from '../config';
 import { selfStateOf } from '../ai/driver';
 import { PlannerDriver, PlanSource } from '../ai/plannerDriver';
 import type { TrafficBox } from '../ai/sensors';
-import type { PhysicsWorld } from '../physics/physicsWorld';
+import { G_NPC_LIVE, G_WRECK, type PhysicsWorld } from '../physics/physicsWorld';
 import type { LightFlares } from '../render/lightFlares';
 import { lanesOccupied, surfaceGrip } from '../road/coords';
 import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
@@ -27,11 +27,44 @@ import { TUNE_CAL } from '../vehicles/tuneCalibration';
  */
 export const RIVAL_TUNING = {
   count: 5,
-  /** Behind by more than this, grip and engine start getting boosted (within it, none)... */
+  /** Behind by more than this, it starts getting a push (within it, none)... */
   boostFrom: 100,
-  /** ...rising evenly to `maxBoost` (+60 % each) this far behind. */
-  boostFull: 300,
-  maxBoost: 0.6,
+  /** ...rising evenly to the most this far behind (300: as long to its top speed, it caught up later): */
+  boostFull: 150,
+  /** its engine +60 %, */
+  engineBoost: 0.6,
+  /**
+   * its grip +10 % (+60 % as the engine's leant the muscle car to 24 deg, rocking it side to side three times as
+   * often, and rolled it over at full lock: docs/ai-experiments.md),
+   */
+  gripBoost: 0.1,
+  /**
+   * its top speed this share of the way from the difficulty's (topShare of its car's) up to its car's own - never
+   * past it (0: the difficulty's all the way),
+   */
+  topLift: 1,
+  /**
+   * its nitro used this much more eagerly (0..1: bursts longer and gaps shorter, NitroAi's `eager`; the tank burnt
+   * as much slower, none at the most - it never runs dry).
+   */
+  nitroEager: 1,
+  /**
+   * Behind by this much or more (m: out of sight) it goes through the traffic - no contact with NPCs nor wrecks, and
+   * they don't give way to it (it hits the rails and the other rivals as ever)...
+   */
+  ghostFrom: 200,
+  /**
+   * ...and from this far it doesn't see them either: straight on at its top speed. Between the two it sees them
+   * again, finding its way clear before it can hit them; solid again only with `clearS` / `clearD` m (along /
+   * across the road) of room round it from every car and wreck.
+   */
+  blindFrom: 250,
+  clearS: 3,
+  clearD: 0.5,
+  /** s: and along, as far again as it closes on a car (or one on it) in this long. */
+  clearTime: 1,
+  /** m: each of those changes back only this much past where it changed (no flicker either side of it). */
+  ghostSlack: 10,
   /** Ahead by more than this, its top speed comes down... */
   waitFrom: 100,
   /** ...to `waitSpeed` x the player's speed this far ahead (it waits for the player: as fast, holding the gap). */
@@ -62,16 +95,65 @@ export const RIVAL_TUNING = {
 
 /**
  * The rubber band: how a rival `gap` metres from the player (+ ahead) is
- * helped or held back. `boost` is the extra grip and engine (0.25 = +25 %),
- * `speedCap` its top speed (m/s) - `cap` unless it is far ahead, then down
- * toward the player's speed (waitSpeed of it) so it goes no further ahead.
+ * helped or held back. `push` is how much of the most help behind it gets (0..1: RIVAL_TUNING's engineBoost,
+ * gripBoost, nitroEager), `speedCap` its top speed (m/s) - `cap` (the difficulty's) unless it is far behind, then up
+ * toward `full` (its car's own: topLift of the way), or far ahead, then down toward the player's speed (waitSpeed of
+ * it) so it goes no further ahead.
  */
-export function rubberBand(gap: number, playerSpeed: number, cap: number): { boost: number; speedCap: number } {
+export function rubberBand(gap: number, playerSpeed: number, cap: number, full = cap): { push: number; speedCap: number } {
   const T = RIVAL_TUNING;
-  const behind = Math.min(1, Math.max(0, (-gap - T.boostFrom) / (T.boostFull - T.boostFrom)));
+  const push = Math.min(1, Math.max(0, (-gap - T.boostFrom) / (T.boostFull - T.boostFrom)));
   const ahead = Math.min(1, Math.max(0, (gap - T.waitFrom) / (T.waitFull - T.waitFrom)));
   const wait = Math.max(T.waitMinSpeed, playerSpeed * T.waitSpeed);
-  return { boost: T.maxBoost * behind, speedCap: ahead > 0 ? Math.min(cap, cap + (wait - cap) * ahead) : cap };
+  if (ahead > 0) return { push, speedCap: Math.min(cap, cap + (wait - cap) * ahead) };
+  return { push, speedCap: cap + Math.max(0, full - cap) * T.topLift * push };
+}
+
+/**
+ * Whether a rival `behind` m behind the player goes through the traffic (`ghost`) and doesn't see it (`blind`),
+ * from what it was (`was`) - `clear`: room round it (RIVAL_TUNING.clearS / clearD) from every car and wreck, without
+ * which it stays a ghost (never made solid inside one).
+ */
+export function ghostMode(behind: number, was: { ghost: boolean; blind: boolean }, clear: boolean): { ghost: boolean; blind: boolean } {
+  const T = RIVAL_TUNING;
+  const blind = behind >= T.blindFrom + (was.blind ? -T.ghostSlack : T.ghostSlack);
+  const far = behind >= T.ghostFrom - (was.ghost ? T.ghostSlack : 0);
+  return { blind, ghost: blind || far || (was.ghost && !clear) };
+}
+
+type Footprint = { s: number; dMin: number; dMax: number; length: number };
+
+/** Whether `b` is within `alongS` / `acrossD` m of `me` (both ways along, either side across). */
+function near(me: Footprint, b: TrafficBox, alongS: number, acrossD: number): boolean {
+  return Math.abs(b.s - me.s) < (b.length + me.length) / 2 + alongS && b.dMin - acrossD < me.dMax && me.dMin < b.dMax + acrossD;
+}
+
+/**
+ * Whether `me` (at `v` m/s) has room from every box in `boxes` (phantoms aside): RIVAL_TUNING.clearD across, clearS
+ * along - and as far again as it closes on it (or it on `me`) in clearTime s.
+ */
+export function clearOf(me: Footprint, v: number, boxes: readonly TrafficBox[]): boolean {
+  const T = RIVAL_TUNING;
+  for (const b of boxes) {
+    if (b.phantom) continue;
+    const closing = Math.max(0, b.s > me.s ? v - b.v : b.v - v);
+    if (near(me, b, T.clearS + closing * T.clearTime, T.clearD)) return false;
+  }
+  return true;
+}
+
+/** What a rival going through the traffic doesn't touch. */
+const THROUGH = G_NPC_LIVE | G_WRECK;
+
+/** A car's body through the traffic (`ghost`) or not: NPCs and wrecks left out of its colliders' filter, or put back. */
+function setGhost(car: PlayerCar, ghost: boolean): void {
+  const b = car.body;
+  for (let i = 0; i < b.numColliders(); i++) {
+    const c = b.collider(i);
+    const g = c.collisionGroups() >>> 0;
+    const want = (ghost ? g & ~THROUGH : g | THROUGH) >>> 0;
+    if (want !== g) c.setCollisionGroups(want);
+  }
 }
 
 /**
@@ -184,8 +266,11 @@ export interface Rival {
   driver: PlannerDriver;
   /** s it has been slower than RIVAL_TUNING.stuckSpeed. */
   stuckFor: number;
-  /** Rubber band boost now (smoothed). */
-  boost: number;
+  /** The rubber band's push now (0..1, smoothed: rubberBand). */
+  push: number;
+  /** Going through the traffic, and not seeing it (ghostMode: far behind, out of sight). */
+  ghost: boolean;
+  blind: boolean;
   /** When it uses its nitro (by rule: nitro.ts). */
   nitroAi: NitroAi;
   finishTime: number | null;
@@ -240,8 +325,8 @@ export class Rivals {
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
       driver.recovery = trackerFrom(spec.ai.recovery);
-      const r: Rival = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
-      car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
+      const r: Rival = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, push: 0, ghost: false, blind: false, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
+      car.surfaceGrip = (x) => surfaceGrip(x) * (1 + RIVAL_TUNING.gripBoost * r.push);
       this.list.push(r);
     }
     this.place();
@@ -269,7 +354,9 @@ export class Rivals {
       r.car.nitro.reset();
       r.nitroAi.reset();
       r.stuckFor = 0;
-      r.boost = 0;
+      r.push = 0;
+      r.ghost = r.blind = false;
+      setGhost(r.car, false);
       r.finishTime = null;
       r.resets = 0;
       r.resetWait = 0;
@@ -283,18 +370,25 @@ export class Rivals {
     const p = view.player;
     for (const r of this.list) {
       r.car.holdInPlace(false);
+      const full = Math.min(view.speedCap, r.base.maxSpeed); // its car's own top speed (as tuned), within the AI's cap
       const own = Math.min(view.speedCap, (view.topShare ?? 1) * r.base.maxSpeed); // (the difficulty's share of its car's)
-      const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), own);
-      r.boost += (band.boost - r.boost) * Math.min(1, dt / BAND_SMOOTH);
+      const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), own, full);
+      r.push += (band.push - r.push) * Math.min(1, dt / BAND_SMOOTH);
       this.applyBoost(r);
-      const top = Math.min(band.speedCap, r.base.maxSpeed); // its own top speed (as tuned) when lower than the AI's cap
+      const mode = ghostMode(p.s - r.car.s, r, !r.ghost || clearOf(r.car.footprint(), Math.max(0, r.car.speed), view.traffic));
+      if (mode.ghost !== r.ghost) setGhost(r.car, mode.ghost);
+      r.ghost = mode.ghost;
+      r.blind = mode.blind;
+      const top = Math.min(band.speedCap, r.base.maxSpeed);
       const cap = r.finishTime === null ? top : Math.min(top, FINISHED_SPEED);
       r.car.params.maxSpeed = cap;
       // Past the line it coasts down to FINISHED_SPEED: no more push over it (maxSpeed), the AI aiming at the speed
       // it has - never braking for it (only for what is ahead).
       const aim = r.finishTime === null ? cap : Math.max(cap, r.car.speed);
       const input = r.driver.drive(selfStateOf(r.car, aim), this.othersAsBoxes(r, view), r.car.params);
-      r.car.prePhysics({ ...input, nitro: r.nitroAi.want(dt, input.throttle, r.car.nitro) }, dt);
+      const eager = r.finishTime === null ? RIVAL_TUNING.nitroEager * r.push : 0;
+      r.car.params.nitroBurn = (r.base.nitroBurn ?? 1) / Math.max(1e-3, 1 - eager); // (the tank burnt as much slower)
+      r.car.prePhysics({ ...input, nitro: r.nitroAi.want(dt, input.throttle, r.car.nitro, eager) }, dt);
     }
   }
 
@@ -328,9 +422,9 @@ export class Rivals {
     }
   }
 
-  /** The rivals as the traffic sees the player: it gives way to them. */
+  /** The rivals as the traffic sees the player: it gives way to them (not to one going through it: a ghost). */
   obstacles(frame: RoadFrame): Obstacle[] {
-    return this.list.map((r) => {
+    return this.list.filter((r) => !r.ghost).map((r) => {
       const t = r.car.body.translation();
       const v = r.car.body.linvel();
       const f = OUR_FRAME.forwardWorld(r.car.yaw, r.car.s);
@@ -375,20 +469,24 @@ export class Rivals {
     this.list.length = 0;
   }
 
-  /** Everything but `r` on its road: traffic, the player, the other rivals. */
+  /**
+   * Everything but `r` on its road: traffic (not while it is blind to it; going through it, not what it is in - it
+   * plans its way out round the rest), the player, the other rivals.
+   */
   private othersAsBoxes(r: Rival, view: RaceView): TrafficBox[] {
     const out = this.boxBuf;
     out.length = 0;
-    for (const t of view.traffic) out.push(t);
+    const me = r.ghost ? r.car.footprint() : null;
+    if (!r.blind) for (const t of view.traffic) if (!me || !near(me, t, 0, 0)) out.push(t);
     out.push({ ...view.player.footprint(), id: PLAYER_BOX_ID, v: Math.max(0, view.player.speed) });
     for (const o of this.list) if (o !== r) out.push({ ...o.car.footprint(), id: RIVAL_BOX_ID - o.index, v: Math.max(0, o.car.speed) });
     return out;
   }
 
-  /** Engine and grip with the rubber band's boost (the grip through `surfaceGrip`). */
+  /** The engine with the rubber band's push (the grip's: `surfaceGrip`, set up with the car). */
   private applyBoost(r: Rival): void {
     const base = r.base;
-    const k = 1 + r.boost;
+    const k = 1 + RIVAL_TUNING.engineBoost * r.push;
     r.car.params.power = base.power * k;
     r.car.params.engineTorque = base.engineTorque * k;
     r.car.params.maxDriveForce = base.maxDriveForce * k;

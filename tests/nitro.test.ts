@@ -49,15 +49,15 @@ describe('nitro', () => {
   });
 });
 
-/** The bursts an AI fires over `seconds` on full throttle, a full tank kept full: [start, end] each (s). */
-function bursts(ai: NitroAi, seconds: number): [number, number][] {
+/** The bursts an AI fires over `seconds` on full throttle (`eager` as keen), a full tank kept full: [start, end] each (s). */
+function bursts(ai: NitroAi, seconds: number, eager = 0): [number, number][] {
   const n = new Nitro();
   const dt = 0.01;
   const out: [number, number][] = [];
   for (let i = 0; i * dt < seconds; i++) {
     n.level = 1;
     const t = i * dt;
-    if (!ai.want(dt, 1, n)) continue;
+    if (!ai.want(dt, 1, n, eager)) continue;
     const last = out[out.length - 1];
     if (last && Math.abs(last[1] - t) < dt / 2) last[1] = t + dt;
     else out.push([t, t + dt]);
@@ -87,6 +87,17 @@ describe('the AI\'s nitro', () => {
       expect(b[i + 1][0] - b[i][1]).toBeGreaterThanOrEqual(NITRO.aiGap[0] - 0.02);
       expect(b[i + 1][0] - b[i][1]).toBeLessThanOrEqual(NITRO.aiGap[1] + 0.02);
     }
+  });
+
+  it('most eager: bursts and gaps as NITRO.aiBurstEager and aiGapEager; half: halfway', () => {
+    const lo = bursts(new NitroAi(() => 0), 6, 1);
+    expect(lo[0][1] - lo[0][0]).toBeCloseTo(NITRO.aiBurstEager[0], 1);
+    expect(lo[1][0] - lo[0][1]).toBeCloseTo(NITRO.aiGapEager[0], 1);
+    const hi = bursts(new NitroAi(() => 0.9999), 8, 1);
+    expect(hi[0][1] - hi[0][0]).toBeCloseTo(NITRO.aiBurstEager[1], 1);
+    expect(hi[1][0] - hi[0][1]).toBeCloseTo(NITRO.aiGapEager[1], 1);
+    const half = bursts(new NitroAi(() => 0), 6, 0.5);
+    expect(half[0][1] - half[0][0]).toBeCloseTo((NITRO.aiBurst[0] + NITRO.aiBurstEager[0]) / 2, 1);
   });
 
   it('not off the throttle, nor without enough in the tank for its next burst', () => {

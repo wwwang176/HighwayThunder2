@@ -1,7 +1,7 @@
 /**
  * How hard the rivals race: how fast they go at the most, a share of their own car's top speed. Only that - their
- * rubber band (boosted far behind, waiting far ahead: RIVAL_TUNING) is the same at every level, so they stay round
- * the player whichever it is.
+ * rubber band (pushed far behind, up to their car's own top speed; waiting far ahead: RIVAL_TUNING) is the same at
+ * every level, so they stay round the player whichever it is.
  */
 export interface Difficulty {
   name: string;
