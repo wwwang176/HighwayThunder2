@@ -72,7 +72,7 @@ import { RoadScene, type Scenery } from '../world/roadScene';
 import { MountainScene } from '../world/mountainScene';
 import { MountainDriver } from '../ai/mountainDriver';
 import type { RivalDriver } from '../ai/driver';
-import { MOUNTAIN, mountainRoad } from '../road/mountain';
+import { keepOverRoad, MOUNTAIN, mountainRoad } from '../road/mountain';
 import { surfaceMesh } from '../road/surface';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
@@ -361,7 +361,10 @@ export class Game {
         } catch {
           // (no session storage: the garage again after the reload)
         }
-        location.search = '';
+        // (the course's own flags off - the saved pick decides - any other, ?t= say, kept)
+        const params = new URLSearchParams(location.search);
+        for (const k of ['mountain', 'highway', 'straight']) params.delete(k);
+        location.search = params.toString();
         return;
       }
       this.startRace(cars, true);
@@ -930,22 +933,6 @@ export class Game {
     this.aiDriver?.reset(this.player.d);
     this.skids.cut();
     this.rig.snap();
-  }
-
-  /**
-   * The chase camera held over the mountain road (between its wall and rail, above its surface): swinging wide round
-   * a hairpin it went into the rock. Moved in, it looks at the car again.
-   */
-  private keepCameraOnRoad(car: THREE.Vector3): void {
-    const cam = this.camera.position;
-    const road = this.roadLine;
-    const at = road.project(cam.x, cam.z, this.player.s);
-    const room = MOUNTAIN.edge - 0.6;
-    const floor = road.height(at.s) + 0.8;
-    if (Math.abs(at.d) <= room && cam.y >= floor) return;
-    const w = road.toWorld(at.s, Math.max(-room, Math.min(room, at.d)));
-    cam.set(w.x, Math.max(cam.y, floor), w.z);
-    this.camera.lookAt(car.x, car.y + 0.9, car.z);
   }
 
   // --- loop -----------------------------------------------------------------
@@ -1561,10 +1548,10 @@ export class Game {
     if (this.introOn) this.intro!.placeCamera();
     else if (show) show.placeCamera();
     else if (this.hoodCam && look === 'ahead') this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
-    else {
-      this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
-      if (this.mountain) this.keepCameraOnRoad(p);
-    }
+    else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
+    // The mountain road: the chase camera swinging wide round a hairpin, the intro's and the finish's shots set wide
+    // of the car, all went into the rock - kept over the road (moved in, looking the same way: no jump in the view).
+    if (this.mountain) keepOverRoad(this.roadLine, this.camera.position, this.player.s, MOUNTAIN.edge - 0.6, 0.8);
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
       this.hud.revealFinish();

@@ -374,7 +374,10 @@ export class PhysicsWorld {
       }
       info.seen = step;
       const t = b.translation();
-      const p = road.project(t.x, t.z, Number.isNaN(info.s) ? undefined : info.s);
+      let p = road.project(t.x, t.z, Number.isNaN(info.s) ? undefined : info.s);
+      // A road that turns back: from a stale hint (the body put back far along it) the projection can settle on the
+      // leg beside it - off its road by more than the road is wide: found afresh.
+      if (road.turnBack && (p.d > this.railRight + RAIL_LET_GO || p.d < this.railLeft - RAIL_LET_GO)) p = road.project(t.x, t.z);
       info.s = p.s;
       info.d = p.d;
       const th = road.heading(p.s);

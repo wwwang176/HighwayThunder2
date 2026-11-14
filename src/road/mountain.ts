@@ -183,6 +183,21 @@ function profile(rand: Rand): GradePiece[] {
   return out;
 }
 
+/**
+ * A point (a camera) kept over the road: within `room` m of its centre line across (between the wall and the rail),
+ * at least `lift` m over its surface. `hint`: an s near it (the car it films). Moved in place; whether it was.
+ */
+export function keepOverRoad(road: Centerline, p: { x: number; y: number; z: number }, hint: number, room: number, lift: number): boolean {
+  const at = road.project(p.x, p.z, hint);
+  const floor = road.height(at.s) + lift;
+  if (Math.abs(at.d) <= room && p.y >= floor) return false;
+  const w = road.toWorld(at.s, Math.max(-room, Math.min(room, at.d)));
+  p.x = w.x;
+  p.z = w.z;
+  p.y = Math.max(p.y, floor);
+  return true;
+}
+
 /** wallSide at each of `ss` (ascending), at once: from the curvature's sign there or at the nearest bent one. */
 export function wallSides(road: Centerline, ss: number[]): Int8Array {
   const n = ss.length;

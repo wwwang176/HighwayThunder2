@@ -174,10 +174,10 @@ export function placeOf(playerS: number, playerFinish: number | null, rivals: { 
 export type ResetReason = 'stuck' | 'spun' | 'off-road' | 'far-behind' | 'far-ahead';
 
 /** Whether a rival has to be put back into the race, and why (null: it is racing, or the player is too near to see it put back). */
-export function needsReset(r: { s: number; d: number; yaw: number; speed: number; stuckFor: number; playerS: number }, edge = RAIL_D): ResetReason | null {
+export function needsReset(r: { s: number; d: number; yaw: number; speed: number; stuckFor: number; playerS: number }, edge = RAIL_D, teleport = true): ResetReason | null {
   const T = RIVAL_TUNING;
-  if (r.playerS - r.s > T.teleportBehind) return 'far-behind';
-  if (r.s - r.playerS > T.teleportAhead) return 'far-ahead';
+  if (teleport && r.playerS - r.s > T.teleportBehind) return 'far-behind';
+  if (teleport && r.s - r.playerS > T.teleportAhead) return 'far-ahead';
   if (Math.abs(r.s - r.playerS) < T.resetClear) return null; // (the player would see it pop)
   if (Math.abs(r.d) > edge) return 'off-road';
   if (Math.abs(r.yaw) > T.spunYaw) return 'spun';
@@ -310,7 +310,10 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
   /** Where each starts (d, s), and how far either side of the centre line it is off the road (m). */
   private readonly grid: [number, number][];
   private readonly edge: number;
-  /** Its own road's put-back (the mountain road's two lanes), else the highway's (clearResetSpot). */
+  /**
+   * Its own road's put-back (the mountain road's two lanes), else the highway's (clearResetSpot). With its own lanes,
+   * no teleports either (far behind or ahead it races on: the rubber band alone keeps it near).
+   */
   private readonly ownLanes: number[] | null;
 
   /**
@@ -454,7 +457,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
       if (r.resetWait > 0) continue;
       // Under a road that climbs (through its surface: a mesh has no inside): off the road, wherever it is.
       const under = c.road.hilly && c.body.translation().y < c.road.height(c.s) - FALLEN;
-      const why = under ? 'off-road' : needsReset({ s: c.s, d: c.d, yaw: c.yaw, speed: c.speed, stuckFor: r.stuckFor, playerS: view.player.s }, this.edge);
+      const why = under ? 'off-road' : needsReset({ s: c.s, d: c.d, yaw: c.yaw, speed: c.speed, stuckFor: r.stuckFor, playerS: view.player.s }, this.edge, !this.ownLanes);
       if (why && (r.finishTime === null || under)) this.putBack(r, why, view, blockers);
     }
   }

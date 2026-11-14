@@ -38,6 +38,8 @@ export const MOUNTAIN_DRIVER = {
   vMax: 100,
   /** Past the finish, braked down to this (m/s; 40 km/h, as the highway's FINISHED_SPEED). */
   pastFinish: 40 / 3.6,
+  /** ...and stopped this far past it (m: short of where the road runs out, MOUNTAIN.after). */
+  stopPast: 300,
 };
 
 /**
@@ -126,7 +128,7 @@ export class MountainDriver implements RivalDriver {
     const halfLen = self.halfLength ?? 2.2;
     let target = Math.min(this.speedAt(Math.max(0, self.s) + Math.max(T.leadMin, T.lead * v)), self.speedCap);
     // Past the finish it slows down (the mountain road runs out: not the highway's coasting on for ever).
-    if (self.s > road.length) target = Math.min(target, T.pastFinish);
+    if (self.s > road.length) target = Math.min(target, self.s > road.length + T.stopPast ? 0 : T.pastFinish);
 
     // The racer ahead on its line nearest it: passed on the roomier side, or followed.
     let want = 0;

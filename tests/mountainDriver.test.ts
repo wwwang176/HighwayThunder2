@@ -73,6 +73,14 @@ describe('MountainDriver', () => {
     expect(m.drive(self, [], P).brake).toBeGreaterThan(0);
   });
 
+  it('well past the finish it stops (the road runs out 500 m on)', () => {
+    const m = driver();
+    const self = { ...onLine(m, ROAD.length + 320), vLong: 5, speedCap: 40 };
+    const input = m.drive(self, [], P);
+    expect(input.throttle).toBe(0);
+    expect(input.brake).toBeGreaterThan(0);
+  });
+
   it('the push (falling behind) raises the speed it aims at, up to the grip itself', () => {
     const m = driver();
     m.budget = 0.85;

@@ -109,6 +109,12 @@ describe('needsReset', () => {
     expect(needsReset(ok)).toBe(null);
   });
 
+  it('without teleports (the mountain road\'s): far behind or ahead it races on; off its own narrow road, put back', () => {
+    expect(needsReset({ ...ok, playerS: ok.s + T.teleportBehind + 1 }, 4.75, false)).toBe(null);
+    expect(needsReset({ ...ok, playerS: ok.s - T.teleportAhead - 1 }, 4.75, false)).toBe(null);
+    expect(needsReset({ ...ok, d: 5, playerS: ok.s + T.teleportBehind + 1 }, 4.75, false)).toBe('off-road');
+  });
+
   it('stopped too long, spun round, off the road (the player well away), or hopelessly far behind: back into the race', () => {
     const away = { ...ok, playerS: ok.s + T.resetClear + 1 };
     expect(needsReset({ ...away, speed: 0.5, stuckFor: T.stuckTime + 0.1 })).toBe('stuck');
