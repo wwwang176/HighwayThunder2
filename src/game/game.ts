@@ -334,6 +334,9 @@ export class Game {
     this.skids = new SkidMarks(this.scene);
     this.smoke = new TireSmoke(this.post.unbloomed); // (lit, however brightly: no glow)
     this.sparks = new Sparks(this.scene);
+    // (the mountain road climbs and falls: its sparks bounce off it where they were struck - found with no hint, any
+    // racer's, on whichever leg of the road)
+    if (this.mountain) this.sparks.floorAt = (x, z) => this.roadLine.height(this.roadLine.project(x, z).s);
     this.stats.dom.style.cssText = 'position:fixed;left:3.1vw;top:8.4vw;z-index:20;opacity:0.85;cursor:pointer'; // (under the HUD's time)
     document.body.appendChild(this.stats.dom);
     setLang(loadSettings(localStorage, navigator.language).lang); // (the screens below are built in it)
