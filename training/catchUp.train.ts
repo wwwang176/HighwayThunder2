@@ -18,7 +18,8 @@ import { PLAYER_L, PLAYER_W, PlayerCar } from '../src/vehicles/playerCar';
  * while); the time until it is within `GOAL` m. The rubber band as:
  * - none: no help;
  * - old: engine and grip +60 %, top speed the difficulty's (topShare of its car's), nitro as ever;
- * - new: engine +60 %, grip +10 %, top speed up to its car's own, nitro used most eagerly (the tank never dry).
+ * - new: engine +60 %, grip +10 %, top speed up to its car's own, nitro used most eagerly (the tank never dry), all
+ *   of it from 150 m behind (new300: from 300 m).
  * The player's speeds: one under the difficulty's top speed for the rival's car, one between that and its own.
  * Also: the share of the time the rival burns nitro by how far behind it is, how far past its top speed (the
  * limiter: maxSpeed) it went on nitro, its most lean, its resets (put back: that run's time not a catch-up).
@@ -35,10 +36,11 @@ const DEG = 180 / Math.PI;
 const RIGHT = new THREE.Vector3();
 const QUAT = new THREE.Quaternion();
 
-const KNOBS: Record<string, Pick<typeof RIVAL_TUNING, 'engineBoost' | 'gripBoost' | 'topLift' | 'nitroEager'>> = {
-  none: { engineBoost: 0, gripBoost: 0, topLift: 0, nitroEager: 0 },
-  old: { engineBoost: 0.6, gripBoost: 0.6, topLift: 0, nitroEager: 0 },
-  new: { engineBoost: 0.6, gripBoost: 0.1, topLift: 1, nitroEager: 1 },
+const KNOBS: Record<string, Pick<typeof RIVAL_TUNING, 'boostFull' | 'engineBoost' | 'gripBoost' | 'topLift' | 'nitroEager'>> = {
+  none: { boostFull: 300, engineBoost: 0, gripBoost: 0, topLift: 0, nitroEager: 0 },
+  old: { boostFull: 300, engineBoost: 0.6, gripBoost: 0.6, topLift: 0, nitroEager: 0 },
+  new300: { boostFull: 300, engineBoost: 0.6, gripBoost: 0.1, topLift: 1, nitroEager: 1 },
+  new: { boostFull: 150, engineBoost: 0.6, gripBoost: 0.1, topLift: 1, nitroEager: 1 },
 };
 
 function lean(car: PlayerCar): number {

@@ -29,8 +29,8 @@ export const RIVAL_TUNING = {
   count: 5,
   /** Behind by more than this, it starts getting a push (within it, none)... */
   boostFrom: 100,
-  /** ...rising evenly to the most this far behind: */
-  boostFull: 300,
+  /** ...rising evenly to the most this far behind (300: as long to its top speed, it caught up later): */
+  boostFull: 150,
   /** its engine +60 %, */
   engineBoost: 0.6,
   /**
