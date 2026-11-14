@@ -68,9 +68,11 @@ export class FinishShow {
   /** Skipped: how fast the race ran then (the slow-down behind the panel from there). */
   private skippedAt: number | undefined;
 
+  /** `edges`: the road's sides (d, m) the first shot's camera stands by (the highway's: its rail and the median). */
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
     private readonly car: PlayerCar,
+    edges: [number, number] = [RAIL_D - 0.8, MEDIAN_NEAR_X + 0.8],
   ) {
     this.frame();
     // (across the road: its d; along it: its s)
@@ -79,13 +81,12 @@ export class FinishShow {
     // Past the car by a bit more than it goes in the first shot (the race slowed: it stops short), beside the road
     // on the nearest side with room (not where the car is: it would come through the camera).
     const goes = THREE.MathUtils.clamp(Math.abs(car.speed) * slowedSeconds(THROUGH) * 1.15, 8, 50);
-    const edges = [RAIL_D - 0.8, MEDIAN_NEAR_X + 0.8];
     const room = edges.filter((x) => Math.abs(x - at) >= 6);
     const x = room.length ? room.reduce((a, b) => (Math.abs(b - at) < Math.abs(a - at) ? b : a)) : edges.reduce((a, b) => (Math.abs(b - at) > Math.abs(a - at) ? b : a));
     const th = road.heading(car.s);
     const along = this.ahead.x * Math.sin(th) - this.ahead.z * Math.cos(th); // (its heading along the road's)
     const spot = road.toWorld(car.s + along * goes, x);
-    this.roadside.set(spot.x, 1.0, spot.z);
+    this.roadside.set(spot.x, road.height(car.s + along * goes) + 1.0, spot.z); // (over the road there: a road that climbs, its height)
     // The shots after it from that side of the car, so it keeps going the same way across the picture.
     const side = Math.sign((x - at) * (this.right.x * Math.cos(th) + this.right.z * Math.sin(th)) + 1e-6);
     this.shots = [
@@ -152,7 +153,7 @@ export class FinishShow {
     if (i === 0) {
       // From the roadside, following the car.
       cam.position.copy(this.roadside);
-      cam.lookAt(this.look.copy(this.car.mesh.position).setY(0.6));
+      cam.lookAt(this.look.copy(this.car.mesh.position).setY(this.origin.y + 0.6));
     } else {
       const lerp = (a: number[], b: number[]) => [0, 1, 2].map((j) => THREE.MathUtils.lerp(a[j], b[j], k));
       const pos = lerp(s.from.pos, s.to.pos);
@@ -171,12 +172,12 @@ export class FinishShow {
   /** The car's frame now (as it is drawn: its mesh). */
   private frame(): void {
     const m = this.car.mesh;
-    this.origin.set(m.position.x, 0, m.position.z);
+    this.origin.set(m.position.x, this.car.road.height(this.car.s), m.position.z); // (on the road: 0 flat)
     this.ahead.set(0, 0, -1).applyQuaternion(m.quaternion).setY(0).normalize();
     this.right.set(-this.ahead.z, 0, this.ahead.x);
   }
 
   private world([x, y, z]: number[]): THREE.Vector3 {
-    return new THREE.Vector3().copy(this.origin).addScaledVector(this.right, x).addScaledVector(this.ahead, z).setY(y);
+    return new THREE.Vector3().copy(this.origin).addScaledVector(this.right, x).addScaledVector(this.ahead, z).setY(this.origin.y + y);
   }
 }

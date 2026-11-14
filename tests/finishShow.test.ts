@@ -46,3 +46,26 @@ describe('slowedSeconds', () => {
     expect(e).toBeLessThan(FINISH_SLOW.ease);
   });
 });
+
+describe('the finish show on a road up a hill', () => {
+  it('films the car from over the road where it is, not from the height 0', async () => {
+    const THREE = await import('three');
+    const { FinishShow } = await import('../src/game/finishShow');
+    const { Centerline, straight } = await import('../src/road/centerline');
+    const road = new Centerline([...straight(600)], { grades: [{ len: 1, g: 0.1 }, { len: 400, g: 0.1 }, { len: 50, g: 0 }] });
+    const s = 500;
+    const h = road.height(s); // (~42.5 m up)
+    const mesh = new THREE.Object3D();
+    const at = road.toWorld(s, 1.9);
+    mesh.position.set(at.x, h + 0.55, at.z);
+    const car = { road, s, d: 1.9, speed: 25, mesh } as unknown as ConstructorParameters<typeof FinishShow>[1];
+    const camera = new THREE.PerspectiveCamera();
+    const show = new FinishShow(camera, car, [4, -4]);
+    for (let t = 0; t < 12; t += 0.25) {
+      show.placeCamera();
+      expect(camera.position.y).toBeGreaterThan(h);
+      expect(camera.position.y).toBeLessThan(h + 8);
+      show.step(0.25);
+    }
+  });
+});

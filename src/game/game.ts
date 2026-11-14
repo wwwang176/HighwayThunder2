@@ -705,7 +705,8 @@ export class Game {
 
   /** Past the line: the finish's show from here (the HUD off, the bars in; its panel after it: render). */
   private beginFinishShow(): void {
-    this.finishShow = new FinishShow(this.camera, this.player);
+    // (the mountain road: its camera by its own narrow road's edges)
+    this.finishShow = this.mountain ? new FinishShow(this.camera, this.player, [MOUNTAIN.edge - 0.8, -MOUNTAIN.edge + 0.8]) : new FinishShow(this.camera, this.player);
     // Past the line the AI takes the car (as the I key does; the next race hands it back), rolling on.
     if (this.aiDriver && !this.aiActive) this.toggleAi();
     this.gate.shown = false; // (its fountains go on)
