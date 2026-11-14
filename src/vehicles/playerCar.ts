@@ -104,6 +104,7 @@ export function quatFromYaw(yaw: number): { x: number; y: number; z: number; w: 
 }
 
 const TMP_Q = new THREE.Quaternion();
+const RESET_EULER = new THREE.Euler();
 const TMP_V = new THREE.Vector3();
 /** s its acceleration is smoothed over (a crash's spike, the springs' shake). */
 const ACCEL_SMOOTH = 0.1;
@@ -651,14 +652,28 @@ export class PlayerCar {
   }
 
   resetTo(s: number, lane: number, speed: number): void {
+    this.resetAt(s, laneCenter(lane), speed);
+  }
+
+  /** Place the car at road position (s, d), upright on the road (pitched to its grade), pointing down it, at `speed`. */
+  resetAt(s: number, d: number, speed: number): void {
     const p = this.params;
-    if (this.road.straight) {
-      this.body.setTranslation({ x: laneCenter(lane), y: RIDE_Y + 0.02, z: -s }, true);
+    if (this.road.hilly) {
+      const at = this.road.toWorld(s, d);
+      const th = this.road.heading(s);
+      const pitch = Math.atan(this.road.grade(s));
+      this.body.setTranslation({ x: at.x, y: this.road.height(s) + RIDE_Y + 0.02, z: at.z }, true);
+      const q = TMP_Q.setFromEuler(RESET_EULER.set(pitch, -th, 0, 'YXZ'));
+      this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+      const c = Math.cos(pitch);
+      this.body.setLinvel({ x: speed * c * Math.sin(th), y: speed * Math.sin(pitch), z: -speed * c * Math.cos(th) }, true);
+    } else if (this.road.straight) {
+      this.body.setTranslation({ x: d, y: RIDE_Y + 0.02, z: -s }, true);
       this.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
       this.body.setLinvel({ x: 0, y: 0, z: -speed }, true);
     } else {
       // Along the road where it is put.
-      const at = this.road.toWorld(s, laneCenter(lane));
+      const at = this.road.toWorld(s, d);
       const th = this.road.heading(s);
       this.body.setTranslation({ x: at.x, y: RIDE_Y + 0.02, z: at.z }, true);
       this.body.setRotation(quatFromYaw(th), true);

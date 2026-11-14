@@ -164,6 +164,14 @@ export class PhysicsWorld {
   /** The road the rails follow (straight: the two fixed planes in `rails`; curved: a plane per car near one). */
   private road: Centerline = STRAIGHT_ROAD;
   private railsOff = false;
+  /** The rails' d either side (curved roads: the slots' planes): the highway's, or the road's own (setRoad). */
+  private railRight = RAIL_D;
+  private railLeft = LEFT_RAIL_X;
+  /** The ground: the flat half-space, or (a road that climbs: setRoad's `ground`) a mesh of the road's surface. */
+  private ground: RAPIER.Collider | null = null;
+  private groundMesh: RAPIER.Collider | null = null;
+  /** The ground is the road's surface mesh (slopes): tyres then work along it (tyreChassis). */
+  sloped = false;
   /** A curved road's rail planes, one per slot, and the body holding each (its handle; -1 free). */
   private readonly slotRails: RAPIER.Collider[] = [];
   private readonly slotBody: number[] = [];
@@ -222,11 +230,46 @@ export class PhysicsWorld {
    * top) or off the ground's edge (it has none).
    */
   private createStatics(): void {
+    this.createFlatGround();
+    this.createStraightRails();
+  }
+
+  private createFlatGround(): void {
     const ground = this.world.createCollider(
       new RAPIER.ColliderDesc(new RAPIER.HalfSpace({ x: 0, y: 1, z: 0 })).setFriction(0.9).setCollisionGroups(STATIC_GROUPS),
     );
     this.register(ground, { type: 'static' });
-    this.createStraightRails();
+    this.ground = ground;
+  }
+
+  /**
+   * The ground: flat (the half-space, as ever), or the road's surface (`mesh`: a road that climbs and falls). A mesh
+   * has no inside - a car got under it stays there (the game puts it back) - and its triangles' shared edges are
+   * smoothed over (FIX_INTERNAL_EDGES: a car's body sliding on it is not caught on a seam).
+   */
+  private setGround(mesh?: { positions: Float32Array; indices: Uint32Array }): void {
+    if (this.groundMesh) {
+      this.unregister(this.groundMesh);
+      this.world.removeCollider(this.groundMesh, false);
+      this.groundMesh = null;
+    }
+    this.sloped = !!mesh;
+    if (!mesh) {
+      if (!this.ground) this.createFlatGround();
+      return;
+    }
+    if (this.ground) {
+      this.unregister(this.ground);
+      this.world.removeCollider(this.ground, false);
+      this.ground = null;
+    }
+    const c = this.world.createCollider(
+      RAPIER.ColliderDesc.trimesh(mesh.positions, mesh.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES)
+        .setFriction(0.9)
+        .setCollisionGroups(STATIC_GROUPS),
+    );
+    this.register(c, { type: 'static' });
+    this.groundMesh = c;
   }
 
   /** The straight road's guardrails: only on the outer edges (their inner faces, facing the road); the median between carriageways is open grass. */
@@ -266,8 +309,11 @@ export class PhysicsWorld {
    * so each car near a rail gets a plane of its own, touching the rail where the car is (RailSlots: within a car's
    * length a bend of R 1000 strays from it by a few millimetres), the planes as the straight road's otherwise.
    */
-  setRoad(road: Centerline): void {
+  setRoad(road: Centerline, opts: { rails?: { left: number; right: number }; ground?: { positions: Float32Array; indices: Uint32Array } } = {}): void {
     this.road = road;
+    this.railRight = opts.rails?.right ?? RAIL_D;
+    this.railLeft = opts.rails?.left ?? LEFT_RAIL_X;
+    this.setGround(opts.ground);
     if (this.railsOff) return;
     if (road.straight) {
       this.freeSlots();
@@ -334,8 +380,8 @@ export class PhysicsWorld {
       const th = road.heading(p.s);
       const nx = Math.cos(th);
       const nz = Math.sin(th);
-      const right = RAIL_D - p.d - reach(b, info.box, nx, nz);
-      const left = p.d - LEFT_RAIL_X - reach(b, info.box, -nx, -nz);
+      const right = this.railRight - p.d - reach(b, info.box, nx, nz);
+      const left = p.d - this.railLeft - reach(b, info.box, -nx, -nz);
       const gap = Math.min(right, left);
       if (gap < (info.slot >= 0 ? RAIL_LET_GO : RAIL_NEAR)) wanting.push({ h: b.handle, gap });
       else if (info.slot >= 0) this.release(info.slot);
@@ -362,9 +408,9 @@ export class PhysicsWorld {
       setSlotBits(b, SLOT_BIT(info.slot)); // (again each step: a car turned wreck has its groups set anew)
       // Its plane: on the nearer rail where the car is, facing the road (local +x turned to the normal).
       const d = info.d;
-      const rightSide = RAIL_D - d < d - LEFT_RAIL_X;
+      const rightSide = this.railRight - d < d - this.railLeft;
       const th = road.heading(info.s);
-      const at = road.toWorld(info.s, rightSide ? RAIL_D : LEFT_RAIL_X);
+      const at = road.toWorld(info.s, rightSide ? this.railRight : this.railLeft);
       const phi = rightSide ? Math.PI - th : -th; // (+x turned by phi about y: (cos phi, 0, -sin phi))
       const c = this.slotRails[info.slot];
       c.setTranslation({ x: at.x, y: 0, z: at.z });
@@ -450,6 +496,7 @@ export class PhysicsWorld {
     const c1 = this.world.getCollider(h1);
     const c2 = this.world.getCollider(h2);
     if (!c1 || !c2) return null;
+    if (this.groundMesh && (c1 === this.groundMesh || c2 === this.groundMesh)) return null; // (a slope's normal leans: still the ground, not a rail)
     let out: { x: number; z: number } | null = null;
     this.world.contactPair(c1, c2, (m) => {
       if (out || m.numContacts() === 0) return;
