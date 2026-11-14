@@ -142,8 +142,10 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   const r = gui.addFolder('電腦對手（橡皮筋）');
   r.add(RIVAL_TUNING, 'boostFrom', 0, 300, 10).name('落後幾 m 開始加強');
   r.add(RIVAL_TUNING, 'boostFull', 50, 800, 10).name('落後幾 m 加到最強');
-  r.add(RIVAL_TUNING, 'maxBoost', 0, 1, 0.05).name('最多加強（抓地＋引擎）');
-  r.add(RIVAL_TUNING, 'fixedBoost', 0, 1, 0.05).name('固定加強（0：照落後距離）');
+  r.add(RIVAL_TUNING, 'engineBoost', 0, 1, 0.05).name('最多加強引擎');
+  r.add(RIVAL_TUNING, 'gripBoost', 0, 0.6, 0.05).name('最多加強抓地');
+  r.add(RIVAL_TUNING, 'topLift', 0, 1, 0.05).name('極速往原車極速拉高（比例）');
+  r.add(RIVAL_TUNING, 'nitroEager', 0, 1, 0.05).name('氮氣積極度');
   r.add(RIVAL_TUNING, 'waitFrom', 50, 600, 10).name('領先幾 m 開始等');
   r.add(RIVAL_TUNING, 'waitFull', 100, 1000, 10).name('領先幾 m 等到最慢');
   r.add(RIVAL_TUNING, 'waitSpeed', 0.5, 1, 0.05).name('等待時速度 × 玩家車速');

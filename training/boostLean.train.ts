@@ -19,11 +19,12 @@ import { openGround } from './openGround';
  * - LEAN_MODE=ai: the AI as the game's rivals (plans by direction of travel) racing in traffic, SEEDS each: the lean
  *   (p50 / p95 / max, share of time past 5 / 8 / 12 deg), how often it rocks (crossings past 2 deg a minute), the
  *   steering (reversals past 0.1 a minute), lateral g p95.
- *   CARS=muscle-car BOOSTS=0,0.25,0.6 LEAN_MODE=open npx vitest run --config training/vitest.config.ts training/boostLean.train.ts
+ *   CARS=muscle-car BOOSTS=0,0.25,0.6,0.6/0.1 LEAN_MODE=open npx vitest run --config training/vitest.config.ts training/boostLean.train.ts
  */
 const list = (k: string, d: string) => (process.env[k] ?? d).split(',');
 const CAR_IDS = list('CARS', 'muscle-car,street-racer,jdm');
-const BOOSTS = list('BOOSTS', '0,0.25,0.6').map(Number);
+/** Each: engine, or engine/grip (0.6/0.1: engine +60 %, grip +10 %; one number: both). */
+const BOOSTS = list('BOOSTS', '0,0.25,0.6').map((x) => x.split('/').map(Number));
 const MODE = process.env.LEAN_MODE ?? 'open'; // (not MODE: vitest sets that)
 const SEEDS = list('SEEDS', '7001,7002,7003').map(Number);
 const DEG = 180 / Math.PI;
@@ -36,9 +37,9 @@ function lean(car: PlayerCar): number {
   return -Math.asin(Math.max(-1, Math.min(1, RIGHT.y))) * DEG;
 }
 
-function boost(car: PlayerCar, base: PlayerCar['params'], b: number): void {
+function boost(car: PlayerCar, base: PlayerCar['params'], [b, g = b]: number[]): void {
   const k = 1 + b;
-  car.surfaceGrip = (x) => surfaceGrip(x) * k;
+  car.surfaceGrip = (x) => surfaceGrip(x) * (1 + g);
   car.params.power = base.power * k;
   car.params.engineTorque = base.engineTorque * k;
   car.params.maxDriveForce = base.maxDriveForce * k;
@@ -107,7 +108,7 @@ it('boost lean', async () => {
           car.dispose(physics);
           physics.free();
         }
-        out.push(`boost ${b} | full lock ${row.join(' | ')} || lane change ${lc.join(' | ')}`);
+        out.push(`boost ${b.join('/')} | full lock ${row.join(' | ')} || lane change ${lc.join(' | ')}`);
       } else {
         DRIVER_TUNING.coursePlanner = true; // (the game's rivals)
         const leans: number[] = [], lats: number[] = [];
@@ -119,7 +120,7 @@ it('boost lean', async () => {
           driver.brake = spec.ai.brake;
           driver.tracker = trackerFrom(spec.ai.tracker);
           driver.recovery = trackerFrom(spec.ai.recovery);
-          driver.accelScale = 1 + b;
+          driver.accelScale = 1 + b[0];
           let lastSteer = 0, steerSide = 0;
           const orig = driver.drive.bind(driver);
           driver.drive = (self, traffic, p) => {
@@ -156,7 +157,7 @@ it('boost lean', async () => {
         }
         const share = (x: number) => ((100 * leans.filter((l) => l > x).length) / leans.length).toFixed(1);
         out.push(
-          `boost ${b} | lean p50 ${q(leans, 0.5).toFixed(1)} p95 ${q(leans, 0.95).toFixed(1)} max ${Math.max(...leans).toFixed(1)} deg, past 5 / 8 / 12: ${share(5)} / ${share(8)} / ${share(12)} %` +
+          `boost ${b.join('/')} | lean p50 ${q(leans, 0.5).toFixed(1)} p95 ${q(leans, 0.95).toFixed(1)} max ${Math.max(...leans).toFixed(1)} deg, past 5 / 8 / 12: ${share(5)} / ${share(8)} / ${share(12)} %` +
             ` | rocks ${(rockN / minutes).toFixed(1)} /min | steer reversals ${(revN / minutes).toFixed(1)} /min | lat g p95 ${q(lats, 0.95).toFixed(2)}` +
             ` | finished ${finishes}/${SEEDS.length}, resets ${resets}, vehicles wrecked ${wrecked}`,
         );

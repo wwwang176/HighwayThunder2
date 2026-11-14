@@ -27,13 +27,27 @@ import { TUNE_CAL } from '../vehicles/tuneCalibration';
  */
 export const RIVAL_TUNING = {
   count: 5,
-  /** Behind by more than this, grip and engine start getting boosted (within it, none)... */
+  /** Behind by more than this, it starts getting a push (within it, none)... */
   boostFrom: 100,
-  /** ...rising evenly to `maxBoost` (+60 % each) this far behind. */
+  /** ...rising evenly to the most this far behind: */
   boostFull: 300,
-  maxBoost: 0.6,
-  /** Trial: this boost all the time, wherever it is (0: the rubber band's, by the gap). */
-  fixedBoost: 0.6,
+  /** its engine +60 %, */
+  engineBoost: 0.6,
+  /**
+   * its grip +10 % (+60 % as the engine's leant the muscle car to 24 deg, rocking it side to side three times as
+   * often, and rolled it over at full lock: docs/ai-experiments.md),
+   */
+  gripBoost: 0.1,
+  /**
+   * its top speed this share of the way from the difficulty's (topShare of its car's) up to its car's own - never
+   * past it (0: the difficulty's all the way),
+   */
+  topLift: 1,
+  /**
+   * its nitro used this much more eagerly (0..1: bursts longer and gaps shorter, NitroAi's `eager`; the tank burnt
+   * as much slower, none at the most - it never runs dry).
+   */
+  nitroEager: 1,
   /** Ahead by more than this, its top speed comes down... */
   waitFrom: 100,
   /** ...to `waitSpeed` x the player's speed this far ahead (it waits for the player: as fast, holding the gap). */
@@ -64,16 +78,18 @@ export const RIVAL_TUNING = {
 
 /**
  * The rubber band: how a rival `gap` metres from the player (+ ahead) is
- * helped or held back. `boost` is the extra grip and engine (0.25 = +25 %),
- * `speedCap` its top speed (m/s) - `cap` unless it is far ahead, then down
- * toward the player's speed (waitSpeed of it) so it goes no further ahead.
+ * helped or held back. `push` is how much of the most help behind it gets (0..1: RIVAL_TUNING's engineBoost,
+ * gripBoost, nitroEager), `speedCap` its top speed (m/s) - `cap` (the difficulty's) unless it is far behind, then up
+ * toward `full` (its car's own: topLift of the way), or far ahead, then down toward the player's speed (waitSpeed of
+ * it) so it goes no further ahead.
  */
-export function rubberBand(gap: number, playerSpeed: number, cap: number): { boost: number; speedCap: number } {
+export function rubberBand(gap: number, playerSpeed: number, cap: number, full = cap): { push: number; speedCap: number } {
   const T = RIVAL_TUNING;
-  const behind = Math.min(1, Math.max(0, (-gap - T.boostFrom) / (T.boostFull - T.boostFrom)));
+  const push = Math.min(1, Math.max(0, (-gap - T.boostFrom) / (T.boostFull - T.boostFrom)));
   const ahead = Math.min(1, Math.max(0, (gap - T.waitFrom) / (T.waitFull - T.waitFrom)));
   const wait = Math.max(T.waitMinSpeed, playerSpeed * T.waitSpeed);
-  return { boost: T.maxBoost * behind, speedCap: ahead > 0 ? Math.min(cap, cap + (wait - cap) * ahead) : cap };
+  if (ahead > 0) return { push, speedCap: Math.min(cap, cap + (wait - cap) * ahead) };
+  return { push, speedCap: cap + Math.max(0, full - cap) * T.topLift * push };
 }
 
 /**
@@ -186,8 +202,8 @@ export interface Rival {
   driver: PlannerDriver;
   /** s it has been slower than RIVAL_TUNING.stuckSpeed. */
   stuckFor: number;
-  /** Rubber band boost now (smoothed). */
-  boost: number;
+  /** The rubber band's push now (0..1, smoothed: rubberBand). */
+  push: number;
   /** When it uses its nitro (by rule: nitro.ts). */
   nitroAi: NitroAi;
   finishTime: number | null;
@@ -242,8 +258,8 @@ export class Rivals {
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
       driver.recovery = trackerFrom(spec.ai.recovery);
-      const r: Rival = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, boost: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
-      car.surfaceGrip = (x) => surfaceGrip(x) * (1 + r.boost);
+      const r: Rival = { index: i, spec, tuning: {}, base: spec.params, car, driver, stuckFor: 0, push: 0, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
+      car.surfaceGrip = (x) => surfaceGrip(x) * (1 + RIVAL_TUNING.gripBoost * r.push);
       this.list.push(r);
     }
     this.place();
@@ -271,7 +287,7 @@ export class Rivals {
       r.car.nitro.reset();
       r.nitroAi.reset();
       r.stuckFor = 0;
-      r.boost = 0;
+      r.push = 0;
       r.finishTime = null;
       r.resets = 0;
       r.resetWait = 0;
@@ -285,19 +301,21 @@ export class Rivals {
     const p = view.player;
     for (const r of this.list) {
       r.car.holdInPlace(false);
+      const full = Math.min(view.speedCap, r.base.maxSpeed); // its car's own top speed (as tuned), within the AI's cap
       const own = Math.min(view.speedCap, (view.topShare ?? 1) * r.base.maxSpeed); // (the difficulty's share of its car's)
-      const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), own);
-      const want = RIVAL_TUNING.fixedBoost > 0 ? RIVAL_TUNING.fixedBoost : band.boost;
-      r.boost += (want - r.boost) * Math.min(1, dt / BAND_SMOOTH);
+      const band = rubberBand(r.car.s - p.s, Math.max(0, p.speed), own, full);
+      r.push += (band.push - r.push) * Math.min(1, dt / BAND_SMOOTH);
       this.applyBoost(r);
-      const top = Math.min(band.speedCap, r.base.maxSpeed); // its own top speed (as tuned) when lower than the AI's cap
+      const top = Math.min(band.speedCap, r.base.maxSpeed);
       const cap = r.finishTime === null ? top : Math.min(top, FINISHED_SPEED);
       r.car.params.maxSpeed = cap;
       // Past the line it coasts down to FINISHED_SPEED: no more push over it (maxSpeed), the AI aiming at the speed
       // it has - never braking for it (only for what is ahead).
       const aim = r.finishTime === null ? cap : Math.max(cap, r.car.speed);
       const input = r.driver.drive(selfStateOf(r.car, aim), this.othersAsBoxes(r, view), r.car.params);
-      r.car.prePhysics({ ...input, nitro: r.nitroAi.want(dt, input.throttle, r.car.nitro) }, dt);
+      const eager = r.finishTime === null ? RIVAL_TUNING.nitroEager * r.push : 0;
+      r.car.params.nitroBurn = (r.base.nitroBurn ?? 1) / Math.max(1e-3, 1 - eager); // (the tank burnt as much slower)
+      r.car.prePhysics({ ...input, nitro: r.nitroAi.want(dt, input.throttle, r.car.nitro, eager) }, dt);
     }
   }
 
@@ -388,10 +406,10 @@ export class Rivals {
     return out;
   }
 
-  /** Engine and grip with the rubber band's boost (the grip through `surfaceGrip`). */
+  /** The engine with the rubber band's push (the grip's: `surfaceGrip`, set up with the car). */
   private applyBoost(r: Rival): void {
     const base = r.base;
-    const k = 1 + r.boost;
+    const k = 1 + RIVAL_TUNING.engineBoost * r.push;
     r.car.params.power = base.power * k;
     r.car.params.engineTorque = base.engineTorque * k;
     r.car.params.maxDriveForce = base.maxDriveForce * k;

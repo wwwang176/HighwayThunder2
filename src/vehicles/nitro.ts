@@ -18,6 +18,9 @@ export const NITRO = {
   aiBurst: [0.4, 0.9] as const,
   aiGap: [1.5, 2.5] as const,
   aiThrottle: 0.8,
+  /** The same, used most eagerly (NitroAi's `eager` 1: a rival far behind, the rubber band's). */
+  aiBurstEager: [1.5, 2.5] as const,
+  aiGapEager: [0.3, 0.6] as const,
 };
 
 export class Nitro {
@@ -49,39 +52,44 @@ export class Nitro {
 
 /**
  * The AI's use of it, by rule: on full throttle, a burst (NITRO.aiBurst s long, by chance) whenever there is enough
- * in the tank for it, then off for a while (NITRO.aiGap s, by chance). `random`: its dice (0..1).
+ * in the tank for it, then off for a while (NITRO.aiGap s, by chance). `eager` (0..1) moves both toward
+ * NITRO.aiBurstEager and aiGapEager (longer bursts, shorter gaps). `random`: its dice (0..1).
  */
 export class NitroAi {
   private burst = 0;
   private wait = 0;
-  /** How long the next burst (s). */
+  /** The next burst's dice (its length: by `eager` when it fires). */
   private next: number;
 
   constructor(private readonly random: () => number = Math.random) {
-    this.next = this.roll(NITRO.aiBurst);
+    this.next = this.random();
   }
 
-  /** A step of `dt` s at `throttle` (0..1): whether to ask for nitro. */
-  want(dt: number, throttle: number, nitro: Nitro): boolean {
+  /** A step of `dt` s at `throttle` (0..1), `eager` (0..1) as keen: whether to ask for nitro. */
+  want(dt: number, throttle: number, nitro: Nitro, eager = 0): boolean {
     this.wait -= dt;
     if (this.burst > dt / 2) {
       this.burst -= dt;
       return true;
     }
-    if (this.wait > dt / 2 || throttle < NITRO.aiThrottle || nitro.level < this.next / (NITRO.burn * nitro.burnScale)) return false;
-    this.burst = this.next - dt;
-    this.wait = this.next + this.roll(NITRO.aiGap);
-    this.next = this.roll(NITRO.aiBurst);
+    const length = span(NITRO.aiBurst, NITRO.aiBurstEager, eager, this.next);
+    if (this.wait > dt / 2 || throttle < NITRO.aiThrottle || nitro.level < length / (NITRO.burn * nitro.burnScale)) return false;
+    this.burst = length - dt;
+    this.wait = length + span(NITRO.aiGap, NITRO.aiGapEager, eager, this.random());
+    this.next = this.random();
     return true;
   }
 
   reset(): void {
     this.burst = 0;
     this.wait = 0;
-    this.next = this.roll(NITRO.aiBurst);
+    this.next = this.random();
   }
+}
 
-  private roll([lo, hi]: readonly [number, number]): number {
-    return lo + this.random() * (hi - lo);
-  }
+/** Between `calm` and `keen` (each [lo, hi] s) by `eager`, then within that by the dice `u`. */
+function span(calm: readonly [number, number], keen: readonly [number, number], eager: number, u: number): number {
+  const lo = calm[0] + (keen[0] - calm[0]) * eager;
+  const hi = calm[1] + (keen[1] - calm[1]) * eager;
+  return lo + u * (hi - lo);
 }

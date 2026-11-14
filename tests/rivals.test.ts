@@ -16,23 +16,30 @@ const T = RIVAL_TUNING;
 const cap = 300 * KMH;
 
 describe('rubberBand', () => {
+  const own = 0.9 * cap; // (a difficulty's share of its car's top speed)
+
   it('level with the player or a little behind: as built', () => {
-    expect(rubberBand(0, 40, cap)).toEqual({ boost: 0, speedCap: cap });
-    expect(rubberBand(-T.boostFrom + 1, 40, cap)).toEqual({ boost: 0, speedCap: cap });
+    expect(rubberBand(0, 40, own, cap)).toEqual({ push: 0, speedCap: own });
+    expect(rubberBand(-T.boostFrom + 1, 40, own, cap)).toEqual({ push: 0, speedCap: own });
   });
 
-  it('further behind: grip and engine boosted, up to the most at boostFull', () => {
-    const mid = rubberBand(-(T.boostFrom + T.boostFull) / 2, 40, cap);
-    expect(mid.boost).toBeCloseTo(T.maxBoost / 2, 5);
-    expect(rubberBand(-T.boostFull, 40, cap).boost).toBeCloseTo(T.maxBoost, 5);
-    expect(rubberBand(-T.boostFull * 3, 40, cap).boost).toBeCloseTo(T.maxBoost, 5);
+  it('further behind: pushed, up to the most at boostFull - its top speed up toward its car\'s own, never past it', () => {
+    const mid = rubberBand(-(T.boostFrom + T.boostFull) / 2, 40, own, cap);
+    expect(mid.push).toBeCloseTo(0.5, 5);
+    expect(mid.speedCap).toBeCloseTo(own + (cap - own) * T.topLift * 0.5, 5);
+    expect(rubberBand(-T.boostFull, 40, own, cap).push).toBeCloseTo(1, 5);
+    const far = rubberBand(-T.boostFull * 3, 40, own, cap);
+    expect(far.push).toBeCloseTo(1, 5);
+    expect(far.speedCap).toBeCloseTo(own + (cap - own) * T.topLift, 5);
+    expect(far.speedCap).toBeLessThanOrEqual(cap);
+    expect(rubberBand(-T.boostFull, 40, cap).speedCap).toBe(cap); // at its car's own already: no higher
   });
 
   it('far ahead: slowed down toward a little under the player speed, to wait', () => {
     expect(rubberBand(T.waitFrom - 1, 40, cap).speedCap).toBe(cap);
     const full = rubberBand(T.waitFull, 40, cap);
     expect(full.speedCap).toBeCloseTo(40 * T.waitSpeed, 5);
-    expect(full.boost).toBe(0);
+    expect(full.push).toBe(0);
     expect(rubberBand(T.waitFull * 2, 40, cap).speedCap).toBeCloseTo(40 * T.waitSpeed, 5);
     expect(rubberBand(T.waitFull, 2, cap).speedCap).toBeGreaterThanOrEqual(T.waitMinSpeed); // never parks on the road
   });
@@ -124,12 +131,12 @@ describe('Rivals on their own cars', () => {
   it('the rubber band boosts each car from its own engine', () => {
     const { physics, rivals } = make();
     const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
-    for (const r of rivals.list) r.boost = 0.25;
+    for (const r of rivals.list) r.push = 0.5;
     rivals.drive(1 / 120, { player, traffic: [], speedCap: 300 * KMH, raceTime: 0 });
-    const k = 1 + rivals.list[0].boost;
-    expect(k).toBeGreaterThan(1.2); // still boosted (the band eases off slowly)
-    expect(rivals.list[0].car.params.power).toBeCloseTo(MUSCLE_CAR.params.power * k, 3);
-    expect(rivals.list[1].car.params.power).toBeCloseTo(STREET_RACER.params.power * (1 + rivals.list[1].boost), 3);
+    const k = (r: (typeof rivals.list)[number]) => 1 + T.engineBoost * r.push;
+    expect(rivals.list[0].push).toBeGreaterThan(0.45); // still pushed (the band eases off slowly)
+    expect(rivals.list[0].car.params.power).toBeCloseTo(MUSCLE_CAR.params.power * k(rivals.list[0]), 3);
+    expect(rivals.list[1].car.params.power).toBeCloseTo(STREET_RACER.params.power * k(rivals.list[1]), 3);
     physics.free();
   });
 
