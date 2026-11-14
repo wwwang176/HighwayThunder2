@@ -29,6 +29,13 @@ export interface MountainSetup {
   steerRise: number;
   /** The tyres' grip straight on (braking, driving) times this (CarParams.longGrip: on top of the car's own camber). */
   longGrip: number;
+  /**
+   * The front tyres' grip times this, the rear's as built (muPeak and muSlide up, rearGrip as much down): the cars are
+   * set up to understeer (steady at 250 km/h) - their noses wouldn't turn in a tight bend.
+   */
+  frontGrip: number;
+  /** Its AI's cornering (CarSpec.ai.latAccel) times this: as much as the front grip turns the car harder (measured). */
+  aiLat: number;
 }
 
 export const MOUNTAIN_SETUP: MountainSetup = {
@@ -39,6 +46,11 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   esc: 0.6,
   steerRise: 1.3,
   longGrip: 1.25,
+  // (x1.2, flung to full lock: the nose round 36 -> 43° in 1 s at 60 km/h, 28 -> 35° at 100 (the supercar), the
+  // others alike; the rear's slide 1-2° more, the lean 1° more)
+  frontGrip: 1.2,
+  // (full lock, steady: x1.17-1.18 the sideways g of all three cars at 50, 100 and 150 km/h - a little under it)
+  aiLat: 1.15,
 };
 
 /**
@@ -55,9 +67,13 @@ export function mountainSetupOf(id: string): MountainSetup {
   return { ...MOUNTAIN_SETUP, ...MOUNTAIN_SETUP_BY_CAR[id] };
 }
 
-/** A car's AI tables (CarSpec.ai) for its mountain setup: its braking times `longGrip`; cornering and speeding up as they were (its speeding up: the engine's, mostly). */
-export function mountainAi<T extends { brake: AccelTable }>(ai: T, s: MountainSetup = MOUNTAIN_SETUP): T {
-  return { ...ai, brake: ai.brake.map(([kmh, a]) => [kmh, a * s.longGrip] as [number, number]) };
+/** A car's AI tables (CarSpec.ai) for its mountain setup: its braking times `longGrip`, its cornering times `aiLat`; speeding up as it was (the engine's, mostly). */
+export function mountainAi<T extends { brake: AccelTable; latAccel: AccelTable }>(ai: T, s: MountainSetup = MOUNTAIN_SETUP): T {
+  return {
+    ...ai,
+    brake: ai.brake.map(([kmh, a]) => [kmh, a * s.longGrip] as [number, number]),
+    latAccel: ai.latAccel.map(([kmh, a]) => [kmh, a * s.aiLat] as [number, number]),
+  };
 }
 
 /** The car `p` set up for the mountain road (a copy; `p` as it was). */
@@ -71,5 +87,8 @@ export function mountainSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): 
     escGain: p.escGain * s.esc,
     steerRise: p.steerRise * s.steerRise,
     longGrip: (p.longGrip ?? 1) * s.longGrip,
+    muPeak: p.muPeak * s.frontGrip,
+    muSlide: p.muSlide * s.frontGrip,
+    rearGrip: p.rearGrip / s.frontGrip,
   };
 }

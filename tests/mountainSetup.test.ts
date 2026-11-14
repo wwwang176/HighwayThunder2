@@ -30,16 +30,28 @@ describe('mountainSetup', () => {
 
     it(`${spec.id}: everything else as it was, and the car's own params untouched`, () => {
       expect(m.mass).toBe(p.mass);
-      expect(m.muPeak).toBe(p.muPeak);
       expect(m.maxSteer).toBe(p.maxSteer);
       expect(m).not.toBe(p);
     });
   }
 
-  it('its AI tables as set up: braking as much harder (the long grip), cornering and speeding up as they were', () => {
-    const ai = mountainAi(STREET_RACER.ai);
+  it('its front tyres grip harder (x frontGrip 1.2: the nose turns in), its rear as they were', () => {
+    expect(MOUNTAIN_SETUP.frontGrip).toBe(1.2);
+    for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
+      const p = spec.params;
+      const m = mountainSetup(p, mountainSetupOf(spec.id));
+      expect(m.muPeak).toBeCloseTo(p.muPeak * 1.2, 9);
+      expect(m.muSlide).toBeCloseTo(p.muSlide * 1.2, 9);
+      expect(m.muPeak * m.rearGrip).toBeCloseTo(p.muPeak * p.rearGrip, 9); // (the rear's grip: as built)
+    }
+  });
+
+  it('its AI tables as set up: braking as much harder (the long grip), cornering times its own aiLat, speeding up as it was', () => {
+    const s = mountainSetupOf(STREET_RACER.id);
+    const ai = mountainAi(STREET_RACER.ai, s);
     STREET_RACER.ai.brake.forEach(([kmh, a], i) => expect(ai.brake[i]).toEqual([kmh, a * MOUNTAIN_SETUP.longGrip]));
-    expect(ai.latAccel).toEqual(STREET_RACER.ai.latAccel);
+    STREET_RACER.ai.latAccel.forEach(([, a], i) => expect(ai.latAccel[i][1]).toBeCloseTo(a * s.aiLat, 9));
+    expect(s.aiLat).toBeGreaterThan(1);
     expect(ai.accel).toEqual(STREET_RACER.ai.accel);
   });
 
