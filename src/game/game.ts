@@ -60,7 +60,7 @@ import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeKick, smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
-import { FINISHED_SPEED, RaceView, RIVAL_COLORS, Rivals } from './rivals';
+import { FINISHED_SPEED, GRID_REV, RaceView, RIVAL_COLORS, Rivals } from './rivals';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
@@ -912,13 +912,18 @@ export class Game {
    * for it (only for what is ahead).
    */
   private aiInput(ai: Driver, limit: number, coast = false): HandlingInput {
+    const input = this.aiDrive(ai, limit, coast);
+    return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
+  }
+
+  /** The AI's pedals and steering (no nitro); also its planning on the grid before the green (unused there). */
+  private aiDrive(ai: Driver, limit: number, coast = false): HandlingInput {
     const cap = Math.min(limit, aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player)));
     this.player.params.maxSpeed = cap;
     const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
     for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
     const aim = coast ? Math.max(cap, this.player.speed) : cap;
-    const input = ai.drive(selfStateOf(this.player, aim), seen, this.player.params);
-    return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
+    return ai.drive(selfStateOf(this.player, aim), seen, this.player.params);
   }
 
   private currentInput(): HandlingInput {
@@ -935,6 +940,8 @@ export class Game {
         // On the grid the brake is held for the player, whatever else they press: with the throttle that is a
         // burnout (revving on the line, smoke), let go of at the green. Off the throttle it is held (a brake
         // alone at a standstill selects reverse). The nitro stays full for the start, the handbrake off.
+        // The AI (if it has the car) plans from GRID_REV.planAhead s before the green, so it has a plan at the green.
+        if (this.aiActive && this.aiDriver && !this.inputOverride && this.flow.countdown <= GRID_REV.planAhead) this.aiDrive(this.aiDriver, Infinity);
         const keys = this.inputOverride ?? this.keyboard.driving();
         return keys.throttle > 0 ? { ...keys, brake: 1, handbrake: false, nitro: false } : { ...keys, brake: 0, hold: true, handbrake: false, nitro: false };
       }
@@ -958,7 +965,7 @@ export class Game {
       raceTime: this.flow.raceTime,
     };
     if (racing) this.rivals.drive(dt, view);
-    else this.rivals.hold(dt, this.flow.phase === 'countdown', this.flow.countdown);
+    else this.rivals.hold(dt, this.flow.phase === 'countdown', this.flow.countdown, view);
 
     // Traffic AI on both carriageways (the player, the rivals and every wreck are
     // obstacles to both), then drive the NPC bodies along the planned paths.
