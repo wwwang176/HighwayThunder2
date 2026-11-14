@@ -9,14 +9,23 @@ import type { SelfState, TrafficBox } from './sensors';
 /** The mountain driver's settings (mutable: tuning). */
 export const MOUNTAIN_DRIVER = {
   /** Room either side of the centre line its line may use: the road's edge less half a car and a margin (m). */
-  margin: 0.35,
-  halfWidth: 0.95,
-  /** Pure pursuit: the point it steers for is this far ahead (m), plus this many seconds of its speed. */
+  margin: 0.55,
+  halfWidth: 1.0,
+  /** Where it is headed across the road (aimD: passing): this far ahead (m), plus this many seconds of its speed. */
   lookBase: 4,
   lookTime: 0.35,
   lookMax: 30,
-  /** It aims at the line's speed this many seconds ahead (its braking a moment early: the pedals lag). */
+  /**
+   * Steering along its path (Stanley): the path's curvature this many seconds ahead (the wheel's lag), its heading
+   * error times `headingGain`, its offset closed by atan(offsetGain x error / (speed + offsetSoft)).
+   */
+  steerLead: 0.12,
+  headingGain: 1,
+  offsetGain: 2.5,
+  offsetSoft: 2,
+  /** It aims at the line's speed this many seconds ahead (its braking a moment early: the pedals lag), at least `leadMin` m (off the line: the line starts at a standstill). */
   lead: 0.35,
+  leadMin: 5,
   /** A car ahead within this (m, bumper to bumper) and slower than it: passed on the side with more room, else followed. */
   passFrom: 40,
   /** Room it wants beside a car it passes (m, past the car's side), and how fast it moves over to the side (1/s). */
@@ -27,6 +36,8 @@ export const MOUNTAIN_DRIVER = {
   followGain: 0.5,
   /** The top speed its line is planned to (m/s: past any car's; the car's own limit caps it). */
   vMax: 100,
+  /** Past the finish, braked down to this (m/s; 40 km/h, as the highway's FINISHED_SPEED). */
+  pastFinish: 40 / 3.6,
 };
 
 /**
@@ -83,6 +94,21 @@ export class MountainDriver implements RivalDriver {
     return a + (lineAt(this.full, s).v - a) * Math.min(1, Math.max(0, this.push));
   }
 
+  /**
+   * Its path at s (the line plus the passing offset, kept on the road): where across (d), its heading off the road's
+   * (rad, + toward +d) and its curvature (1/m).
+   */
+  private pathAt(s: number): { d: number; psi: number; kappa: number } {
+    const line = this.line!;
+    const h = 1;
+    const clamp = (x: number) => Math.max(-this.room, Math.min(this.room, x));
+    const d = clamp(lineAt(line, s).d + this.offset);
+    const d1 = clamp(lineAt(line, s + h).d + this.offset);
+    const d0 = clamp(lineAt(line, s - h).d + this.offset);
+    const kc = this.road!.curvature(s);
+    return { d, psi: Math.atan2((d1 - d0) / (2 * h), 1 - kc * d), kappa: lineAt(line, s).kappa };
+  }
+
   reset(): void {
     this.offset = 0;
   }
@@ -97,7 +123,9 @@ export class MountainDriver implements RivalDriver {
     const v = Math.max(0, self.vLong);
     const half = self.halfWidth ?? T.halfWidth;
     const halfLen = self.halfLength ?? 2.2;
-    let target = Math.min(this.speedAt(self.s + T.lead * v), self.speedCap);
+    let target = Math.min(this.speedAt(Math.max(0, self.s) + Math.max(T.leadMin, T.lead * v)), self.speedCap);
+    // Past the finish it slows down (the mountain road runs out: not the highway's coasting on for ever).
+    if (self.s > road.length) target = Math.min(target, T.pastFinish);
 
     // The racer ahead on its line nearest it: passed on the roomier side, or followed.
     let want = 0;
@@ -123,21 +151,14 @@ export class MountainDriver implements RivalDriver {
     }
     this.offset += (want - this.offset) * Math.min(1, PHYSICS_DT * T.passRate);
 
-    // Pure pursuit for the point on the line ahead.
+    // Along the line (Stanley): its curvature a moment ahead steered for, its heading and its offset closed on.
     const look = Math.min(T.lookMax, T.lookBase + T.lookTime * v);
-    const sT = self.s + look;
-    this.aimD = Math.max(-this.room, Math.min(this.room, lineAt(line, sT).d + this.offset));
-    const c = road.toWorld(self.s, self.d);
-    const t = road.toWorld(sT, this.aimD);
-    const phi = road.heading(self.s) + self.yaw;
-    const fx = Math.sin(phi);
-    const fz = -Math.cos(phi);
-    const dx = t.x - c.x;
-    const dz = t.z - c.z;
-    const ahead = dx * fx + dz * fz;
-    const across = dx * Math.cos(phi) + dz * Math.sin(phi);
-    const k = (2 * across) / Math.max(1, ahead * ahead + across * across);
-    const angle = Math.atan(p.wheelbase * k);
+    this.aimD = Math.max(-this.room, Math.min(this.room, lineAt(line, self.s + look).d + this.offset));
+    const here = this.pathAt(self.s);
+    const ahead = this.pathAt(self.s + T.steerLead * v);
+    const err = self.d - here.d; // (+: right of where it should be)
+    const headingErr = here.psi - self.yaw; // (+: the path heads more to the right than the car)
+    const angle = Math.atan(p.wheelbase * ahead.kappa) + T.headingGain * headingErr - Math.atan((T.offsetGain * err) / (v + T.offsetSoft));
     const steer = Math.max(-1, Math.min(1, angle / steerRange(v, p)));
     const pedals = speedPedals(target, self.vLong);
     return { ...pedals, steer };

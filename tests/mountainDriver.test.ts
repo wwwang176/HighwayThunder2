@@ -43,16 +43,30 @@ describe('MountainDriver', () => {
     expect(m.drive(onLine(m, 420), [], P).steer).toBeGreaterThan(0.05);
   });
 
-  it('a slower car ahead on its line: it aims for the side with more room', () => {
+  it('a slower car ahead on its line (to one side of it): it aims for the side with more room', () => {
     const m = driver();
     const self = onLine(m, 100);
-    const ahead: TrafficBox = { id: 7, s: 120, dMin: self.d - 0.9, dMax: self.d + 0.9, v: self.vLong - 8, length: 4.4 };
+    const ahead: TrafficBox = { id: 7, s: 120, dMin: self.d + 0.1, dMax: self.d + 2, v: self.vLong - 8, length: 4.4 };
     for (let i = 0; i < 240; i++) m.drive(self, [ahead], P);
     const lineD = lineAt(m.line!, 120).d;
     const roomLeft = ahead.dMin + m.room;
     const roomRight = m.room - ahead.dMax;
     const toward = roomRight > roomLeft ? 1 : -1;
-    expect((m.aimD - lineD) * toward).toBeGreaterThan(1.5);
+    expect((m.aimD - lineD) * toward).toBeGreaterThan(1.2);
+  });
+
+  it('a slower car in the middle of the road (no room either side): it follows, not passes', () => {
+    const m = driver();
+    const self = onLine(m, 100);
+    const ahead: TrafficBox = { id: 7, s: 112, dMin: -1, dMax: 1, v: self.vLong - 8, length: 4.4 };
+    const input = m.drive(self, [ahead], P);
+    expect(input.throttle).toBe(0);
+  });
+
+  it('past the finish it brakes down (the road runs out), whatever speed it is let keep', () => {
+    const m = driver();
+    const self = { ...onLine(m, ROAD.length + 20), vLong: 40, speedCap: 40 };
+    expect(m.drive(self, [], P).brake).toBeGreaterThan(0);
   });
 
   it('the push (falling behind) raises the speed it aims at, up to the grip itself', () => {

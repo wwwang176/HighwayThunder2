@@ -45,7 +45,7 @@ export const MOUNTAIN = {
   minSep: 24,
   sepArc: 70,
   before: 100,
-  after: 300,
+  after: 500,
 };
 
 type Rand = () => number;
