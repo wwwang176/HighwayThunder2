@@ -364,8 +364,8 @@ const S3 = new THREE.Vector3();
 export interface Scenery {
   /** The road to lay the scenery along (a new race's). */
   setRoad(line: Centerline): void;
-  /** Kept round the player (`playerS` along the road), each frame. */
-  update(playerS: number): void;
+  /** Kept round the player (`playerS` along the road), each frame; `play` s of race time on (its blinking: 0 paused). */
+  update(playerS: number, play?: number): void;
   /** Surfaces lit by the other cars' headlight beams (render/npcBeams). */
   readonly groundMaterials: THREE.MeshStandardMaterial[];
   /** The real lights shining now (tyre smoke is lit by them). */

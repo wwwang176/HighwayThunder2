@@ -1470,7 +1470,7 @@ export class Game {
     if (this.showPlan && this.aiActive && this.flow.phase === 'racing' && planned?.plan) this.planPath.show(planned.plan, planned.planAge ?? 0);
     else this.planPath.hide();
     const p = this.player.mesh.position;
-    this.road.update(this.roadLine.project(p.x, p.z, this.player.s).s);
+    this.road.update(this.roadLine.project(p.x, p.z, this.player.s).s, play);
     // After the road has placed this frame's street lights.
     // The finish's fountains (their sparks as the crashes'). Streaked as the camera moves: standing by the road
     // in the finish's first shot, not with the car.

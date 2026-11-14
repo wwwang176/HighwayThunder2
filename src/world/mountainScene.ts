@@ -29,6 +29,11 @@ const CLIFF: [number, number][] = [
 ];
 /** Chevron boards outside bends tighter than this radius (m), this far apart along it. */
 const CHEVRON = { radius: 60, spacing: 7, size: 0.75, height: 1.1 };
+/**
+ * The amber lamp blinking on top of each chevron board: no light of its own, only bright enough (over white: the
+ * bloom's) to glow. Its colour times `bright` lit, `dim` between; lit `on` of every `period` s (race time).
+ */
+const BEACON = { color: new THREE.Color(1, 0.68, 0.06), bright: 6, dim: 0.06, period: 1, on: 0.45, radius: 0.09 };
 
 const RUN_FROM = -MOUNTAIN.before;
 const RUN_TO = () => MOUNTAIN.length + MOUNTAIN.after;
@@ -152,6 +157,9 @@ export class MountainScene implements Scenery {
   private readonly postMat = new THREE.MeshStandardMaterial({ color: 0x8a8e94, metalness: 0.4, roughness: 0.5 });
   private readonly reflectorMat = new THREE.MeshBasicMaterial({ color: 0xffa640 });
   private readonly chevronMat: THREE.MeshStandardMaterial;
+  private readonly beaconMat = new THREE.MeshBasicMaterial({ color: BEACON.color.clone(), toneMapped: false, fog: false });
+  /** Race time (s) the beacons blink by. */
+  private time = 0;
 
   constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
     scene.background = new THREE.Color(SKY);
@@ -248,7 +256,10 @@ export class MountainScene implements Scenery {
     this.addChevrons(road);
   }
 
-  update(playerS: number): void {
+  update(playerS: number, play = 0): void {
+    this.time += play;
+    const lit = this.time % BEACON.period < BEACON.on;
+    this.beaconMat.color.copy(BEACON.color).multiplyScalar(lit ? BEACON.bright : BEACON.dim);
     // (the far ridges and the sky go along with the player: as far off whichever way it turns)
     const c = this.line.center(playerS);
     this.far.position.set(c.x, this.line.height(playerS), c.z);
@@ -317,6 +328,7 @@ export class MountainScene implements Scenery {
     const geo = new THREE.PlaneGeometry(CHEVRON.size, CHEVRON.size);
     const boards = new THREE.InstancedMesh(geo, this.chevronMat, Math.max(1, spots.length));
     const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, CHEVRON.height, 0.06), this.postMat, Math.max(1, spots.length));
+    const beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(BEACON.radius, 10, 8), this.beaconMat, Math.max(1, spots.length));
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
@@ -331,8 +343,10 @@ export class MountainScene implements Scenery {
       boards.setMatrixAt(i, m);
       m.compose(p.set(w.x, h + CHEVRON.height / 2, w.z), q, sc.set(1, 1, 1));
       poles.setMatrixAt(i, m);
+      m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.size + BEACON.radius + 0.03, w.z), q, sc.set(1, 1, 1));
+      beacons.setMatrixAt(i, m);
     });
-    for (const mesh of [boards, poles]) {
+    for (const mesh of [boards, poles, beacons]) {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.frustumCulled = false;
       this.course.add(mesh);
