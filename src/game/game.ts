@@ -70,6 +70,7 @@ const FALLEN = 5;
 import { FinishGate, type SparkEmitter } from '../world/finishGate';
 import { RoadScene, type Scenery } from '../world/roadScene';
 import { MountainScene } from '../world/mountainScene';
+import { Minimap } from '../ui/minimap';
 import { MountainDriver } from '../ai/mountainDriver';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
 import type { RivalDriver } from '../ai/driver';
@@ -211,6 +212,10 @@ export class Game {
   readonly mountain: boolean;
   /** The race's length (m). */
   readonly courseLength: number;
+  /** The mountain road's round map (bottom left of the HUD; none on the highway). */
+  private readonly minimap: Minimap | null = null;
+  /** The player's car's accent colour (the HUD's: CAR_CARDS). */
+  private accent = '#ff3b30';
   /** The road's centre line this race. */
   roadLine: Centerline = STRAIGHT_ROAD;
   readonly sound = new Sound();
@@ -352,6 +357,7 @@ export class Game {
       onTitle: () => this.toTitle(),
       onSettings: () => this.settings.open(uiRoot),
     });
+    if (this.mountain) this.minimap = new Minimap(uiRoot.querySelector<HTMLElement>('#hud')!); // (in the HUD Hud built)
     this.settings = new SettingsPopup(uiRoot);
     this.settings.onQuality = (pr) => this.setQuality(pr);
     this.settings.onVolumes = (v) => this.setVolumes(v);
@@ -639,6 +645,7 @@ export class Game {
       this.player.applyMass();
     }
     this.hud.setAccent(accent);
+    this.accent = accent;
     await this.loading.next('loading.road', 0.35);
     this.resetWorld();
     this.flow.start(); // (the intro's phase: the cars held on the grid - after a race the rivals would drive off)
@@ -849,6 +856,7 @@ export class Game {
       this.rivals.setRoad(this.roadLine);
       this.road.setRoad(this.roadLine);
       this.gate.setRoad(this.roadLine);
+      this.minimap?.setRoad(this.roadLine, this.courseLength);
       // (the player's AI - the I key, past the finish - on the mountain road: its line worked out for this road)
       if (this.aiDriver instanceof MountainDriver) this.aiDriver.setRoad(this.roadLine, mountainAi(specOf(this.cars.player).ai, mountainSetupOf(this.cars.player)));
     }
@@ -1623,6 +1631,12 @@ export class Game {
         ...this.rivals.list.map((r) => ({ s: r.car.s, d: r.car.d, color: RIVAL_CSS[r.index % RIVAL_CSS.length], me: false })),
       ],
     });
+    // The round map (the mountain road's): the car as drawn, heading up it, the rivals as dots in their colours.
+    if (this.minimap) {
+      const at = this.player.mesh.position;
+      const others = this.rivals.list.map((r) => ({ x: r.car.mesh.position.x, z: r.car.mesh.position.z, color: RIVAL_CSS[r.index % RIVAL_CSS.length] }));
+      this.minimap.update(at.x, at.z, this.player.worldYaw, others, this.accent);
+    }
     const h = this.renderer.domElement.height;
     updateFlareScale(this.flares.material, this.camera, h);
     updateFlareScale(this.road.lampFlareMaterial, this.camera, h);
