@@ -1,0 +1,196 @@
+import { LANE_WIDTH } from '../config';
+import { bend, Centerline, type GradePiece, type Piece, straight } from './centerline';
+
+/**
+ * The mountain road: two lanes (ours d > 0, the other way's d < 0 - no traffic: all of it to race on), a rock wall
+ * on one side and a railed cliff on the other; tight bends and hairpins, climbs and descents, laid out at random each
+ * race. Lengths in m, angles in degrees, grades rise over run.
+ */
+export const MOUNTAIN = {
+  /** The race (about a minute and a half at a mountain road's pace). */
+  length: 3500,
+  /** The asphalt's half width (two lanes). */
+  halfWidth: LANE_WIDTH,
+  /** The wall's and the rail's d (either side): the asphalt plus a narrow shoulder. */
+  edge: LANE_WIDTH + 1,
+  /** Straight and level off the grid, and into the finish. */
+  startStraight: 60,
+  endStraight: 80,
+  /** Hairpins: radius, turn, clothoids in and out. */
+  hairpinR: [15, 25] as [number, number],
+  hairpinAngle: [150, 180] as [number, number],
+  hairpinEase: [8, 15] as [number, number],
+  /** A hairpin's chance among the elements (raised once the road is half laid without two of them), and their most. */
+  hairpinChance: 0.2,
+  maxHairpins: 6,
+  /** After a hairpin, the chance of another the other way after a short straight (a switchback). */
+  switchbackChance: 0.65,
+  switchbackStraight: [40, 120] as [number, number],
+  /** Other bends: radius, turn, clothoids (at most half the bend). */
+  bendR: [30, 150] as [number, number],
+  bendAngle: [25, 110] as [number, number],
+  ease: [10, 40] as [number, number],
+  /** The chance of the next bend turning the other way (an S), and of a straight before a bend, its length. */
+  alternate: 0.7,
+  straightChance: 0.45,
+  straight: [10, 120] as [number, number],
+  /** Grades: each climb or descent this steep, held this long; the vertical curve between two grades this long per unit change. */
+  grade: [0.04, 0.1] as [number, number],
+  hold: [150, 450] as [number, number],
+  vcurvePerGrade: [500, 900] as [number, number],
+  vcurveMin: 30,
+  /** The chance a climb is followed by a descent (and the other way). */
+  gradeFlip: 0.75,
+  /** Parts of the road more than `sepArc` apart along it keep `minSep` apart (its centre line), the run-up before it and past the finish too. */
+  minSep: 24,
+  sepArc: 70,
+  before: 100,
+  after: 300,
+};
+
+type Rand = () => number;
+const within = (rand: Rand, [lo, hi]: [number, number]) => lo + rand() * (hi - lo);
+const RAD = Math.PI / 180;
+
+/** Sample spacing for the clearance check (m). */
+const CHECK_STEP = 5;
+/** Tries at one element before the road is started afresh, and at a whole road. */
+const ELEMENT_TRIES = 20;
+const ROAD_TRIES = 200;
+
+/** A random mountain road (`rand`: uniform in [0, 1)): the same `rand` sequence, the same road. */
+export function mountainRoad(rand: Rand): Centerline {
+  for (let i = 0; i < ROAD_TRIES; i++) {
+    const pieces = layOut(rand);
+    if (pieces) return new Centerline(pieces, { grades: profile(rand), turnBack: true });
+  }
+  throw new Error('mountainRoad: no road laid out clear of itself');
+}
+
+interface Element {
+  pieces: Piece[];
+  len: number;
+  hairpin: boolean;
+  dir: number;
+}
+
+/** The plan: straight off the grid, then bends, hairpins and straights to the finish's straight, never near itself; null: start again. */
+function layOut(rand: Rand): Piece[] | null {
+  const M = MOUNTAIN;
+  const pieces: Piece[] = [...straight(M.startStraight)];
+  let s = M.startStraight;
+  const last = M.length - M.endStraight;
+  let hairpins = 0;
+  let dir = rand() < 0.5 ? 1 : -1;
+  const queue: Element[] = [];
+  while (last - s > 1e-6) {
+    const room = last - s;
+    let placed: Element | null = null;
+    for (let t = 0; t < ELEMENT_TRIES && !placed; t++) {
+      let el = queue.length ? queue[0] : draw(rand, s, hairpins, dir);
+      if (el.len > room) {
+        queue.length = 0;
+        if (room > 40 && t < ELEMENT_TRIES - 1) continue;
+        el = { pieces: straight(room), len: room, hairpin: false, dir };
+      }
+      if (clear([...pieces, ...el.pieces], s, s + el.len)) placed = el;
+      else queue.length = 0;
+    }
+    if (!placed) return null;
+    if (queue.length && queue[0] === placed) queue.shift();
+    pieces.push(...placed.pieces);
+    s += placed.len;
+    if (placed.dir !== 0) dir = placed.dir;
+    if (placed.hairpin) {
+      hairpins++;
+      if (rand() < M.switchbackChance && hairpins < M.maxHairpins) {
+        const len = within(rand, M.switchbackStraight);
+        queue.push({ pieces: straight(len), len, hairpin: false, dir: 0 }, hairpin(rand, -placed.dir));
+      }
+    }
+  }
+  if (hairpins < 2) return null;
+  pieces.push(...straight(M.endStraight));
+  // The finish's straight and the run past it (the finish's show drives on) clear of the road too.
+  return clear(pieces, last, M.length + M.after) ? pieces : null;
+}
+
+/** The next element: a hairpin, a straight or a bend (the next bend mostly the other way). */
+function draw(rand: Rand, s: number, hairpins: number, lastDir: number): Element {
+  const M = MOUNTAIN;
+  const chance = hairpins < 2 && s > M.length * 0.4 ? 0.6 : M.hairpinChance;
+  if (hairpins < M.maxHairpins && rand() < chance) return hairpin(rand, rand() < 0.5 ? 1 : -1);
+  if (rand() < M.straightChance) {
+    const len = within(rand, M.straight);
+    return { pieces: straight(len), len, hairpin: false, dir: 0 };
+  }
+  const dir = rand() < M.alternate ? -lastDir : lastDir;
+  const r = within(rand, M.bendR);
+  const angle = within(rand, M.bendAngle);
+  const ease = Math.min(within(rand, M.ease), 0.5 * r * angle * RAD);
+  return { pieces: bend(r, dir * angle, ease), len: r * angle * RAD + ease, hairpin: false, dir };
+}
+
+function hairpin(rand: Rand, dir: number): Element {
+  const M = MOUNTAIN;
+  const r = within(rand, M.hairpinR);
+  const angle = within(rand, M.hairpinAngle);
+  const ease = within(rand, M.hairpinEase);
+  return { pieces: bend(r, dir * angle, ease), len: r * angle * RAD + ease, hairpin: true, dir };
+}
+
+/** Whether the road's stretch from s0 to s1 keeps minSep from every part of it more than sepArc back along it (its run-up before 0 too). */
+function clear(pieces: Piece[], s0: number, s1: number): boolean {
+  const M = MOUNTAIN;
+  const line = new Centerline(pieces, { turnBack: true });
+  const old: { s: number; x: number; z: number }[] = [];
+  for (let s = -M.before; s < s1 - M.sepArc; s += CHECK_STEP) old.push({ s, ...line.toWorld(s, 0) });
+  for (let s = s0; s <= s1 + 1e-6; s += CHECK_STEP) {
+    const p = line.toWorld(s, 0);
+    for (const q of old) {
+      if (s - q.s <= M.sepArc) break;
+      if (Math.hypot(p.x - q.x, p.z - q.z) < M.minSep) return false;
+    }
+  }
+  return true;
+}
+
+/** The height profile: level off the grid, climbs and descents (mostly one after the other) eased by vertical curves, level into the finish. */
+function profile(rand: Rand): GradePiece[] {
+  const M = MOUNTAIN;
+  const out: GradePiece[] = [{ len: M.startStraight, g: 0 }];
+  const endAt = M.length - M.endStraight;
+  let s = M.startStraight;
+  let g = 0;
+  let sign = rand() < 0.5 ? 1 : -1;
+  for (;;) {
+    const target = sign * within(rand, M.grade);
+    const vc = Math.max(M.vcurveMin, Math.abs(target - g) * within(rand, M.vcurvePerGrade));
+    const back = Math.max(M.vcurveMin, Math.abs(target) * M.vcurvePerGrade[1]); // (room left to come back to level, at the longest)
+    const avail = endAt - s - vc - back;
+    if (avail < 60) break;
+    const hold = Math.min(within(rand, M.hold), avail);
+    out.push({ len: vc, g: target }, { len: hold, g: target });
+    s += vc + hold;
+    g = target;
+    if (rand() < M.gradeFlip) sign = -sign;
+  }
+  const remaining = endAt - s;
+  const vf = Math.min(remaining, Math.max(M.vcurveMin, Math.abs(g) * within(rand, M.vcurvePerGrade)));
+  out.push({ len: vf, g: 0 });
+  if (remaining - vf > 1e-6) out.push({ len: remaining - vf, g: 0 });
+  out.push({ len: M.endStraight, g: 0 });
+  return out;
+}
+
+/** Which side the rock wall is on at s (+1: +d, the right): the inside of the bend there or nearest it (the cliff's rail outside). */
+export function wallSide(road: Centerline, s: number): 1 | -1 {
+  for (let k = 0; k <= 600; k++) {
+    for (const t of k === 0 ? [s] : [s - k, s + k]) {
+      const c = road.curvature(t);
+      if (c > 1e-9) return 1;
+      if (c < -1e-9) return -1;
+    }
+  }
+  return 1;
+}
