@@ -225,9 +225,11 @@ const REV_ON_GRID = { throttle: 1, brake: 1, steer: 0, hold: false, nitro: false
 /**
  * Revving on the grid as a driver does: the throttle blipped for `on` s and let go for `off` s (each drawn anew,
  * from..to), over and over, until `launch` s before the green: then held down, waiting for it. `firstWait`: off the
- * throttle that long first, so they do not all start together.
+ * throttle that long first, so they do not all start together. `planAhead`: s before the green the AI starts planning
+ * (its pedals not used yet), so it has a plan at the green - its first one takes a few frames to come back from the
+ * worker, the throttle let go of till then (0.1 s late off the line).
  */
-export const GRID_REV = { on: [0.12, 0.4], off: [0.2, 0.6], launch: [0.5, 1], firstWait: [0, 0.4] };
+export const GRID_REV = { on: [0.12, 0.4], off: [0.2, 0.6], launch: [0.5, 1], firstWait: [0, 0.4], planAhead: 1 };
 
 /** A rival's revving on the grid: blipping now or not, s left of that, and how long before the green it holds on. */
 export interface GridRev {
@@ -395,10 +397,16 @@ export class Rivals {
   /**
    * Before the physics step while the race has not started (countdown, title): held on the grid - `revving` (the
    * countdown, `toGo` s of it left) blipping the throttle (the brake held: bursts of burnout going nowhere), then
-   * held down for the green (GRID_REV), let go of at the green.
+   * held down for the green (GRID_REV), let go of at the green. With `view`, from GRID_REV.planAhead s before the
+   * green its AI plans as in the race (its pedals not used): a plan in hand at the green.
    */
-  hold(dt: number, revving = false, toGo = 0): void {
+  hold(dt: number, revving = false, toGo = 0, view?: RaceView): void {
     for (const r of this.list) {
+      if (view && revving && toGo <= GRID_REV.planAhead) {
+        const own = Math.min(view.speedCap, (view.topShare ?? 1) * r.base.maxSpeed);
+        const band = rubberBand(r.car.s - view.player.s, 0, own, Math.min(view.speedCap, r.base.maxSpeed));
+        r.driver.drive(selfStateOf(r.car, Math.min(band.speedCap, r.base.maxSpeed)), this.othersAsBoxes(r, view), r.car.params);
+      }
       r.car.holdInPlace(revving);
       r.car.prePhysics(revving && gridRevStep(r.gridRev, dt, toGo) ? REV_ON_GRID : HOLD, dt);
     }
