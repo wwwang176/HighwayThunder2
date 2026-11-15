@@ -76,13 +76,13 @@ describe('mountainSetup', () => {
     }
   });
 
-  it('drift assist on every car (the handbrake starts a drift, the throttle holds it); none on the highway', () => {
+  it('drift assist on every car (sliding, the car left to the driver); none on the highway', () => {
     for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
       expect(mountainSetup(spec.params, mountainSetupOf(spec.id)).drift).toEqual(MOUNTAIN_SETUP.drift);
       expect(spec.params.drift).toBeUndefined();
     }
-    expect(MOUNTAIN_SETUP.drift.target).toBeGreaterThan(MOUNTAIN_SETUP.drift.exit);
-    expect(MOUNTAIN_SETUP.drift.escFrom).toBeGreaterThan(MOUNTAIN_SETUP.drift.target);
+    expect(MOUNTAIN_SETUP.drift.enter).toBeGreaterThan(MOUNTAIN_SETUP.drift.exit);
+    expect(MOUNTAIN_SETUP.drift.escFrom).toBeGreaterThan(MOUNTAIN_SETUP.drift.enter);
   });
 
   it('a car whose diff is already free (lsdTurnFree 1) stays free', () => {

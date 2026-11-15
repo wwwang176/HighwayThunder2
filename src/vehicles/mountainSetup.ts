@@ -45,8 +45,8 @@ export interface MountainSetup {
    */
   tractionSlip: number;
   /**
-   * Drift assist (CarParams.drift; the player's): the handbrake starts a drift, the throttle holds it - the traction
-   * control (which straightened every slide on the throttle) and the stability control let it be.
+   * Drift assist (CarParams.drift; the player's): sliding, the car the driver's - the traction control (which
+   * straightened every slide on the throttle) and the stability control let it be till the slide is over.
    */
   drift: DriftAssist;
 }
@@ -74,27 +74,21 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // driving; counting a tyre over its grip in, it choked the drive in every tight bend: 83 -> 64 km/h). The muscle
   // car's 0-100 2.07 -> 2.45 s, its launch control's smoke held in.)
   tractionSlip: 1,
-  // (60 km/h, full lock and the handbrake 0.5 s, then 3 s: on full throttle the steering held into the turn the
-  // slide held at 48-50° (all three cars, the car round 150-190°), let go 33-34°; off the throttle let go 25-27° till
-  // it slowed to 25 km/h (2.5 s), into the turn 50° as it scrubbed its speed off (1 s); against the turn out of the
-  // drift in under a second. Without it the slide was gone in half a second (the traction control); the steering at
-  // the wheels in full, or half, full lock spun the cars past 80°; a hold of 40 000 N·m, 12 000 at first, let a rolling
-  // rear (off the throttle) stop the slide at once, or the slide run past 80° into the turn)
+  // (60 km/h, the handbrake tapped 0.1 s on full lock, the steering held 0.4 s, then let go, full throttle: the slide
+  // held 35-47° 3 s, the car round 134-150° (all three cars). The steering held at full lock it spun past 80°; the
+  // rear's grip x0.7 slid them past 70°. Without the drive eased, full throttle spun the supercar and the jdm round)
   drift: {
     minSpeed: 25 / 3.6,
-    exit: (8 * Math.PI) / 180,
-    exitTime: 0.4,
-    target: (30 * Math.PI) / 180,
-    spread: (15 * Math.PI) / 180,
-    band: (15 * Math.PI) / 180,
-    least: 0.2,
-    hold: 120_000,
-    damp: 25_000,
-    holdMax: 40_000,
+    enter: (12 * Math.PI) / 180,
+    exit: (6 * Math.PI) / 180,
+    exitTime: 0.3,
+    grace: 0.5,
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
-    steer: 0.2,
-    rearGrip: 0.75,
+    rearGrip: 0.85,
+    powerFrom: (20 * Math.PI) / 180,
+    powerTo: (40 * Math.PI) / 180,
+    least: 0.3,
   },
 };
 

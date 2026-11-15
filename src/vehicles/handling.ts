@@ -67,7 +67,7 @@ export interface CarParams {
   gearTops?: number[]; // its gearbox: each gear's top speed (km/h, at the redline); unset: GEAR_TOP_KMH
   launchSlip?: number; // launch control: the tail following the nose, the drive eased to hold the rear tyres' slip at this (m/s); unset: none
   tractionSlip?: number; // traction control: the drive eased to hold the rear tyres' slip at this (m/s), sliding or not (tractionTrim); unset: none
-  drift?: DriftAssist; // drift assist: a slide the handbrake starts held on the throttle (driftOn, driftDrive, driftEsc); unset: none
+  drift?: DriftAssist; // drift assist: sliding, the car the driver's - no traction control, the stability control only near a spin (driftOn, driftEsc); unset: none
   rearLongGrip?: number; // drag tyres: the rear tyres' grip straight on (driving, braking) times this, always (on rearGrip); unset: 1
   // The player's tuning (src/vehicles/tuning.ts); unset: as built.
   gearScale?: number; // final drive: every gear's top speed (and the limiter's) times this (> 1 taller)
@@ -416,84 +416,53 @@ export function tractionTrim(trim: number, slip: number, target: number, dt: num
 }
 
 /**
- * Drift assist (CarParams.drift): the handbrake pulled at speed starts a drift, held while the car slides. In it the
- * traction control lets the rear tyres spin (a drift is the tail on wheelspin), and the slide is held at an angle
- * the steering sets (driftTarget: into the turn more, out of it less, against it fully none - the way out) - the body
- * turned toward it (driftYaw), on the throttle or off it (off it, the car slowing as it slides), the drive eased past
- * it (driftDrive: the keys' throttle all or nothing). The stability control lets the slide be till it nears a spin.
- * Angles: the body's slide (its motion's angle off its nose), rad.
+ * Drift assist (CarParams.drift): once the car slides (past `enter`: from the throttle or a flick; or the handbrake
+ * tapped) it
+ * drifts till the slide is over, and while it does the car is the driver's - the traction control lets the rear tyres
+ * spin (a drift is the tail on wheelspin; it straightened every slide on the throttle), the stability control lets
+ * the slide be till it nears a spin, the rear's grip a little less, the drive eased as the slide grows big. Nothing
+ * holds its angle: the throttle and the steering do. Angles: the body's slide (its motion's angle off its nose), rad.
  */
 export interface DriftAssist {
   /** No drift slower than this (m/s). */
   minSpeed: number;
-  /** It ends once the slide has been under `exit` for `exitTime` s (or the brake is on). */
+  /** It starts once the slide is past `enter`, and ends once it has been under `exit` for `exitTime` s. */
+  enter: number;
   exit: number;
   exitTime: number;
-  /** The slide it holds: `target`, the steering into the turn up to `spread` more (out of it down to none). */
-  target: number;
-  spread: number;
-  /** The drive in full up to the slide it holds, down to `least` of it at `band` past it. */
-  band: number;
-  least: number;
-  /** The turn of the body toward the slide it holds (N·m per rad off it, N·m per rad/s of its change; at most holdMax). */
-  hold: number;
-  damp: number;
-  holdMax: number;
+  /** A tap of the handbrake starts it too (its slide not grown yet), given this long more (s) before it can end. */
+  grace: number;
   /** The stability control none of it to a slide of `escFrom`, all of it from `escFull` (a spin caught). */
   escFrom: number;
   escFull: number;
-  /** The steering's share at the front wheels (the rest of them trailing the slide: the steering sets the slide held). */
-  steer: number;
-  /** The rear tyres' grip times this (off the throttle a rolling rear gripped and stopped the slide at once). */
+  /** The rear tyres' grip times this. */
   rearGrip: number;
+  /** The drive in full up to a slide of `powerFrom`, down to `least` of it by `powerTo` (full throttle on the keys spun the cars round). */
+  powerFrom: number;
+  powerTo: number;
+  least: number;
 }
 
-/** A drift's state: whether it drifts, how long its slide has been under `exit` (s), its way (the slide's sign once past `exit`; 0 not yet). */
+/** A drift's state: whether it drifts, and how long its slide has been under `exit` (s). */
 export interface DriftState {
   on: boolean;
   quiet: number;
-  dir: number;
 }
 
-/**
- * Whether the car drifts (drift assist), its slide (rad) signed (+ its motion to its right): on with the handbrake at
- * speed, held while it slides its way - off once it has run straight for `exitTime`, braked, slowed to a crawl, or
- * swung round to slide the other way (a tank slapper: no drift held that way).
- */
-export function driftOn(was: DriftState, input: { handbrake?: boolean; brake?: number; throttle?: number }, slide: number, speed: number, dt: number, d: DriftAssist): DriftState {
-  const off = { on: false, quiet: 0, dir: 0 };
-  if (Math.abs(speed) < d.minSpeed || (input.brake ?? 0) > 0) return off;
+/** Whether the car drifts (drift assist), its slide (rad, either way) this step, the handbrake on or not. */
+export function driftOn(was: DriftState, slide: number, speed: number, dt: number, d: DriftAssist, handbrake = false): DriftState {
   const a = Math.abs(slide);
-  const dir = was.on && was.dir !== 0 ? was.dir : a > d.exit ? Math.sign(slide) : 0;
-  if (input.handbrake) return { on: true, quiet: 0, dir };
-  if (!was.on || (dir !== 0 && Math.sign(slide) === -dir && a > d.exit)) return off;
+  if (Math.abs(speed) < d.minSpeed) return { on: false, quiet: 0 };
+  if (handbrake) return { on: true, quiet: -d.grace };
+  if (!was.on) return { on: a > d.enter, quiet: 0 };
   const quiet = a < d.exit ? was.quiet + dt : 0;
-  return { on: quiet < d.exitTime, quiet, dir };
+  return { on: quiet < d.exitTime, quiet };
 }
 
-/**
- * In a drift, the slide it holds (rad): `steer` the steering (-1..1, + right), `slide` the body's (signed: + its
- * motion to its right, the nose left of it - a left turn).
- */
-export function driftTarget(steer: number, slide: number, d: DriftAssist): number {
-  const into = Math.max(-1, Math.min(1, -Math.sign(slide) * steer)); // (toward the side the nose is on)
-  return into >= 0 ? d.target + d.spread * into : d.target * (1 + into);
-}
-
-/** In a drift, the share of the drive let through at this slide (rad; `held`: the slide it holds). */
-export function driftDrive(slide: number, held: number, d: DriftAssist): number {
-  const k = Math.min(1, Math.max(0, (slide - held) / d.band));
+/** In a drift, the share of the drive let through at this slide (rad). */
+export function driftDrive(slide: number, d: DriftAssist): number {
+  const k = Math.min(1, Math.max(0, (slide - d.powerFrom) / (d.powerTo - d.powerFrom)));
   return 1 - (1 - d.least) * k;
-}
-
-/**
- * In a drift, the yaw torque (N·m; + turning it right, as escTorque) toward the slide it holds: `slide` signed (+ its
- * motion to its right), `rate` its change (rad/s), `held` the slide it holds.
- */
-export function driftYaw(slide: number, rate: number, held: number, d: DriftAssist): number {
-  const off = Math.sign(slide) * held - slide; // (short of it, its motion to its right: turned left, the nose further from it)
-  const t = -d.hold * off + d.damp * rate;
-  return Math.max(-d.holdMax, Math.min(d.holdMax, t)) || 0;
 }
 
 /** In a drift, the share of the stability control at this slide (rad). */
