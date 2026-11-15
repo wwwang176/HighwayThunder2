@@ -443,14 +443,16 @@ export interface DriftAssist {
   /** The drift's grip eased in over this (s: driftRamp), not dropped all at once (it tipped the slide over). */
   rampIn: number;
   /**
-   * The slide kept under what the steering sets (driftLimit, driftInto; the stability control can't - it holds the
-   * turning to what the steering asks, and full lock asks for a spin): `spring` with the wheel straight, `limit` on
-   * full lock into the turn, `counter` on full counter-steer, in between by it. Past it the body turned back, `hold`
-   * N·m per rad past, `damp` per rad/s of its growing, at most `holdMax`. Under it, nothing.
+   * The slide kept under what the steering sets (driftHeld, driftInto, driftLimit; the stability control can't - it
+   * holds the turning to what the steering asks, and full lock asks for a spin): `spring` with the wheel straight,
+   * `limit` on full lock into the turn, `counter` on full counter-steer, between by the steering's square (a little
+   * steering a little of it), followed over `steerTime` s (driftFollow: at once it was too quick). Past it the body
+   * turned back, `hold` N·m per rad past, `damp` per rad/s of its growing, at most `holdMax`. Under it, nothing.
    */
   counter: number;
   spring: number;
   limit: number;
+  steerTime: number;
   hold: number;
   damp: number;
   holdMax: number;
@@ -497,12 +499,24 @@ export function driftInto(slide: number, steer: number): number {
 }
 
 /**
- * In a drift, the yaw torque (N·m; + turning it right, as escTorque) keeping the slide under what the steering sets
- * (`into`, driftInto: `limit` on full lock into the turn, `spring` straight, `counter` counter-steered): `slide` signed
- * (+ its motion to its right), `rate` its change (rad/s). None under it.
+ * In a drift, the slide the steering asks to be held to (rad) at `into` (driftInto): `limit` on full lock into the
+ * turn, `spring` straight, `counter` counter-steered, between by `into`'s square.
  */
-export function driftLimit(slide: number, rate: number, d: DriftAssist, into = 1): number {
-  const held = into >= 0 ? d.spring + (d.limit - d.spring) * into : d.spring + (d.spring - d.counter) * into;
+export function driftHeld(into: number, d: DriftAssist): number {
+  const k = into * Math.abs(into);
+  return k >= 0 ? d.spring + (d.limit - d.spring) * k : d.spring + (d.spring - d.counter) * k;
+}
+
+/** In a drift, the slide held (rad) following the steering's `target` (driftHeld) over steerTime s. */
+export function driftFollow(held: number, target: number, dt: number, d: DriftAssist): number {
+  return held + (target - held) * Math.min(1, dt / d.steerTime);
+}
+
+/**
+ * In a drift, the yaw torque (N·m; + turning it right, as escTorque) keeping the slide under `held` (rad: driftHeld,
+ * followed): `slide` signed (+ its motion to its right), `rate` its change (rad/s). None under it.
+ */
+export function driftLimit(slide: number, rate: number, d: DriftAssist, held = d.limit): number {
   const over = Math.abs(slide) - held;
   if (over <= 0) return 0;
   const way = Math.sign(slide);

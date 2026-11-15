@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftRamp, type DriftState } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftRamp, driftHeld, driftFollow, type DriftState } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -191,6 +191,8 @@ export class PlayerCar {
   private lastSlide = 0;
   /** How far into its drift (0..1, driftRamp: the drift's grip eased in). */
   private driftIn = 0;
+  /** The slide its drift is held to (rad: the steering's, followed - driftFollow). */
+  private driftHold = 0;
   /** Whether it drifts (drift assist: it slides). */
   get drifting(): boolean {
     return this.drift.on;
@@ -438,9 +440,13 @@ export class PlayerCar {
     let esc = input.handbrake && !input.hold ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
     const slideRate = (slide - this.lastSlide) / dt;
     this.lastSlide = slide;
-    // (drifting: the slide kept under what the steering sets - the stability control can't, full lock asks for the
-    // spin: into the turn more, counter-steered less; the handbrake's swing too)
-    if (drifting && p.drift) esc = esc * driftEsc(bodySlip, p.drift) + driftLimit(slide, slideRate, p.drift, driftInto(slide, this.steer));
+    // (drifting: the slide kept under what the steering sets, followed over a moment - the stability control can't,
+    // full lock asks for the spin: into the turn more, counter-steered less; the handbrake's swing too)
+    if (p.drift) {
+      const target = driftHeld(driftInto(slide, this.steer), p.drift);
+      this.driftHold = drifting ? driftFollow(this.driftHold, target, dt, p.drift) : target;
+      if (drifting) esc = esc * driftEsc(bodySlip, p.drift) + driftLimit(slide, slideRate, p.drift, this.driftHold);
+    }
     if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);
     const targetThrottle = input.throttle;
     this.throttle += Math.sign(targetThrottle - this.throttle) * Math.min(Math.abs(targetThrottle - this.throttle), p.throttleRise * dt);
@@ -742,6 +748,7 @@ export class PlayerCar {
     this.drift = { on: false, quiet: 0 };
     this.lastSlide = 0;
     this.driftIn = 0;
+    this.driftHold = 0;
     this.backfire.reset();
     this.gearbox.reset();
     this.driveMode = 'D';

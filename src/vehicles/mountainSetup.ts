@@ -91,7 +91,9 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // spring, not a wall), on full throttle 45°; the push toward the nose on the throttle or off it; the drift's grip
   // eased in over 0.3 s (not measured). Then (the player's: the player holds the throttle on - the steering should
   // set the slide): the rear x0.45 sideways and straight on, the throttle on or off (as it was on full throttle); the
-  // slide held to 45° on full lock into the turn, 25° straight, 8° counter-steered (not measured))
+  // slide held to 45° on full lock into the turn, 25° straight, 8° counter-steered (not measured). Then (the player's:
+  // the steering too quick, the push too weak to take the bend): the steering's square, followed over 0.4 s; the push
+  // 5 -> 8 m/s² (not measured))
   drift: {
     minSpeed: 25 / 3.6,
     enter: (12 * Math.PI) / 180,
@@ -105,13 +107,14 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     counter: (8 * Math.PI) / 180,
     spring: (25 * Math.PI) / 180,
     limit: (45 * Math.PI) / 180,
+    steerTime: 0.4,
     hold: 60_000,
     damp: 25_000,
     holdMax: 40_000,
     powerFrom: (45 * Math.PI) / 180,
     powerTo: (60 * Math.PI) / 180,
     least: 0.3,
-    carve: 5,
+    carve: 8,
     carveFull: (25 * Math.PI) / 180,
   },
 };
