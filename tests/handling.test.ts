@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -375,5 +375,18 @@ describe('escPowerTrim', () => {
     expect(escPowerTrim((ESC_TRIM_FROM + ESC_TRIM_FULL) / 2)).toBeCloseTo(0.7, 6);
     expect(escPowerTrim(ESC_TRIM_FULL)).toBeCloseTo(ESC_TRIM_LEAST, 6);
     expect(escPowerTrim(Math.PI / 2)).toBeCloseTo(ESC_TRIM_LEAST, 6);
+  });
+});
+
+describe('traction control (tractionTrim)', () => {
+  const dt = 1 / 120;
+  it('the rear tyres spinning past the target, its share of the drive falls; under it, rises back to all of it', () => {
+    expect(tractionTrim(1, 5, 1, dt)).toBeLessThan(1);
+    expect(tractionTrim(0.5, 0.2, 1, dt)).toBeGreaterThan(0.5);
+    expect(tractionTrim(1, 0, 1, dt)).toBe(1);
+  });
+  it('the further over the target, the faster it falls - never under TRACTION_LEAST', () => {
+    expect(tractionTrim(1, 10, 1, dt)).toBeLessThan(tractionTrim(1, 3, 1, dt));
+    expect(tractionTrim(TRACTION_LEAST, 50, 1, 1)).toBe(TRACTION_LEAST);
   });
 });

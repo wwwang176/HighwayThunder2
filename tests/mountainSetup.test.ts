@@ -67,6 +67,15 @@ describe('mountainSetup', () => {
     expect(mountainSetupOf('no-such-car')).toEqual(MOUNTAIN_SETUP);
   });
 
+  it('traction control on every car (the drive eased to hold the rear tyres\' slip at tractionSlip: they keep their sideways grip on the throttle)', () => {
+    expect(MOUNTAIN_SETUP.tractionSlip).toBeGreaterThan(0);
+    for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
+      const s = mountainSetupOf(spec.id);
+      expect(mountainSetup(spec.params, s).tractionSlip).toBe(s.tractionSlip);
+      expect(spec.params.tractionSlip).toBeUndefined();
+    }
+  });
+
   it('a car whose diff is already free (lsdTurnFree 1) stays free', () => {
     expect(mountainSetup({ ...STREET_RACER.params, lsdTurnFree: 1 }).lsdTurnFree).toBe(1);
   });

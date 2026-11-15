@@ -66,6 +66,7 @@ export interface CarParams {
   escMaxTorque: number; // N·m
   gearTops?: number[]; // its gearbox: each gear's top speed (km/h, at the redline); unset: GEAR_TOP_KMH
   launchSlip?: number; // launch control: the tail following the nose, the drive eased to hold the rear tyres' slip at this (m/s); unset: none
+  tractionSlip?: number; // traction control: the drive eased to hold the rear tyres' slip at this (m/s), sliding or not (tractionTrim); unset: none
   rearLongGrip?: number; // drag tyres: the rear tyres' grip straight on (driving, braking) times this, always (on rearGrip); unset: 1
   // The player's tuning (src/vehicles/tuning.ts); unset: as built.
   gearScale?: number; // final drive: every gear's top speed (and the limiter's) times this (> 1 taller)
@@ -399,6 +400,18 @@ export const ESC_TRIM_LEAST = 0.4;
 export function escPowerTrim(bodySlip: number): number {
   const k = Math.min(1, Math.max(0, (bodySlip - ESC_TRIM_FROM) / (ESC_TRIM_FULL - ESC_TRIM_FROM)));
   return 1 - (1 - ESC_TRIM_LEAST) * k;
+}
+
+/**
+ * Traction control (CarParams.tractionSlip): its share of the drive let through, moved toward holding the rear tyres'
+ * slip (m/s: their tread's speed over the road, forward) at `target` - TRACTION_RATE per second per target's worth of
+ * slip off it, never under TRACTION_LEAST. Unlike launch control it holds in a slide too: a tyre spinning loses its
+ * sideways grip with it, and the car, on the throttle, slid on along its old line instead of the nose's.
+ */
+export const TRACTION_RATE = 8;
+export const TRACTION_LEAST = 0.15;
+export function tractionTrim(trim: number, slip: number, target: number, dt: number): number {
+  return Math.min(1, Math.max(TRACTION_LEAST, trim + TRACTION_RATE * dt * ((target - slip) / target)));
 }
 
 const FOLLOW_FADE_LO = 3; // m/s

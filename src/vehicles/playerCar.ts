@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -183,6 +183,8 @@ export class PlayerCar {
   private launchTrim = 1;
   /** Of the drive, what launch control lets through: launchTrim as much as it holds (the tail following the nose). */
   private launchShare = 1;
+  /** Of the drive, what traction control lets through (CarParams.tractionSlip, tractionTrim). */
+  private tractionShare = 1;
   /** s on the rev limiter (-1: off it). */
   private onLimiter = -1;
   driveMode: DriveMode = 'D';
@@ -469,6 +471,14 @@ export class PlayerCar {
       this.launchShare = 1 - hold * (1 - this.launchTrim);
       cmd.engineForce *= this.launchShare;
     } else this.launchTrim = this.launchShare = 1;
+    // Traction control (tractionSlip): the drive eased to hold the rear tyres' slip, sliding or not - the one spinning
+    // more (the diff lets the inside one spin up: their mean hid it), each against its own ground speed round a bend.
+    if (p.tractionSlip !== undefined && cmd.engineForce > 0 && !cmd.burnout) {
+      const turn = yawRate * HALF_TRACK;
+      const slip = Math.max(this.wheels[2].omega * p.wheelRadius - (this.vLong + turn), this.wheels[3].omega * p.wheelRadius - (this.vLong - turn));
+      this.tractionShare = tractionTrim(this.tractionShare, slip, p.tractionSlip, dt);
+      cmd.engineForce *= this.tractionShare;
+    } else this.tractionShare = 1;
     // The brakes' balance (the player's tuning, brakeShift): braking, some of the front tyres' grip straight on moved to
     // the rear, as much as the loads on them come to (all four stop as well as ever) - and the brakes' split with it,
     // each axle as near locking as it was. The rear doing more of the braking, its cornering grip goes sooner.

@@ -38,6 +38,12 @@ export interface MountainSetup {
   rearGrip: number;
   /** Its AI's cornering (CarSpec.ai.latAccel) times this: as much as the front grip turns the car harder (measured). */
   aiLat: number;
+  /**
+   * Traction control: the drive eased to hold the rear tyres' slip at this (m/s, CarParams.tractionSlip), sliding or not:
+   * full throttle (the keys') spun the rear tyres, their sideways grip gone with it, and the car slid on along its old
+   * line, not the nose's.
+   */
+  tractionSlip: number;
 }
 
 export const MOUNTAIN_SETUP: MountainSetup = {
@@ -57,6 +63,12 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   rearGrip: 1.25,
   // (full lock, steady at 45-100 km/h: x1.35-1.47 the sideways g of all three cars, x1.45 mostly - a little under it)
   aiLat: 1.4,
+  // (the rear tyres spinning 1 m/s at most: a 30° slide at 60 km/h, counter-steered 0.5 on full throttle, 19 -> 4° at
+  // 1.2 s (the supercar), 27 -> 3° (the muscle car); out of a 45 km/h full-lock turn on full throttle the slide 33 -> 4°,
+  // 58 -> 3°, 2 s on 75 -> 93 km/h, 37 -> 101. The jdm alike before (9°: its rear not spinning but its grip spent
+  // driving; counting a tyre over its grip in, it choked the drive in every tight bend: 83 -> 64 km/h). The muscle
+  // car's 0-100 2.07 -> 2.45 s, its launch control's smoke held in.)
+  tractionSlip: 1,
 };
 
 /**
@@ -96,5 +108,6 @@ export function mountainSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): 
     muPeak: p.muPeak * s.frontGrip,
     muSlide: p.muSlide * s.frontGrip,
     rearGrip: (p.rearGrip * s.rearGrip) / s.frontGrip,
+    tractionSlip: s.tractionSlip,
   };
 }
