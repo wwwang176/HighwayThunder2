@@ -125,9 +125,9 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     // throttle 6 m/s² more (14: 48°/s at 60, 36 at 80); a set turning whatever the speed was not what the player meant)
     carve: 8,
     carveOn: 6,
-    // (the player's: on the throttle the slide more, the spring as it was - 35 000 N·m against its 200 000 a rad: some
-    // 10° past what the steering sets on full throttle)
-    spin: 35_000,
+    // (the player's: on the throttle the slide more, the spring as it was - against its 200 000 N·m a rad; 35 000 at
+    // first, some 10° past what the steering sets on full throttle: too much, a quarter of it - some 2.5°)
+    spin: 8_750,
     carveFull: (15 * Math.PI) / 180, // (the player's: from 0°, by the slide only - 25° and times the drift's share at first)
   },
 };
