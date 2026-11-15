@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftRearGrip, type DriftState } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftRearGrip, driftRearLong, type DriftState } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -542,10 +542,11 @@ export class PlayerCar {
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
       // In a burnout the spinning rear tyres push less (arcade): the front brakes hold every car, even a tail-heavy one.
-      // Drifting, the rear's sideways grip less the more throttle (driftRearGrip; straight on as it was).
+      // Drifting, the rear's grip less the more throttle (driftRearGrip sideways; straight on driftRearLong of that).
       const driftRear = drifting && p.drift ? driftRearGrip(this.throttle, p.drift) : 1;
+      const driftLong = drifting && p.drift && !lever ? driftRearLong(this.throttle, p.drift) : 1;
       w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1) * driftRear) * grip;
-      w.longScale = w.front ? frontLong : rearLong / (lever ? 1 : driftRear); // (the handbrake's drag as it was)
+      w.longScale = w.front ? frontLong : rearLong * driftLong; // (the handbrake's drag on the rear's grip)
       w.dragged = lever && !w.front; // (the handbrake's locked rear tyres: dragged, holding sideways as their tail swings out)
     }
     const brakes = [brakeTorqueFront, brakeTorqueFront, brakeTorqueRear, brakeTorqueRear];

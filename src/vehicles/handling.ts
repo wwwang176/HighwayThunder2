@@ -437,7 +437,8 @@ export interface DriftAssist {
   escFull: number;
   /**
    * The rear tyres' sideways grip times `rearGrip` off the throttle, `rearGripOn` on full throttle, in between by it
-   * (driftRearGrip; driving and braking as they were): the throttle swings the tail out, let off it grips again.
+   * (driftRearGrip; straight on as it was off the throttle, less on it: driftRearLong): the throttle swings the tail
+   * out, let off it grips again.
    */
   rearGrip: number;
   rearGripOn: number;
@@ -509,6 +510,16 @@ export function driftCarve(slide: number, throttle: number, d: DriftAssist): num
 /** In a drift, the rear tyres' sideways grip share at this throttle (0..1). */
 export function driftRearGrip(throttle: number, d: DriftAssist): number {
   return d.rearGrip + (d.rearGripOn - d.rearGrip) * throttle;
+}
+
+/**
+ * In a drift, the rear tyres' grip straight on over their sideways (the wheel's longScale on driftRearGrip): off the
+ * throttle as it was, on full throttle as low as sideways - the tyres spin up and the tail swings out (power
+ * oversteer; held as it was, the drive pushed along the nose and straightened the slide).
+ */
+export function driftRearLong(throttle: number, d: DriftAssist): number {
+  const g = driftRearGrip(throttle, d);
+  return (1 + (g - 1) * throttle) / g;
 }
 
 const FOLLOW_FADE_LO = 3; // m/s

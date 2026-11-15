@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftRearGrip, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftRearGrip, driftRearLong, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -456,5 +456,10 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftRearGrip(0, D)).toBeCloseTo(0.85, 9);
     expect(driftRearGrip(1, D)).toBeCloseTo(0.55, 9);
     expect(driftRearGrip(0.5, D)).toBeCloseTo(0.7, 9);
+  });
+  it('the rear straight on: as it was off the throttle, on full throttle as low as sideways (the tyres spin up: power oversteer)', () => {
+    expect(driftRearLong(0, D) * driftRearGrip(0, D)).toBeCloseTo(1, 9);
+    expect(driftRearLong(1, D)).toBeCloseTo(1, 9);
+    expect(driftRearLong(0.5, D) * driftRearGrip(0.5, D)).toBeCloseTo(0.85, 9);
   });
 });
