@@ -442,14 +442,13 @@ export class PlayerCar {
     this.lastSlide = slide;
     // (drifting, as much as it does: the stability control only near a spin; the slide pulled back to what the steering
     // sets, at any slide - the stability control can't, full lock asks for the spin: the wheel let go straight on,
-    // slowly; held into the turn, more, slowly. From the slide it starts at; on the handbrake the swing let be - the
-    // spring pulls only once it is let go)
+    // slowly; held into the turn, more, slowly. From the slide it starts at; on the handbrake too - its swing as quick
+    // as the angle held grows (the player's: let be, the locked rear turned the car round at once)
     if (p.drift) {
       const target = driftHeld(driftInto(slide, this.steer), p.drift);
       if (dw === 0) this.driftHold = bodySlip;
       else {
         this.driftHold = driftFollow(this.driftHold, target, dt, p.drift);
-        if (input.handbrake) this.driftHold = Math.max(this.driftHold, bodySlip);
         esc = esc * (1 + (driftEsc(bodySlip, p.drift) - 1) * dw) + dw * driftLimit(slide, slideRate, p.drift, this.driftHold);
         // (on the throttle, the body turned to slide more - the spring above holding it some way past the steering's)
         esc += driftSpin(slide, this.throttle, dw, p.drift);

@@ -104,7 +104,8 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // 12° (smoothstep), none under 25 km/h to all of it from 35; the handbrake all of it, fading over 0.5 s after (the
   // on/off, its 6° for 0.3 s end and its 0.3 s ease-in dropped) (not measured). Then (the player's: the handbrake
   // turned it round at once - all of the drift, the rear's grip dropped and the throttle's turn at once): the handbrake
-  // only by the slide it starts, and the stability control on it as without it, by the slide too)
+  // only by the slide it starts, and the stability control on it as without it, by the slide too. Then (still too
+  // quick): the spring on the handbrake too - its swing as quick as the angle held grows to the steering's (1.5 s))
   drift: {
     minSpeed: 25 / 3.6,
     fullSpeed: 35 / 3.6,
