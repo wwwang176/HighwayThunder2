@@ -446,13 +446,15 @@ export interface DriftAssist {
    * The slide kept under what the steering sets (driftHeld, driftInto, driftLimit; the stability control can't - it
    * holds the turning to what the steering asks, and full lock asks for a spin): `spring` with the wheel straight,
    * `limit` on full lock into the turn, `counter` on full counter-steer, between by the steering's square (a little
-   * steering a little of it), followed over `steerTime` s (driftFollow: at once it was too quick). Past it the body
-   * turned back, `hold` N·m per rad past, `damp` per rad/s of its growing, at most `holdMax`. Under it, nothing.
+   * steering a little of it), followed (driftFollow: at once it was too quick) - growing over `steerUp` s (the turn
+   * held into a while), coming back over `steerDown` s (let go). Past it the body turned back, `hold` N·m per rad
+   * past, `damp` per rad/s of its growing, at most `holdMax`. Under it, nothing.
    */
   counter: number;
   spring: number;
   limit: number;
-  steerTime: number;
+  steerUp: number;
+  steerDown: number;
   hold: number;
   damp: number;
   holdMax: number;
@@ -507,9 +509,9 @@ export function driftHeld(into: number, d: DriftAssist): number {
   return k >= 0 ? d.spring + (d.limit - d.spring) * k : d.spring + (d.spring - d.counter) * k;
 }
 
-/** In a drift, the slide held (rad) following the steering's `target` (driftHeld) over steerTime s. */
+/** In a drift, the slide held (rad) following the steering's `target` (driftHeld): up over steerUp s, down over steerDown. */
 export function driftFollow(held: number, target: number, dt: number, d: DriftAssist): number {
-  return held + (target - held) * Math.min(1, dt / d.steerTime);
+  return held + (target - held) * Math.min(1, dt / (target > held ? d.steerUp : d.steerDown));
 }
 
 /**

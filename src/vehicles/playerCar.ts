@@ -444,7 +444,8 @@ export class PlayerCar {
     // full lock asks for the spin: into the turn more, counter-steered less; the handbrake's swing too)
     if (p.drift) {
       const target = driftHeld(driftInto(slide, this.steer), p.drift);
-      this.driftHold = drifting ? driftFollow(this.driftHold, target, dt, p.drift) : target;
+      // (from the spring as it starts: the handbrake swings it out to there, held into the turn it grows)
+      this.driftHold = drifting ? driftFollow(this.driftHold, target, dt, p.drift) : p.drift.spring;
       if (drifting) esc = esc * driftEsc(bodySlip, p.drift) + driftLimit(slide, slideRate, p.drift, this.driftHold);
     }
     if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);

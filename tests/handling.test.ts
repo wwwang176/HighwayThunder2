@@ -392,7 +392,7 @@ describe('traction control (tractionTrim)', () => {
 });
 
 describe('drift assist (CarParams.drift)', () => {
-  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, rampIn: 0.3, counter: 0.15, spring: 0.3, limit: 0.45, steerTime: 0.4, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
+  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, rampIn: 0.3, counter: 0.15, spring: 0.3, limit: 0.45, steerUp: 1.5, steerDown: 0.3, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
   const dt = 1 / 120;
   const st = (on: boolean, quiet = 0) => ({ on, quiet });
   it('on once the car slides past `enter` (either way: from the handbrake, the throttle, a flick), at speed; not crawling', () => {
@@ -450,12 +450,15 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftHeld(0.5, D)).toBeCloseTo(D.spring + (D.limit - D.spring) / 4, 9); // (half lock: a quarter of the way)
     expect(driftHeld(-0.5, D)).toBeCloseTo(D.spring - (D.spring - D.counter) / 4, 9);
   });
-  it('the angle held follows the steering\'s over steerTime s, not at once', () => {
+  it('the angle held grows to the steering\'s over steerUp s (held into the turn), comes back over steerDown s (let go)', () => {
     let h = D.spring;
-    for (let i = 0; i < Math.round(D.steerTime / dt); i++) h = driftFollow(h, D.limit, dt, D);
-    expect(h).toBeGreaterThan(D.spring + 0.55 * (D.limit - D.spring)); // (about 1 - 1/e of the way in steerTime)
+    for (let i = 0; i < Math.round(D.steerUp / dt); i++) h = driftFollow(h, D.limit, dt, D);
+    expect(h).toBeGreaterThan(D.spring + 0.55 * (D.limit - D.spring)); // (about 1 - 1/e of the way in steerUp)
     expect(h).toBeLessThan(D.spring + 0.7 * (D.limit - D.spring));
-    expect(driftFollow(D.spring, D.limit, dt, D)).toBeLessThan(D.spring + 0.05 * (D.limit - D.spring)); // (a step: a little of it)
+    let g = D.limit;
+    for (let i = 0; i < Math.round(D.steerDown / dt); i++) g = driftFollow(g, D.spring, dt, D);
+    expect(g).toBeLessThan(D.limit - 0.55 * (D.limit - D.spring));
+    expect(g).toBeGreaterThan(D.limit - 0.7 * (D.limit - D.spring));
   });
   it('into the turn: the steering toward the side the nose swung (+ slide: its motion to its right, the nose left of it)', () => {
     expect(driftInto(0.3, -1)).toBe(1); // (sliding right, steered left: into the turn)
