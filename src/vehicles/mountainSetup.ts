@@ -121,7 +121,10 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     powerFrom: (45 * Math.PI) / 180,
     powerTo: (60 * Math.PI) / 180,
     least: 0.3,
-    carve: 8,
+    // (the player's: on the throttle it took the bend wider - 8 m/s² turned it 27°/s at 60 km/h, 21 at 80; now 30°/s
+    // whatever the speed, at most 15 m/s² (from ~100 km/h))
+    carveRate: (30 * Math.PI) / 180,
+    carveMax: 15,
     carveFull: (15 * Math.PI) / 180, // (the player's: from 0°, by the slide only - 25° and times the drift's share at first)
   },
 };

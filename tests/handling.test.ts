@@ -392,7 +392,7 @@ describe('traction control (tractionTrim)', () => {
 });
 
 describe('drift assist (CarParams.drift)', () => {
-  const D: DriftAssist = { minSpeed: 7, fullSpeed: 10, from: 0.04, full: 0.2, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, limit: 0.45, steerUp: 1.5, steerDown: 1, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
+  const D: DriftAssist = { minSpeed: 7, fullSpeed: 10, from: 0.04, full: 0.2, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, limit: 0.45, steerUp: 1.5, steerDown: 1, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carveRate: 0.5, carveMax: 15, carveFull: 0.4 };
   const dt = 1 / 120;
   it('how much it drifts: none up to a slide of `from`, all of it from `full`, smoothly between (either way); at speed only', () => {
     expect(driftShare(0, 20, D)).toBe(0);
@@ -463,13 +463,14 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftEsc((D.escFrom + D.escFull) / 2, D)).toBeCloseTo(0.5, 9);
     expect(driftEsc(1.5, D)).toBe(1);
   });
-  it('the push toward the nose: from any slide in proportion (not by how much it drifts), all of it from carveFull; at speed only', () => {
+  it('the push toward the nose: turning the motion carveRate rad/s whatever the speed (at most carveMax m/s²), from any slide in proportion, all of it from carveFull; at speed only', () => {
     expect(driftCarve(0, 20, D)).toBe(0);
-    expect(driftCarve(0.02, 20, D)).toBeCloseTo(0.25, 9); // (a small slide: pushed already)
-    expect(driftCarve(0.2, 20, D)).toBeCloseTo(2.5, 9);
-    expect(driftCarve(-0.2, 20, D)).toBeCloseTo(2.5, 9); // (either way: its size)
-    expect(driftCarve(0.8, 20, D)).toBe(5);
+    expect(driftCarve(0.8, 20, D)).toBeCloseTo(0.5 * 20, 9); // (all of it: carveRate x speed)
+    expect(driftCarve(0.8, 10, D)).toBeCloseTo(0.5 * 10, 9); // (slower, less: the same turning)
+    expect(driftCarve(0.8, 40, D)).toBe(D.carveMax); // (fast: at most carveMax)
+    expect(driftCarve(0.02, 20, D)).toBeCloseTo(0.5 * 20 * 0.05, 9); // (a small slide: pushed already)
+    expect(driftCarve(-0.2, 20, D)).toBeCloseTo(0.5 * 20 * 0.5, 9); // (either way: its size)
     expect(driftCarve(0.8, 5, D)).toBe(0); // (crawling)
-    expect(driftCarve(0.8, 8.5, D)).toBeCloseTo(2.5, 9);
+    expect(driftCarve(0.8, 8.5, D)).toBeCloseTo(0.5 * 8.5 * 0.5, 9);
   });
 });
