@@ -79,7 +79,10 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // eases off; the steering and the throttle tapped (the keys) 26-28° held 4 s. The drive eased from 20° (as before
   // the limit) and the rear x0.85: tapped, the slide was gone in a second. Halving the drive's easing instead (10-20°)
   // the slide was gone in a second too; the stability control 6x from 20° held nothing (it holds the turning to what
-  // the steering asks, and full lock asks for the spin))
+  // the steering asks, and full lock asks for the spin). The player's next: it still straightened, and slid on its old
+  // line with the nose turned - the rear's sideways grip only x0.65 (its drive as it was), the drive eased from 40°
+  // (the limit holds it under), and on the throttle a push toward the nose (carve 5 m/s² from 25°; not measured: the
+  // player tries it))
   drift: {
     minSpeed: 25 / 3.6,
     enter: (12 * Math.PI) / 180,
@@ -88,14 +91,16 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     grace: 0.5,
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
-    rearGrip: 0.8,
+    rearGrip: 0.65,
     limit: (25 * Math.PI) / 180,
     hold: 120_000,
     damp: 25_000,
     holdMax: 40_000,
-    powerFrom: (30 * Math.PI) / 180,
-    powerTo: (45 * Math.PI) / 180,
+    powerFrom: (40 * Math.PI) / 180,
+    powerTo: (55 * Math.PI) / 180,
     least: 0.3,
+    carve: 5,
+    carveFull: (25 * Math.PI) / 180,
   },
 };
 

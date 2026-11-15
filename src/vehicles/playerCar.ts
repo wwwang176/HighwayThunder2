@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftOn, driftEsc, driftDrive, driftLimit, type DriftState } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, type DriftState } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -542,10 +542,10 @@ export class PlayerCar {
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
       // In a burnout the spinning rear tyres push less (arcade): the front brakes hold every car, even a tail-heavy one.
-      // Drifting, the rear's grip drift.rearGrip of it.
+      // Drifting, the rear's sideways grip drift.rearGrip of it (straight on as it was: the drive along the nose).
       const driftRear = drifting && p.drift ? p.drift.rearGrip : 1;
       w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1) * driftRear) * grip;
-      w.longScale = w.front ? frontLong : rearLong;
+      w.longScale = w.front ? frontLong : rearLong / (lever ? 1 : driftRear); // (the handbrake's drag as it was)
       w.dragged = lever && !w.front; // (the handbrake's locked rear tyres: dragged, holding sideways as their tail swings out)
     }
     const brakes = [brakeTorqueFront, brakeTorqueFront, brakeTorqueRear, brakeTorqueRear];
@@ -563,6 +563,15 @@ export class PlayerCar {
     // 3) Aerodynamics: drag against motion, downforce growing with speed.
     const lv = this.body.linvel();
     const sp = Math.hypot(lv.x, lv.z);
+    // Drifting on the throttle, the car pushed toward its nose (driftCarve): square to its motion, its speed as it was.
+    if (drifting && p.drift && this.vLong > 0 && sp > 1 && this.throttle > 0 && !lever) {
+      const a = Math.min(driftCarve(slide, this.throttle, p.drift), (bodySlip * sp) / dt);
+      const h = this.worldYaw, phi = Math.atan2(this.vLat, this.vLong), way = Math.sign(phi);
+      // (its motion turned toward the nose: in the body's frame (sin phi, -cos phi) the side it slides, along (fx, fz), lateral (cos h, sin h))
+      const pl = way * Math.sin(phi), pt = -way * Math.cos(phi);
+      const k = this.body.mass() * a * dt;
+      this.body.applyImpulse({ x: k * (pl * Math.sin(h) + pt * Math.cos(h)), y: 0, z: k * (-pl * Math.cos(h) + pt * Math.sin(h)) }, true);
+    }
     if (sp > 0.1) {
       const drag = p.dragK * sp * dt;
       const down = p.downforceK * sp * sp * dt;

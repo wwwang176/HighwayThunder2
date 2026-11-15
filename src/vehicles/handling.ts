@@ -435,7 +435,7 @@ export interface DriftAssist {
   /** The stability control none of it to a slide of `escFrom`, all of it from `escFull` (a spin caught). */
   escFrom: number;
   escFull: number;
-  /** The rear tyres' grip times this. */
+  /** The rear tyres' sideways grip times this (driving and braking as it was: the throttle pushes along the nose). */
   rearGrip: number;
   /**
    * The slide kept under `limit` (driftLimit: the stability control can't - it holds the turning to what the steering
@@ -450,6 +450,12 @@ export interface DriftAssist {
   powerFrom: number;
   powerTo: number;
   least: number;
+  /**
+   * On the throttle the car pushed toward its nose (arcade, driftCarve): square to its motion (its speed as it was),
+   * `carve` m/s² on full throttle once the slide is `carveFull` (rad), less under it - it goes where the nose points.
+   */
+  carve: number;
+  carveFull: number;
 }
 
 /** A drift's state: whether it drifts, and how long its slide has been under `exit` (s). */
@@ -488,6 +494,11 @@ export function driftLimit(slide: number, rate: number, d: DriftAssist): number 
 /** In a drift, the share of the stability control at this slide (rad). */
 export function driftEsc(slide: number, d: DriftAssist): number {
   return Math.min(1, Math.max(0, (slide - d.escFrom) / (d.escFull - d.escFrom)));
+}
+
+/** In a drift, the push toward the nose (m/s², square to the motion) at this slide (rad, either way) and throttle (0..1). */
+export function driftCarve(slide: number, throttle: number, d: DriftAssist): number {
+  return d.carve * throttle * Math.min(1, Math.abs(slide) / d.carveFull);
 }
 
 const FOLLOW_FADE_LO = 3; // m/s
