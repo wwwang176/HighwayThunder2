@@ -10,7 +10,7 @@ import { MOUNTAIN, roadEdges, mountainRoad } from '../src/road/mountain';
 import { surfaceMesh } from '../src/road/surface';
 import { CARS, STREET_RACER } from '../src/vehicles/cars';
 import { PlayerCar } from '../src/vehicles/playerCar';
-import { mountainAi, mountainRivalSetup, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
+import { mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
 
 /** SETUP=0: the cars as set up for the highway (else the mountain road's, as the game's). */
 const SETUP = process.env.SETUP !== '0';
@@ -74,7 +74,7 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
     gripBoost: 0,
     edge: (s, side) => e.at(s, side),
     lanes: [LANE, -LANE],
-    setup: SETUP ? { params: (p, spec) => mountainRivalSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) } : undefined,
+    setup: SETUP ? { params: (p, spec) => mountainSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) } : undefined,
   });
   rivals.length = MOUNTAIN.length;
   rivals.setRoad(road);

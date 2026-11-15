@@ -72,7 +72,7 @@ import { RoadScene, type Scenery } from '../world/roadScene';
 import { MountainScene } from '../world/mountainScene';
 import { Minimap } from '../ui/minimap';
 import { MountainDriver } from '../ai/mountainDriver';
-import { mountainAi, mountainRivalSetup, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
+import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
 import type { RivalDriver } from '../ai/driver';
 import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
 import { surfaceMesh } from '../road/surface';
@@ -923,7 +923,7 @@ export class Game {
           gripBoost: 0,
           edge: (s, side) => roadEdges(this.roadLine).at(s, side), // (a shoulder's too)
           lanes: [MOUNTAIN_LANE, -MOUNTAIN_LANE],
-          setup: { params: (p, spec) => mountainRivalSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) },
+          setup: { params: (p, spec) => mountainSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) },
         })
       : new Rivals<RivalDriver>(this.physics, this.scene, () => new WorkerPlanSource(), specs);
     rivals.tuneAtRandom = true;

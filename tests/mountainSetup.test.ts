@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MOUNTAIN_SETUP, mountainAi, mountainRivalSetup, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
+import { MOUNTAIN_SETUP, mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
 import { JDM_CAR, MUSCLE_CAR, STREET_RACER } from '../src/vehicles/cars';
 
 describe('mountainSetup', () => {
@@ -86,12 +86,6 @@ describe('mountainSetup', () => {
     expect(MOUNTAIN_SETUP.drift.fullSpeed).toBeGreaterThan(MOUNTAIN_SETUP.drift.minSpeed);
   });
 
-  it('a rival: the setup but no drift assist (the player only: on the throttle in a bend the AI spun round in it)', () => {
-    for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
-      const s = mountainSetupOf(spec.id);
-      expect(mountainRivalSetup(spec.params, s)).toEqual({ ...mountainSetup(spec.params, s), drift: undefined });
-    }
-  });
 
   it('a car whose diff is already free (lsdTurnFree 1) stays free', () => {
     expect(mountainSetup({ ...STREET_RACER.params, lsdTurnFree: 1 }).lsdTurnFree).toBe(1);
