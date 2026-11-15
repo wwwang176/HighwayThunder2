@@ -9,8 +9,9 @@ import { repeating, type Scenery, withAsphalt } from './roadScene';
 const SKY = 0x04060d;
 const FOG = 0x06080f;
 const LIGHT = {
-  hemi: 0.5,
-  moon: 0.35,
+  // (the player's: no street lights, a little more about - 0.5 and 0.35 at first)
+  hemi: 0.9,
+  moon: 0.5,
 };
 /** The road's markings: the centre's double yellow line (d, m). */
 const CENTRE_LINE = { off: 0.12, width: 0.1 };
