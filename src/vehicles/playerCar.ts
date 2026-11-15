@@ -436,10 +436,10 @@ export class PlayerCar {
     const held = drifting && p.drift ? driftTarget(this.steer, slide, p.drift) : 0;
     // Stability control: nudge the rotation toward what the steering asks for (not on the handbrake: the slide
     // it asks for let be; drifting, not till the slide nears a spin - the body turned toward the slide it holds
-    // instead, on the throttle).
+    // instead, on the throttle or off it).
     const yawRate = -this.body.angvel().y;
     let esc = input.handbrake && !input.hold ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
-    if (drifting && p.drift && !input.handbrake) esc = esc * driftEsc(bodySlip, p.drift) + driftYaw(slide, slideRate, held, this.throttle, p.drift);
+    if (drifting && p.drift && !input.handbrake) esc = esc * driftEsc(bodySlip, p.drift) + driftYaw(slide, slideRate, held, p.drift);
     else if (drifting) esc = 0;
     if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);
     const targetThrottle = input.throttle;
@@ -546,7 +546,9 @@ export class PlayerCar {
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
       // In a burnout the spinning rear tyres push less (arcade): the front brakes hold every car, even a tail-heavy one.
-      w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1)) * grip;
+      // Drifting, the rear's grip drift.rearGrip of it (arcade: the tail slides on, on the throttle or off it).
+      const driftRear = drifting && p.drift ? p.drift.rearGrip : 1;
+      w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1) * driftRear) * grip;
       w.longScale = w.front ? frontLong : rearLong;
       w.dragged = lever && !w.front; // (the handbrake's locked rear tyres: dragged, holding sideways as their tail swings out)
     }

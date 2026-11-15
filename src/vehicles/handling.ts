@@ -417,11 +417,11 @@ export function tractionTrim(trim: number, slip: number, target: number, dt: num
 
 /**
  * Drift assist (CarParams.drift): the handbrake pulled at speed starts a drift, held while the car slides. In it the
- * traction control lets the rear tyres spin (a drift is the tail on wheelspin), and on the throttle (the keys': all
- * or nothing) the slide is held at an angle the steering sets (driftTarget: into the turn more, out of it less) - the
- * body turned toward it (driftYaw), the drive eased past it (driftDrive); off the throttle it is let be, and the car
- * runs straight. The stability control lets the slide be till it nears a spin. Angles: the body's slide (its motion's
- * angle off its nose), rad.
+ * traction control lets the rear tyres spin (a drift is the tail on wheelspin), and the slide is held at an angle
+ * the steering sets (driftTarget: into the turn more, out of it less, against it fully none - the way out) - the body
+ * turned toward it (driftYaw), on the throttle or off it (off it, the car slowing as it slides), the drive eased past
+ * it (driftDrive: the keys' throttle all or nothing). The stability control lets the slide be till it nears a spin.
+ * Angles: the body's slide (its motion's angle off its nose), rad.
  */
 export interface DriftAssist {
   /** No drift slower than this (m/s). */
@@ -429,7 +429,7 @@ export interface DriftAssist {
   /** It ends once the slide has been under `exit` for `exitTime` s (or the brake is on). */
   exit: number;
   exitTime: number;
-  /** The slide it holds: `target`, the steering into the turn up to `spread` more (out of it as much less). */
+  /** The slide it holds: `target`, the steering into the turn up to `spread` more (out of it down to none). */
   target: number;
   spread: number;
   /** The drive in full up to the slide it holds, down to `least` of it at `band` past it. */
@@ -444,6 +444,8 @@ export interface DriftAssist {
   escFull: number;
   /** The steering's share at the front wheels (the rest of them trailing the slide: the steering sets the slide held). */
   steer: number;
+  /** The rear tyres' grip times this (off the throttle a rolling rear gripped and stopped the slide at once). */
+  rearGrip: number;
 }
 
 /** A drift's state: whether it drifts, how long its slide has been under `exit` (s), its way (the slide's sign once past `exit`; 0 not yet). */
@@ -474,8 +476,8 @@ export function driftOn(was: DriftState, input: { handbrake?: boolean; brake?: n
  * motion to its right, the nose left of it - a left turn).
  */
 export function driftTarget(steer: number, slide: number, d: DriftAssist): number {
-  const into = -Math.sign(slide) * steer; // (toward the side the nose is on)
-  return d.target + d.spread * Math.max(-1, Math.min(1, into));
+  const into = Math.max(-1, Math.min(1, -Math.sign(slide) * steer)); // (toward the side the nose is on)
+  return into >= 0 ? d.target + d.spread * into : d.target * (1 + into);
 }
 
 /** In a drift, the share of the drive let through at this slide (rad; `held`: the slide it holds). */
@@ -486,13 +488,12 @@ export function driftDrive(slide: number, held: number, d: DriftAssist): number 
 
 /**
  * In a drift, the yaw torque (N·m; + turning it right, as escTorque) toward the slide it holds: `slide` signed (+ its
- * motion to its right), `rate` its change (rad/s), `held` the slide it holds, as much as the throttle is on.
+ * motion to its right), `rate` its change (rad/s), `held` the slide it holds.
  */
-export function driftYaw(slide: number, rate: number, held: number, throttle: number, d: DriftAssist): number {
-  if (throttle <= 0) return 0;
+export function driftYaw(slide: number, rate: number, held: number, d: DriftAssist): number {
   const off = Math.sign(slide) * held - slide; // (short of it, its motion to its right: turned left, the nose further from it)
   const t = -d.hold * off + d.damp * rate;
-  return throttle * Math.max(-d.holdMax, Math.min(d.holdMax, t)) || 0;
+  return Math.max(-d.holdMax, Math.min(d.holdMax, t)) || 0;
 }
 
 /** In a drift, the share of the stability control at this slide (rad). */
