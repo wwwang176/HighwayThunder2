@@ -107,7 +107,7 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     minSpeed: 25 / 3.6,
     fullSpeed: 35 / 3.6,
     from: 0, // (the player's: from any slide; 2° at first)
-    full: (12 * Math.PI) / 180,
+    full: (6 * Math.PI) / 180, // (the player's: easier into it; 12° at first)
     grace: 0.5,
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
