@@ -1,4 +1,4 @@
-import type { CarParams } from './handling';
+import type { CarParams, DriftAssist } from './handling';
 import type { AccelTable } from '../ai/planner';
 
 /**
@@ -44,6 +44,11 @@ export interface MountainSetup {
    * line, not the nose's.
    */
   tractionSlip: number;
+  /**
+   * Drift assist (CarParams.drift; the player's): the handbrake starts a drift, the throttle holds it - the traction
+   * control (which straightened every slide on the throttle) and the stability control let it be.
+   */
+  drift: DriftAssist;
 }
 
 export const MOUNTAIN_SETUP: MountainSetup = {
@@ -69,6 +74,25 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // driving; counting a tyre over its grip in, it choked the drive in every tight bend: 83 -> 64 km/h). The muscle
   // car's 0-100 2.07 -> 2.45 s, its launch control's smoke held in.)
   tractionSlip: 1,
+  // (60 km/h, full lock and the handbrake 0.5 s, then full throttle 3 s: the steering held into the turn the slide
+  // held at 45-55° (all three cars, the car round 160-210°), let go 22-31° (round 105-115°), against the turn out of
+  // the drift within a second. Without it the slide was gone in half a second (the traction control); the steering at
+  // the wheels in full, or half, full lock spun the cars past 80° and out of it)
+  drift: {
+    minSpeed: 25 / 3.6,
+    exit: (8 * Math.PI) / 180,
+    exitTime: 0.4,
+    target: (30 * Math.PI) / 180,
+    spread: (15 * Math.PI) / 180,
+    band: (15 * Math.PI) / 180,
+    least: 0.2,
+    hold: 40_000,
+    damp: 8_000,
+    holdMax: 12_000,
+    escFrom: (55 * Math.PI) / 180,
+    escFull: (75 * Math.PI) / 180,
+    steer: 0.2,
+  },
 };
 
 /**
@@ -109,5 +133,6 @@ export function mountainSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): 
     muSlide: p.muSlide * s.frontGrip,
     rearGrip: (p.rearGrip * s.rearGrip) / s.frontGrip,
     tractionSlip: s.tractionSlip,
+    drift: s.drift,
   };
 }

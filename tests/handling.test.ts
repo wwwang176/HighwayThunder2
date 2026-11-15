@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftOn, driftDrive, driftEsc, driftTarget, driftYaw, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -388,5 +388,67 @@ describe('traction control (tractionTrim)', () => {
   it('the further over the target, the faster it falls - never under TRACTION_LEAST', () => {
     expect(tractionTrim(1, 10, 1, dt)).toBeLessThan(tractionTrim(1, 3, 1, dt));
     expect(tractionTrim(TRACTION_LEAST, 50, 1, 1)).toBe(TRACTION_LEAST);
+  });
+});
+
+describe('drift assist (CarParams.drift)', () => {
+  const D: DriftAssist = { minSpeed: 7, exit: 0.14, exitTime: 0.4, target: 0.5, spread: 0.25, band: 0.25, least: 0.2, hold: 20_000, damp: 5000, holdMax: 8000, escFrom: 0.9, escFull: 1.3, steer: 0.3 };
+  const dt = 1 / 120;
+  const st = (on: boolean, quiet = 0, dir = 0) => ({ on, quiet, dir });
+  it('on with the handbrake at speed; not crawling', () => {
+    expect(driftOn(st(false), { handbrake: true }, 0, 20, dt, D).on).toBe(true);
+    expect(driftOn(st(false), { handbrake: true }, 0, 3, dt, D).on).toBe(false);
+    expect(driftOn(st(false), { throttle: 1 }, 0.6, 20, dt, D).on).toBe(false); // (a slide alone: not the handbrake's)
+  });
+  it('its way set by the slide once it slides; off should the slide swing round to the other side (a tank slapper: no drift held that way)', () => {
+    let s = driftOn(st(false), { handbrake: true }, 0.05, 20, dt, D);
+    expect(s.dir).toBe(0);
+    s = driftOn(s, { handbrake: true }, -0.3, 20, dt, D);
+    expect(s.dir).toBe(-1);
+    s = driftOn(s, { throttle: 1 }, -0.2, 20, dt, D);
+    expect(s).toMatchObject({ on: true, dir: -1 });
+    expect(driftOn(s, { throttle: 1 }, 0.1, 20, dt, D).on).toBe(true); // (through straight, a little the other way)
+    expect(driftOn(s, { throttle: 1 }, 0.3, 20, dt, D).on).toBe(false);
+  });
+
+  it('held on while it slides; off once it has run straight for exitTime, braked, or slowed to a crawl', () => {
+    let s = driftOn(st(true), { throttle: 1 }, 0.5, 20, dt, D);
+    expect(s.on).toBe(true);
+    for (let t = 0; t < D.exitTime - 0.05; t += dt) s = driftOn(s, { throttle: 1 }, 0.05, 20, dt, D);
+    expect(s.on).toBe(true);
+    for (let t = 0; t < 0.1; t += dt) s = driftOn(s, { throttle: 1 }, 0.05, 20, dt, D);
+    expect(s.on).toBe(false);
+    expect(driftOn(st(true, 0.3), { throttle: 1 }, 0.5, 20, dt, D).quiet).toBe(0); // (sliding again: its quiet time anew)
+    expect(driftOn(st(true), { brake: 1 }, 0.5, 20, dt, D).on).toBe(false);
+    expect(driftOn(st(true), { throttle: 1 }, 0.5, 3, dt, D).on).toBe(false);
+  });
+  it('the slide it holds: `target`, the steering into the turn (toward the side the nose is on) up to `spread` more, out of it as much less', () => {
+    // (sliding with its motion to its right, vLat > 0: the nose left of where it goes, a left turn - into it is left, steer < 0)
+    expect(driftTarget(0, 0.4, D)).toBeCloseTo(D.target, 9);
+    expect(driftTarget(-1, 0.4, D)).toBeCloseTo(D.target + D.spread, 9);
+    expect(driftTarget(1, 0.4, D)).toBeCloseTo(D.target - D.spread, 9);
+    expect(driftTarget(1, -0.4, D)).toBeCloseTo(D.target + D.spread, 9); // (a right turn's)
+  });
+  it('the drive all of it up to the slide it holds, down to `least` past it by `band`', () => {
+    expect(driftDrive(0.2, 0.5, D)).toBe(1);
+    expect(driftDrive(0.5, 0.5, D)).toBe(1);
+    expect(driftDrive(0.5 + D.band / 2, 0.5, D)).toBeCloseTo((1 + D.least) / 2, 9);
+    expect(driftDrive(2, 0.5, D)).toBeCloseTo(D.least, 9);
+  });
+  it('on the throttle, a turn of the body toward the slide it holds (its motion to its right: + slide; a + torque turns it right, the slide less), its change damped', () => {
+    expect(driftYaw(0.3, 0, 0.5, 1, D)).toBeLessThan(0); // (too little: turned on, left)
+    expect(driftYaw(0.7, 0, 0.5, 1, D)).toBeGreaterThan(0); // (too much: turned back)
+    expect(driftYaw(-0.3, 0, 0.5, 1, D)).toBeGreaterThan(0); // (the other way's)
+    expect(driftYaw(0.5, 0, 0.5, 1, D)).toBe(0);
+    expect(driftYaw(0.5, 1, 0.5, 1, D)).toBeGreaterThan(0); // (growing: held back)
+    expect(Math.abs(driftYaw(3, 0, 0.5, 1, D))).toBeLessThanOrEqual(D.holdMax);
+    expect(driftYaw(0.3, 0, 0.5, 0, D)).toBe(0); // (off the throttle: let be - it runs straight)
+    expect(driftYaw(0.3, 0, 0.5, 0.5, D)).toBeCloseTo(driftYaw(0.3, 0, 0.5, 1, D) / 2, 9);
+  });
+  it('the stability control none of it in the slide, all of it as it nears a spin', () => {
+    expect(driftEsc(0.3, D)).toBe(0);
+    expect(driftEsc(D.escFrom, D)).toBe(0);
+    expect(driftEsc((D.escFrom + D.escFull) / 2, D)).toBeCloseTo(0.5, 9);
+    expect(driftEsc(1.5, D)).toBe(1);
   });
 });
