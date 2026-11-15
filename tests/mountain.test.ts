@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { groundCeiling, keepOverRoad, MOUNTAIN, mountainRoad, roadEdges, WALL_RUN, wallShare, wallSide, wallSides } from '../src/road/mountain';
+import { groundCeiling, insideReach, keepOverRoad, MOUNTAIN, mountainRoad, roadEdges, WALL_RUN, wallShare, wallSide, wallSides } from '../src/road/mountain';
 import { mulberry32 } from '../src/ai/rng';
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -212,6 +212,27 @@ describe('groundCeiling (the ground off the road kept under the rest of it)', ()
   });
 });
 
+describe('insideReach (how far off the road its slopes may reach on a bend\'s inside: short of its centre)', () => {
+  const hairpin = new Centerline([...straight(150), ...bend(20, 180, 10), ...straight(150)], { turnBack: true });
+  const reach = insideReach(hairpin);
+  const mid = 150 + 5 + 10 * Math.PI;
+  it('on a bend\'s inside, short of its centre (the tightest within a way along); outside it and on a straight away from bends, no limit', () => {
+    expect(reach(mid, 1)).toBeLessThanOrEqual(0.8 * 20 + 1e-6); // (a right bend's inside: its right)
+    expect(reach(mid, 1)).toBeGreaterThan(0.5 * 20);
+    expect(reach(150 - 20, 1)).toBeLessThanOrEqual(0.8 * 20 + 1e-6); // (coming to it: as tight)
+    expect(reach(mid, -1)).toBe(Infinity);
+    expect(reach(20, 1)).toBe(Infinity);
+  });
+  it('so no slope point there moves back from one row to the next (its triangles turned over)', () => {
+    for (let s = 100; s < 280; s += 1) {
+      if (reach(s, 1) === Infinity || reach(s + 1, 1) === Infinity) continue;
+      const th = hairpin.heading(s + 0.5);
+      const a = hairpin.toWorld(s, reach(s, 1)), b = hairpin.toWorld(s + 1, reach(s + 1, 1));
+      expect((b.x - a.x) * Math.sin(th) - (b.z - a.z) * Math.cos(th)).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('wallShare', () => {
   const ss = [0, 5, 10, 15, 20, 25];
   const sides = Int8Array.from([1, 1, 1, -1, -1, -1]);
@@ -219,6 +240,14 @@ describe('wallShare', () => {
     expect(Array.from(wallShare(ss, sides, 1, 10))).toEqual([1, 1, 1, 0.5, 0, 0]);
     expect(Array.from(wallShare(ss, sides, -1, 10))).toEqual([0, 0, 0.5, 1, 1, 1]);
     for (let i = 0; i < ss.length; i++) expect(wallShare(ss, sides, 1, 10)[i] + wallShare(ss, sides, -1, 10)[i]).toBeGreaterThanOrEqual(1);
+  });
+  it('rising smoothly (its ends flat: no edge where it starts)', () => {
+    const many = Array.from({ length: 41 }, (_, i) => i);
+    const one = Int8Array.from(many.map((s) => (s < 20 ? 1 : -1)));
+    const w = wallShare(many, one, 1, 10);
+    expect(w[20]).toBeCloseTo(1 - (3 * 0.01 - 2 * 0.001), 9); // (1 m past its run: smoothstep's, not 0.9)
+    expect(w[29] - w[30]).toBeLessThan(0.05); // (flat as it comes to none)
+    expect(w[30]).toBe(0);
   });
   it('a side with no run: none of it', () => {
     expect(Array.from(wallShare(ss, Int8Array.from([1, 1, 1, 1, 1, 1]), -1, 10))).toEqual([0, 0, 0, 0, 0, 0]);

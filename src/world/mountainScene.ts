@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeFlareMaterial } from '../render/lightFlares';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
-import { groundCeiling, MOUNTAIN, roadEdges, wallShare, wallSides } from '../road/mountain';
+import { groundCeiling, insideReach, MOUNTAIN, roadEdges, wallShare, wallSides } from '../road/mountain';
 import { roadRows } from '../road/surface';
 import { repeating, type Scenery, withAsphalt } from './roadScene';
 
@@ -17,9 +17,10 @@ const LIGHT = {
 const CENTRE_LINE = { off: 0.12, width: 0.1 };
 /**
  * The rock wall: how high (m, between, varying along the road), its tapering in and out where it changes sides (m),
- * and how deep it goes down below the road's edge (m: as the cliff - a mass, not a sheet).
+ * how deep it goes down below the road's edge (m: as the cliff - a mass, not a sheet), and how far out it rises to its
+ * top a metre of its height (0.85: ~50°).
  */
-const WALL = { low: 7, high: 15, taper: 10, deep: 140, color: 0x5d564e };
+const WALL = { low: 7, high: 15, taper: 30, deep: 140, run: 0.85, color: 0x5d564e }; // (taper: 10 at first, its end a cliff)
 /** The guardrail: its beam's bottom and top over the road, posts and reflectors (m apart). */
 const RAIL = { y0: 0.5, y1: 0.82, post: 4, reflector: 8 };
 /**
@@ -265,6 +266,7 @@ export class MountainScene implements Scenery {
     const E0 = MOUNTAIN.edge, H0 = MOUNTAIN.halfWidth, C = 0.5; // (C: past the centre lines)
     const edges = roadEdges(road);
     const ceiling = groundCeiling(road, edges);
+    const reach = insideReach(road);
     const uOf = (d: number) => (d + E0) / (2 * E0);
     const roadGeo = strip(road, rows, 6, (s, _i, p) => {
       const half = H0 + edges.widen(s);
@@ -284,25 +286,38 @@ export class MountainScene implements Scenery {
       const at = (s: number) => edges.at(s, side); // (this side's edge: a shoulder's)
       const wallOn = share[side];
       // (a rock mass, not a sheet - the player's: from a road below, the wall of one above floated, nothing under it or
-      // behind it: down from the road's edge as deep as the cliff, its back falling as deep again)
+      // behind it: down from the road's edge as deep as the cliff, its back falling as deep again. Past a half-metre
+      // ditch it rises at ~50° - the player's: 70-80° at first, too steep - and never over another part of the road:
+      // groundCeiling, the hill rising to just under a leg above)
       const wall = strip(road, rows, 9, (s, i, p) => {
         const E = at(s);
         const on = wallOn[i];
-        const h = (WALL.low + (WALL.high - WALL.low) * bumps(s, side * 3.1)) * on;
+        const full = WALL.low + (WALL.high - WALL.low) * bumps(s, side * 3.1);
+        const h = full * on;
         const b = bumps(s, side * 1.7 + 5);
         const deep = WALL.deep * on;
         // (as narrow as it is low: none of it, a line at the edge - folded flat it lay past the rail at the road's
         // height, a ledge before the cliff fell away)
-        const out = (x: number) => side * (E + on * x);
+        // (short of a bend's centre on its inside: insideReach - past it the rows' points fell behind, turned over)
+        const lim = reach(s, side);
+        const out = (x: number) => side * Math.min(E + on * x, lim);
+        const top = 0.5 + WALL.run * full + 2 * b;
         p[0] = [out(0), -0.3 - deep];
         p[1] = [out(0), -0.3];
-        p[2] = [out(0.3), 0.25 * h];
-        p[3] = [out(0.8 + 0.6 * b), 0.55 * h];
-        p[4] = [out(1.6 + b), 0.85 * h];
-        p[5] = [out(3 + 2 * b), h];
-        p[6] = [out(9 + 4 * b), h + 4 * on];
-        p[7] = [out(11 + 4 * b), 0.5 * h];
-        p[8] = [out(14 + 4 * b), -0.3 - deep];
+        p[2] = [out(0.5), 0.1 * h];
+        p[3] = [out(0.5 + 0.35 * WALL.run * full + 0.6 * b), 0.4 * h];
+        p[4] = [out(0.5 + 0.65 * WALL.run * full + b), 0.7 * h];
+        p[5] = [out(top), h];
+        p[6] = [out(top + 6 + 2 * b), h + 4 * on];
+        p[7] = [out(top + 8 + 2 * b), 0.5 * h];
+        p[8] = [out(top + 11 + 2 * b), -0.3 - deep];
+        if (on > 0) {
+          const base = edgeHeight(road, s, side * E);
+          for (let j = 2; j < 9; j++) {
+            const w = road.toWorld(s, p[j][0]);
+            p[j][1] = Math.min(p[j][1], ceiling(w.x, w.z, s) - base);
+          }
+        }
       }, 8);
       const wallMesh = new THREE.Mesh(wall, this.wallMat);
       wallMesh.receiveShadow = true;
@@ -314,8 +329,9 @@ export class MountainScene implements Scenery {
         const E = at(s);
         const on = wallOn[i] > 0 ? 0 : 1;
         const base = edgeHeight(road, s, side * E);
+        const lim = reach(s, side); // (short of a bend's centre on its inside)
         CLIFF.forEach(([dd, y], j) => {
-          const d = side * (E + dd * (j === 0 ? 1 : on) + (1 - on) * 0.3 * j);
+          const d = side * Math.min(E + dd * (j === 0 ? 1 : on) + (1 - on) * 0.3 * j, lim);
           let h = on ? y : -0.3 - 0.01 * j;
           if (on && j > 0) {
             const w = road.toWorld(s, d);

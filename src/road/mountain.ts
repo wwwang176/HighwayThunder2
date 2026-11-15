@@ -317,7 +317,11 @@ export function wallShare(ss: number[], sides: Int8Array, side: 1 | -1, taper: n
     if (sides[i] === side) next = ss[i];
     dist[i] = Math.min(dist[i], next - ss[i]);
   }
-  return dist.map((x) => Math.max(0, 1 - x / taper));
+  // (smoothly: its ends flat - the player's: straight up from none, the wall's end stood as a cliff)
+  return dist.map((x) => {
+    const u = Math.max(0, 1 - x / taper);
+    return u * u * (3 - 2 * u);
+  });
 }
 
 /** The ground off the road (its cliff's slope) under the rest of it: this far under its surface at least (m)... */
@@ -368,6 +372,47 @@ export function groundCeiling(road: Centerline, edges: RoadEdges = roadEdges(roa
     }
     return top;
   };
+}
+
+/** A slope off the road reaches on a bend's inside at most this share of its radius from the centre line... */
+const INSIDE_SHARE = 0.8;
+/** ...its tightest within this far along either way (m: the clothoids into it, its rows' neighbours). */
+const INSIDE_ALONG = 30;
+const INSIDE_STEP = 2;
+const REACHES = new WeakMap<Centerline, (s: number, side: 1 | -1) => number>();
+
+/**
+ * How far from the centre line (m) the slopes off the road may reach on `side` at s: on a bend's inside, short of its
+ * centre (INSIDE_SHARE of the tightest radius within INSIDE_ALONG m) - past it a row's points fall behind the row
+ * before's, its triangles turned over (the player's: broken slopes; the wall and the cliff on a bend's inside since
+ * the wall went uphill); elsewhere +Infinity. Worked out once a road.
+ */
+export function insideReach(road: Centerline): (s: number, side: 1 | -1) => number {
+  const known = REACHES.get(road);
+  if (known) return known;
+  const from = -MOUNTAIN.before - INSIDE_ALONG;
+  const n = Math.ceil((road.length + MOUNTAIN.after + INSIDE_ALONG - from) / INSIDE_STEP) + 1;
+  const k = new Float64Array(n);
+  for (let i = 0; i < n; i++) k[i] = road.curvature(from + i * INSIDE_STEP);
+  const w = Math.round(INSIDE_ALONG / INSIDE_STEP);
+  // The tightest curvature each way within the window (a bend to the right: +, its inside +d).
+  const most = { [1]: new Float64Array(n), [-1]: new Float64Array(n) } as Record<1 | -1, Float64Array>;
+  for (let i = 0; i < n; i++) {
+    let r = 0, l = 0;
+    for (let j = Math.max(0, i - w); j <= Math.min(n - 1, i + w); j++) {
+      if (k[j] > r) r = k[j];
+      if (-k[j] > l) l = -k[j];
+    }
+    most[1][i] = r;
+    most[-1][i] = l;
+  }
+  const reach = (s: number, side: 1 | -1) => {
+    const i = Math.round((s - from) / INSIDE_STEP);
+    const c = most[side][Math.max(0, Math.min(n - 1, i))];
+    return c > 1e-9 ? INSIDE_SHARE / c : Infinity;
+  };
+  REACHES.set(road, reach);
+  return reach;
 }
 
 /** The inside of the bend at s or nearest it (+1: +d, the right) - the rock wall's side where nothing says which is uphill (wallSides). */
