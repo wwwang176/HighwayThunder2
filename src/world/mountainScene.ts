@@ -28,6 +28,7 @@ const RAIL = { y0: 0.5, y1: 0.82, post: 4, reflector: 8 };
  * side at 35° steepening to 40° (the player's: 45-59° at first, a cliff more than a hillside).
  */
 const CLIFF: [number, number][] = [
+  [0, 0], // (from the road's edge: 0.3 m past it at first, a slit between)
   [0.3, -0.25],
   [3, -1.2],
   [7, -3.9],
@@ -289,7 +290,7 @@ export class MountainScene implements Scenery {
       // behind it: down from the road's edge as deep as the cliff, its back falling as deep again. Past a half-metre
       // ditch it rises at ~50° - the player's: 70-80° at first, too steep - and never over another part of the road:
       // groundCeiling, the hill rising to just under a leg above)
-      const wall = strip(road, rows, 9, (s, i, p) => {
+      const wall = strip(road, rows, 10, (s, i, p) => {
         const E = at(s);
         const on = wallOn[i];
         const full = WALL.low + (WALL.high - WALL.low) * bumps(s, side * 3.1);
@@ -302,18 +303,21 @@ export class MountainScene implements Scenery {
         const lim = reach(s, side);
         const out = (x: number) => side * Math.min(E + on * x, lim);
         const top = 0.5 + WALL.run * full + 2 * b;
+        // (from the road's edge, level with it, down into the ditch and up - the player's: from 0.3 m under the edge, a
+        // slit between the road and the ditch)
         p[0] = [out(0), -0.3 - deep];
-        p[1] = [out(0), -0.3];
-        p[2] = [out(0.5), 0.1 * h];
-        p[3] = [out(0.5 + 0.35 * WALL.run * full + 0.6 * b), 0.4 * h];
-        p[4] = [out(0.5 + 0.65 * WALL.run * full + b), 0.7 * h];
-        p[5] = [out(top), h];
-        p[6] = [out(top + 6 + 2 * b), h + 4 * on];
-        p[7] = [out(top + 8 + 2 * b), 0.5 * h];
-        p[8] = [out(top + 11 + 2 * b), -0.3 - deep];
+        p[1] = [out(0), 0];
+        p[2] = [out(0.25), -0.3 * on];
+        p[3] = [out(0.5), 0.1 * h];
+        p[4] = [out(0.5 + 0.35 * WALL.run * full + 0.6 * b), 0.4 * h];
+        p[5] = [out(0.5 + 0.65 * WALL.run * full + b), 0.7 * h];
+        p[6] = [out(top), h];
+        p[7] = [out(top + 6 + 2 * b), h + 4 * on];
+        p[8] = [out(top + 8 + 2 * b), 0.5 * h];
+        p[9] = [out(top + 11 + 2 * b), -0.3 - deep];
         if (on > 0) {
           const base = edgeHeight(road, s, side * E);
-          for (let j = 2; j < 9; j++) {
+          for (let j = 3; j < 10; j++) {
             const w = road.toWorld(s, p[j][0]);
             p[j][1] = Math.min(p[j][1], ceiling(w.x, w.z, s) - base);
           }
@@ -323,11 +327,12 @@ export class MountainScene implements Scenery {
       wallMesh.receiveShadow = true;
       this.course.add(wallMesh);
 
-      // The cliff's slope where the wall isn't (folded flat under the wall where it is) - kept under the rest of the road
+      // The cliff's slope where the wall isn't all there (folded flat under the wall where it is: the player's - under a
+      // wall tapering away there was nothing past it, no slope, no rail) - kept under the rest of the road
       // (groundCeiling: the player's - falling gently from its rail, it lay over another leg below).
       const cliff = strip(road, rows, CLIFF.length, (s, i, p) => {
         const E = at(s);
-        const on = wallOn[i] > 0 ? 0 : 1;
+        const on = wallOn[i] >= 1 ? 0 : 1;
         const base = edgeHeight(road, s, side * E);
         const lim = reach(s, side); // (short of a bend's centre on its inside)
         CLIFF.forEach(([dd, y], j) => {
@@ -369,12 +374,12 @@ export class MountainScene implements Scenery {
     this.far.position.set(c.x, this.line.height(playerS), c.z);
   }
 
-  /** Stretches (s from, to) where a side is the cliff's: no wall on it (`wallOn`, its wallShare). */
+  /** Stretches (s from, to) where a side is the cliff's: its wall (`wallOn`, its wallShare) under half of it. */
   private cliffRuns(rows: number[], wallOn: Float64Array): [number, number][] {
     const out: [number, number][] = [];
     let from: number | null = null;
     rows.forEach((s, i) => {
-      const cliff = wallOn[i] === 0;
+      const cliff = wallOn[i] < 0.5;
       if (cliff && from === null) from = s;
       if (!cliff && from !== null) {
         out.push([from, rows[i - 1]]);
