@@ -9,10 +9,16 @@ import { bend, Centerline, easeTwice, type GradePiece, type Piece, straight } fr
 export const MOUNTAIN = {
   /** The race (about a minute and a half at a mountain road's pace). */
   length: 3500,
-  /** The asphalt's half width (two lanes, each 1.5 lanes wide: the player's - one lane each way was hard to keep to). */
-  halfWidth: 1.5 * LANE_WIDTH,
-  /** The wall's and the rail's d (either side): the asphalt plus a narrow shoulder. */
-  edge: 1.5 * LANE_WIDTH + 1,
+  /** The asphalt's half width on a straight (two lanes; wider in the bends: `widen`). */
+  halfWidth: LANE_WIDTH,
+  /** The wall's and the rail's d (either side) on a straight: the asphalt plus a narrow shoulder. */
+  edge: LANE_WIDTH + 1,
+  /**
+   * The bends wider (roadEdges; the player's: the road 1.5x wide was easier to keep to, but only the bends need it):
+   * `by` m more either side from `full` curvature on (R 150: every bend), less in proportion below, eased in and out
+   * over `ease` m as the shoulder.
+   */
+  widen: { by: 0.5 * LANE_WIDTH, full: 1 / 150, ease: 30 },
   /** Straight and level off the grid, and into the finish. */
   startStraight: 60,
   endStraight: 80,
@@ -56,7 +62,7 @@ export const MOUNTAIN = {
    */
   shoulder: { max: 3, from: 1 / 80, full: 1 / 30, ease: 30 },
   /** Parts of the road more than `sepArc` apart along it keep `minSep` apart (its centre line), the run-up before it and past the finish too. */
-  minSep: 28, // (24 with the road 1.5x narrower: the gap between two legs' edges as it was)
+  minSep: 28, // (24 before the bends were widened: the gap between two legs' edges as it was)
   sepArc: 70,
   before: 100,
   after: 500,
@@ -257,9 +263,11 @@ export function wallSide(road: Centerline, s: number): 1 | -1 {
   return 1;
 }
 
-/** A road's edges (MOUNTAIN.shoulder): `at(s, side)`, how far from its centre line its edge is on `side` (+1 right, -1 left; m). */
+/** A road's edges (MOUNTAIN.widen, MOUNTAIN.shoulder): `at(s, side)`, how far from its centre line its edge is on `side` (+1 right, -1 left; m). */
 export interface RoadEdges {
   at(s: number, side: 1 | -1): number;
+  /** How much wider than on a straight the road is at s, either side (MOUNTAIN.widen: the bend's; not the shoulder) (m). */
+  widen(s: number): number;
 }
 
 /** Sample spacing of the shoulder's width (m), and how far past the road's ends it is worked out (beyond: none). */
@@ -267,35 +275,40 @@ const EDGE_STEP = 1;
 const EDGES = new WeakMap<Centerline, RoadEdges>();
 
 /**
- * The mountain road's edges: MOUNTAIN.edge either side, and on a tight bend's outside (the side away from its
- * curvature) MOUNTAIN.shoulder's more, eased in and out (Centerline easeTwice, as its bank). Worked out once a road.
+ * The mountain road's edges: MOUNTAIN.edge either side, wider in a bend (MOUNTAIN.widen, either side), and on a tight
+ * bend's outside (the side away from its curvature) MOUNTAIN.shoulder's more, eased in and out (Centerline easeTwice,
+ * as its bank). Worked out once a road.
  */
 export function roadEdges(road: Centerline): RoadEdges {
   const known = EDGES.get(road);
   if (known) return known;
-  if (road.straight) return { at: () => MOUNTAIN.edge }; // (no bends: the scenery's road before the first race)
-  const S = MOUNTAIN.shoulder;
-  const from = MOUNTAIN.before + S.ease;
+  if (road.straight) return { at: () => MOUNTAIN.edge, widen: () => 0 }; // (no bends: the scenery's road before the first race)
+  const S = MOUNTAIN.shoulder, W = MOUNTAIN.widen;
+  const from = MOUNTAIN.before + Math.max(S.ease, W.ease);
   const n = Math.ceil((road.length + MOUNTAIN.after + 2 * from) / EDGE_STEP) + 1;
   const right = new Float64Array(n);
   const left = new Float64Array(n);
+  const both = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     const k = road.curvature(i * EDGE_STEP - from);
     const w = S.max * Math.min(1, Math.max(0, (Math.abs(k) - S.from) / (S.full - S.from)));
     if (k < 0) right[i] = w; // (a left bend's outside: its right)
     else if (k > 0) left[i] = w;
+    both[i] = W.by * Math.min(1, Math.abs(k) / W.full);
   }
   const h = Math.round(S.ease / 2 / EDGE_STEP);
   const widths = { [1]: easeTwice(right, h), [-1]: easeTwice(left, h) } as Record<1 | -1, Float64Array>;
+  const wider = easeTwice(both, Math.round(W.ease / 2 / EDGE_STEP));
+  const lerp = (a: Float64Array, s: number) => {
+    const x = (s + from) / EDGE_STEP;
+    if (x <= 0 || x >= n - 1) return 0;
+    const i = Math.floor(x);
+    const w = a[i] + (a[i + 1] - a[i]) * (x - i);
+    return w > 1e-9 ? w : 0;
+  };
   const edges: RoadEdges = {
-    at(s, side) {
-      const a = widths[side];
-      const x = (s + from) / EDGE_STEP;
-      if (x <= 0 || x >= n - 1) return MOUNTAIN.edge;
-      const i = Math.floor(x);
-      const w = a[i] + (a[i + 1] - a[i]) * (x - i);
-      return w > 1e-9 ? MOUNTAIN.edge + w : MOUNTAIN.edge;
-    },
+    at: (s, side) => MOUNTAIN.edge + lerp(wider, s) + lerp(widths[side], s),
+    widen: (s) => lerp(wider, s),
   };
   EDGES.set(road, edges);
   return edges;

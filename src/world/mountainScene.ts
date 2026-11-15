@@ -12,7 +12,7 @@ const LIGHT = {
   hemi: 0.5,
   moon: 0.35,
 };
-/** The road's markings: the centre's double yellow line, white edge lines (d, m). */
+/** The road's markings: the centre's double yellow line (d, m). */
 const CENTRE_LINE = { off: 0.12, width: 0.1 };
 /** The rock wall: how high (m, between, varying along the road), and its tapering in and out where it changes sides (m). */
 const WALL = { low: 7, high: 15, taper: 10, color: 0x5d564e };
@@ -184,24 +184,6 @@ function edgeHeight(road: Centerline, s: number, d: number): number {
   return road.surfaceHeight(s, Math.max(-e.at(s, -1), Math.min(e.at(s, 1), d)));
 }
 
-/** The stretches of `rows` (ascending) where `on(s)`, each with a row either side (where it starts and stops). */
-function runsOf(rows: number[], on: (s: number) => boolean): number[][] {
-  const out: number[][] = [];
-  let run: number[] | null = null;
-  rows.forEach((s, i) => {
-    if (on(s)) {
-      if (!run) run = i > 0 ? [rows[i - 1]] : [];
-      run.push(s);
-    } else if (run) {
-      run.push(s);
-      out.push(run);
-      run = null;
-    }
-  });
-  if (run && (run as number[]).length > 1) out.push(run);
-  return out;
-}
-
 /** A smooth bumpy value along the road (m), between 0 and 1, for the rock's height and shape. */
 function bumps(s: number, seed: number): number {
   return 0.5 + 0.25 * Math.sin(s / 23 + seed) + 0.15 * Math.sin(s / 7.3 + 2.1 * seed) + 0.1 * Math.sin(s / 3.1 + 4.7 * seed);
@@ -275,32 +257,23 @@ export class MountainScene implements Scenery {
       return Math.min(1, Math.max(0, Math.min(fromStart, toEnd) / WALL.taper));
     };
 
-    // The road (shoulder to shoulder), and on a tight bend's outside the shoulder widened (roadEdges): the markings'
-    // shoulder stretched on out, no lines on it.
-    const E0 = MOUNTAIN.edge;
+    // The road (shoulder to shoulder; roadEdges: wider in a bend, on a tight bend's outside a shoulder more): the
+    // markings' columns where they are on a straight, their asphalt and shoulder stretched across the rest.
+    const E0 = MOUNTAIN.edge, H0 = MOUNTAIN.halfWidth, C = 0.5; // (C: past the centre lines)
     const edges = roadEdges(road);
-    const roadGeo = strip(road, rows, 2, (_s, _i, p) => {
-      p[0] = [-E0, 0.01];
-      p[1] = [E0, 0.01];
-    }, 20);
+    const uOf = (d: number) => (d + E0) / (2 * E0);
+    const roadGeo = strip(road, rows, 6, (s, _i, p) => {
+      const half = H0 + edges.widen(s);
+      p[0] = [-edges.at(s, -1), 0.01];
+      p[1] = [-half, 0.01];
+      p[2] = [-C, 0.01];
+      p[3] = [C, 0.01];
+      p[4] = [half, 0.01];
+      p[5] = [edges.at(s, 1), 0.01];
+    }, 20, [uOf(-E0), uOf(-H0), uOf(-C), uOf(C), uOf(H0), uOf(E0)]);
     const roadMesh = new THREE.Mesh(roadGeo, this.roadMat);
     roadMesh.receiveShadow = true;
     this.course.add(roadMesh);
-    for (const side of [-1, 1] as const) {
-      const wide = runsOf(rows, (s) => edges.at(s, side) > E0 + 0.01);
-      const u = (side * (E0 - 0.3) + E0) / (2 * E0); // (the markings' shoulder, past the edge line)
-      for (const rr of wide) {
-        // (its columns left to right, as the road's: facing up - the road's material one-sided)
-        const geo = strip(road, rr, 2, (s, _i, p) => {
-          const a = side * E0, b = side * edges.at(s, side);
-          p[0] = [Math.min(a, b), 0.01];
-          p[1] = [Math.max(a, b), 0.01];
-        }, 20, [u, u]);
-        const mesh = new THREE.Mesh(geo, this.roadMat);
-        mesh.receiveShadow = true;
-        this.course.add(mesh);
-      }
-    }
 
     // Both sides: the rock wall where it is (its height the taper's share), the cliff where it is.
     for (const side of [-1, 1] as const) {

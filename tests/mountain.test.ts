@@ -155,38 +155,52 @@ describe('wallSide', () => {
   });
 });
 
-describe('roadEdges (a shoulder on a tight bend\'s outside)', () => {
+describe('roadEdges (the bends wider, a shoulder on a tight bend\'s outside)', () => {
   const M = MOUNTAIN;
   /** A right hairpin (R 20) between straights. */
   const hairpin = new Centerline([...straight(150), ...bend(20, 180, 10), ...straight(150)], { turnBack: true });
   const mid = 150 + 5 + 10 * Math.PI; // (its middle)
+  /** The shoulder alone (past the bend's widening). */
+  const shoulder = (e: ReturnType<typeof roadEdges>, s: number, side: 1 | -1) => e.at(s, side) - M.edge - e.widen(s);
 
-  it('a hairpin\'s outside (left of a right turn) MOUNTAIN.shoulder.max wider in its middle; its inside as it was', () => {
+  it('a bend MOUNTAIN.widen.by wider either side (every bend from R 150), a straight as it was', () => {
     const e = roadEdges(hairpin);
-    expect(e.at(mid, -1)).toBeCloseTo(M.edge + M.shoulder.max, 2);
-    expect(e.at(mid, 1)).toBe(M.edge);
-    const left = roadEdges(new Centerline([...straight(150), ...bend(20, -180, 10), ...straight(150)], { turnBack: true }));
-    expect(left.at(mid, 1)).toBeCloseTo(M.edge + M.shoulder.max, 2);
-    expect(left.at(mid, -1)).toBe(M.edge);
+    expect(e.widen(mid)).toBeCloseTo(M.widen.by, 2);
+    expect(e.at(mid, 1)).toBeCloseTo(M.edge + M.widen.by, 2); // (its inside: the widening only)
+    for (const s of [0, 60, hairpin.length - 60]) expect(e.widen(s)).toBe(0);
+    const gentle = roadEdges(new Centerline([...straight(100), ...bend(150, 90, 10), ...straight(100)], { turnBack: true }));
+    expect(gentle.widen(100 + 5 + (150 * 45 * Math.PI) / 180)).toBeCloseTo(M.widen.by, 2);
+    const softer = roadEdges(new Centerline([...straight(100), ...bend(300, 60, 10), ...straight(100)], { turnBack: true }));
+    expect(softer.widen(100 + 5 + (300 * 30 * Math.PI) / 180)).toBeCloseTo(M.widen.by / 2, 2);
   });
 
-  it('none on a straight, nor on a bend gentler than `from`; less in proportion between `from` and `full`', () => {
+  it('a hairpin\'s outside (left of a right turn) MOUNTAIN.shoulder.max more in its middle; its inside none', () => {
+    const e = roadEdges(hairpin);
+    expect(shoulder(e, mid, -1)).toBeCloseTo(M.shoulder.max, 2);
+    expect(shoulder(e, mid, 1)).toBeCloseTo(0, 9);
+    const left = roadEdges(new Centerline([...straight(150), ...bend(20, -180, 10), ...straight(150)], { turnBack: true }));
+    expect(shoulder(left, mid, 1)).toBeCloseTo(M.shoulder.max, 2);
+    expect(shoulder(left, mid, -1)).toBeCloseTo(0, 9);
+  });
+
+  it('no shoulder on a straight, nor on a bend gentler than its from; less in proportion up to its full', () => {
     const e = roadEdges(hairpin);
     for (const s of [0, 60, hairpin.length - 60]) for (const side of [1, -1] as const) expect(e.at(s, side)).toBe(M.edge);
     const gentle = roadEdges(new Centerline([...straight(100), ...bend(1 / M.shoulder.from + 10, 90, 10), ...straight(100)], { turnBack: true }));
-    for (let s = 0; s < 300; s += 5) expect(gentle.at(s, -1)).toBe(M.edge);
+    for (let s = 0; s < 300; s += 5) expect(shoulder(gentle, s, -1)).toBeCloseTo(0, 9);
     const r = 2 / (M.shoulder.from + M.shoulder.full); // (halfway in curvature)
     const half = roadEdges(new Centerline([...straight(100), ...bend(r, 160, 10), ...straight(100)], { turnBack: true }));
-    expect(half.at(100 + 5 + (r * 80 * Math.PI) / 180, -1)).toBeCloseTo(M.edge + M.shoulder.max / 2, 1);
+    expect(shoulder(half, 100 + 5 + (r * 80 * Math.PI) / 180, -1)).toBeCloseTo(M.shoulder.max / 2, 1);
   });
 
-  it('eased in and out: its width changing no faster than max / ease a metre, and the same edges for the same road', () => {
+  it('eased in and out: its width changing no faster than (widen + shoulder) / ease a metre, and the same edges for the same road', () => {
+    const rate = M.widen.by / M.widen.ease + M.shoulder.max / M.shoulder.ease + 1e-9;
     for (const r of roads.slice(0, 10)) {
       const e = roadEdges(r);
       expect(roadEdges(r)).toBe(e);
       for (const side of [1, -1] as const) {
         for (let s = -M.before; s < r.length + M.after - 1; s += 1) {
-          expect(Math.abs(e.at(s + 1, side) - e.at(s, side))).toBeLessThanOrEqual(M.shoulder.max / M.shoulder.ease + 1e-9);
+          expect(Math.abs(e.at(s + 1, side) - e.at(s, side))).toBeLessThanOrEqual(rate);
           expect(e.at(s, side)).toBeGreaterThanOrEqual(M.edge);
         }
       }

@@ -150,3 +150,11 @@ export function mountainSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): 
     drift: s.drift,
   };
 }
+
+/**
+ * A rival set up for the mountain road: mountainSetup, but no drift assist (the player's: the AI on the throttle in a
+ * bend slid into it and spun round - 10 put-backs in 30 races once the throttle swung the tail out).
+ */
+export function mountainRivalSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): CarParams {
+  return { ...mountainSetup(p, s), drift: undefined };
+}

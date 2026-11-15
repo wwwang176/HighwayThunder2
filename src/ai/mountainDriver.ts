@@ -1,6 +1,6 @@
 import { PHYSICS_DT } from '../config';
 import type { Centerline } from '../road/centerline';
-import { MOUNTAIN } from '../road/mountain';
+import { MOUNTAIN, roadEdges } from '../road/mountain';
 import { type CarParams, DEFAULT_CAR, type HandlingInput, steerRange } from '../vehicles/handling';
 import { type RivalDriver, speedPedals } from './driver';
 import { type LineCar, lineAt, type RaceLine, racingLine, speedProfile } from './mountainLine';
@@ -62,7 +62,12 @@ export class MountainDriver implements RivalDriver {
   private offset = 0;
   /** Where it steers for, across the road (m): the line's there plus the offset. */
   aimD = 0;
+  /** Its room either side of the centre line on a straight (m); roomAt: a bend's wider. */
   readonly room = MOUNTAIN.edge - MOUNTAIN_DRIVER.halfWidth - MOUNTAIN_DRIVER.margin;
+  /** Its room either side of the centre line at s (m: the road wider in a bend, roadEdges' widen; not the shoulder). */
+  roomAt(s: number): number {
+    return this.road ? this.room + roadEdges(this.road).widen(s) : this.room;
+  }
 
   /** Share of its car's grip and brakes its line is planned to (the race's difficulty). */
   get budget(): number {
@@ -85,7 +90,7 @@ export class MountainDriver implements RivalDriver {
   /** Its line and speeds for the road and budget (not `plan`: the game draws a driver's `plan` - the planner's path). */
   private layLine(): void {
     if (!this.road || !this.car) return;
-    const d = racingLine(this.road, this.room);
+    const d = racingLine(this.road, this.room, undefined, roadEdges(this.road).widen);
     this.line = speedProfile(this.road, d, this.car, this.budgetNow, MOUNTAIN_DRIVER.vMax);
     this.full = speedProfile(this.road, d, this.car, 1, MOUNTAIN_DRIVER.vMax);
   }
@@ -104,10 +109,10 @@ export class MountainDriver implements RivalDriver {
   private pathAt(s: number): { d: number; psi: number; kappa: number } {
     const line = this.line!;
     const h = 1;
-    const clamp = (x: number) => Math.max(-this.room, Math.min(this.room, x));
-    const d = clamp(lineAt(line, s).d + this.offset);
-    const d1 = clamp(lineAt(line, s + h).d + this.offset);
-    const d0 = clamp(lineAt(line, s - h).d + this.offset);
+    const clamp = (x: number, at: number) => Math.max(-this.roomAt(at), Math.min(this.roomAt(at), x));
+    const d = clamp(lineAt(line, s).d + this.offset, s);
+    const d1 = clamp(lineAt(line, s + h).d + this.offset, s + h);
+    const d0 = clamp(lineAt(line, s - h).d + this.offset, s - h);
     const kc = this.road!.curvature(s);
     return { d, psi: Math.atan2((d1 - d0) / (2 * h), 1 - kc * d), kappa: lineAt(line, s).kappa };
   }
@@ -140,13 +145,14 @@ export class MountainDriver implements RivalDriver {
       if (b.dMax < myD - half - T.passGap || b.dMin > myD + half + T.passGap) continue; // (not in its way)
       if (b.v >= target - 0.5 && gap > 0) continue; // (as fast: no need)
       nearest = gap;
-      const left = b.dMin + this.room; // (room beside it, to the road's edge)
-      const right = this.room - b.dMax;
+      const room = this.roomAt(b.s);
+      const left = b.dMin + room; // (room beside it, to the road's edge)
+      const right = room - b.dMax;
       const need = 2 * half + T.passGap;
       const lineD = lineAt(line, b.s).d;
       if (Math.max(left, right) >= need) {
         const d = right >= left ? b.dMax + half + T.passGap : b.dMin - half - T.passGap;
-        want = Math.max(-this.room, Math.min(this.room, d)) - lineD;
+        want = Math.max(-room, Math.min(room, d)) - lineD;
       } else {
         want = this.offset;
         if (gap > 0) target = Math.min(target, b.v + T.followGain * Math.max(0, gap - T.followGap));
@@ -156,7 +162,8 @@ export class MountainDriver implements RivalDriver {
 
     // Along the line (Stanley): its curvature a moment ahead steered for, its heading and its offset closed on.
     const look = Math.min(T.lookMax, T.lookBase + T.lookTime * v);
-    this.aimD = Math.max(-this.room, Math.min(this.room, lineAt(line, self.s + look).d + this.offset));
+    const aimRoom = this.roomAt(self.s + look);
+    this.aimD = Math.max(-aimRoom, Math.min(aimRoom, lineAt(line, self.s + look).d + this.offset));
     const here = this.pathAt(self.s);
     const ahead = this.pathAt(self.s + T.steerLead * v);
     const err = self.d - here.d; // (+: right of where it should be)

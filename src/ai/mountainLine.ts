@@ -35,36 +35,40 @@ export interface LineCar {
  * least squares) with the points that reach the edge held there - adding the worst over each stretch past it, letting
  * go of those pulling inward - till none is past and none pulls in. Wide into a bend, the inside at its apex, wide out.
  */
-export function racingLine(road: Centerline, room: number, step = 2): Float64Array {
-  // (every racer on a road the same line: worked out once a road)
-  const key = `${room}|${step}`;
+export function racingLine(road: Centerline, room: number, step = 2, widen?: (s: number) => number): Float64Array {
+  // (every racer on a road the same line: worked out once a road - `widen` the road's own, roadEdges' widen)
+  const key = `${room}|${step}|${widen ? 1 : 0}`;
   let lines = LINES.get(road);
   if (!lines) LINES.set(road, (lines = new Map()));
   const known = lines.get(key);
   if (known) return known;
-  const d = leastCurvedLine(road, room, step);
+  const d = leastCurvedLine(road, room, step, widen);
   lines.set(key, d);
   return d;
 }
 
 const LINES = new WeakMap<Centerline, Map<string, Float64Array>>();
 
-function leastCurvedLine(road: Centerline, room: number, step: number): Float64Array {
+function leastCurvedLine(road: Centerline, room: number, step: number, widen?: (s: number) => number): Float64Array {
   const n = Math.floor((road.length + PAST_END) / step) + 1;
   const kc = new Float64Array(n);
-  for (let i = 0; i < n; i++) kc[i] = road.curvature(i * step);
+  const rooms = new Float64Array(n); // (each point's: wider in a bend)
+  for (let i = 0; i < n; i++) {
+    kc[i] = road.curvature(i * step);
+    rooms[i] = room + (widen ? widen(i * step) : 0);
+  }
   let d: Float64Array = new Float64Array(n);
   // Gauss-Newton: the offset line's curvature κ / (1 - κ d) + d'' linearised about the last line (the inside of a
   // tight bend tighter than the road by its offset), a few times over.
-  for (let outer = 0; outer < GN_ROUNDS; outer++) d = leastCurved(kc, d, room, step);
-  for (let i = 0; i < n; i++) d[i] = Math.max(-room, Math.min(room, d[i]));
+  for (let outer = 0; outer < GN_ROUNDS; outer++) d = leastCurved(kc, d, rooms, step);
+  for (let i = 0; i < n; i++) d[i] = Math.max(-rooms[i], Math.min(rooms[i], d[i]));
   return d;
 }
 
 const GN_ROUNDS = 5;
 
 /** One round of racingLine: about the line `d0`, the least squares with the edge's active set. */
-function leastCurved(kc: Float64Array, d0: Float64Array, room: number, step: number): Float64Array {
+function leastCurved(kc: Float64Array, d0: Float64Array, rooms: Float64Array, step: number): Float64Array {
   const n = kc.length;
   // Rows r_i = (d_{i-1} - 2 d_i + d_{i+1}) / h² + f'_i d_i + (f_i - f'_i d0_i), f = κ / (1 - κ d) at d0.
   // A d = b: A = Σ rowᵀ row + ε, b = -Σ rowᵀ const.
@@ -91,14 +95,14 @@ function leastCurved(kc: Float64Array, d0: Float64Array, room: number, step: num
     let changed = false;
     // Past the edge: the worst point of each stretch past it held at the edge.
     for (let i = 0; i < n; ) {
-      if (Math.abs(d[i]) <= room + 1e-9 || held.has(i)) {
+      if (Math.abs(d[i]) <= rooms[i] + 1e-9 || held.has(i)) {
         i++;
         continue;
       }
       let worst = i;
       let j = i;
-      for (; j < n && Math.abs(d[j]) > room + 1e-9 && !held.has(j); j++) if (Math.abs(d[j]) > Math.abs(d[worst])) worst = j;
-      held.set(worst, Math.sign(d[worst]) * room);
+      for (; j < n && Math.abs(d[j]) > rooms[j] + 1e-9 && !held.has(j); j++) if (Math.abs(d[j]) > Math.abs(d[worst])) worst = j;
+      held.set(worst, Math.sign(d[worst]) * rooms[worst]);
       changed = true;
       i = j;
     }

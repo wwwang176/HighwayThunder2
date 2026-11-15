@@ -16,6 +16,19 @@ describe('racingLine', () => {
     for (const x of d) expect(Math.abs(x)).toBeLessThanOrEqual(ROOM + 1e-6);
   });
 
+  it('uses a bend widened (widen: its room more there), and bends less for it', () => {
+    const widen = (s: number) => (s > 120 && s < 230 ? 1.5 : 0);
+    const w = racingLine(HAIRPIN, ROOM, 2, widen);
+    let most = 0;
+    w.forEach((x, i) => {
+      expect(Math.abs(x)).toBeLessThanOrEqual(ROOM + widen(i * 2) + 1e-6);
+      most = Math.max(most, Math.abs(x));
+    });
+    expect(most).toBeGreaterThan(ROOM + 0.5);
+    const peak = (line: Float64Array) => Math.max(...speedProfile(HAIRPIN, line, AI, 0.9, 300 * KMH).kappa.map(Math.abs));
+    expect(peak(w)).toBeLessThan(peak(d));
+  });
+
   it('bends less than the road at the hairpin', () => {
     const line = speedProfile(HAIRPIN, d, AI, 0.9, 300 * KMH);
     let peak = 0;
