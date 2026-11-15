@@ -82,7 +82,8 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // the steering asks, and full lock asks for the spin). The player's next: it still straightened, and slid on its old
   // line with the nose turned - the rear's sideways grip only x0.65 (its drive as it was), the drive eased from 40°
   // (the limit holds it under), and on the throttle a push toward the nose (carve 5 m/s² from 25°; not measured: the
-  // player tries it))
+  // player tries it). Then: the throttle straightened it (the push, the rear hooked up) - the player wants it the other
+  // way: the rear sideways x0.85 off the throttle, x0.55 on full throttle, the push only off it (not measured))
   drift: {
     minSpeed: 25 / 3.6,
     enter: (12 * Math.PI) / 180,
@@ -91,7 +92,8 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     grace: 0.5,
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
-    rearGrip: 0.65,
+    rearGrip: 0.85,
+    rearGripOn: 0.55,
     limit: (25 * Math.PI) / 180,
     hold: 120_000,
     damp: 25_000,

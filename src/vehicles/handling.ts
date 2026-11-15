@@ -435,8 +435,12 @@ export interface DriftAssist {
   /** The stability control none of it to a slide of `escFrom`, all of it from `escFull` (a spin caught). */
   escFrom: number;
   escFull: number;
-  /** The rear tyres' sideways grip times this (driving and braking as it was: the throttle pushes along the nose). */
+  /**
+   * The rear tyres' sideways grip times `rearGrip` off the throttle, `rearGripOn` on full throttle, in between by it
+   * (driftRearGrip; driving and braking as they were): the throttle swings the tail out, let off it grips again.
+   */
   rearGrip: number;
+  rearGripOn: number;
   /**
    * The slide kept under `limit` (driftLimit: the stability control can't - it holds the turning to what the steering
    * asks, and full lock asks for a spin): past it the body turned back, `hold` N·m per rad past, `damp` per rad/s of
@@ -451,8 +455,9 @@ export interface DriftAssist {
   powerTo: number;
   least: number;
   /**
-   * On the throttle the car pushed toward its nose (arcade, driftCarve): square to its motion (its speed as it was),
-   * `carve` m/s² on full throttle once the slide is `carveFull` (rad), less under it - it goes where the nose points.
+   * Off the throttle the car pushed toward its nose (arcade, driftCarve): square to its motion (its speed as it was),
+   * `carve` m/s² off it once the slide is `carveFull` (rad), less under it or on the throttle - let off, it goes where
+   * the nose points (on the throttle the push straightened the slide).
    */
   carve: number;
   carveFull: number;
@@ -498,7 +503,12 @@ export function driftEsc(slide: number, d: DriftAssist): number {
 
 /** In a drift, the push toward the nose (m/s², square to the motion) at this slide (rad, either way) and throttle (0..1). */
 export function driftCarve(slide: number, throttle: number, d: DriftAssist): number {
-  return d.carve * throttle * Math.min(1, Math.abs(slide) / d.carveFull);
+  return d.carve * (1 - throttle) * Math.min(1, Math.abs(slide) / d.carveFull);
+}
+
+/** In a drift, the rear tyres' sideways grip share at this throttle (0..1). */
+export function driftRearGrip(throttle: number, d: DriftAssist): number {
+  return d.rearGrip + (d.rearGripOn - d.rearGrip) * throttle;
 }
 
 const FOLLOW_FADE_LO = 3; // m/s
