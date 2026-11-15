@@ -195,7 +195,7 @@ function bumps(s: number, seed: number): number {
 
 /**
  * The mountain road's scenery, the whole course laid once a race (setRoad): the asphalt with its markings, the rock
- * wall on the bends' inside (wallSides), the guardrail with its reflectors on the other side and the slope falling
+ * wall on the uphill side (wallSides), the guardrail with its reflectors on the other side and the slope falling
  * away below it, chevron boards outside the tight bends; the night sky, the moon, far ridges.
  */
 export class MountainScene implements Scenery {
@@ -323,7 +323,7 @@ export class MountainScene implements Scenery {
       }
       this.addPosts(road, runs, side);
     }
-    this.addChevrons(road);
+    this.addChevrons(road, rows, share);
   }
 
   update(playerS: number, play = 0): void {
@@ -387,8 +387,18 @@ export class MountainScene implements Scenery {
    * post - one toward the cars coming each way, its chevron pointing round the bend (toward its inside, the same side
    * of the road either way) - and the amber lamp on top.
    */
-  private addChevrons(road: Centerline): void {
+  private addChevrons(road: Centerline, rows: number[], share: Record<1 | -1, Float64Array>): void {
     const spots = chevronSpots(road);
+    // (the wall's share on a side at s: the nearest row's)
+    const wallAt = (s: number, side: 1 | -1) => {
+      let lo = 0, hi = rows.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (rows[mid] <= s) lo = mid;
+        else hi = mid;
+      }
+      return share[side][s - rows[lo] < rows[hi] - s ? lo : hi];
+    };
     const edges = roadEdges(road);
     const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, CHEVRON.height, 0.06), this.postMat, Math.max(1, spots.length));
     const beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(BEACON.radius, 10, 8), this.beaconMat, Math.max(1, spots.length));
@@ -400,7 +410,9 @@ export class MountainScene implements Scenery {
     const p = new THREE.Vector3();
     const sc = new THREE.Vector3();
     spots.forEach(({ s, dir }, i) => {
-      const d = -dir * (edges.at(s, -dir as 1 | -1) + 0.5); // (outside the bend: past its shoulder)
+      // (outside the bend: past its shoulder - or at its edge, before the rock wall where the hill is on the outside)
+      const out = -dir as 1 | -1;
+      const d = out * (edges.at(s, out) + (wallAt(s, out) > 0 ? 0.05 : 0.5));
       const w = road.toWorld(s, d);
       const h = edgeHeight(road, s, d);
       const th = road.heading(s);

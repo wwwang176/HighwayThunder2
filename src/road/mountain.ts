@@ -226,32 +226,76 @@ export function keepOverRoad(road: Centerline, p: { x: number; y: number; z: num
   return true;
 }
 
-/** wallSide at each of `ss` (ascending), at once: from the curvature's sign there or at the nearest bent one. */
+/**
+ * Which side the uphill is on, from the rest of the road: parts of it within WALL_NEAR m (but more than WALL_SKIP m
+ * along it: not its own run on), each by how far across it lies (its share of the way to one side), how much higher or
+ * lower it is (at most WALL_HIGH m) and how near ((1 - distance / WALL_NEAR)²). A switchback's upper leg is the lower
+ * one's uphill; the lower leg is the upper one's downhill - its cliff over it.
+ */
+const WALL_NEAR = 90;
+const WALL_SKIP = 50;
+const WALL_HIGH = 15;
+const WALL_STEP = 5;
+/** The uphill's lead (m·share) one side must have to move the wall there (less: as it was). */
+const WALL_SURE = 2;
+/** The wall stays on a side at least this far (m: a shorter run is the one before it on). */
+export const WALL_RUN = 50;
+
+/**
+ * The rock wall's side at each of `ss` (ascending; +1 the right, +d): the uphill side - where the rest of the road beside
+ * it is higher - kept till the other side is surely the uphill one, and for WALL_RUN m at least (the player's: the
+ * wall on each bend's inside changed sides with every bend, ~20 a race, and on a switchback's upper leg stood over the
+ * lower one, where the hill falls away). Nothing beside it to say: on the side it was; never: the first bend's inside.
+ */
 export function wallSides(road: Centerline, ss: number[]): Int8Array {
   const n = ss.length;
-  const sign = ss.map((s) => Math.sign(road.curvature(s)));
-  const out = new Int8Array(n).fill(1);
-  const back = new Float64Array(n).fill(Infinity); // (distance to the last bent one behind, its sign)
-  const backSign = new Int8Array(n).fill(1);
-  let last = -Infinity;
-  let lastSign = 1;
+  const parts: { s: number; x: number; z: number; y: number }[] = [];
+  for (let s = -MOUNTAIN.before; s <= road.length + MOUNTAIN.after; s += WALL_STEP) {
+    const c = road.center(s);
+    parts.push({ s, x: c.x, z: c.z, y: road.height(s) });
+  }
+  const out = new Int8Array(n);
+  let side = 0;
   for (let i = 0; i < n; i++) {
-    if (sign[i] !== 0) {
-      last = ss[i];
-      lastSign = sign[i];
+    const s = ss[i];
+    const c = road.toWorld(s, 0);
+    const r = road.toWorld(s, 1);
+    const rx = r.x - c.x, rz = r.z - c.z;
+    const y = road.height(s);
+    let score = 0;
+    for (const p of parts) {
+      if (Math.abs(p.s - s) < WALL_SKIP) continue;
+      const dx = p.x - c.x, dz = p.z - c.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= WALL_NEAR || dist < 1e-6) continue;
+      const across = (dx * rx + dz * rz) / dist;
+      const near = 1 - dist / WALL_NEAR;
+      score += across * Math.max(-WALL_HIGH, Math.min(WALL_HIGH, p.y - y)) * near * near;
     }
-    back[i] = ss[i] - last;
-    backSign[i] = lastSign;
+    if (side === 0 ? Math.abs(score) > WALL_SURE : score * side < -WALL_SURE) side = Math.sign(score);
+    out[i] = side;
   }
-  let next = Infinity;
-  let nextSign = backSign[n - 1];
-  for (let i = n - 1; i >= 0; i--) {
-    if (sign[i] !== 0) {
-      next = ss[i];
-      nextSign = sign[i];
+  // Before anything said which side: as the first said; nothing ever did: the first bend's inside.
+  const first = out.find((v) => v !== 0) ?? wallSide(road, 0);
+  for (let i = 0; i < n && out[i] === 0; i++) out[i] = first;
+  // No run between two others shorter than WALL_RUN: the one before it on (the three one run).
+  const runs: { side: number; a: number; b: number }[] = []; // (rows a to b - 1)
+  for (let i = 0; i < n; i++) {
+    if (i > 0 && out[i] === out[i - 1]) runs[runs.length - 1].b = i + 1;
+    else runs.push({ side: out[i], a: i, b: i + 1 });
+  }
+  for (let j = 1; j + 1 < runs.length; ) {
+    const r = runs[j];
+    if (ss[runs[j + 1].a] - ss[r.a] >= WALL_RUN) {
+      j++;
+      continue;
     }
-    out[i] = next - ss[i] < back[i] ? nextSign : backSign[i];
+    const before = runs[j - 1];
+    before.b = runs[j + 1].b;
+    runs.splice(j, 2);
+    j = Math.max(1, j - 1);
   }
+  for (const r of runs) out.fill(r.side, r.a, r.b);
   return out;
 }
 
@@ -276,7 +320,7 @@ export function wallShare(ss: number[], sides: Int8Array, side: 1 | -1, taper: n
   return dist.map((x) => Math.max(0, 1 - x / taper));
 }
 
-/** Which side the rock wall is on at s (+1: +d, the right): the inside of the bend there or nearest it (the cliff's rail outside). */
+/** The inside of the bend at s or nearest it (+1: +d, the right) - the rock wall's side where nothing says which is uphill (wallSides). */
 export function wallSide(road: Centerline, s: number): 1 | -1 {
   for (let k = 0; k <= 600; k++) {
     for (const t of k === 0 ? [s] : [s - k, s + k]) {
