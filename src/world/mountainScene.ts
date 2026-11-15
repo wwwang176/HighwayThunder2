@@ -281,15 +281,18 @@ export class MountainScene implements Scenery {
         const h = (WALL.low + (WALL.high - WALL.low) * bumps(s, side * 3.1)) * on;
         const b = bumps(s, side * 1.7 + 5);
         const deep = WALL.deep * on;
-        p[0] = [side * E, -0.3 - deep];
-        p[1] = [side * E, -0.3];
-        p[2] = [side * (E + 0.3), 0.25 * h];
-        p[3] = [side * (E + 0.8 + 0.6 * b), 0.55 * h];
-        p[4] = [side * (E + 1.6 + b), 0.85 * h];
-        p[5] = [side * (E + 3 + 2 * b), h];
-        p[6] = [side * (E + 9 + 4 * b), h + 4 * on];
-        p[7] = [side * (E + 11 + 4 * b), 0.5 * h];
-        p[8] = [side * (E + 14 + 4 * b), -0.3 - deep];
+        // (as narrow as it is low: none of it, a line at the edge - folded flat it lay past the rail at the road's
+        // height, a ledge before the cliff fell away)
+        const out = (x: number) => side * (E + on * x);
+        p[0] = [out(0), -0.3 - deep];
+        p[1] = [out(0), -0.3];
+        p[2] = [out(0.3), 0.25 * h];
+        p[3] = [out(0.8 + 0.6 * b), 0.55 * h];
+        p[4] = [out(1.6 + b), 0.85 * h];
+        p[5] = [out(3 + 2 * b), h];
+        p[6] = [out(9 + 4 * b), h + 4 * on];
+        p[7] = [out(11 + 4 * b), 0.5 * h];
+        p[8] = [out(14 + 4 * b), -0.3 - deep];
       }, 8);
       const wallMesh = new THREE.Mesh(wall, this.wallMat);
       wallMesh.receiveShadow = true;
