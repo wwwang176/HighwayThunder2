@@ -582,8 +582,9 @@ export class PlayerCar {
     // 3) Aerodynamics: drag against motion, downforce growing with speed.
     const lv = this.body.linvel();
     const sp = Math.hypot(lv.x, lv.z);
-    // Sliding, the car pushed toward its nose (driftCarve: by its slide, from any): square to its motion, its speed as it was.
-    if (p.drift && !input.hold && this.vLong > 0 && sp > 1 && !lever) {
+    // Sliding, the car pushed toward its nose (driftCarve: by its slide, from any): square to its motion, its speed as it
+    // was - on the handbrake too (the player's: the handbrake only locks the rear wheels).
+    if (p.drift && !input.hold && this.vLong > 0 && sp > 1) {
       const a = Math.min(driftCarve(slide, this.vLong, this.throttle, p.drift), (bodySlip * sp) / dt);
       const h = this.worldYaw, phi = Math.atan2(this.vLat, this.vLong), way = Math.sign(phi);
       // (its motion turned toward the nose: in the body's frame (sin phi, -cos phi) the side it slides, along (fx, fz), lateral (cos h, sin h))
