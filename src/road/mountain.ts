@@ -9,10 +9,10 @@ import { bend, Centerline, easeTwice, type GradePiece, type Piece, straight } fr
 export const MOUNTAIN = {
   /** The race (about a minute and a half at a mountain road's pace). */
   length: 3500,
-  /** The asphalt's half width (two lanes). */
-  halfWidth: LANE_WIDTH,
+  /** The asphalt's half width (two lanes, each 1.5 lanes wide: the player's - one lane each way was hard to keep to). */
+  halfWidth: 1.5 * LANE_WIDTH,
   /** The wall's and the rail's d (either side): the asphalt plus a narrow shoulder. */
-  edge: LANE_WIDTH + 1,
+  edge: 1.5 * LANE_WIDTH + 1,
   /** Straight and level off the grid, and into the finish. */
   startStraight: 60,
   endStraight: 80,
@@ -56,7 +56,7 @@ export const MOUNTAIN = {
    */
   shoulder: { max: 3, from: 1 / 80, full: 1 / 30, ease: 30 },
   /** Parts of the road more than `sepArc` apart along it keep `minSep` apart (its centre line), the run-up before it and past the finish too. */
-  minSep: 24,
+  minSep: 28, // (24 with the road 1.5x narrower: the gap between two legs' edges as it was)
   sepArc: 70,
   before: 100,
   after: 500,

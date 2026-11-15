@@ -29,8 +29,8 @@ describe('surfaceMesh', () => {
       const ds = mesh.s[i] - mesh.s[i - 2];
       expect(ds).toBeGreaterThan(0);
       const k = Math.abs(road.curvature(mesh.s[i - 2] + ds / 2));
-      if (k > 1 / 25) expect(ds).toBeLessThanOrEqual(1.5 + 1e-6);
-      expect(ds).toBeLessThanOrEqual(3 + 1e-6);
+      if (k > 1 / 25) expect(ds).toBeLessThanOrEqual(1.5 + 1e-4); // (float32 rows)
+      expect(ds).toBeLessThanOrEqual(3 + 1e-4);
     }
   });
 

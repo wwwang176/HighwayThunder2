@@ -58,7 +58,8 @@ describe('MountainDriver', () => {
   it('a slower car in the middle of the road (no room either side): it follows, not passes', () => {
     const m = driver();
     const self = onLine(m, 100);
-    const ahead: TrafficBox = { id: 7, s: 112, dMin: -1, dMax: 1, v: self.vLong - 8, length: 4.4 };
+    const w = m.room - 1.5; // (the road 1.5 lanes a side: a car's width either side of it not room enough)
+    const ahead: TrafficBox = { id: 7, s: 112, dMin: -w, dMax: w, v: self.vLong - 8, length: 4.4 };
     const input = m.drive(self, [ahead], P);
     expect(input.throttle).toBe(0);
   });

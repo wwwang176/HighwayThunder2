@@ -14,7 +14,6 @@ const LIGHT = {
 };
 /** The road's markings: the centre's double yellow line, white edge lines (d, m). */
 const CENTRE_LINE = { off: 0.12, width: 0.1 };
-const EDGE_LINE = { d: MOUNTAIN.halfWidth - 0.15, width: 0.12 };
 /** The rock wall: how high (m, between, varying along the road), and its tapering in and out where it changes sides (m). */
 const WALL = { low: 7, high: 15, taper: 10, color: 0x5d564e };
 /** The guardrail: its beam's bottom and top over the road, posts and reflectors (m apart). */
@@ -91,7 +90,7 @@ function seeded(seed: number): () => number {
 
 /** The markings over the asphalt: 2 x edge m across (shoulder to shoulder), 20 m along. */
 function markingsTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
-  const W = 256;
+  const W = 512; // (the yellow lines a couple of px wide across the wider road)
   const H = 512;
   const span = 2 * MOUNTAIN.edge;
   const c = document.createElement('canvas');
@@ -104,8 +103,6 @@ function markingsTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   g.fillStyle = '#4f5054'; // (the shoulders)
   g.fillRect(0, 0, x(-MOUNTAIN.halfWidth), H);
   g.fillRect(x(MOUNTAIN.halfWidth), 0, W - x(MOUNTAIN.halfWidth), H);
-  g.fillStyle = '#e8eaec';
-  for (const s of [-1, 1]) g.fillRect(x(s * EDGE_LINE.d - EDGE_LINE.width / 2), 0, (EDGE_LINE.width / span) * W, H);
   g.fillStyle = '#e0b020';
   for (const s of [-1, 1]) g.fillRect(x(s * CENTRE_LINE.off - CENTRE_LINE.width / 2), 0, (CENTRE_LINE.width / span) * W, H);
   const tex = new THREE.CanvasTexture(c);
