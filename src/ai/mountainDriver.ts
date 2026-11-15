@@ -37,28 +37,41 @@ export const MOUNTAIN_DRIVER = {
   /** The top speed its line is planned to (m/s: past any car's; the car's own limit caps it). */
   vMax: 100,
   /**
-   * Drifting round every hairpin (the player's: for show, slower or not) - its tight run (tighter than R `tight`): the
-   * handbrake pulled `kickEarly` s before it for `kickTime` s, the wheel turned in `steer` (the drift assist's spring
-   * then holds the slide it asks: driftHeld), `outGain` more a metre off its line outward (less inward), back to
-   * following its line `exitEarly` m before the bend ends (the spring straightens it). Not under `minSpeed` (m/s). Its
-   * slide past `catchAt` (rad): caught - following its line (counter-steering), as out of a drift. Into it no faster
-   * than `side` m/s² sideways round its radius plus `room` m (drifting, the rear's grip less: at the line's speed it
-   * slid wide into the wall), braked down to that at `brake` m/s². Its line `wide` m further out (its apex on the
-   * inside's edge: turned across the road, the car's corners swept the inside wall).
+   * Drifting round every hairpin (the player's: for show, slower or not; pulling the handbrake, sliding hard on the
+   * inside) - its tight run (tighter than R `tight`): the handbrake pulled `kickEarly` s before it for `kickTime` s, the
+   * wheel `kickSteer` in (0.4 s on full lock flung it in at 6 m/s across: caught, drifted again), then driftControl: the slide held by the wheel (`angle` rad), the line kept by the throttle and a little
+   * of the slide, by where it will be `look` s on (driftOff) - back to following its line `exitEarly` m before the
+   * bend ends (the spring straightens it). Not under `minSpeed` (m/s). Its slide past `catchAt` (rad): caught -
+   * following its line (counter-steering). Into it no faster than `side` m/s² sideways round its radius plus `room` m
+   * (drifting, the rear's grip less: at the line's speed it slid wide into the wall), braked down to that at `brake`
+   * m/s². Its line `center` m out from the middle (not the racing line's: wide in, on the apex, wide out - chasing it,
+   * it straightened the drift), `wide` m off either edge (the car's corners, turned across the road, swept the walls).
    */
   drift: {
     tight: 26,
     kickEarly: 0.35,
-    kickTime: 0.15,
-    steer: 0.85,
-    outGain: 0.15,
-    exitEarly: 12,
+    kickTime: 0.2,
+    kickSteer: 0.6,
+    angle: (25 * Math.PI) / 180,
+    angleGain: (6 * Math.PI) / 180,
+    angleLeast: 0.2,
+    angleMost: (38 * Math.PI) / 180,
+    gas: 0.5,
+    gasGain: 0.25,
+    panic: 1,
+    counter: 0.25,
+    rateGain: 1,
+    rateMost: 3,
+    look: 0.5,
+    center: -1,
+    useLine: 0,
+    exitEarly: 4,
     minSpeed: 30 / 3.6,
     catchAt: 0.6,
-    side: 9,
+    side: 11,
     room: 4,
     brake: 7,
-    wide: 3,
+    wide: 1.5,
   },
   /** Past the finish, braked down to this (m/s; 40 km/h, as the highway's FINISHED_SPEED). */
   pastFinish: 40 / 3.6,
@@ -92,11 +105,38 @@ export function hairpinRuns(road: Centerline, tight: number): HairpinRun[] {
 }
 
 /**
- * In a drift round a hairpin turning `dir` (+1 right), the wheel (-1..1): turned in drift.steer, outGain more a metre
- * its car is off its line outward (`err`: + right of it), within 0.3..1 in.
+ * In a drift round a hairpin turning `dir` (+1 right): its slide held by the wheel (turned in for `angle` rad of slide:
+ * the drift assist's spring asks sqrt(slide / `limit`) of the wheel), its line kept by the throttle (`gas`, `gasGain`
+ * more a metre it will be off it outward: the push toward its nose grows with the throttle) and a little by the slide
+ * (`angleGain` a metre, within `angleLeast`..`angleMost`) - not catching the slide when it turned in tight, to drift
+ * again when it went wide (the player's: each hairpin drifted twice); about to hit the inside wall (`danger`),
+ * counter-steered. `off`: where it will be off its line (m, + right of it: driftOff).
  */
-export function driftSteer(dir: 1 | -1, err: number, d: { steer: number; outGain: number }): number {
-  return dir * Math.max(0.3, Math.min(1, d.steer - d.outGain * dir * err));
+export function driftControl(
+  dir: 1 | -1,
+  off: number,
+  D: { angle: number; angleGain: number; angleLeast: number; angleMost: number; gas: number; gasGain: number; counter: number },
+  limit: number,
+  danger = false,
+): { steer: number; throttle: number } {
+  const outward = -dir * off;
+  const throttle = Math.max(0, Math.min(1, D.gas + D.gasGain * outward));
+  if (danger) return { steer: -dir * D.counter, throttle: D.gas / 2 };
+  const angle = Math.max(D.angleLeast, Math.min(D.angleMost, D.angle + D.angleGain * outward));
+  return { steer: dir * Math.min(1, Math.sqrt(angle / limit)), throttle };
+}
+/**
+ * In a drift round a hairpin turning `dir` (+1 right): how much faster it should be moving in toward its line (m/s;
+ * - too fast) - toward its line (`lineD`, kept `wide` m inside the room either side: the car's corners, turned across
+ * the road, swept the walls) as fast as `rateGain` x how far it is (1/s), at most `rateMost` m/s; at `d`, moving `vd`
+ * m/s across (+ right). (On how far off its line alone it turned in hard from the outside and could not stop: drifted
+ * once, caught, drifted again.)
+ */
+export function driftRate(dir: 1 | -1, d: number, vd: number, lineD: number, room: number, D: { wide: number; rateGain: number; rateMost: number }): number {
+  const keep = Math.max(0, room - D.wide);
+  const toIt = dir * (Math.max(-keep, Math.min(keep, lineD)) - d);
+  const want = Math.max(-D.rateMost, Math.min(D.rateMost, D.rateGain * toIt));
+  return want - dir * vd;
 }
 
 /**
@@ -254,9 +294,17 @@ export class MountainDriver implements RivalDriver {
       }
       const handbrake = this.kickLeft > 0;
       this.kickLeft -= PHYSICS_DT;
+      if (handbrake) return { ...pedals, steer: pin.dir * D.kickSteer, handbrake }; // (the kick)
       const slide = Math.abs(Math.atan2(self.vLat, Math.max(Math.abs(self.vLong), 1)));
       if (slide > D.catchAt) return { ...pedals, steer }; // (sliding too far: caught)
-      return { ...pedals, steer: driftSteer(pin.dir, err + pin.dir * D.wide, D), handbrake };
+      // (its sideways speed across the road: along its heading off the road's, and its slide)
+      const vd = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
+      // (driftControl's `off`: + the way it should turn more, as off its line outward)
+      const off = -pin.dir * driftRate(pin.dir, self.d, vd, D.useLine ? here.d : -pin.dir * D.center, this.roomAt(self.s), D);
+      // (about to hit the inside wall: look s on within panic m of its room's edge)
+      const danger = pin.dir * (self.d + vd * D.look) > this.roomAt(self.s) - D.panic;
+      const c = driftControl(pin.dir, off, D, p.drift?.limit ?? Math.PI / 4, danger);
+      return { throttle: c.throttle, brake: 0, steer: c.steer };
     }
     return { ...pedals, steer };
   }
