@@ -30,10 +30,12 @@ export interface MountainSetup {
   /** The tyres' grip straight on (braking, driving) times this (CarParams.longGrip: on top of the car's own camber). */
   longGrip: number;
   /**
-   * The front tyres' grip times this, the rear's as built (muPeak and muSlide up, rearGrip as much down): the cars are
-   * set up to understeer (steady at 250 km/h) - their noses wouldn't turn in a tight bend.
+   * The front tyres' grip times this (muPeak and muSlide up, rearGrip as much down: the rear's own `rearGrip`): the
+   * cars are set up to understeer (steady at 250 km/h) - their noses wouldn't turn in a tight bend.
    */
   frontGrip: number;
+  /** The rear tyres' grip times this (CarParams.rearGrip, over the front's: below frontGrip the tail lighter than built). */
+  rearGrip: number;
   /** Its AI's cornering (CarSpec.ai.latAccel) times this: as much as the front grip turns the car harder (measured). */
   aiLat: number;
 }
@@ -46,11 +48,15 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   esc: 0.6,
   steerRise: 1.3,
   longGrip: 1.25,
-  // (x1.2, flung to full lock: the nose round 36 -> 43° in 1 s at 60 km/h, 28 -> 35° at 100 (the supercar), the
-  // others alike; the rear's slide 1-2° more, the lean 1° more)
-  frontGrip: 1.2,
-  // (full lock, steady: x1.17-1.18 the sideways g of all three cars at 50, 100 and 150 km/h - a little under it)
-  aiLat: 1.15,
+  // (the player's: x1.5. x1.2 flung to full lock: the nose round 36 -> 43° in 1 s at 60 km/h (the supercar), the
+  // others alike; x1.4 and up the supercar and the jdm spin on full lock (their rear 50-90° out), the muscle car from
+  // x1.4 braking at full lock, at 100 km/h from x1.5)
+  frontGrip: 1.5,
+  // (the player's: with the front x1.5, none spins on full lock - the rear 4-7° out, as on the highway; the lean
+  // 1-2° more, the muscle car's 6° at 100 km/h)
+  rearGrip: 1.25,
+  // (full lock, steady at 45-100 km/h: x1.35-1.47 the sideways g of all three cars, x1.45 mostly - a little under it)
+  aiLat: 1.4,
 };
 
 /**
@@ -89,6 +95,6 @@ export function mountainSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): 
     longGrip: (p.longGrip ?? 1) * s.longGrip,
     muPeak: p.muPeak * s.frontGrip,
     muSlide: p.muSlide * s.frontGrip,
-    rearGrip: p.rearGrip / s.frontGrip,
+    rearGrip: (p.rearGrip * s.rearGrip) / s.frontGrip,
   };
 }
