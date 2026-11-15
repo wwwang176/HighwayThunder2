@@ -460,7 +460,8 @@ export interface DriftAssist {
   least: number;
   /**
    * The car pushed toward its nose (arcade, driftCarve), on the throttle or off it: square to its motion (its speed as
-   * it was), `carve` m/s² once the slide is `carveFull` (rad), less under it - it goes where the nose points.
+   * it was), `carve` m/s² once the slide is `carveFull` (rad), in proportion under it from none - by the slide, not by
+   * how much it drifts (it was too little in a small slide) - it goes where the nose points.
    */
   carve: number;
   carveFull: number;
@@ -526,9 +527,9 @@ export function driftEsc(slide: number, d: DriftAssist): number {
   return Math.min(1, Math.max(0, (slide - d.escFrom) / (d.escFull - d.escFrom)));
 }
 
-/** In a drift, the push toward the nose (m/s², square to the motion) at this slide (rad, either way). */
-export function driftCarve(slide: number, d: DriftAssist): number {
-  return d.carve * Math.min(1, Math.abs(slide) / d.carveFull);
+/** The push toward the nose (m/s², square to the motion) at this slide (rad, either way) and speed (m/s). */
+export function driftCarve(slide: number, speed: number, d: DriftAssist): number {
+  return d.carve * Math.min(1, Math.abs(slide) / d.carveFull) * driftAtSpeed(speed, d);
 }
 
 

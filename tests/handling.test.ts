@@ -463,10 +463,13 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftEsc((D.escFrom + D.escFull) / 2, D)).toBeCloseTo(0.5, 9);
     expect(driftEsc(1.5, D)).toBe(1);
   });
-  it('the push toward the nose: on the throttle or off it, growing with the slide up to carveFull', () => {
-    expect(driftCarve(0, D)).toBe(0);
-    expect(driftCarve(0.2, D)).toBeCloseTo(2.5, 9);
-    expect(driftCarve(-0.2, D)).toBeCloseTo(2.5, 9); // (either way: its size)
-    expect(driftCarve(0.8, D)).toBe(5);
+  it('the push toward the nose: from any slide in proportion (not by how much it drifts), all of it from carveFull; at speed only', () => {
+    expect(driftCarve(0, 20, D)).toBe(0);
+    expect(driftCarve(0.02, 20, D)).toBeCloseTo(0.25, 9); // (a small slide: pushed already)
+    expect(driftCarve(0.2, 20, D)).toBeCloseTo(2.5, 9);
+    expect(driftCarve(-0.2, 20, D)).toBeCloseTo(2.5, 9); // (either way: its size)
+    expect(driftCarve(0.8, 20, D)).toBe(5);
+    expect(driftCarve(0.8, 5, D)).toBe(0); // (crawling)
+    expect(driftCarve(0.8, 8.5, D)).toBeCloseTo(2.5, 9);
   });
 });

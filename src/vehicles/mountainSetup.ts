@@ -122,7 +122,7 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     powerTo: (60 * Math.PI) / 180,
     least: 0.3,
     carve: 8,
-    carveFull: (25 * Math.PI) / 180,
+    carveFull: (15 * Math.PI) / 180, // (the player's: from 0°, by the slide only - 25° and times the drift's share at first)
   },
 };
 
