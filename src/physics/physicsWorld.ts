@@ -160,6 +160,18 @@ function setSlotBits(b: RAPIER.RigidBody, bit: number): void {
 /** A rail's d: fixed, or along the road (s → d). */
 export type RailD = number | ((s: number) => number);
 
+/**
+ * A rail's plane turned (from its local +x normal): `phi` about y (+x to (cos phi, 0, -sin phi): facing into the
+ * road, on the ground), then tilted as the road's surface is across (`slope`: its rise a metre toward +d; `side` +1
+ * facing +d, -1 facing -d) - square to the surface, not upright (the player's: on a banked bend's outside, the
+ * surface rising to an upright rail made a groove a car flung out climbed up and drove along).
+ */
+export function railRotation(phi: number, slope: number, side: 1 | -1): { x: number; y: number; z: number; w: number } {
+  const beta = Math.atan(side * slope);
+  const cy = Math.cos(phi / 2), sy = Math.sin(phi / 2), cz = Math.cos(beta / 2), sz = Math.sin(beta / 2);
+  return { x: sy * sz, y: sy * cz, z: cy * sz, w: cy * cz };
+}
+
 export class PhysicsWorld {
   readonly world: RAPIER.World;
   /** The straight road's guardrails' colliders (training runs without them: training/openGround, removeRails). */
@@ -432,8 +444,9 @@ export class PhysicsWorld {
       const nx2 = side * (tx * ca - tz * sa), nz2 = side * (tx * sa + tz * ca);
       const phi = Math.atan2(-nz2, nx2); // (+x turned by phi about y: (cos phi, 0, -sin phi))
       const c = this.slotRails[info.slot];
-      c.setTranslation({ x: at.x, y: 0, z: at.z });
-      c.setRotation({ x: 0, y: Math.sin(phi / 2), z: 0, w: Math.cos(phi / 2) });
+      // (through the road's surface at the rail, square to it: banked, it leans out as the road leans in)
+      c.setTranslation({ x: at.x, y: road.surfaceHeight(s, rail(s)), z: at.z });
+      c.setRotation(railRotation(phi, road.crossSlope(s), side as 1 | -1));
     }
   }
 

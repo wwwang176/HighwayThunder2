@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PhysicsWorld } from '../src/physics/physicsWorld';
+import { PhysicsWorld, railRotation } from '../src/physics/physicsWorld';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { bend, Centerline, straight } from '../src/road/centerline';
 import { surfaceMesh } from '../src/road/surface';
@@ -42,6 +42,25 @@ describe('the rails on a road that turns back', () => {
     expect(Math.abs(car.d)).toBeLessThan(EDGE);
     physics.free();
   });
+});
+
+describe('railRotation (a rail\'s plane square to the road\'s surface, banked as it is)', () => {
+  /** +x (the plane's local normal) turned by q. */
+  const turn = (q: { x: number; y: number; z: number; w: number }) => {
+    const { x, y, z, w } = q;
+    return { x: 1 - 2 * (y * y + z * z), y: 2 * (x * y + w * z), z: 2 * (x * z - w * y) };
+  };
+  for (const [phi, slope, side] of [[0.3, 0.2, -1], [2.1, -0.15, 1], [-1.2, 0.21, 1], [3.0, 0, -1]] as [number, number, 1 | -1][]) {
+    it(`its normal in the surface across the road, facing into it (heading ${phi}, slope ${slope}, side ${side})`, () => {
+      const n = turn(railRotation(phi, slope, side));
+      expect(Math.hypot(n.x, n.y, n.z)).toBeCloseTo(1, 9);
+      // across the road on its surface: (its horizontal, rising `slope` a metre toward +d) - into the road `side` way
+      const h = Math.hypot(n.x, n.z);
+      expect(n.x / h).toBeCloseTo(Math.cos(phi), 9);
+      expect(-n.z / h).toBeCloseTo(Math.sin(phi), 9);
+      expect(n.y / h).toBeCloseTo(side * slope, 9);
+    });
+  }
 });
 
 describe('the rails along a shoulder (roadEdges: the rail as wide as the road is there)', () => {
