@@ -420,8 +420,8 @@ export function tractionTrim(trim: number, slip: number, target: number, dt: num
  * tapped) it
  * drifts till the slide is over, and while it does the car is the driver's - the traction control lets the rear tyres
  * spin (a drift is the tail on wheelspin; it straightened every slide on the throttle), the stability control lets
- * the slide be till it nears a spin, the rear's grip a little less, the drive eased as the slide grows big. Nothing
- * holds its angle: the throttle and the steering do. Angles: the body's slide (its motion's angle off its nose), rad.
+ * the slide be till it nears a spin, the rear's grip a little less, the drive eased as the slide grows big - and the
+ * slide kept under `limit` (driftLimit). Under it nothing holds its angle: the throttle and the steering do. Angles: the body's slide (its motion's angle off its nose), rad.
  */
 export interface DriftAssist {
   /** No drift slower than this (m/s). */
@@ -437,6 +437,15 @@ export interface DriftAssist {
   escFull: number;
   /** The rear tyres' grip times this. */
   rearGrip: number;
+  /**
+   * The slide kept under `limit` (driftLimit: the stability control can't - it holds the turning to what the steering
+   * asks, and full lock asks for a spin): past it the body turned back, `hold` N·m per rad past, `damp` per rad/s of
+   * its growing, at most `holdMax`. Under it, nothing.
+   */
+  limit: number;
+  hold: number;
+  damp: number;
+  holdMax: number;
   /** The drive in full up to a slide of `powerFrom`, down to `least` of it by `powerTo` (full throttle on the keys spun the cars round). */
   powerFrom: number;
   powerTo: number;
@@ -463,6 +472,17 @@ export function driftOn(was: DriftState, slide: number, speed: number, dt: numbe
 export function driftDrive(slide: number, d: DriftAssist): number {
   const k = Math.min(1, Math.max(0, (slide - d.powerFrom) / (d.powerTo - d.powerFrom)));
   return 1 - (1 - d.least) * k;
+}
+
+/**
+ * In a drift, the yaw torque (N·m; + turning it right, as escTorque) keeping the slide under `limit`: `slide` signed (+
+ * its motion to its right), `rate` its change (rad/s). None under it.
+ */
+export function driftLimit(slide: number, rate: number, d: DriftAssist): number {
+  const over = Math.abs(slide) - d.limit;
+  if (over <= 0) return 0;
+  const way = Math.sign(slide);
+  return way * Math.min(d.holdMax, Math.max(0, d.hold * over + d.damp * rate * way));
 }
 
 /** In a drift, the share of the stability control at this slide (rad). */

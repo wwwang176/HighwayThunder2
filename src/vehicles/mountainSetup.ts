@@ -74,9 +74,12 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // driving; counting a tyre over its grip in, it choked the drive in every tight bend: 83 -> 64 km/h). The muscle
   // car's 0-100 2.07 -> 2.45 s, its launch control's smoke held in.)
   tractionSlip: 1,
-  // (60 km/h, the handbrake tapped 0.1 s on full lock, the steering held 0.4 s, then let go, full throttle: the slide
-  // held 35-47° 3 s, the car round 134-150° (all three cars). The steering held at full lock it spun past 80°; the
-  // rear's grip x0.7 slid them past 70°. Without the drive eased, full throttle spun the supercar and the jdm round)
+  // (60 km/h, the handbrake tapped 0.1 s on full lock, then full throttle 3 s: the steering held at full lock the slide
+  // held at 26-28° (all three cars, 33° at most; before the limit 35-47° let go, past 80° held - a spin), let go it
+  // eases off; the steering and the throttle tapped (the keys) 26-28° held 4 s. The drive eased from 20° (as before
+  // the limit) and the rear x0.85: tapped, the slide was gone in a second. Halving the drive's easing instead (10-20°)
+  // the slide was gone in a second too; the stability control 6x from 20° held nothing (it holds the turning to what
+  // the steering asks, and full lock asks for the spin))
   drift: {
     minSpeed: 25 / 3.6,
     enter: (12 * Math.PI) / 180,
@@ -85,9 +88,13 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     grace: 0.5,
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
-    rearGrip: 0.85,
-    powerFrom: (20 * Math.PI) / 180,
-    powerTo: (40 * Math.PI) / 180,
+    rearGrip: 0.8,
+    limit: (25 * Math.PI) / 180,
+    hold: 120_000,
+    damp: 25_000,
+    holdMax: 40_000,
+    powerFrom: (30 * Math.PI) / 180,
+    powerTo: (45 * Math.PI) / 180,
     least: 0.3,
   },
 };

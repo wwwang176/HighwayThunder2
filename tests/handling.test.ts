@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftOn, driftEsc, driftDrive, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftOn, driftEsc, driftDrive, driftLimit, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -392,7 +392,7 @@ describe('traction control (tractionTrim)', () => {
 });
 
 describe('drift assist (CarParams.drift)', () => {
-  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, powerFrom: 0.5, powerTo: 0.8, least: 0.2 };
+  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, limit: 0.45, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2 };
   const dt = 1 / 120;
   const st = (on: boolean, quiet = 0) => ({ on, quiet });
   it('on once the car slides past `enter` (either way: from the handbrake, the throttle, a flick), at speed; not crawling', () => {
@@ -428,6 +428,15 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftDrive(0.5, D)).toBe(1);
     expect(driftDrive(0.65, D)).toBeCloseTo(0.6, 9);
     expect(driftDrive(1.2, D)).toBeCloseTo(0.2, 9);
+  });
+  it('the slide kept under `limit`: nothing under it (left to the driver), past it the body turned back the more the further past, its growing damped (+ slide: its motion to its right; a + torque turns it right, the slide less)', () => {
+    expect(driftLimit(0.3, 0, D)).toBe(0);
+    expect(driftLimit(0.3, 2, D)).toBe(0); // (growing, but under it: let be)
+    expect(driftLimit(0.6, 0, D)).toBeGreaterThan(0);
+    expect(driftLimit(0.7, 0, D)).toBeGreaterThan(driftLimit(0.6, 0, D));
+    expect(driftLimit(-0.6, 0, D)).toBeLessThan(0); // (the other way)
+    expect(driftLimit(0.6, 1, D)).toBeGreaterThan(driftLimit(0.6, 0, D)); // (growing: held back harder)
+    expect(Math.abs(driftLimit(3, 5, D))).toBeLessThanOrEqual(D.holdMax);
   });
   it('the stability control none of it in the slide, all of it as it nears a spin', () => {
     expect(driftEsc(0.3, D)).toBe(0);
