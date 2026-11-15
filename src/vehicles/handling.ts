@@ -436,20 +436,19 @@ export interface DriftAssist {
   escFrom: number;
   escFull: number;
   /**
-   * The rear tyres' sideways grip times `rearGrip` off the throttle, `rearGripOn` on full throttle, in between by it
-   * (driftRearGrip; straight on as it was off the throttle, less on it: driftRearLong): the throttle swings the tail
-   * out, let off it grips again.
+   * The rear tyres' grip (sideways and straight on) times this, the throttle on or off (the player holds it on: the
+   * slide is the steering's).
    */
   rearGrip: number;
-  rearGripOn: number;
   /** The drift's grip eased in over this (s: driftRamp), not dropped all at once (it tipped the slide over). */
   rampIn: number;
   /**
-   * The slide kept under `spring` off the throttle, `limit` on full throttle, in between by it (driftLimit; the
-   * stability control can't - it holds the turning to what the steering asks, and full lock asks for a spin): past it
-   * the body turned back, `hold` N·m per rad past, `damp` per rad/s of its growing, at most `holdMax`. Under it,
-   * nothing. The handbrake swings it out to the spring; the throttle lets it slide on.
+   * The slide kept under what the steering sets (driftLimit, driftInto; the stability control can't - it holds the
+   * turning to what the steering asks, and full lock asks for a spin): `spring` with the wheel straight, `limit` on
+   * full lock into the turn, `counter` on full counter-steer, in between by it. Past it the body turned back, `hold`
+   * N·m per rad past, `damp` per rad/s of its growing, at most `holdMax`. Under it, nothing.
    */
+  counter: number;
   spring: number;
   limit: number;
   hold: number;
@@ -490,12 +489,21 @@ export function driftDrive(slide: number, d: DriftAssist): number {
 }
 
 /**
- * In a drift, the yaw torque (N·m; + turning it right, as escTorque) keeping the slide under its limit (`spring` off
- * the throttle, `limit` on full throttle): `slide` signed (+ its motion to its right), `rate` its change (rad/s),
- * `throttle` 0..1. None under it.
+ * In a drift, the steering into the turn (-1..1: toward the side the nose swung, + into it, - counter-steering), from
+ * the slide (rad, + its motion to its right: the nose left of it) and the steering (-1..1, + right).
  */
-export function driftLimit(slide: number, rate: number, d: DriftAssist, throttle = 1): number {
-  const over = Math.abs(slide) - (d.spring + (d.limit - d.spring) * throttle);
+export function driftInto(slide: number, steer: number): number {
+  return -Math.sign(slide) * steer + 0;
+}
+
+/**
+ * In a drift, the yaw torque (N·m; + turning it right, as escTorque) keeping the slide under what the steering sets
+ * (`into`, driftInto: `limit` on full lock into the turn, `spring` straight, `counter` counter-steered): `slide` signed
+ * (+ its motion to its right), `rate` its change (rad/s). None under it.
+ */
+export function driftLimit(slide: number, rate: number, d: DriftAssist, into = 1): number {
+  const held = into >= 0 ? d.spring + (d.limit - d.spring) * into : d.spring + (d.spring - d.counter) * into;
+  const over = Math.abs(slide) - held;
   if (over <= 0) return 0;
   const way = Math.sign(slide);
   return way * Math.min(d.holdMax, Math.max(0, d.hold * over + d.damp * rate * way));
@@ -514,21 +522,6 @@ export function driftCarve(slide: number, d: DriftAssist): number {
 /** How far into a drift (0..1: its grip eased in over rampIn s); `on` whether it drifts. Out of it at once. */
 export function driftRamp(was: number, on: boolean, dt: number, d: DriftAssist): number {
   return on ? Math.min(1, was + dt / d.rampIn) : 0;
-}
-
-/** In a drift, the rear tyres' sideways grip share at this throttle (0..1). */
-export function driftRearGrip(throttle: number, d: DriftAssist): number {
-  return d.rearGrip + (d.rearGripOn - d.rearGrip) * throttle;
-}
-
-/**
- * In a drift, the rear tyres' grip straight on over their sideways (the wheel's longScale on driftRearGrip): off the
- * throttle as it was, on full throttle as low as sideways - the tyres spin up and the tail swings out (power
- * oversteer; held as it was, the drive pushed along the nose and straightened the slide).
- */
-export function driftRearLong(throttle: number, d: DriftAssist): number {
-  const g = driftRearGrip(throttle, d);
-  return (1 + (g - 1) * throttle) / g;
 }
 
 const FOLLOW_FADE_LO = 3; // m/s
