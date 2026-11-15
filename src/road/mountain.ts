@@ -255,6 +255,27 @@ export function wallSides(road: Centerline, ss: number[]): Int8Array {
   return out;
 }
 
+/**
+ * How much of the rock wall stands on `side` at each of `ss` (ascending; 0..1): all of it along that side's runs
+ * (wallSides), past them on down to none over `taper` m - so where the wall changes sides both stand a while, no gap
+ * (tapered within its run, both were low where it changed: 3.5 % of the course had no wall either side).
+ */
+export function wallShare(ss: number[], sides: Int8Array, side: 1 | -1, taper: number): Float64Array {
+  const n = ss.length;
+  const dist = new Float64Array(n).fill(Infinity);
+  let last = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (sides[i] === side) last = ss[i];
+    dist[i] = ss[i] - last;
+  }
+  let next = Infinity;
+  for (let i = n - 1; i >= 0; i--) {
+    if (sides[i] === side) next = ss[i];
+    dist[i] = Math.min(dist[i], next - ss[i]);
+  }
+  return dist.map((x) => Math.max(0, 1 - x / taper));
+}
+
 /** Which side the rock wall is on at s (+1: +d, the right): the inside of the bend there or nearest it (the cliff's rail outside). */
 export function wallSide(road: Centerline, s: number): 1 | -1 {
   for (let k = 0; k <= 600; k++) {

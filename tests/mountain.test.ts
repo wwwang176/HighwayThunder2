@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges, wallSide, wallSides } from '../src/road/mountain';
+import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges, wallShare, wallSide, wallSides } from '../src/road/mountain';
 import { mulberry32 } from '../src/ai/rng';
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -144,6 +144,19 @@ describe('wallSides', () => {
       const differ = ss.filter((s, i) => sides[i] !== wallSide(road, s)).length;
       expect(differ).toBeLessThanOrEqual(ss.length * 0.01);
     }
+  });
+});
+
+describe('wallShare', () => {
+  const ss = [0, 5, 10, 15, 20, 25];
+  const sides = Int8Array.from([1, 1, 1, -1, -1, -1]);
+  it('all of the wall along its side\'s run, past it on down to none over `taper` m: where it changes sides both walls there, no gap', () => {
+    expect(Array.from(wallShare(ss, sides, 1, 10))).toEqual([1, 1, 1, 0.5, 0, 0]);
+    expect(Array.from(wallShare(ss, sides, -1, 10))).toEqual([0, 0, 0.5, 1, 1, 1]);
+    for (let i = 0; i < ss.length; i++) expect(wallShare(ss, sides, 1, 10)[i] + wallShare(ss, sides, -1, 10)[i]).toBeGreaterThanOrEqual(1);
+  });
+  it('a side with no run: none of it', () => {
+    expect(Array.from(wallShare(ss, Int8Array.from([1, 1, 1, 1, 1, 1]), -1, 10))).toEqual([0, 0, 0, 0, 0, 0]);
   });
 });
 

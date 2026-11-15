@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeFlareMaterial } from '../render/lightFlares';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
-import { MOUNTAIN, roadEdges, wallSides } from '../road/mountain';
+import { MOUNTAIN, roadEdges, wallShare, wallSides } from '../road/mountain';
 import { roadRows } from '../road/surface';
 import { repeating, type Scenery, withAsphalt } from './roadScene';
 
@@ -243,19 +243,9 @@ export class MountainScene implements Scenery {
     const road = line;
     const rows = roadRows(road, RUN_FROM, RUN_TO());
     const sides = wallSides(road, rows);
-    // Runs of rows with the wall on one side: each one's start and end (for the taper).
-    const runStart = new Float64Array(rows.length);
-    const runEnd = new Float64Array(rows.length);
-    for (let i = 0; i < rows.length; i++) runStart[i] = i > 0 && sides[i] === sides[i - 1] ? runStart[i - 1] : rows[i];
-    for (let i = rows.length - 1; i >= 0; i--) runEnd[i] = i + 1 < rows.length && sides[i] === sides[i + 1] ? runEnd[i + 1] : rows[i];
-    const first = rows[0];
-    const last = rows[rows.length - 1];
-    const taper = (i: number) => {
-      // (into the run from where the wall changes sides: none at the course's own ends)
-      const fromStart = runStart[i] === first ? Infinity : rows[i] - runStart[i];
-      const toEnd = runEnd[i] === last ? Infinity : runEnd[i] - rows[i];
-      return Math.min(1, Math.max(0, Math.min(fromStart, toEnd) / WALL.taper));
-    };
+    // How much wall each side, row by row: all of it along its runs, on past them tapering (wallShare - where it changes
+    // sides both stand a while: no gap).
+    const share = { [1]: wallShare(rows, sides, 1, WALL.taper), [-1]: wallShare(rows, sides, -1, WALL.taper) } as Record<1 | -1, Float64Array>;
 
     // The road (shoulder to shoulder; roadEdges: wider in a bend, on a tight bend's outside a shoulder more): the
     // markings' columns where they are on a straight, their asphalt and shoulder stretched across the rest.
@@ -275,12 +265,13 @@ export class MountainScene implements Scenery {
     roadMesh.receiveShadow = true;
     this.course.add(roadMesh);
 
-    // Both sides: the rock wall where it is (its height the taper's share), the cliff where it is.
+    // Both sides: the rock wall where it is (its height its share), the cliff where there is none.
     for (const side of [-1, 1] as const) {
       const at = (s: number) => edges.at(s, side); // (this side's edge: a shoulder's)
+      const wallOn = share[side];
       const wall = strip(road, rows, 6, (s, i, p) => {
         const E = at(s);
-        const on = sides[i] === side ? taper(i) : 0;
+        const on = wallOn[i];
         const h = (WALL.low + (WALL.high - WALL.low) * bumps(s, side * 3.1)) * on;
         const b = bumps(s, side * 1.7 + 5);
         p[0] = [side * E, -0.3];
@@ -297,7 +288,7 @@ export class MountainScene implements Scenery {
       // The cliff's slope where the wall isn't (folded flat under the wall where it is).
       const cliff = strip(road, rows, CLIFF.length, (s, i, p) => {
         const E = at(s);
-        const on = sides[i] === side ? 0 : 1;
+        const on = wallOn[i] > 0 ? 0 : 1;
         CLIFF.forEach(([dd, y], j) => {
           p[j] = [side * (E + dd * (j === 0 ? 1 : on) + (1 - on) * 0.3 * j), on ? y : -0.3 - 0.01 * j];
         });
@@ -305,7 +296,7 @@ export class MountainScene implements Scenery {
       this.course.add(new THREE.Mesh(cliff, this.cliffMat));
 
       // The rail's beam (a ribbon), its posts and reflectors - only along the cliff.
-      const runs = this.cliffRuns(rows, sides, side);
+      const runs = this.cliffRuns(rows, wallOn);
       for (const [a, b] of runs) {
         const rr = rows.filter((s) => s >= a && s <= b);
         if (rr.length < 2) continue;
@@ -331,12 +322,12 @@ export class MountainScene implements Scenery {
     this.far.position.set(c.x, this.line.height(playerS), c.z);
   }
 
-  /** Stretches (s from, to) where `side` is the cliff's (the wall the other side). */
-  private cliffRuns(rows: number[], sides: Int8Array, side: number): [number, number][] {
+  /** Stretches (s from, to) where a side is the cliff's: no wall on it (`wallOn`, its wallShare). */
+  private cliffRuns(rows: number[], wallOn: Float64Array): [number, number][] {
     const out: [number, number][] = [];
     let from: number | null = null;
     rows.forEach((s, i) => {
-      const cliff = sides[i] !== side;
+      const cliff = wallOn[i] === 0;
       if (cliff && from === null) from = s;
       if (!cliff && from !== null) {
         out.push([from, rows[i - 1]]);
