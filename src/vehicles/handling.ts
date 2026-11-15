@@ -417,7 +417,7 @@ export function tractionTrim(trim: number, slip: number, target: number, dt: num
 
 /**
  * Drift assist (CarParams.drift): the more the car slides the more it drifts (driftShare: no switch - from a slide of
- * `from` to `full`, smoothly; or the handbrake tapped, driftKick), and the more it drifts the more the car is the
+ * `from` to `full`, smoothly; the handbrake only by the slide it starts), and the more it drifts the more the car is the
  * driver's - the traction control lets the rear tyres spin (a drift is the tail on wheelspin; it straightened every
  * slide on the throttle), the stability control lets the slide be till it nears a spin, the rear's grip less, the
  * drive eased as the slide grows big - and the slide pulled to what the steering sets (driftLimit), the car pushed
@@ -430,8 +430,6 @@ export interface DriftAssist {
   /** None up to a slide of `from`, all of it from `full`, smoothly between (a switch at one angle dropped the grip at once). */
   from: number;
   full: number;
-  /** A tap of the handbrake at speed: all of it, fading over this (s) after (its slide not grown yet). */
-  grace: number;
   /** The stability control none of it to a slide of `escFrom`, all of it from `escFull` (a spin caught). */
   escFrom: number;
   escFull: number;
@@ -485,11 +483,6 @@ export function driftShare(slide: number, speed: number, d: DriftAssist): number
   return x * x * (3 - 2 * x) * driftAtSpeed(speed, d);
 }
 
-/** The handbrake's drift (0..1): all of it while it is on at speed, fading over `grace` s after. */
-export function driftKick(was: number, handbrake: boolean, speed: number, dt: number, d: DriftAssist): number {
-  if (driftAtSpeed(speed, d) === 0) return 0;
-  return handbrake ? 1 : Math.max(0, was - dt / d.grace);
-}
 
 /** In a drift, the share of the drive let through at this slide (rad). */
 export function driftDrive(slide: number, d: DriftAssist): number {

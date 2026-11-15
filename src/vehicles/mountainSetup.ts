@@ -102,13 +102,14 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // into the turn; the angle from the slide the drift starts at, back over 1 s; the handbrake's swing let be (not
   // measured). Then (the player's: smoother - no switch at 12°): as much drift as it slides, none to 2°, all of it from
   // 12° (smoothstep), none under 25 km/h to all of it from 35; the handbrake all of it, fading over 0.5 s after (the
-  // on/off, its 6° for 0.3 s end and its 0.3 s ease-in dropped) (not measured))
+  // on/off, its 6° for 0.3 s end and its 0.3 s ease-in dropped) (not measured). Then (the player's: the handbrake
+  // turned it round at once - all of the drift, the rear's grip dropped and the throttle's turn at once): the handbrake
+  // only by the slide it starts, and the stability control on it as without it, by the slide too)
   drift: {
     minSpeed: 25 / 3.6,
     fullSpeed: 35 / 3.6,
     from: 0, // (the player's: from any slide; 2° at first)
     full: (6 * Math.PI) / 180, // (the player's: easier into it; 12° at first)
-    grace: 0.5,
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
     rearGrip: 0.45,

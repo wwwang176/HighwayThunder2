@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftKick, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -185,10 +185,8 @@ export class PlayerCar {
   private launchShare = 1;
   /** Of the drive, what traction control lets through (CarParams.tractionSlip, tractionTrim). */
   private tractionShare = 1;
-  /** Drift assist (CarParams.drift): how much it drifts (0..1: driftShare, or the handbrake's driftKick). */
+  /** Drift assist (CarParams.drift): how much it drifts (0..1: driftShare, by its slide). */
   private driftNow = 0;
-  /** The handbrake's drift (0..1, driftKick: fading after it is let go). */
-  private kick = 0;
   /** The body's slide (rad, signed) last step: its growing, for the drift assist's limit. */
   private lastSlide = 0;
   /** The slide its drift is held to (rad: the steering's, followed - driftFollow). */
@@ -428,17 +426,18 @@ export class PlayerCar {
     this.steer = smoothSteer(this.steer, input.steer, p, dt, this.vLong);
     const slide = Math.atan2(this.vLat, Math.max(Math.abs(this.vLong), 1));
     const bodySlip = Math.abs(slide);
-    // Drift assist (drift): the more it slides (or the handbrake tapped), the more the car the driver's - no switch.
+    // Drift assist (drift): the more it slides, the more the car the driver's - no switch; the handbrake only by the
+    // slide it starts (the player's: at once its grip dropped and the car turned round).
     const assist = p.drift && !input.hold ? p.drift : undefined;
-    this.kick = assist ? driftKick(this.kick, !!input.handbrake, this.vLong, dt, assist) : 0;
-    this.driftNow = assist ? Math.max(driftShare(slide, this.vLong, assist), this.kick) : 0;
+    this.driftNow = assist ? driftShare(slide, this.vLong, assist) : 0;
     const dw = this.driftNow; // (how much it drifts: `w` the wheels below)
     // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
     const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, p);
     // Stability control: nudge the rotation toward what the steering asks for (not on the handbrake: the slide
-    // it asks for let be; drifting, not till the slide nears a spin).
+    // it asks for let be - with the drift assist, by the slide only, as the rest of it; drifting, not till the slide
+    // nears a spin).
     const yawRate = -this.body.angvel().y;
-    let esc = input.handbrake && !input.hold ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
+    let esc = input.handbrake && !input.hold && !p.drift ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
     const slideRate = (slide - this.lastSlide) / dt;
     this.lastSlide = slide;
     // (drifting, as much as it does: the stability control only near a spin; the slide pulled back to what the steering
@@ -756,7 +755,6 @@ export class PlayerCar {
     this.steer = 0;
     this.throttle = 0;
     this.driftNow = 0;
-    this.kick = 0;
     this.lastSlide = 0;
     this.driftHold = 0;
     this.backfire.reset();
