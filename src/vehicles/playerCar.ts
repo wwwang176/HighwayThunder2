@@ -584,7 +584,7 @@ export class PlayerCar {
     const sp = Math.hypot(lv.x, lv.z);
     // Sliding, the car pushed toward its nose (driftCarve: by its slide, from any): square to its motion, its speed as it was.
     if (p.drift && !input.hold && this.vLong > 0 && sp > 1 && !lever) {
-      const a = Math.min(driftCarve(slide, this.vLong, p.drift), (bodySlip * sp) / dt);
+      const a = Math.min(driftCarve(slide, this.vLong, this.throttle, p.drift), (bodySlip * sp) / dt);
       const h = this.worldYaw, phi = Math.atan2(this.vLat, this.vLong), way = Math.sign(phi);
       // (its motion turned toward the nose: in the body's frame (sin phi, -cos phi) the side it slides, along (fx, fz), lateral (cos h, sin h))
       const pl = way * Math.sin(phi), pt = -way * Math.cos(phi);
