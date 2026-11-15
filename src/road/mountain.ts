@@ -43,11 +43,12 @@ export const MOUNTAIN = {
   gradeFlip: 0.75,
   /**
    * Its bends banked into them (Centerline.crossSlope): `max` (rad) from `full` curvature on, less in proportion below
-   * (R 150: 5.3°), eased in and out over `ease` m. 8°: about 0.14 g more cornering, and the car leaned into the bend,
-   * not out. R 100 and tighter (not only the hairpins: R 40 at first): at 150 km/h R 100 needs 1.77 g, the supercar's
-   * own limit, and half the big bends (R 60-150) are tighter.
+   * (R 150: 8°), eased in and out over `ease` m. 12° (the player's: more; 8° at first): about 0.21 g more cornering,
+   * and the car leaned into the bend, not out. R 100 and tighter (not only the hairpins: R 40 at first): at 150 km/h
+   * R 100 needs 1.77 g, and half the big bends (R 60-150) are tighter. The ease as long as the bank is steep: the
+   * edge's rise over it what it was at 8° over 20 m (a short ease made a step in the road the player saw).
    */
-  bank: { max: (8 * Math.PI) / 180, full: 1 / 100, ease: 20 },
+  bank: { max: (12 * Math.PI) / 180, full: 1 / 100, ease: 30 },
   /** Parts of the road more than `sepArc` apart along it keep `minSep` apart (its centre line), the run-up before it and past the finish too. */
   minSep: 24,
   sepArc: 70,
