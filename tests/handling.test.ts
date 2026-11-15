@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftKick, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftKick, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -392,7 +392,7 @@ describe('traction control (tractionTrim)', () => {
 });
 
 describe('drift assist (CarParams.drift)', () => {
-  const D: DriftAssist = { minSpeed: 7, fullSpeed: 10, from: 0.04, full: 0.2, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, limit: 0.45, steerUp: 1.5, steerDown: 1, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveOn: 3, carveFull: 0.4 };
+  const D: DriftAssist = { minSpeed: 7, fullSpeed: 10, from: 0.04, full: 0.2, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, limit: 0.45, steerUp: 1.5, steerDown: 1, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveOn: 3, carveFull: 0.4, spin: 10_000 };
   const dt = 1 / 120;
   it('how much it drifts: none up to a slide of `from`, all of it from `full`, smoothly between (either way); at speed only', () => {
     expect(driftShare(0, 20, D)).toBe(0);
@@ -450,6 +450,15 @@ describe('drift assist (CarParams.drift)', () => {
     for (let i = 0; i < Math.round(D.steerDown / dt); i++) g = driftFollow(g, 0, dt, D);
     expect(g).toBeLessThan(0.45 * D.limit);
     expect(g).toBeGreaterThan(0.3 * D.limit);
+  });
+  it('on the throttle sliding, the body turned to slide more (- the limit\'s way: + slide its motion to its right, the nose turned on left), as much as the throttle and the drift', () => {
+    expect(driftSpin(0.2, 1, 1, D)).toBe(-D.spin); // (sliding right: turned left, the slide more)
+    expect(driftSpin(-0.2, 1, 1, D)).toBe(D.spin);
+    expect(driftSpin(0.2, 0.5, 1, D)).toBe(-D.spin / 2);
+    expect(driftSpin(0.2, 1, 0.5, D)).toBe(-D.spin / 2);
+    expect(driftSpin(0.2, 0, 1, D)).toBe(0); // (off the throttle: none)
+    expect(driftSpin(0, 1, 1, D)).toBe(0); // (not sliding: none)
+    expect(Math.sign(driftSpin(0.2, 1, 1, D))).toBe(-Math.sign(driftLimit(0.6, 0, D))); // (against the limit)
   });
   it('into the turn: the steering toward the side the nose swung (+ slide: its motion to its right, the nose left of it)', () => {
     expect(driftInto(0.3, -1)).toBe(1); // (sliding right, steered left: into the turn)

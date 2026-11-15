@@ -467,6 +467,11 @@ export interface DriftAssist {
   carve: number;
   carveOn: number;
   carveFull: number;
+  /**
+   * On the throttle sliding, the body turned to slide more (driftSpin: N·m on full throttle, as much as it drifts) -
+   * against the spring (driftLimit), which holds it some spin / hold rad past what the steering sets.
+   */
+  spin: number;
 }
 
 /** At speed: none under minSpeed, all of it from fullSpeed (m/s, either way). */
@@ -527,6 +532,14 @@ export function driftLimit(slide: number, rate: number, d: DriftAssist, held = d
 /** In a drift, the share of the stability control at this slide (rad). */
 export function driftEsc(slide: number, d: DriftAssist): number {
   return Math.min(1, Math.max(0, (slide - d.escFrom) / (d.escFull - d.escFrom)));
+}
+
+/**
+ * The throttle's turn of the body (N·m; + turning it right, as escTorque - the slide more: against driftLimit) at this
+ * slide (rad, + its motion to its right), throttle (0..1) and drift (0..1, driftShare).
+ */
+export function driftSpin(slide: number, throttle: number, share: number, d: DriftAssist): number {
+  return -Math.sign(slide) * d.spin * throttle * share + 0;
 }
 
 /** The push toward the nose (m/s², square to the motion) at this slide (rad, either way), speed (m/s) and throttle (0..1). */
