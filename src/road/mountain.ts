@@ -26,20 +26,24 @@ export const MOUNTAIN = {
   hairpinR: [15, 25] as [number, number],
   hairpinAngle: [150, 180] as [number, number],
   hairpinEase: [8, 15] as [number, number],
-  /** A hairpin's chance among the elements (raised once the road is half laid without two of them), and their most. */
-  hairpinChance: 0.2,
-  maxHairpins: 6,
+  /**
+   * A hairpin's chance among the elements (raised once the road is half laid without two of them), and their most.
+   * (The player's: more bends and hairpins - 0.2, 6, a switchback 0.65 after 40-120 m, a straight 0.45 of 10-120 m:
+   * 40 % of it straight, 5.8 hairpins a race; now 26 %, 9.9, other bends 26 -> 36, over 60 roads.)
+   */
+  hairpinChance: 0.35,
+  maxHairpins: 10,
   /** After a hairpin, the chance of another the other way after a short straight (a switchback). */
-  switchbackChance: 0.65,
-  switchbackStraight: [40, 120] as [number, number],
+  switchbackChance: 0.75,
+  switchbackStraight: [30, 80] as [number, number],
   /** Other bends: radius, turn, clothoids (at most half the bend). */
   bendR: [30, 150] as [number, number],
   bendAngle: [25, 110] as [number, number],
   ease: [10, 40] as [number, number],
   /** The chance of the next bend turning the other way (an S), and of a straight before a bend, its length. */
   alternate: 0.7,
-  straightChance: 0.45,
-  straight: [10, 120] as [number, number],
+  straightChance: 0.2,
+  straight: [10, 60] as [number, number],
   /** Grades: each climb or descent this steep, held this long; the vertical curve between two grades this long per unit change. */
   grade: [0.04, 0.1] as [number, number],
   hold: [150, 450] as [number, number],
