@@ -54,15 +54,15 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   esc: 0.6,
   steerRise: 1.3,
   longGrip: 1.25,
-  // (the player's: x1.5. x1.2 flung to full lock: the nose round 36 -> 43° in 1 s at 60 km/h (the supercar), the
-  // others alike; x1.4 and up the supercar and the jdm spin on full lock (their rear 50-90° out), the muscle car from
-  // x1.4 braking at full lock, at 100 km/h from x1.5)
-  frontGrip: 1.5,
-  // (the player's: with the front x1.5, none spins on full lock - the rear 4-7° out, as on the highway; the lean
-  // 1-2° more, the muscle car's 6° at 100 km/h)
-  rearGrip: 1.25,
-  // (full lock, steady at 45-100 km/h: x1.35-1.47 the sideways g of all three cars, x1.45 mostly - a little under it)
-  aiLat: 1.4,
+  // (the player's: x1.25 - x1.5 / x1.25 halved, the nose too quick at low speed. Alone, x1.4 and up the supercar and
+  // the jdm spin on full lock (their rear 50-90° out); x1.2 flung to full lock: the nose round 36 -> 43° in 1 s at
+  // 60 km/h (the supercar))
+  frontGrip: 1.25,
+  // (the player's: x1.125, with the front's. The rear 5-6° out on full lock, as on the highway; full lock at 45 km/h
+  // R 15 -> 12 m (the supercar), at 150 km/h R 103 -> 78 m; the lean no more than on the highway)
+  rearGrip: 1.125,
+  // (full lock, steady at 80-150 km/h: x1.28-1.31 the sideways g of all three cars, x1.19-1.28 at 45 - a little under it)
+  aiLat: 1.25,
   // (the rear tyres spinning 1 m/s at most: a 30° slide at 60 km/h, counter-steered 0.5 on full throttle, 19 -> 4° at
   // 1.2 s (the supercar), 27 -> 3° (the muscle car); out of a 45 km/h full-lock turn on full throttle the slide 33 -> 4°,
   // 58 -> 3°, 2 s on 75 -> 93 km/h, 37 -> 101. The jdm alike before (9°: its rear not spinning but its grip spent

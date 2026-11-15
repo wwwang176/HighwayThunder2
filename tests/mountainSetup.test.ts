@@ -35,15 +35,15 @@ describe('mountainSetup', () => {
     });
   }
 
-  it('its front tyres grip harder (x frontGrip 1.5: the nose turns in), its rear a little harder (x rearGrip 1.25)', () => {
-    expect(MOUNTAIN_SETUP.frontGrip).toBe(1.5);
-    expect(MOUNTAIN_SETUP.rearGrip).toBe(1.25);
+  it('its front tyres grip harder (x frontGrip 1.25: the nose turns in), its rear a little harder (x rearGrip 1.125)', () => {
+    expect(MOUNTAIN_SETUP.frontGrip).toBe(1.25);
+    expect(MOUNTAIN_SETUP.rearGrip).toBe(1.125);
     for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
       const p = spec.params;
       const m = mountainSetup(p, mountainSetupOf(spec.id));
-      expect(m.muPeak).toBeCloseTo(p.muPeak * 1.5, 9);
-      expect(m.muSlide).toBeCloseTo(p.muSlide * 1.5, 9);
-      expect(m.muPeak * m.rearGrip).toBeCloseTo(p.muPeak * p.rearGrip * 1.25, 9);
+      expect(m.muPeak).toBeCloseTo(p.muPeak * 1.25, 9);
+      expect(m.muSlide).toBeCloseTo(p.muSlide * 1.25, 9);
+      expect(m.muPeak * m.rearGrip).toBeCloseTo(p.muPeak * p.rearGrip * 1.125, 9);
     }
   });
 
