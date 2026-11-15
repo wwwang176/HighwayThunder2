@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftRearGrip, driftRearLong, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftRearGrip, driftRearLong, driftRamp, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -392,7 +392,7 @@ describe('traction control (tractionTrim)', () => {
 });
 
 describe('drift assist (CarParams.drift)', () => {
-  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, rearGripOn: 0.55, limit: 0.45, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
+  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, rearGripOn: 0.55, rampIn: 0.3, spring: 0.3, limit: 0.45, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
   const dt = 1 / 120;
   const st = (on: boolean, quiet = 0) => ({ on, quiet });
   it('on once the car slides past `enter` (either way: from the handbrake, the throttle, a flick), at speed; not crawling', () => {
@@ -438,19 +438,32 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftLimit(0.6, 1, D)).toBeGreaterThan(driftLimit(0.6, 0, D)); // (growing: held back harder)
     expect(Math.abs(driftLimit(3, 5, D))).toBeLessThanOrEqual(D.holdMax);
   });
+  it('off the throttle the slide held under `spring` (the handbrake swings it to there), on full throttle under `limit`, in between by it', () => {
+    expect(driftLimit(0.35, 0, D, 0)).toBeGreaterThan(0); // (past the spring, off the throttle: turned back)
+    expect(driftLimit(0.25, 0, D, 0)).toBe(0);
+    expect(driftLimit(0.35, 0, D, 1)).toBe(0); // (on full throttle: let slide on)
+    expect(driftLimit(0.4, 0, D, 0.5)).toBeCloseTo(driftLimit(0.325, 0, D, 0), 6); // (half throttle: the limit halfway, 0.375)
+    expect(driftLimit(0.36, 0, D, 0.5)).toBe(0);
+  });
   it('the stability control none of it in the slide, all of it as it nears a spin', () => {
     expect(driftEsc(0.3, D)).toBe(0);
     expect(driftEsc(D.escFrom, D)).toBe(0);
     expect(driftEsc((D.escFrom + D.escFull) / 2, D)).toBeCloseTo(0.5, 9);
     expect(driftEsc(1.5, D)).toBe(1);
   });
-  it('the push toward the nose: off the throttle, growing with the slide up to carveFull', () => {
-    expect(driftCarve(0, 0, D)).toBe(0);
-    expect(driftCarve(0.3, 1, D)).toBe(0); // (on the throttle: it slides on)
-    expect(driftCarve(0.2, 0, D)).toBeCloseTo(2.5, 9);
-    expect(driftCarve(-0.2, 0, D)).toBeCloseTo(2.5, 9); // (either way: its size)
-    expect(driftCarve(0.8, 0, D)).toBe(5);
-    expect(driftCarve(0.8, 0.5, D)).toBeCloseTo(2.5, 9);
+  it('the push toward the nose: on the throttle or off it, growing with the slide up to carveFull', () => {
+    expect(driftCarve(0, D)).toBe(0);
+    expect(driftCarve(0.2, D)).toBeCloseTo(2.5, 9);
+    expect(driftCarve(-0.2, D)).toBeCloseTo(2.5, 9); // (either way: its size)
+    expect(driftCarve(0.8, D)).toBe(5);
+  });
+  it('the drift eased in over rampIn s (its grip not dropped all at once), out at once', () => {
+    let k = 0;
+    for (let i = 0; i < Math.round(D.rampIn / 2 / dt); i++) k = driftRamp(k, true, dt, D);
+    expect(k).toBeCloseTo(0.5, 6);
+    for (let i = 0; i < Math.round(D.rampIn / dt); i++) k = driftRamp(k, true, dt, D);
+    expect(k).toBe(1);
+    expect(driftRamp(k, false, dt, D)).toBe(0);
   });
   it('the rear sideways grip: rearGrip off the throttle, rearGripOn on full throttle, in between by it', () => {
     expect(driftRearGrip(0, D)).toBeCloseTo(0.85, 9);

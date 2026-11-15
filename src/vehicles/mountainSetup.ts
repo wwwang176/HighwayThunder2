@@ -86,7 +86,10 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // way: the rear sideways x0.85 off the throttle, x0.55 on full throttle, the push only off it. Then: on the throttle
   // too little slide - x0.45 on full throttle, straight on too (driftRearLong: the tyres spin up), the limit 25 -> 32°
   // (not measured). Then the limit 45° (the player's), the drive eased past it (45-60°), the stability control from 55° as
-  // it was)
+  // it was. Then: past half of it the slide fell on to 45° (the rear's grip spent past its peak, nothing against it till
+  // the wall) - the player's: the handbrake swings it to a spring, off the throttle 20° (the hold half as stiff: a
+  // spring, not a wall), on full throttle 45°; the push toward the nose on the throttle or off it; the drift's grip
+  // eased in over 0.3 s (not measured))
   drift: {
     minSpeed: 25 / 3.6,
     enter: (12 * Math.PI) / 180,
@@ -97,8 +100,10 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     escFull: (75 * Math.PI) / 180,
     rearGrip: 0.85,
     rearGripOn: 0.45,
+    rampIn: 0.3,
+    spring: (20 * Math.PI) / 180,
     limit: (45 * Math.PI) / 180,
-    hold: 120_000,
+    hold: 60_000,
     damp: 25_000,
     holdMax: 40_000,
     powerFrom: (45 * Math.PI) / 180,

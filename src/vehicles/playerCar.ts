@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftRearGrip, driftRearLong, type DriftState } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftRearGrip, driftRearLong, driftRamp, type DriftState } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -189,6 +189,8 @@ export class PlayerCar {
   private drift: DriftState = { on: false, quiet: 0 };
   /** The body's slide (rad, signed) last step: its growing, for the drift assist's limit. */
   private lastSlide = 0;
+  /** How far into its drift (0..1, driftRamp: the drift's grip eased in). */
+  private driftIn = 0;
   /** Whether it drifts (drift assist: it slides). */
   get drifting(): boolean {
     return this.drift.on;
@@ -427,6 +429,7 @@ export class PlayerCar {
     // Drift assist (drift): sliding (or the handbrake tapped), the car the driver's (till the slide is over).
     this.drift = p.drift && !input.hold ? driftOn(this.drift, slide, this.vLong, dt, p.drift, !!input.handbrake) : { on: false, quiet: 0 };
     const drifting = this.drift.on;
+    this.driftIn = p.drift ? driftRamp(this.driftIn, drifting, dt, p.drift) : 0;
     // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
     const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, p);
     // Stability control: nudge the rotation toward what the steering asks for (not on the handbrake: the slide
@@ -435,8 +438,9 @@ export class PlayerCar {
     let esc = input.handbrake && !input.hold ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
     const slideRate = (slide - this.lastSlide) / dt;
     this.lastSlide = slide;
-    // (drifting: the slide kept under its limit - the stability control can't, full lock asks for the spin)
-    if (drifting && p.drift) esc = esc * driftEsc(bodySlip, p.drift) + (input.handbrake ? 0 : driftLimit(slide, slideRate, p.drift));
+    // (drifting: the slide kept under its limit - the stability control can't, full lock asks for the spin: off the
+    // throttle the spring's, the handbrake's swing too; on it more)
+    if (drifting && p.drift) esc = esc * driftEsc(bodySlip, p.drift) + driftLimit(slide, slideRate, p.drift, input.handbrake ? 0 : this.throttle);
     if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);
     const targetThrottle = input.throttle;
     this.throttle += Math.sign(targetThrottle - this.throttle) * Math.min(Math.abs(targetThrottle - this.throttle), p.throttleRise * dt);
@@ -543,8 +547,9 @@ export class PlayerCar {
       w.rebound = p.damperRebound;
       // In a burnout the spinning rear tyres push less (arcade): the front brakes hold every car, even a tail-heavy one.
       // Drifting, the rear's grip less the more throttle (driftRearGrip sideways; straight on driftRearLong of that).
-      const driftRear = drifting && p.drift ? driftRearGrip(this.throttle, p.drift) : 1;
-      const driftLong = drifting && p.drift && !lever ? driftRearLong(this.throttle, p.drift) : 1;
+      // (eased in over the drift's first moments: driftIn)
+      const driftRear = drifting && p.drift ? 1 + (driftRearGrip(this.throttle, p.drift) - 1) * this.driftIn : 1;
+      const driftLong = drifting && p.drift && !lever ? 1 + (driftRearLong(this.throttle, p.drift) - 1) * this.driftIn : 1;
       w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1) * driftRear) * grip;
       w.longScale = w.front ? frontLong : rearLong * driftLong; // (the handbrake's drag on the rear's grip)
       w.dragged = lever && !w.front; // (the handbrake's locked rear tyres: dragged, holding sideways as their tail swings out)
@@ -564,9 +569,9 @@ export class PlayerCar {
     // 3) Aerodynamics: drag against motion, downforce growing with speed.
     const lv = this.body.linvel();
     const sp = Math.hypot(lv.x, lv.z);
-    // Drifting off the throttle, the car pushed toward its nose (driftCarve): square to its motion, its speed as it was.
-    if (drifting && p.drift && this.vLong > 0 && sp > 1 && this.throttle < 1 && !lever) {
-      const a = Math.min(driftCarve(slide, this.throttle, p.drift), (bodySlip * sp) / dt);
+    // Drifting, the car pushed toward its nose (driftCarve): square to its motion, its speed as it was.
+    if (drifting && p.drift && this.vLong > 0 && sp > 1 && !lever) {
+      const a = Math.min(driftCarve(slide, p.drift), (bodySlip * sp) / dt);
       const h = this.worldYaw, phi = Math.atan2(this.vLat, this.vLong), way = Math.sign(phi);
       // (its motion turned toward the nose: in the body's frame (sin phi, -cos phi) the side it slides, along (fx, fz), lateral (cos h, sin h))
       const pl = way * Math.sin(phi), pt = -way * Math.cos(phi);
@@ -737,6 +742,7 @@ export class PlayerCar {
     this.throttle = 0;
     this.drift = { on: false, quiet: 0 };
     this.lastSlide = 0;
+    this.driftIn = 0;
     this.backfire.reset();
     this.gearbox.reset();
     this.driveMode = 'D';

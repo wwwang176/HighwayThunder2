@@ -442,11 +442,15 @@ export interface DriftAssist {
    */
   rearGrip: number;
   rearGripOn: number;
+  /** The drift's grip eased in over this (s: driftRamp), not dropped all at once (it tipped the slide over). */
+  rampIn: number;
   /**
-   * The slide kept under `limit` (driftLimit: the stability control can't - it holds the turning to what the steering
-   * asks, and full lock asks for a spin): past it the body turned back, `hold` N·m per rad past, `damp` per rad/s of
-   * its growing, at most `holdMax`. Under it, nothing.
+   * The slide kept under `spring` off the throttle, `limit` on full throttle, in between by it (driftLimit; the
+   * stability control can't - it holds the turning to what the steering asks, and full lock asks for a spin): past it
+   * the body turned back, `hold` N·m per rad past, `damp` per rad/s of its growing, at most `holdMax`. Under it,
+   * nothing. The handbrake swings it out to the spring; the throttle lets it slide on.
    */
+  spring: number;
   limit: number;
   hold: number;
   damp: number;
@@ -456,9 +460,8 @@ export interface DriftAssist {
   powerTo: number;
   least: number;
   /**
-   * Off the throttle the car pushed toward its nose (arcade, driftCarve): square to its motion (its speed as it was),
-   * `carve` m/s² off it once the slide is `carveFull` (rad), less under it or on the throttle - let off, it goes where
-   * the nose points (on the throttle the push straightened the slide).
+   * The car pushed toward its nose (arcade, driftCarve), on the throttle or off it: square to its motion (its speed as
+   * it was), `carve` m/s² once the slide is `carveFull` (rad), less under it - it goes where the nose points.
    */
   carve: number;
   carveFull: number;
@@ -487,11 +490,12 @@ export function driftDrive(slide: number, d: DriftAssist): number {
 }
 
 /**
- * In a drift, the yaw torque (N·m; + turning it right, as escTorque) keeping the slide under `limit`: `slide` signed (+
- * its motion to its right), `rate` its change (rad/s). None under it.
+ * In a drift, the yaw torque (N·m; + turning it right, as escTorque) keeping the slide under its limit (`spring` off
+ * the throttle, `limit` on full throttle): `slide` signed (+ its motion to its right), `rate` its change (rad/s),
+ * `throttle` 0..1. None under it.
  */
-export function driftLimit(slide: number, rate: number, d: DriftAssist): number {
-  const over = Math.abs(slide) - d.limit;
+export function driftLimit(slide: number, rate: number, d: DriftAssist, throttle = 1): number {
+  const over = Math.abs(slide) - (d.spring + (d.limit - d.spring) * throttle);
   if (over <= 0) return 0;
   const way = Math.sign(slide);
   return way * Math.min(d.holdMax, Math.max(0, d.hold * over + d.damp * rate * way));
@@ -502,9 +506,14 @@ export function driftEsc(slide: number, d: DriftAssist): number {
   return Math.min(1, Math.max(0, (slide - d.escFrom) / (d.escFull - d.escFrom)));
 }
 
-/** In a drift, the push toward the nose (m/s², square to the motion) at this slide (rad, either way) and throttle (0..1). */
-export function driftCarve(slide: number, throttle: number, d: DriftAssist): number {
-  return d.carve * (1 - throttle) * Math.min(1, Math.abs(slide) / d.carveFull);
+/** In a drift, the push toward the nose (m/s², square to the motion) at this slide (rad, either way). */
+export function driftCarve(slide: number, d: DriftAssist): number {
+  return d.carve * Math.min(1, Math.abs(slide) / d.carveFull);
+}
+
+/** How far into a drift (0..1: its grip eased in over rampIn s); `on` whether it drifts. Out of it at once. */
+export function driftRamp(was: number, on: boolean, dt: number, d: DriftAssist): number {
+  return on ? Math.min(1, was + dt / d.rampIn) : 0;
 }
 
 /** In a drift, the rear tyres' sideways grip share at this throttle (0..1). */
