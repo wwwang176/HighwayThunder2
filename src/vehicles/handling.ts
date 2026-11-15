@@ -443,15 +443,13 @@ export interface DriftAssist {
   /** The drift's grip eased in over this (s: driftRamp), not dropped all at once (it tipped the slide over). */
   rampIn: number;
   /**
-   * The slide kept under what the steering sets (driftHeld, driftInto, driftLimit; the stability control can't - it
-   * holds the turning to what the steering asks, and full lock asks for a spin): `spring` with the wheel straight,
-   * `limit` on full lock into the turn, `counter` on full counter-steer, between by the steering's square (a little
-   * steering a little of it), followed (driftFollow: at once it was too quick) - growing over `steerUp` s (the turn
-   * held into a while), coming back over `steerDown` s (let go). Past it the body turned back, `hold` N·m per rad
-   * past, `damp` per rad/s of its growing, at most `holdMax`. Under it, nothing.
+   * The slide pulled back to what the steering sets, at any slide (a spring: driftHeld, driftInto, driftLimit; the
+   * stability control can't - it holds the turning to what the steering asks, and full lock asks for a spin): none
+   * (straight on) with the wheel straight or counter-steered, `limit` on full lock into the turn, between by the
+   * steering's square (a little steering a little of it), followed (driftFollow: at once it was too quick) - growing
+   * over `steerUp` s (the turn held into a while), coming back over `steerDown` s (let go: slowly straight). Past it the
+   * body turned back, `hold` N·m per rad past, `damp` per rad/s of its growing, at most `holdMax`. Under it, nothing.
    */
-  counter: number;
-  spring: number;
   limit: number;
   steerUp: number;
   steerDown: number;
@@ -501,12 +499,11 @@ export function driftInto(slide: number, steer: number): number {
 }
 
 /**
- * In a drift, the slide the steering asks to be held to (rad) at `into` (driftInto): `limit` on full lock into the
- * turn, `spring` straight, `counter` counter-steered, between by `into`'s square.
+ * In a drift, the slide the steering asks to be pulled back to (rad) at `into` (driftInto): `limit` on full lock into
+ * the turn, none with the wheel straight or counter-steered, between by `into`'s square.
  */
 export function driftHeld(into: number, d: DriftAssist): number {
-  const k = into * Math.abs(into);
-  return k >= 0 ? d.spring + (d.limit - d.spring) * k : d.spring + (d.spring - d.counter) * k;
+  return into > 0 ? d.limit * into * into : 0;
 }
 
 /** In a drift, the slide held (rad) following the steering's `target` (driftHeld): up over steerUp s, down over steerDown. */

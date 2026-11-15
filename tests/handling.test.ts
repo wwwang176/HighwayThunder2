@@ -392,7 +392,7 @@ describe('traction control (tractionTrim)', () => {
 });
 
 describe('drift assist (CarParams.drift)', () => {
-  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, rampIn: 0.3, counter: 0.15, spring: 0.3, limit: 0.45, steerUp: 1.5, steerDown: 0.3, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
+  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, rampIn: 0.3, limit: 0.45, steerUp: 1.5, steerDown: 1, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
   const dt = 1 / 120;
   const st = (on: boolean, quiet = 0) => ({ on, quiet });
   it('on once the car slides past `enter` (either way: from the handbrake, the throttle, a flick), at speed; not crawling', () => {
@@ -443,22 +443,22 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftLimit(0.25, 0, D, 0.3)).toBe(0);
     expect(driftLimit(0.4, 0, D, 0.3)).toBeCloseTo(driftLimit(0.25, 0, D, 0.15), 6); // (as far past it)
   });
-  it('the steering sets the slide held: `spring` straight ahead, `limit` on full lock into the turn, `counter` on full counter-steer, gently at first (its square)', () => {
-    expect(driftHeld(0, D)).toBeCloseTo(D.spring, 9);
+  it('the steering sets the slide its spring pulls to: none (straight on) with the wheel straight or counter-steered, `limit` on full lock into the turn, gently at first (its square)', () => {
+    expect(driftHeld(0, D)).toBe(0);
+    expect(driftHeld(-1, D)).toBe(0);
+    expect(driftHeld(-0.5, D)).toBe(0);
     expect(driftHeld(1, D)).toBeCloseTo(D.limit, 9);
-    expect(driftHeld(-1, D)).toBeCloseTo(D.counter, 9);
-    expect(driftHeld(0.5, D)).toBeCloseTo(D.spring + (D.limit - D.spring) / 4, 9); // (half lock: a quarter of the way)
-    expect(driftHeld(-0.5, D)).toBeCloseTo(D.spring - (D.spring - D.counter) / 4, 9);
+    expect(driftHeld(0.5, D)).toBeCloseTo(D.limit / 4, 9); // (half lock: a quarter of it)
   });
   it('the angle held grows to the steering\'s over steerUp s (held into the turn), comes back over steerDown s (let go)', () => {
-    let h = D.spring;
+    let h = 0;
     for (let i = 0; i < Math.round(D.steerUp / dt); i++) h = driftFollow(h, D.limit, dt, D);
-    expect(h).toBeGreaterThan(D.spring + 0.55 * (D.limit - D.spring)); // (about 1 - 1/e of the way in steerUp)
-    expect(h).toBeLessThan(D.spring + 0.7 * (D.limit - D.spring));
+    expect(h).toBeGreaterThan(0.55 * D.limit); // (about 1 - 1/e of the way in steerUp)
+    expect(h).toBeLessThan(0.7 * D.limit);
     let g = D.limit;
-    for (let i = 0; i < Math.round(D.steerDown / dt); i++) g = driftFollow(g, D.spring, dt, D);
-    expect(g).toBeLessThan(D.limit - 0.55 * (D.limit - D.spring));
-    expect(g).toBeGreaterThan(D.limit - 0.7 * (D.limit - D.spring));
+    for (let i = 0; i < Math.round(D.steerDown / dt); i++) g = driftFollow(g, 0, dt, D);
+    expect(g).toBeLessThan(0.45 * D.limit);
+    expect(g).toBeGreaterThan(0.3 * D.limit);
   });
   it('into the turn: the steering toward the side the nose swung (+ slide: its motion to its right, the nose left of it)', () => {
     expect(driftInto(0.3, -1)).toBe(1); // (sliding right, steered left: into the turn)

@@ -96,7 +96,11 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   // 5 -> 8 m/s² (not measured). Then (the player's: the handbrake and the steering fell to 45° and stuck; 45° only for a
   // slide held into the turn, let go it comes back): the spring 60 000 -> 200 000 N·m/rad, at most 80 000 (the front
   // tyres, the rear light, turned it on some 10° past the spring - about 10 000 N·m), the damping 40 000; the angle held
-  // from the spring as the drift starts, growing over 1.5 s, coming back over 0.3 s (not measured))
+  // from the spring as the drift starts, growing over 1.5 s, coming back over 0.3 s (not measured). Then (the player's:
+  // a spring at any slide - at 15° on the throttle it slid on to 25°; let go of everything it comes back straight
+  // slowly): pulled to none with the wheel straight or counter-steered (no 25° or 8° any more), to 45° on full lock
+  // into the turn; the angle from the slide the drift starts at, back over 1 s; the handbrake's swing let be (not
+  // measured))
   drift: {
     minSpeed: 25 / 3.6,
     enter: (12 * Math.PI) / 180,
@@ -107,11 +111,9 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     escFull: (75 * Math.PI) / 180,
     rearGrip: 0.45,
     rampIn: 0.3,
-    counter: (8 * Math.PI) / 180,
-    spring: (25 * Math.PI) / 180,
     limit: (45 * Math.PI) / 180,
     steerUp: 1.5,
-    steerDown: 0.3,
+    steerDown: 1,
     hold: 200_000,
     damp: 40_000,
     holdMax: 80_000,

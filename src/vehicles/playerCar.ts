@@ -440,13 +440,17 @@ export class PlayerCar {
     let esc = input.handbrake && !input.hold ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
     const slideRate = (slide - this.lastSlide) / dt;
     this.lastSlide = slide;
-    // (drifting: the slide kept under what the steering sets, followed over a moment - the stability control can't,
-    // full lock asks for the spin: into the turn more, counter-steered less; the handbrake's swing too)
+    // (drifting: the slide pulled back to what the steering sets, at any slide - the stability control can't, full
+    // lock asks for the spin: the wheel let go straight on, slowly; held into the turn, more, slowly. From the slide it
+    // starts at; on the handbrake the swing let be - the spring pulls only once it is let go)
     if (p.drift) {
       const target = driftHeld(driftInto(slide, this.steer), p.drift);
-      // (from the spring as it starts: the handbrake swings it out to there, held into the turn it grows)
-      this.driftHold = drifting ? driftFollow(this.driftHold, target, dt, p.drift) : p.drift.spring;
-      if (drifting) esc = esc * driftEsc(bodySlip, p.drift) + driftLimit(slide, slideRate, p.drift, this.driftHold);
+      if (!drifting) this.driftHold = bodySlip;
+      else {
+        this.driftHold = driftFollow(this.driftHold, target, dt, p.drift);
+        if (input.handbrake) this.driftHold = Math.max(this.driftHold, bodySlip);
+        esc = esc * driftEsc(bodySlip, p.drift) + driftLimit(slide, slideRate, p.drift, this.driftHold);
+      }
     }
     if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);
     const targetThrottle = input.throttle;
