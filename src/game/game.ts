@@ -1572,7 +1572,10 @@ export class Game {
     else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
     // The mountain road: the chase camera swinging wide round a hairpin, the intro's and the finish's shots set wide
     // of the car, all went into the rock - kept over the road (moved in, looking the same way: no jump in the view).
-    if (this.mountain) keepOverRoad(this.roadLine, this.camera.position, this.player.s, MOUNTAIN.edge - 0.6, 0.8);
+    if (this.mountain) {
+      const e = roadEdges(this.roadLine);
+      keepOverRoad(this.roadLine, this.camera.position, this.player.s, (s, side) => e.at(s, side) - 0.6, 0.8); // (a shoulder's room too)
+    }
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
       this.hud.revealFinish();

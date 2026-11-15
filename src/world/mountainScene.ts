@@ -293,9 +293,11 @@ export class MountainScene implements Scenery {
       const wide = runsOf(rows, (s) => edges.at(s, side) > E0 + 0.01);
       const u = (side * (E0 - 0.3) + E0) / (2 * E0); // (the markings' shoulder, past the edge line)
       for (const rr of wide) {
+        // (its columns left to right, as the road's: facing up - the road's material one-sided)
         const geo = strip(road, rr, 2, (s, _i, p) => {
-          p[0] = [side * E0, 0.01];
-          p[1] = [side * edges.at(s, side), 0.01];
+          const a = side * E0, b = side * edges.at(s, side);
+          p[0] = [Math.min(a, b), 0.01];
+          p[1] = [Math.max(a, b), 0.01];
         }, 20, [u, u]);
         const mesh = new THREE.Mesh(geo, this.roadMat);
         mesh.receiveShadow = true;

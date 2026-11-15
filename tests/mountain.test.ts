@@ -116,6 +116,17 @@ describe('keepOverRoad', () => {
     expect(p.y).toBeCloseTo(road.height(120) + 3, 6);
   });
 
+  it('each side\'s room its own at s (a shoulder): over it left be, past the other side brought in', () => {
+    const room = (s: number, side: 1 | -1) => (side < 0 && s > 100 ? 7 : 4);
+    const w = road.toWorld(120, -6);
+    const p = { x: w.x, y: road.height(120) + 3, z: w.z };
+    expect(keepOverRoad(road, p, 118, room, 0.8)).toBe(false);
+    const w2 = road.toWorld(120, 6);
+    const p2 = { x: w2.x, y: road.height(120) + 3, z: w2.z };
+    expect(keepOverRoad(road, p2, 118, room, 0.8)).toBe(true);
+    expect(road.project(p2.x, p2.z, 120).d).toBeCloseTo(4, 3);
+  });
+
   it('one under the road is lifted over it', () => {
     const w = road.toWorld(150, -1);
     const p = { x: w.x, y: road.height(150) - 2, z: w.z };
