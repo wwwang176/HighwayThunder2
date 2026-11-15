@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeFlareMaterial } from '../render/lightFlares';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
-import { MOUNTAIN, wallSides } from '../road/mountain';
+import { MOUNTAIN, roadEdges, wallSides } from '../road/mountain';
 import { roadRows } from '../road/surface';
 import { repeating, type Scenery, withAsphalt } from './roadScene';
 
@@ -140,9 +140,9 @@ function chevronTexture(): THREE.CanvasTexture {
 
 /**
  * A strip along the road: at each row (s), a cross-section of points (`cols(s, i)`: road d and height over the road),
- * joined row to row. `u` along the cross-section's points (0..1), `v` along the road (s / vScale).
+ * joined row to row. `u` along the cross-section's points (0..1; or each point's own, `us`), `v` along the road (s / vScale).
  */
-function strip(road: Centerline, rows: number[], ncol: number, cols: (s: number, i: number, out: [number, number][]) => void, vScale: number): THREE.BufferGeometry {
+function strip(road: Centerline, rows: number[], ncol: number, cols: (s: number, i: number, out: [number, number][]) => void, vScale: number, us?: number[]): THREE.BufferGeometry {
   const n = rows.length;
   const pos = new Float32Array(n * ncol * 3);
   const uv = new Float32Array(n * ncol * 2);
@@ -156,7 +156,7 @@ function strip(road: Centerline, rows: number[], ncol: number, cols: (s: number,
       pos[3 * k] = w.x;
       pos[3 * k + 1] = edgeHeight(road, s, d) + pts[j][1];
       pos[3 * k + 2] = w.z;
-      uv[2 * k] = j / (ncol - 1);
+      uv[2 * k] = us ? us[j] : j / (ncol - 1);
       uv[2 * k + 1] = s / vScale;
     }
   });
@@ -178,11 +178,31 @@ function strip(road: Centerline, rows: number[], ncol: number, cols: (s: number,
 }
 
 /**
- * The height things are set on at (s, d): the road's banked surface, its bank carried no further than its edge (the
- * wall and the slope below the rail go on from where it ends, not tilted on out with it).
+ * The height things are set on at (s, d): the road's banked surface, its bank carried no further than its edge there
+ * (roadEdges: a shoulder's too) - the wall and the slope below the rail go on from where it ends, not tilted on out
+ * with it.
  */
 function edgeHeight(road: Centerline, s: number, d: number): number {
-  return road.surfaceHeight(s, Math.max(-MOUNTAIN.edge, Math.min(MOUNTAIN.edge, d)));
+  const e = roadEdges(road);
+  return road.surfaceHeight(s, Math.max(-e.at(s, -1), Math.min(e.at(s, 1), d)));
+}
+
+/** The stretches of `rows` (ascending) where `on(s)`, each with a row either side (where it starts and stops). */
+function runsOf(rows: number[], on: (s: number) => boolean): number[][] {
+  const out: number[][] = [];
+  let run: number[] | null = null;
+  rows.forEach((s, i) => {
+    if (on(s)) {
+      if (!run) run = i > 0 ? [rows[i - 1]] : [];
+      run.push(s);
+    } else if (run) {
+      run.push(s);
+      out.push(run);
+      run = null;
+    }
+  });
+  if (run && (run as number[]).length > 1) out.push(run);
+  return out;
 }
 
 /** A smooth bumpy value along the road (m), between 0 and 1, for the rock's height and shape. */
@@ -258,19 +278,36 @@ export class MountainScene implements Scenery {
       return Math.min(1, Math.max(0, Math.min(fromStart, toEnd) / WALL.taper));
     };
 
-    // The road (shoulder to shoulder).
-    const E = MOUNTAIN.edge;
+    // The road (shoulder to shoulder), and on a tight bend's outside the shoulder widened (roadEdges): the markings'
+    // shoulder stretched on out, no lines on it.
+    const E0 = MOUNTAIN.edge;
+    const edges = roadEdges(road);
     const roadGeo = strip(road, rows, 2, (_s, _i, p) => {
-      p[0] = [-E, 0.01];
-      p[1] = [E, 0.01];
+      p[0] = [-E0, 0.01];
+      p[1] = [E0, 0.01];
     }, 20);
     const roadMesh = new THREE.Mesh(roadGeo, this.roadMat);
     roadMesh.receiveShadow = true;
     this.course.add(roadMesh);
+    for (const side of [-1, 1] as const) {
+      const wide = runsOf(rows, (s) => edges.at(s, side) > E0 + 0.01);
+      const u = (side * (E0 - 0.3) + E0) / (2 * E0); // (the markings' shoulder, past the edge line)
+      for (const rr of wide) {
+        const geo = strip(road, rr, 2, (s, _i, p) => {
+          p[0] = [side * E0, 0.01];
+          p[1] = [side * edges.at(s, side), 0.01];
+        }, 20, [u, u]);
+        const mesh = new THREE.Mesh(geo, this.roadMat);
+        mesh.receiveShadow = true;
+        this.course.add(mesh);
+      }
+    }
 
     // Both sides: the rock wall where it is (its height the taper's share), the cliff where it is.
     for (const side of [-1, 1] as const) {
+      const at = (s: number) => edges.at(s, side); // (this side's edge: a shoulder's)
       const wall = strip(road, rows, 6, (s, i, p) => {
+        const E = at(s);
         const on = sides[i] === side ? taper(i) : 0;
         const h = (WALL.low + (WALL.high - WALL.low) * bumps(s, side * 3.1)) * on;
         const b = bumps(s, side * 1.7 + 5);
@@ -286,7 +323,8 @@ export class MountainScene implements Scenery {
       this.course.add(wallMesh);
 
       // The cliff's slope where the wall isn't (folded flat under the wall where it is).
-      const cliff = strip(road, rows, CLIFF.length, (_s, i, p) => {
+      const cliff = strip(road, rows, CLIFF.length, (s, i, p) => {
+        const E = at(s);
         const on = sides[i] === side ? 0 : 1;
         CLIFF.forEach(([dd, y], j) => {
           p[j] = [side * (E + dd * (j === 0 ? 1 : on) + (1 - on) * 0.3 * j), on ? y : -0.3 - 0.01 * j];
@@ -299,7 +337,8 @@ export class MountainScene implements Scenery {
       for (const [a, b] of runs) {
         const rr = rows.filter((s) => s >= a && s <= b);
         if (rr.length < 2) continue;
-        const beam = strip(road, rr, 3, (_s, _i, p) => {
+        const beam = strip(road, rr, 3, (s, _i, p) => {
+          const E = at(s);
           p[0] = [side * (E + 0.05), RAIL.y0];
           p[1] = [side * (E + 0.12), (RAIL.y0 + RAIL.y1) / 2];
           p[2] = [side * (E + 0.05), RAIL.y1];
@@ -345,14 +384,15 @@ export class MountainScene implements Scenery {
         if (Math.round(s / RAIL.post) % (RAIL.reflector / RAIL.post) === 0) reflectors.push(s);
       }
     }
-    const E = MOUNTAIN.edge;
+    const edges = roadEdges(road);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
     const p = new THREE.Vector3();
     const one = new THREE.Vector3(1, 1, 1);
-    const place = (mesh: THREE.InstancedMesh, list: number[], d: number, y: number) => {
+    const place = (mesh: THREE.InstancedMesh, list: number[], off: number, y: number) => {
       list.forEach((s, i) => {
+        const d = side * (edges.at(s, side as 1 | -1) + off); // (at the rail: a shoulder's)
         const w = road.toWorld(s, d);
         q.setFromAxisAngle(up, -road.heading(s));
         m.compose(p.set(w.x, edgeHeight(road, s, d) + y, w.z), q, one);
@@ -362,8 +402,8 @@ export class MountainScene implements Scenery {
       mesh.frustumCulled = false;
       this.course.add(mesh);
     };
-    place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.95, 0.12), this.postMat, Math.max(1, posts.length)), posts, side * (E + 0.2), 0.47);
-    place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, 0.09, 0.14), this.reflectorMat, Math.max(1, reflectors.length)), reflectors, side * (E + 0.02), RAIL.y1 + 0.06);
+    place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.95, 0.12), this.postMat, Math.max(1, posts.length)), posts, 0.2, 0.47);
+    place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, 0.09, 0.14), this.reflectorMat, Math.max(1, reflectors.length)), reflectors, 0.02, RAIL.y1 + 0.06);
   }
 
   /**
@@ -373,6 +413,7 @@ export class MountainScene implements Scenery {
    */
   private addChevrons(road: Centerline): void {
     const spots = chevronSpots(road);
+    const edges = roadEdges(road);
     const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, CHEVRON.height, 0.06), this.postMat, Math.max(1, spots.length));
     const beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(BEACON.radius, 10, 8), this.beaconMat, Math.max(1, spots.length));
     const boards = new THREE.InstancedMesh(new THREE.PlaneGeometry(CHEVRON.size, CHEVRON.size), this.chevronMat, Math.max(1, 2 * spots.length));
@@ -383,7 +424,7 @@ export class MountainScene implements Scenery {
     const p = new THREE.Vector3();
     const sc = new THREE.Vector3();
     spots.forEach(({ s, dir }, i) => {
-      const d = -dir * (MOUNTAIN.edge + 0.5); // (outside the bend)
+      const d = -dir * (edges.at(s, -dir as 1 | -1) + 0.5); // (outside the bend: past its shoulder)
       const w = road.toWorld(s, d);
       const h = edgeHeight(road, s, d);
       const th = road.heading(s);

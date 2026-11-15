@@ -6,7 +6,7 @@ import { mulberry32 } from '../src/ai/rng';
 import { KMH, PHYSICS_DT } from '../src/config';
 import { FINISHED_SPEED, type RaceView, Rivals } from '../src/game/rivals';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
-import { MOUNTAIN, mountainRoad } from '../src/road/mountain';
+import { MOUNTAIN, roadEdges, mountainRoad } from '../src/road/mountain';
 import { surfaceMesh } from '../src/road/surface';
 import { CARS, STREET_RACER } from '../src/vehicles/cars';
 import { PlayerCar } from '../src/vehicles/playerCar';
@@ -56,7 +56,9 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
   const road = mountainRoad(mulberry32(seed));
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
-  physics.setRoad(road, { rails: { left: -MOUNTAIN.edge, right: MOUNTAIN.edge }, ground: surfaceMesh(road, -MOUNTAIN.before, MOUNTAIN.length + MOUNTAIN.after, MOUNTAIN.edge + 1.5) });
+  // (as the game's: its edges along it, a shoulder on a tight bend's outside; SHOULDER=0: none)
+  const e = process.env.SHOULDER === '0' ? { at: () => MOUNTAIN.edge } : roadEdges(road);
+  physics.setRoad(road, { rails: { left: (s) => -e.at(s, -1), right: (s) => e.at(s, 1) }, ground: surfaceMesh(road, -MOUNTAIN.before, MOUNTAIN.length + MOUNTAIN.after, (s) => [-e.at(s, -1) - 1.5, e.at(s, 1) + 1.5]) });
   const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
   player.road = road;
   if (SETUP) Object.assign(player.params, mountainSetup(player.params, mountainSetupOf(STREET_RACER.id))); // (as the game's)
@@ -70,7 +72,7 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
     makeDriver: () => new MountainDriver(),
     grid: GRID,
     gripBoost: 0,
-    edge: MOUNTAIN.edge,
+    edge: (s, side) => e.at(s, side),
     lanes: [LANE, -LANE],
     setup: SETUP ? { params: (p, spec) => mountainSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) } : undefined,
   });

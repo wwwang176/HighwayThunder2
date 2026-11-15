@@ -116,6 +116,15 @@ describe('needsReset', () => {
     expect(needsReset({ ...ok, d: 5, playerS: ok.s + T.teleportBehind + 1 }, 4.75, false)).toBe('off-road');
   });
 
+  it('its road\'s edges along it (a shoulder: each side\'s own at s): off the road past that side\'s edge there', () => {
+    const edge = (s: number, side: 1 | -1) => (side < 0 && s > 400 ? 7.75 : 4.75);
+    const far = { ...ok, playerS: ok.s + 300 };
+    expect(needsReset({ ...far, d: -6 }, edge, false)).toBe(null); // (on the shoulder)
+    expect(needsReset({ ...far, d: -8 }, edge, false)).toBe('off-road');
+    expect(needsReset({ ...far, d: 6 }, edge, false)).toBe('off-road'); // (its other side as it was)
+    expect(needsReset({ ...far, s: 300, playerS: 600, d: -6 }, edge, false)).toBe('off-road');
+  });
+
   it('stopped too long, spun round, off the road (the player well away), or hopelessly far behind: back into the race', () => {
     const away = { ...ok, playerS: ok.s + T.resetClear + 1 };
     expect(needsReset({ ...away, speed: 0.5, stuckFor: T.stuckTime + 0.1 })).toBe('stuck');

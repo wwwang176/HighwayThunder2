@@ -74,7 +74,7 @@ import { Minimap } from '../ui/minimap';
 import { MountainDriver } from '../ai/mountainDriver';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
 import type { RivalDriver } from '../ai/driver';
-import { keepOverRoad, MOUNTAIN, mountainRoad } from '../road/mountain';
+import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
 import { surfaceMesh } from '../road/surface';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
@@ -345,7 +345,8 @@ export class Game {
     if (this.mountain)
       this.sparks.floorAt = (x, z) => {
         const at = this.roadLine.project(x, z);
-        return this.roadLine.surfaceHeight(at.s, Math.max(-MOUNTAIN.edge, Math.min(MOUNTAIN.edge, at.d))); // (its bank to its edge)
+        const e = roadEdges(this.roadLine);
+        return this.roadLine.surfaceHeight(at.s, Math.max(-e.at(at.s, -1), Math.min(e.at(at.s, 1), at.d))); // (its bank to its edge: a shoulder's too)
       };
     this.stats.dom.style.cssText = 'position:fixed;left:3.1vw;top:8.4vw;z-index:20;opacity:0.85;cursor:pointer'; // (under the HUD's time)
     document.body.appendChild(this.stats.dom);
@@ -848,9 +849,10 @@ export class Game {
       this.roadLine = this.mountain ? mountainRoad(Math.random) : randomRoad(Math.random, ROAD_LENGTH);
       useRoad(this.roadLine); // (both carriageways' frames: the traffic's places, the obstacles every AI sees)
       if (this.mountain) {
-        const E = MOUNTAIN.edge;
-        const ground = surfaceMesh(this.roadLine, -MOUNTAIN.before, this.courseLength + MOUNTAIN.after, E + 1.5); // (past the walls: no edge to fall off)
-        this.physics.setRoad(this.roadLine, { rails: { left: -E, right: E }, ground });
+        // (its edges along it: a shoulder on a tight bend's outside)
+        const e = roadEdges(this.roadLine);
+        const ground = surfaceMesh(this.roadLine, -MOUNTAIN.before, this.courseLength + MOUNTAIN.after, (s) => [-e.at(s, -1) - 1.5, e.at(s, 1) + 1.5]); // (past the walls: no edge to fall off)
+        this.physics.setRoad(this.roadLine, { rails: { left: (s) => -e.at(s, -1), right: (s) => e.at(s, 1) }, ground });
       } else this.physics.setRoad(this.roadLine);
       this.player.road = this.roadLine;
       this.rivals.setRoad(this.roadLine);
@@ -919,7 +921,7 @@ export class Game {
           makeDriver: () => new MountainDriver(),
           grid: MOUNTAIN_GRID,
           gripBoost: 0,
-          edge: MOUNTAIN.edge,
+          edge: (s, side) => roadEdges(this.roadLine).at(s, side), // (a shoulder's too)
           lanes: [MOUNTAIN_LANE, -MOUNTAIN_LANE],
           setup: { params: (p, spec) => mountainSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) },
         })

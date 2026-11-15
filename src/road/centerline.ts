@@ -59,12 +59,17 @@ const BANK_EASE = 20;
  */
 function bankSlopes(road: Centerline, slope: number, full: number, ease: number, from: number): Float64Array {
   const n = Math.ceil((road.length + 2 * from) / BANK_STEP) + 1;
-  let a = new Float64Array(n);
+  const a = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     const k = road.curvature(i * BANK_STEP - from);
     a[i] = k === 0 ? 0 : -Math.sign(k) * slope * Math.min(1, Math.abs(k) / full);
   }
-  const h = Math.round(ease / 2 / BANK_STEP);
+  return easeTwice(a, Math.round(ease / 2 / BANK_STEP));
+}
+
+/** `a` averaged twice over a box of `h` samples either side (past its ends: 0): eased in and out over 2h + 1 samples, its change at most its whole over as many. */
+export function easeTwice(a: Float64Array, h: number): Float64Array {
+  const n = a.length;
   for (let pass = 0; pass < 2; pass++) {
     const sum = new Float64Array(n + 1);
     for (let i = 0; i < n; i++) sum[i + 1] = sum[i] + a[i];

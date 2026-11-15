@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { keepOverRoad, MOUNTAIN, mountainRoad, wallSide, wallSides } from '../src/road/mountain';
+import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges, wallSide, wallSides } from '../src/road/mountain';
 import { mulberry32 } from '../src/ai/rng';
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -141,5 +141,45 @@ describe('wallSide', () => {
     const road = new Centerline([...straight(100), ...bend(40, 90, 20), ...straight(100), ...bend(40, -90, 20), ...straight(100)], { turnBack: true });
     expect(wallSide(road, 100 + 30)).toBe(1);
     expect(wallSide(road, 100 + 20 + 62.8 + 100 + 30)).toBe(-1);
+  });
+});
+
+describe('roadEdges (a shoulder on a tight bend\'s outside)', () => {
+  const M = MOUNTAIN;
+  /** A right hairpin (R 20) between straights. */
+  const hairpin = new Centerline([...straight(150), ...bend(20, 180, 10), ...straight(150)], { turnBack: true });
+  const mid = 150 + 5 + 10 * Math.PI; // (its middle)
+
+  it('a hairpin\'s outside (left of a right turn) MOUNTAIN.shoulder.max wider in its middle; its inside as it was', () => {
+    const e = roadEdges(hairpin);
+    expect(e.at(mid, -1)).toBeCloseTo(M.edge + M.shoulder.max, 2);
+    expect(e.at(mid, 1)).toBe(M.edge);
+    const left = roadEdges(new Centerline([...straight(150), ...bend(20, -180, 10), ...straight(150)], { turnBack: true }));
+    expect(left.at(mid, 1)).toBeCloseTo(M.edge + M.shoulder.max, 2);
+    expect(left.at(mid, -1)).toBe(M.edge);
+  });
+
+  it('none on a straight, nor on a bend gentler than `from`; less in proportion between `from` and `full`', () => {
+    const e = roadEdges(hairpin);
+    for (const s of [0, 60, hairpin.length - 60]) for (const side of [1, -1] as const) expect(e.at(s, side)).toBe(M.edge);
+    const gentle = roadEdges(new Centerline([...straight(100), ...bend(1 / M.shoulder.from + 10, 90, 10), ...straight(100)], { turnBack: true }));
+    for (let s = 0; s < 300; s += 5) expect(gentle.at(s, -1)).toBe(M.edge);
+    const r = 2 / (M.shoulder.from + M.shoulder.full); // (halfway in curvature)
+    const half = roadEdges(new Centerline([...straight(100), ...bend(r, 160, 10), ...straight(100)], { turnBack: true }));
+    expect(half.at(100 + 5 + (r * 80 * Math.PI) / 180, -1)).toBeCloseTo(M.edge + M.shoulder.max / 2, 1);
+  });
+
+  it('eased in and out: its width changing no faster than max / ease a metre, and the same edges for the same road', () => {
+    for (const r of roads.slice(0, 10)) {
+      const e = roadEdges(r);
+      expect(roadEdges(r)).toBe(e);
+      for (const side of [1, -1] as const) {
+        for (let s = -M.before; s < r.length + M.after - 1; s += 1) {
+          expect(Math.abs(e.at(s + 1, side) - e.at(s, side))).toBeLessThanOrEqual(M.shoulder.max / M.shoulder.ease + 1e-9);
+          expect(e.at(s, side)).toBeGreaterThanOrEqual(M.edge);
+        }
+      }
+      expect(e.at(10, 1)).toBe(M.edge); // (the grid as it was)
+    }
   });
 });

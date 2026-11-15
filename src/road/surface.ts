@@ -30,16 +30,20 @@ export function roadRows(road: Centerline, from: number, to: number): number[] {
   return rows;
 }
 
-/** The road's surface from s = `from` to `to`, `halfWidth` m either side of its centre line (each edge at its surfaceHeight: its bends banked). */
-export function surfaceMesh(road: Centerline, from: number, to: number, halfWidth: number): SurfaceMesh {
+/**
+ * The road's surface from s = `from` to `to`, `halfWidth` m either side of its centre line - or each row from its own
+ * left edge to its right (`halfWidth(s)`: their d) - each edge at its surfaceHeight (its bends banked).
+ */
+export function surfaceMesh(road: Centerline, from: number, to: number, halfWidth: number | ((s: number) => [number, number])): SurfaceMesh {
   const rows = roadRows(road, from, to);
   const n = rows.length;
   const positions = new Float32Array(n * 6);
   const ss = new Float32Array(n * 2);
   const ds = new Float32Array(n * 2);
   rows.forEach((s, i) => {
+    const [l, r] = typeof halfWidth === 'number' ? [-halfWidth, halfWidth] : halfWidth(s);
     for (let j = 0; j < 2; j++) {
-      const d = j === 0 ? -halfWidth : halfWidth;
+      const d = j === 0 ? l : r;
       const w = road.toWorld(s, d);
       const v = 2 * i + j;
       positions[3 * v] = w.x;

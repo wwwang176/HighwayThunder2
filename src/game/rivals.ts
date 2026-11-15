@@ -174,12 +174,15 @@ export function placeOf(playerS: number, playerFinish: number | null, rivals: { 
 export type ResetReason = 'stuck' | 'spun' | 'off-road' | 'far-behind' | 'far-ahead';
 
 /** Whether a rival has to be put back into the race, and why (null: it is racing, or the player is too near to see it put back). */
-export function needsReset(r: { s: number; d: number; yaw: number; speed: number; stuckFor: number; playerS: number }, edge = RAIL_D, teleport = true): ResetReason | null {
+/** A road's edge: the same either side all along, or each side's own at s (a shoulder: the mountain road's roadEdges). */
+export type RoadEdge = number | ((s: number, side: 1 | -1) => number);
+
+export function needsReset(r: { s: number; d: number; yaw: number; speed: number; stuckFor: number; playerS: number }, edge: RoadEdge = RAIL_D, teleport = true): ResetReason | null {
   const T = RIVAL_TUNING;
   if (teleport && r.playerS - r.s > T.teleportBehind) return 'far-behind';
   if (teleport && r.s - r.playerS > T.teleportAhead) return 'far-ahead';
   if (Math.abs(r.s - r.playerS) < T.resetClear) return null; // (the player would see it pop)
-  if (Math.abs(r.d) > edge) return 'off-road';
+  if (Math.abs(r.d) > (typeof edge === 'number' ? edge : edge(r.s, r.d < 0 ? -1 : 1))) return 'off-road';
   if (Math.abs(r.yaw) > T.spunYaw) return 'spun';
   if (r.speed < T.stuckSpeed && r.stuckFor > T.stuckTime) return 'stuck';
   return null;
@@ -309,7 +312,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
   private readonly boxBuf: TrafficBox[] = [];
   /** Where each starts (d, s), and how far either side of the centre line it is off the road (m). */
   private readonly grid: [number, number][];
-  private readonly edge: number;
+  private readonly edge: RoadEdge;
   /**
    * Its own road's put-back (the mountain road's two lanes), else the highway's (clearResetSpot). With its own lanes,
    * no teleports either (far behind or ahead it races on: the rubber band alone keeps it near).
@@ -331,7 +334,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
       makeDriver?: (spec: CarSpec) => D;
       grid?: [number, number][];
       gripBoost?: number;
-      edge?: number;
+      edge?: RoadEdge;
       lanes?: number[];
       /** The road's own setup of the cars (vehicles/mountainSetup): their params as built or tuned, their AI tables. */
       setup?: { params: (p: CarParams, spec: CarSpec) => CarParams; ai: (ai: CarSpec['ai'], spec: CarSpec) => CarSpec['ai'] };

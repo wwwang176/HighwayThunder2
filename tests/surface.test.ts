@@ -48,3 +48,14 @@ describe('surfaceMesh', () => {
     }
   });
 });
+
+describe('surfaceMesh, its edges at each row their own (roadEdges: a shoulder)', () => {
+  it('each row from its left edge to its right, as `edges(s)` gives them', () => {
+    const edges = (s: number): [number, number] => [-4 - (s > 1000 ? 2 : 0), 5];
+    const m = surfaceMesh(road, 0, 2000, edges);
+    for (let v = 0; v < m.s.length; v++) {
+      const [l, r] = edges(m.s[v]);
+      expect(m.d[v]).toBeCloseTo(v % 2 === 0 ? l : r, 6);
+    }
+  });
+});
