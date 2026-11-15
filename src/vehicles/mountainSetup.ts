@@ -106,7 +106,7 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   drift: {
     minSpeed: 25 / 3.6,
     fullSpeed: 35 / 3.6,
-    from: (2 * Math.PI) / 180,
+    from: 0, // (the player's: from any slide; 2° at first)
     full: (12 * Math.PI) / 180,
     grace: 0.5,
     escFrom: (55 * Math.PI) / 180,
