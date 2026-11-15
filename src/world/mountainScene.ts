@@ -14,8 +14,11 @@ const LIGHT = {
 };
 /** The road's markings: the centre's double yellow line (d, m). */
 const CENTRE_LINE = { off: 0.12, width: 0.1 };
-/** The rock wall: how high (m, between, varying along the road), and its tapering in and out where it changes sides (m). */
-const WALL = { low: 7, high: 15, taper: 10, color: 0x5d564e };
+/**
+ * The rock wall: how high (m, between, varying along the road), its tapering in and out where it changes sides (m),
+ * and how deep it goes down below the road's edge (m: as the cliff - a mass, not a sheet).
+ */
+const WALL = { low: 7, high: 15, taper: 10, deep: 140, color: 0x5d564e };
 /** The guardrail: its beam's bottom and top over the road, posts and reflectors (m apart). */
 const RAIL = { y0: 0.5, y1: 0.82, post: 4, reflector: 8 };
 /** The ground falling away below the rail: (d past the rail, y below the road) pairs. */
@@ -269,17 +272,23 @@ export class MountainScene implements Scenery {
     for (const side of [-1, 1] as const) {
       const at = (s: number) => edges.at(s, side); // (this side's edge: a shoulder's)
       const wallOn = share[side];
-      const wall = strip(road, rows, 6, (s, i, p) => {
+      // (a rock mass, not a sheet - the player's: from a road below, the wall of one above floated, nothing under it or
+      // behind it: down from the road's edge as deep as the cliff, its back falling as deep again)
+      const wall = strip(road, rows, 9, (s, i, p) => {
         const E = at(s);
         const on = wallOn[i];
         const h = (WALL.low + (WALL.high - WALL.low) * bumps(s, side * 3.1)) * on;
         const b = bumps(s, side * 1.7 + 5);
-        p[0] = [side * E, -0.3];
-        p[1] = [side * (E + 0.3), 0.25 * h];
-        p[2] = [side * (E + 0.8 + 0.6 * b), 0.55 * h];
-        p[3] = [side * (E + 1.6 + b), 0.85 * h];
-        p[4] = [side * (E + 3 + 2 * b), h];
-        p[5] = [side * (E + 9 + 4 * b), h + 4 * on];
+        const deep = WALL.deep * on;
+        p[0] = [side * E, -0.3 - deep];
+        p[1] = [side * E, -0.3];
+        p[2] = [side * (E + 0.3), 0.25 * h];
+        p[3] = [side * (E + 0.8 + 0.6 * b), 0.55 * h];
+        p[4] = [side * (E + 1.6 + b), 0.85 * h];
+        p[5] = [side * (E + 3 + 2 * b), h];
+        p[6] = [side * (E + 9 + 4 * b), h + 4 * on];
+        p[7] = [side * (E + 11 + 4 * b), 0.5 * h];
+        p[8] = [side * (E + 14 + 4 * b), -0.3 - deep];
       }, 8);
       const wallMesh = new THREE.Mesh(wall, this.wallMat);
       wallMesh.receiveShadow = true;
