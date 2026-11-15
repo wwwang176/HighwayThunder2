@@ -320,6 +320,56 @@ export function wallShare(ss: number[], sides: Int8Array, side: 1 | -1, taper: n
   return dist.map((x) => Math.max(0, 1 - x / taper));
 }
 
+/** The ground off the road (its cliff's slope) under the rest of it: this far under its surface at least (m)... */
+const CEILING_CLEAR = 1.5;
+/** ...and falling away from its edges this much a metre (35°)... */
+const CEILING_FALL = 0.7;
+/**
+ * ...within this far of it (m); and not the road's own on from the ground's - within CEILING_SKIP m along it, or
+ * along it not CEILING_ROUND times as far as across (the road on ahead or behind: not come back round beside it).
+ */
+const CEILING_NEAR = 60;
+const CEILING_SKIP = 30;
+const CEILING_ROUND = 1.2;
+const CEILING_CELL = 20;
+
+/**
+ * How high the ground off the road may be at (x, z), the ground's own road at `s` (+Infinity: no limit): under any
+ * other part of the road near it - CEILING_CLEAR m under its surface over it, falling away CEILING_FALL a metre from its
+ * edges (the player's: a road's slope fell gently from its rail, over another one below it).
+ */
+export function groundCeiling(road: Centerline, edges: RoadEdges = roadEdges(road)): (x: number, z: number, s: number) => number {
+  const grid = new Map<string, { s: number; x: number; z: number; y: number; e: number }[]>();
+  const key = (ix: number, iz: number) => `${ix},${iz}`;
+  for (let s = -MOUNTAIN.before; s <= road.length + MOUNTAIN.after; s += 2) {
+    const c = road.center(s);
+    const p = { s, x: c.x, z: c.z, y: road.height(s), e: Math.max(edges.at(s, 1), edges.at(s, -1)) };
+    const k = key(Math.floor(c.x / CEILING_CELL), Math.floor(c.z / CEILING_CELL));
+    const list = grid.get(k);
+    if (list) list.push(p);
+    else grid.set(k, [p]);
+  }
+  const reach = Math.ceil(CEILING_NEAR / CEILING_CELL);
+  return (x, z, s) => {
+    let top = Infinity;
+    const ix = Math.floor(x / CEILING_CELL), iz = Math.floor(z / CEILING_CELL);
+    for (let a = -reach; a <= reach; a++) {
+      for (let b = -reach; b <= reach; b++) {
+        const list = grid.get(key(ix + a, iz + b));
+        if (!list) continue;
+        for (const p of list) {
+          const along = Math.abs(p.s - s);
+          if (along < CEILING_SKIP) continue;
+          const dist = Math.hypot(x - p.x, z - p.z);
+          if (dist >= CEILING_NEAR || along < CEILING_ROUND * dist) continue;
+          top = Math.min(top, p.y - CEILING_CLEAR - CEILING_FALL * Math.max(0, dist - p.e));
+        }
+      }
+    }
+    return top;
+  };
+}
+
 /** The inside of the bend at s or nearest it (+1: +d, the right) - the rock wall's side where nothing says which is uphill (wallSides). */
 export function wallSide(road: Centerline, s: number): 1 | -1 {
   for (let k = 0; k <= 600; k++) {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges, WALL_RUN, wallShare, wallSide, wallSides } from '../src/road/mountain';
+import { groundCeiling, keepOverRoad, MOUNTAIN, mountainRoad, roadEdges, WALL_RUN, wallShare, wallSide, wallSides } from '../src/road/mountain';
 import { mulberry32 } from '../src/ai/rng';
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -183,6 +183,32 @@ describe('wallSides (the rock wall on the uphill side: where the road beside it 
     }
     // (with each bend: ~20 a race; now about once a hairpin - turned back, the hill is on the driver's other side)
     expect(changes / 20).toBeLessThan(14);
+  });
+});
+
+describe('groundCeiling (the ground off the road kept under the rest of it)', () => {
+  /** A steep switchback: up one leg, round a right hairpin, on up the other 40 m to its right. */
+  const road = new Centerline([...straight(150), ...bend(20, 180, 10), ...straight(200)], { turnBack: true, grades: [{ len: 2000, g: 0.15 }] });
+  const ceiling = groundCeiling(road);
+  const leg2 = 150 + 20 * Math.PI + 10 + 80;
+  it('over another part of the road: under it, falling away from its edge', () => {
+    // (from the upper leg's ground, over the lower leg's middle beside it: 80 m before the hairpin as it is 80 m after)
+    const lowS = 70;
+    const c = road.toWorld(lowS, 0);
+    expect(ceiling(c.x, c.z, leg2)).toBeLessThanOrEqual(road.height(lowS) - 1.5 + 1e-6);
+    const off = road.toWorld(lowS, -(MOUNTAIN.edge + 10)); // (10 m past its far edge)
+    expect(ceiling(off.x, off.z, leg2)).toBeLessThan(road.height(lowS) - 1.5 - 5);
+  });
+  it('the road on ahead or behind (not come back round beside it), and far from any of it: no limit', () => {
+    const climb = new Centerline([...straight(200), ...bend(150, 40, 20), ...straight(300)], { grades: [{ len: 2000, g: 0.12 }] });
+    const up = groundCeiling(climb);
+    for (const s of [100, 230, 400]) {
+      for (const d of [MOUNTAIN.edge + 2, -(MOUNTAIN.edge + 20)]) {
+        const p = climb.toWorld(s, d);
+        expect(up(p.x, p.z, s)).toBe(Infinity);
+      }
+    }
+    expect(ceiling(1e4, 1e4, 0)).toBe(Infinity);
   });
 });
 

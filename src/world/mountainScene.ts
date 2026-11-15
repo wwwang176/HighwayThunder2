@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeFlareMaterial } from '../render/lightFlares';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
-import { MOUNTAIN, roadEdges, wallShare, wallSides } from '../road/mountain';
+import { groundCeiling, MOUNTAIN, roadEdges, wallShare, wallSides } from '../road/mountain';
 import { roadRows } from '../road/surface';
 import { repeating, type Scenery, withAsphalt } from './roadScene';
 
@@ -22,13 +22,22 @@ const CENTRE_LINE = { off: 0.12, width: 0.1 };
 const WALL = { low: 7, high: 15, taper: 10, deep: 140, color: 0x5d564e };
 /** The guardrail: its beam's bottom and top over the road, posts and reflectors (m apart). */
 const RAIL = { y0: 0.5, y1: 0.82, post: 4, reflector: 8 };
-/** The ground falling away below the rail: (d past the rail, y below the road) pairs. */
+/**
+ * The ground falling away below the rail: (d past the rail, y below the road) pairs - a verge at ~20°, then a mountain
+ * side at 35° steepening to 40° (the player's: 45-59° at first, a cliff more than a hillside).
+ */
 const CLIFF: [number, number][] = [
   [0.3, -0.25],
-  [3, -3],
-  [12, -18],
-  [40, -55],
-  [110, -140],
+  [3, -1.2],
+  [7, -3.9],
+  [12, -7.5],
+  [18, -11.8],
+  [25, -16.9],
+  [32, -22.5],
+  [40, -30],
+  [60, -47],
+  [85, -68],
+  [110, -90],
 ];
 /**
  * Chevron boards outside the bends, two-faced (one for each way): `size` m high, as wide again for each chevron
@@ -255,6 +264,7 @@ export class MountainScene implements Scenery {
     // markings' columns where they are on a straight, their asphalt and shoulder stretched across the rest.
     const E0 = MOUNTAIN.edge, H0 = MOUNTAIN.halfWidth, C = 0.5; // (C: past the centre lines)
     const edges = roadEdges(road);
+    const ceiling = groundCeiling(road, edges);
     const uOf = (d: number) => (d + E0) / (2 * E0);
     const roadGeo = strip(road, rows, 6, (s, _i, p) => {
       const half = H0 + edges.widen(s);
@@ -298,12 +308,20 @@ export class MountainScene implements Scenery {
       wallMesh.receiveShadow = true;
       this.course.add(wallMesh);
 
-      // The cliff's slope where the wall isn't (folded flat under the wall where it is).
+      // The cliff's slope where the wall isn't (folded flat under the wall where it is) - kept under the rest of the road
+      // (groundCeiling: the player's - falling gently from its rail, it lay over another leg below).
       const cliff = strip(road, rows, CLIFF.length, (s, i, p) => {
         const E = at(s);
         const on = wallOn[i] > 0 ? 0 : 1;
+        const base = edgeHeight(road, s, side * E);
         CLIFF.forEach(([dd, y], j) => {
-          p[j] = [side * (E + dd * (j === 0 ? 1 : on) + (1 - on) * 0.3 * j), on ? y : -0.3 - 0.01 * j];
+          const d = side * (E + dd * (j === 0 ? 1 : on) + (1 - on) * 0.3 * j);
+          let h = on ? y : -0.3 - 0.01 * j;
+          if (on && j > 0) {
+            const w = road.toWorld(s, d);
+            h = Math.min(h, ceiling(w.x, w.z, s) - base);
+          }
+          p[j] = [d, h];
         });
       }, 12);
       this.course.add(new THREE.Mesh(cliff, this.cliffMat));
