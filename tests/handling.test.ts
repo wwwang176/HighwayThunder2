@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftOn, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftRamp, driftHeld, driftFollow, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftKick, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -392,36 +392,27 @@ describe('traction control (tractionTrim)', () => {
 });
 
 describe('drift assist (CarParams.drift)', () => {
-  const D: DriftAssist = { minSpeed: 7, enter: 0.21, exit: 0.1, exitTime: 0.3, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, rampIn: 0.3, limit: 0.45, steerUp: 1.5, steerDown: 1, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
+  const D: DriftAssist = { minSpeed: 7, fullSpeed: 10, from: 0.04, full: 0.2, grace: 0.5, escFrom: 0.9, escFull: 1.3, rearGrip: 0.85, limit: 0.45, steerUp: 1.5, steerDown: 1, hold: 20_000, damp: 5000, holdMax: 8000, powerFrom: 0.5, powerTo: 0.8, least: 0.2, carve: 5, carveFull: 0.4 };
   const dt = 1 / 120;
-  const st = (on: boolean, quiet = 0) => ({ on, quiet });
-  it('on once the car slides past `enter` (either way: from the handbrake, the throttle, a flick), at speed; not crawling', () => {
-    expect(driftOn(st(false), 0.3, 20, dt, D).on).toBe(true);
-    expect(driftOn(st(false), -0.3, 20, dt, D).on).toBe(true);
-    expect(driftOn(st(false), 0.15, 20, dt, D).on).toBe(false); // (a hard bend's own slide)
-    expect(driftOn(st(false), 0.3, 3, dt, D).on).toBe(false);
+  it('how much it drifts: none up to a slide of `from`, all of it from `full`, smoothly between (either way); at speed only', () => {
+    expect(driftShare(0, 20, D)).toBe(0);
+    expect(driftShare(0.03, 20, D)).toBe(0);
+    expect(driftShare(0.12, 20, D)).toBeCloseTo(0.5, 9); // (halfway: smoothstep's middle)
+    expect(driftShare(-0.12, 20, D)).toBeCloseTo(0.5, 9);
+    expect(driftShare(0.25, 20, D)).toBe(1);
+    expect(driftShare(0.05, 20, D)).toBeLessThan(0.05); // (just past from: a little, gently)
+    expect(driftShare(0.25, 5, D)).toBe(0); // (crawling)
+    expect(driftShare(0.25, 8.5, D)).toBeCloseTo(0.5, 9); // (speeding up: halfway between minSpeed and fullSpeed)
+    expect(driftShare(0.25, -20, D)).toBe(1);
   });
-  it('on with a tap of the handbrake at speed (its slide not grown yet), given `grace` s more for it to grow before it can end', () => {
-    let s = driftOn(st(false), 0.02, 20, dt, D, true);
-    expect(s.on).toBe(true);
-    for (let t = 0; t < D.grace + D.exitTime - 0.05; t += dt) s = driftOn(s, 0.02, 20, dt, D);
-    expect(s.on).toBe(true);
-    for (let t = 0; t < 0.1; t += dt) s = driftOn(s, 0.02, 20, dt, D);
-    expect(s.on).toBe(false);
-    expect(driftOn(st(false), 0, 3, dt, D, true).on).toBe(false); // (crawling: a handbrake turn, not a drift)
-  });
-
-  it('on while it slides, through a flick the other way; off once the slide has been under `exit` for exitTime, or crawling', () => {
-    let s = driftOn(st(true), 0.15, 20, dt, D);
-    expect(s.on).toBe(true); // (under enter, over exit: still on)
-    s = driftOn(s, -0.4, 20, dt, D);
-    expect(s.on).toBe(true);
-    for (let t = 0; t < D.exitTime - 0.05; t += dt) s = driftOn(s, 0.05, 20, dt, D);
-    expect(s.on).toBe(true);
-    for (let t = 0; t < 0.1; t += dt) s = driftOn(s, 0.05, 20, dt, D);
-    expect(s.on).toBe(false);
-    expect(driftOn(st(true, 0.2), 0.3, 20, dt, D).quiet).toBe(0); // (sliding again: its quiet time anew)
-    expect(driftOn(st(true), 0.3, 3, dt, D).on).toBe(false);
+  it('a tap of the handbrake at speed: all of it, fading over `grace` s after (its slide not grown yet); crawling none', () => {
+    let k = driftKick(0, true, 20, dt, D);
+    expect(k).toBe(1);
+    for (let i = 0; i < Math.round(D.grace / 2 / dt); i++) k = driftKick(k, false, 20, dt, D);
+    expect(k).toBeCloseTo(0.5, 6);
+    for (let i = 0; i < Math.round(D.grace / dt); i++) k = driftKick(k, false, 20, dt, D);
+    expect(k).toBe(0);
+    expect(driftKick(0, true, 3, dt, D)).toBe(0); // (a handbrake turn, not a drift)
   });
   it('the drive all of it up to a slide of powerFrom, down to `least` of it by powerTo (full throttle on the keys not spinning it round)', () => {
     expect(driftDrive(0.3, D)).toBe(1);
@@ -477,13 +468,5 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftCarve(0.2, D)).toBeCloseTo(2.5, 9);
     expect(driftCarve(-0.2, D)).toBeCloseTo(2.5, 9); // (either way: its size)
     expect(driftCarve(0.8, D)).toBe(5);
-  });
-  it('the drift eased in over rampIn s (its grip not dropped all at once), out at once', () => {
-    let k = 0;
-    for (let i = 0; i < Math.round(D.rampIn / 2 / dt); i++) k = driftRamp(k, true, dt, D);
-    expect(k).toBeCloseTo(0.5, 6);
-    for (let i = 0; i < Math.round(D.rampIn / dt); i++) k = driftRamp(k, true, dt, D);
-    expect(k).toBe(1);
-    expect(driftRamp(k, false, dt, D)).toBe(0);
   });
 });

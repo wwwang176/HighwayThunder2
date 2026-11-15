@@ -81,8 +81,9 @@ describe('mountainSetup', () => {
       expect(mountainSetup(spec.params, mountainSetupOf(spec.id)).drift).toEqual(MOUNTAIN_SETUP.drift);
       expect(spec.params.drift).toBeUndefined();
     }
-    expect(MOUNTAIN_SETUP.drift.enter).toBeGreaterThan(MOUNTAIN_SETUP.drift.exit);
-    expect(MOUNTAIN_SETUP.drift.escFrom).toBeGreaterThan(MOUNTAIN_SETUP.drift.enter);
+    expect(MOUNTAIN_SETUP.drift.full).toBeGreaterThan(MOUNTAIN_SETUP.drift.from);
+    expect(MOUNTAIN_SETUP.drift.escFrom).toBeGreaterThan(MOUNTAIN_SETUP.drift.full);
+    expect(MOUNTAIN_SETUP.drift.fullSpeed).toBeGreaterThan(MOUNTAIN_SETUP.drift.minSpeed);
   });
 
   it('a rival: the setup but no drift assist (the player only: on the throttle in a bend the AI spun round in it)', () => {

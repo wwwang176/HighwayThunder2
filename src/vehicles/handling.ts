@@ -67,7 +67,7 @@ export interface CarParams {
   gearTops?: number[]; // its gearbox: each gear's top speed (km/h, at the redline); unset: GEAR_TOP_KMH
   launchSlip?: number; // launch control: the tail following the nose, the drive eased to hold the rear tyres' slip at this (m/s); unset: none
   tractionSlip?: number; // traction control: the drive eased to hold the rear tyres' slip at this (m/s), sliding or not (tractionTrim); unset: none
-  drift?: DriftAssist; // drift assist: sliding, the car the driver's - no traction control, the stability control only near a spin (driftOn, driftEsc); unset: none
+  drift?: DriftAssist; // drift assist: the more it slides the more the car the driver's - less traction control, the stability control only near a spin (driftShare, driftEsc); unset: none
   rearLongGrip?: number; // drag tyres: the rear tyres' grip straight on (driving, braking) times this, always (on rearGrip); unset: 1
   // The player's tuning (src/vehicles/tuning.ts); unset: as built.
   gearScale?: number; // final drive: every gear's top speed (and the limiter's) times this (> 1 taller)
@@ -416,21 +416,21 @@ export function tractionTrim(trim: number, slip: number, target: number, dt: num
 }
 
 /**
- * Drift assist (CarParams.drift): once the car slides (past `enter`: from the throttle or a flick; or the handbrake
- * tapped) it
- * drifts till the slide is over, and while it does the car is the driver's - the traction control lets the rear tyres
- * spin (a drift is the tail on wheelspin; it straightened every slide on the throttle), the stability control lets
- * the slide be till it nears a spin, the rear's grip a little less, the drive eased as the slide grows big - and the
- * slide kept under `limit` (driftLimit). Under it nothing holds its angle: the throttle and the steering do. Angles: the body's slide (its motion's angle off its nose), rad.
+ * Drift assist (CarParams.drift): the more the car slides the more it drifts (driftShare: no switch - from a slide of
+ * `from` to `full`, smoothly; or the handbrake tapped, driftKick), and the more it drifts the more the car is the
+ * driver's - the traction control lets the rear tyres spin (a drift is the tail on wheelspin; it straightened every
+ * slide on the throttle), the stability control lets the slide be till it nears a spin, the rear's grip less, the
+ * drive eased as the slide grows big - and the slide pulled to what the steering sets (driftLimit), the car pushed
+ * toward its nose (driftCarve). Angles: the body's slide (its motion's angle off its nose), rad.
  */
 export interface DriftAssist {
-  /** No drift slower than this (m/s). */
+  /** None slower than `minSpeed` (m/s), all of it from `fullSpeed`, in proportion between. */
   minSpeed: number;
-  /** It starts once the slide is past `enter`, and ends once it has been under `exit` for `exitTime` s. */
-  enter: number;
-  exit: number;
-  exitTime: number;
-  /** A tap of the handbrake starts it too (its slide not grown yet), given this long more (s) before it can end. */
+  fullSpeed: number;
+  /** None up to a slide of `from`, all of it from `full`, smoothly between (a switch at one angle dropped the grip at once). */
+  from: number;
+  full: number;
+  /** A tap of the handbrake at speed: all of it, fading over this (s) after (its slide not grown yet). */
   grace: number;
   /** The stability control none of it to a slide of `escFrom`, all of it from `escFull` (a spin caught). */
   escFrom: number;
@@ -440,8 +440,6 @@ export interface DriftAssist {
    * slide is the steering's).
    */
   rearGrip: number;
-  /** The drift's grip eased in over this (s: driftRamp), not dropped all at once (it tipped the slide over). */
-  rampIn: number;
   /**
    * The slide pulled back to what the steering sets, at any slide (a spring: driftHeld, driftInto, driftLimit; the
    * stability control can't - it holds the turning to what the steering asks, and full lock asks for a spin): none
@@ -468,20 +466,21 @@ export interface DriftAssist {
   carveFull: number;
 }
 
-/** A drift's state: whether it drifts, and how long its slide has been under `exit` (s). */
-export interface DriftState {
-  on: boolean;
-  quiet: number;
+/** At speed: none under minSpeed, all of it from fullSpeed (m/s, either way). */
+function driftAtSpeed(speed: number, d: DriftAssist): number {
+  return Math.min(1, Math.max(0, (Math.abs(speed) - d.minSpeed) / (d.fullSpeed - d.minSpeed)));
 }
 
-/** Whether the car drifts (drift assist), its slide (rad, either way) this step, the handbrake on or not. */
-export function driftOn(was: DriftState, slide: number, speed: number, dt: number, d: DriftAssist, handbrake = false): DriftState {
-  const a = Math.abs(slide);
-  if (Math.abs(speed) < d.minSpeed) return { on: false, quiet: 0 };
-  if (handbrake) return { on: true, quiet: -d.grace };
-  if (!was.on) return { on: a > d.enter, quiet: 0 };
-  const quiet = a < d.exit ? was.quiet + dt : 0;
-  return { on: quiet < d.exitTime, quiet };
+/** How much the car drifts (0..1) at this slide (rad, either way) and speed (m/s): from `from` to `full`, smoothly. */
+export function driftShare(slide: number, speed: number, d: DriftAssist): number {
+  const x = Math.min(1, Math.max(0, (Math.abs(slide) - d.from) / (d.full - d.from)));
+  return x * x * (3 - 2 * x) * driftAtSpeed(speed, d);
+}
+
+/** The handbrake's drift (0..1): all of it while it is on at speed, fading over `grace` s after. */
+export function driftKick(was: number, handbrake: boolean, speed: number, dt: number, d: DriftAssist): number {
+  if (driftAtSpeed(speed, d) === 0) return 0;
+  return handbrake ? 1 : Math.max(0, was - dt / d.grace);
 }
 
 /** In a drift, the share of the drive let through at this slide (rad). */
@@ -532,10 +531,6 @@ export function driftCarve(slide: number, d: DriftAssist): number {
   return d.carve * Math.min(1, Math.abs(slide) / d.carveFull);
 }
 
-/** How far into a drift (0..1: its grip eased in over rampIn s); `on` whether it drifts. Out of it at once. */
-export function driftRamp(was: number, on: boolean, dt: number, d: DriftAssist): number {
-  return on ? Math.min(1, was + dt / d.rampIn) : 0;
-}
 
 const FOLLOW_FADE_LO = 3; // m/s
 const FOLLOW_FADE_HI = 8; // m/s
