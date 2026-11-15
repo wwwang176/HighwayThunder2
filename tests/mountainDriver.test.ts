@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { MountainDriver } from '../src/ai/mountainDriver';
+import { driftSteer, hairpinRuns, MOUNTAIN_DRIVER, MountainDriver } from '../src/ai/mountainDriver';
 import { lineAt } from '../src/ai/mountainLine';
 import type { SelfState, TrafficBox } from '../src/ai/sensors';
 import { STREET_RACER } from '../src/vehicles/cars';
@@ -88,5 +88,47 @@ describe('MountainDriver', () => {
     const slow = lineAt(m.line!, 430).v;
     m.push = 1;
     expect(m.speedAt(430)).toBeGreaterThan(slow);
+  });
+});
+
+describe('drifting round the hairpins (MOUNTAIN_DRIVER.drift)', () => {
+  /** A right hairpin (R 20) between straights. */
+  const PIN = new Centerline([...straight(300), ...bend(20, 180, 10), ...straight(300)], { turnBack: true });
+  const ARC = 20 * Math.PI + 10;
+  const D = MOUNTAIN_DRIVER.drift;
+
+  it('finds the hairpins: their tight runs, which way', () => {
+    const runs = hairpinRuns(PIN, D.tight);
+    expect(runs.length).toBe(1);
+    expect(runs[0].dir).toBe(1); // (a right bend)
+    expect(runs[0].from).toBeGreaterThan(300);
+    expect(runs[0].from).toBeLessThan(300 + 10); // (in its clothoid)
+    expect(runs[0].to).toBeGreaterThan(300 + ARC - 10);
+    expect(runs[0].to).toBeLessThan(300 + ARC);
+    expect(hairpinRuns(ROAD, D.tight).length).toBe(0); // (R 40: not one)
+  });
+
+  it('in the drift, the wheel turned in - more off its line outward, less inward, within 0.3..1', () => {
+    expect(driftSteer(1, 0, D)).toBeCloseTo(D.steer, 9);
+    expect(driftSteer(-1, 0, D)).toBeCloseTo(-D.steer, 9);
+    expect(driftSteer(1, -1, D)).toBeCloseTo(D.steer + D.outGain, 9); // (a right bend, 1 m left of its line: outward)
+    expect(driftSteer(1, 1, D)).toBeCloseTo(D.steer - D.outGain, 9);
+    expect(driftSteer(-1, 1, D)).toBeCloseTo(-(D.steer + D.outGain), 9); // (a left bend, right of it: outward)
+    expect(driftSteer(1, -10, D)).toBe(1);
+    expect(driftSteer(1, 10, D)).toBe(0.3);
+  });
+
+  it('pulls the handbrake coming into a hairpin at speed, turning in; not on the straight before, nor crawling', () => {
+    const m = new MountainDriver();
+    m.setRoad(PIN, STREET_RACER.ai);
+    const at = (s: number, v: number): SelfState => ({ s, d: lineAt(m.line!, s).d, yaw: 0, vLong: v, vLat: 0, yawRate: 0, speedCap: 300 * KMH });
+    const from = hairpinRuns(PIN, D.tight)[0].from;
+    expect(m.drive(at(200, 15), [], P).handbrake).toBeFalsy();
+    const into = m.drive(at(from - 15 * D.kickEarly + 1, 15), [], P);
+    expect(into.handbrake).toBe(true);
+    expect(into.steer).toBeGreaterThan(0.3);
+    const slow = new MountainDriver();
+    slow.setRoad(PIN, STREET_RACER.ai);
+    expect(slow.drive(at(from - 1, 5), [], P).handbrake).toBeFalsy();
   });
 });

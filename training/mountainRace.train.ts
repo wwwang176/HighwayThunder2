@@ -1,7 +1,7 @@
 import { it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { selfStateOf } from '../src/ai/driver';
-import { MountainDriver } from '../src/ai/mountainDriver';
+import { MOUNTAIN_DRIVER, MountainDriver } from '../src/ai/mountainDriver';
 import { mulberry32 } from '../src/ai/rng';
 import { KMH, PHYSICS_DT } from '../src/config';
 import { FINISHED_SPEED, type RaceView, Rivals } from '../src/game/rivals';
@@ -35,6 +35,8 @@ const GRID: [number, number][] = [
 ];
 /** DEBUG=1: where the cars meet the walls and are put back (the first few of each). */
 const DEBUG = !!process.env.DEBUG;
+// (DRIFT='{"steer":0.6}': the AI's hairpin drift tuned over MOUNTAIN_DRIVER.drift)
+if (process.env.DRIFT) Object.assign(MOUNTAIN_DRIVER.drift, JSON.parse(process.env.DRIFT));
 const log: string[] = [];
 const RIVAL_CARS =[STREET_RACER, CARS['muscle-car'] ?? STREET_RACER, CARS.jdm ?? STREET_RACER];
 
@@ -50,9 +52,28 @@ interface CarStats {
   walls: number;
   resets: number;
   under: number;
+  /** Drifts: its slide past DRIFT_ON (from under DRIFT_OFF), and its most. */
+  drifts: number;
+  sliding: boolean;
+  most: number;
 }
 
-function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } {
+const DRIFT_ON = (20 * Math.PI) / 180;
+const DRIFT_OFF = (10 * Math.PI) / 180;
+/** Its slide now (rad, either way). */
+const slideOf = (car: PlayerCar) => Math.abs(Math.atan2(car.vLat, Math.max(Math.abs(car.vLong), 1)));
+/** A road's hairpins: its runs bent tighter than R 26 one way. */
+function hairpinsOf(road: { length: number; curvature(s: number): number }): number {
+  let n = 0, inside = false;
+  for (let s = 0; s < road.length; s += 1) {
+    const tight = Math.abs(road.curvature(s)) > 1 / 26;
+    if (tight && !inside) n++;
+    inside = tight;
+  }
+  return n;
+}
+
+function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number } {
   const road = mountainRoad(mulberry32(seed));
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
@@ -80,7 +101,7 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
   rivals.setRoad(road);
   for (const r of rivals.list) r.driver.budget = BUDGET;
   rivals.place();
-  const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, resets: 0, under: 0 }));
+  const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, resets: 0, under: 0, drifts: 0, sliding: false, most: 0 }));
   let time = 0;
   let nan = false;
   let playerStuck = 0;
@@ -126,6 +147,16 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
       playerStuck = 0;
     }
     if (stats[0].time === null && player.s >= MOUNTAIN.length) stats[0].time = time;
+    [player, ...rivals.list.map((r) => r.car)].forEach((car, k) => {
+      const st = stats[k];
+      if ((k === 0 ? st.time : rivals.list[k - 1].finishTime) !== null) return;
+      const a = slideOf(car);
+      st.most = Math.max(st.most, a);
+      if (!st.sliding && a > DRIFT_ON) {
+        st.sliding = true;
+        st.drifts++;
+      } else if (st.sliding && a < DRIFT_OFF) st.sliding = false;
+    });
     rivals.list.forEach((r, i) => {
       const t = r.car.body.translation();
       if (![t.x, t.y, t.z].every(Number.isFinite)) nan = true;
@@ -143,7 +174,7 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number } 
     stats[i + 1].resets = r.resets;
   });
   physics.free();
-  return { cars: stats, nan, lineMs };
+  return { cars: stats, nan, lineMs, hairpins: hairpinsOf(road) };
 }
 
 it('mountain races', async () => {
@@ -152,7 +183,7 @@ it('mountain races', async () => {
   let allHome = 0;
   let fell = 0;
   let nans = 0;
-  const totals = { walls: 0, resets: 0 };
+  const totals = { walls: 0, resets: 0, drifts: 0, hairpins: 0 };
   for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
     const r = race(seed);
     const home = r.cars.every((c) => c.time !== null);
@@ -162,15 +193,17 @@ it('mountain races', async () => {
     for (const c of r.cars) {
       totals.walls += c.walls;
       totals.resets += c.resets;
+      totals.drifts += c.drifts;
     }
+    totals.hairpins += r.hairpins * r.cars.length;
     out.push(
-      `seed ${String(seed).padStart(2)} (line ${r.lineMs.toFixed(0)} ms): ` +
-        r.cars.map((c, i) => `${i ? `R${i}` : 'P'} ${c.time !== null ? c.time.toFixed(1) + ' s' : `DNF@${c.s.toFixed(0)}`} w${c.walls} r${c.resets}${c.under < -2 ? ` UNDER ${c.under.toFixed(1)}` : ''}`).join(' | ') +
+      `seed ${String(seed).padStart(2)} (${r.hairpins} hairpins, line ${r.lineMs.toFixed(0)} ms): ` +
+        r.cars.map((c, i) => `${i ? `R${i}` : 'P'} ${c.time !== null ? c.time.toFixed(1) + ' s' : `DNF@${c.s.toFixed(0)}`} w${c.walls} r${c.resets} d${c.drifts}/${((c.most * 180) / Math.PI).toFixed(0)}°${c.under < -2 ? ` UNDER ${c.under.toFixed(1)}` : ''}`).join(' | ') +
         (r.nan ? '  NaN!' : ''),
     );
     out.push(...log.splice(0));
   }
-  out.push(`all home ${allHome}/${SEEDS}, fell through ${fell}, NaN ${nans}, wall contacts ${totals.walls}, put-backs ${totals.resets}`);
+  out.push(`all home ${allHome}/${SEEDS}, fell through ${fell}, NaN ${nans}, wall contacts ${totals.walls}, put-backs ${totals.resets}, drifts ${totals.drifts} (hairpins ${totals.hairpins})`);
   process.stdout.write(out.join('\n') + '\n');
   expect(nans).toBe(0);
   expect(fell).toBe(0);

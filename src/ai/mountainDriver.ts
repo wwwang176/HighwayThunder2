@@ -36,11 +36,68 @@ export const MOUNTAIN_DRIVER = {
   followGain: 0.5,
   /** The top speed its line is planned to (m/s: past any car's; the car's own limit caps it). */
   vMax: 100,
+  /**
+   * Drifting round every hairpin (the player's: for show, slower or not) - its tight run (tighter than R `tight`): the
+   * handbrake pulled `kickEarly` s before it for `kickTime` s, the wheel turned in `steer` (the drift assist's spring
+   * then holds the slide it asks: driftHeld), `outGain` more a metre off its line outward (less inward), back to
+   * following its line `exitEarly` m before the bend ends (the spring straightens it). Not under `minSpeed` (m/s). Its
+   * slide past `catchAt` (rad): caught - following its line (counter-steering), as out of a drift. Into it no faster
+   * than `side` m/s² sideways round its radius plus `room` m (drifting, the rear's grip less: at the line's speed it
+   * slid wide into the wall), braked down to that at `brake` m/s². Its line `wide` m further out (its apex on the
+   * inside's edge: turned across the road, the car's corners swept the inside wall).
+   */
+  drift: {
+    tight: 26,
+    kickEarly: 0.35,
+    kickTime: 0.15,
+    steer: 0.85,
+    outGain: 0.15,
+    exitEarly: 12,
+    minSpeed: 30 / 3.6,
+    catchAt: 0.6,
+    side: 9,
+    room: 4,
+    brake: 7,
+    wide: 3,
+  },
   /** Past the finish, braked down to this (m/s; 40 km/h, as the highway's FINISHED_SPEED). */
   pastFinish: 40 / 3.6,
   /** ...and stopped this far past it (m: short of where the road runs out, MOUNTAIN.after). */
   stopPast: 300,
 };
+
+/** A hairpin's tight run: from, to (s, m), which way (+1 right). */
+export interface HairpinRun {
+  from: number;
+  to: number;
+  dir: 1 | -1;
+}
+
+/** The road's hairpins: its runs bent tighter than R `tight` one way (m). */
+export function hairpinRuns(road: Centerline, tight: number): HairpinRun[] {
+  const out: HairpinRun[] = [];
+  let open: HairpinRun | null = null;
+  for (let s = 0; s <= road.length; s += 0.5) {
+    const k = road.curvature(s);
+    const dir = Math.sign(k) as 1 | -1;
+    if (Math.abs(k) > 1 / tight) {
+      if (open && open.dir === dir) open.to = s;
+      else {
+        open = { from: s, to: s, dir };
+        out.push(open);
+      }
+    } else open = null;
+  }
+  return out;
+}
+
+/**
+ * In a drift round a hairpin turning `dir` (+1 right), the wheel (-1..1): turned in drift.steer, outGain more a metre
+ * its car is off its line outward (`err`: + right of it), within 0.3..1 in.
+ */
+export function driftSteer(dir: 1 | -1, err: number, d: { steer: number; outGain: number }): number {
+  return dir * Math.max(0.3, Math.min(1, d.steer - d.outGain * dir * err));
+}
 
 /**
  * Drives the mountain road: its racing line (least curvature within the road: mountainLine) at the line's speeds
@@ -62,6 +119,10 @@ export class MountainDriver implements RivalDriver {
   private offset = 0;
   /** Where it steers for, across the road (m): the line's there plus the offset. */
   aimD = 0;
+  /** The road's hairpins (hairpinRuns), the one it last pulled the handbrake into, and how long more it holds it (s). */
+  private hairpins: HairpinRun[] = [];
+  private kicked: HairpinRun | null = null;
+  private kickLeft = 0;
   /** Its room either side of the centre line on a straight (m); roomAt: a bend's wider. */
   readonly room = MOUNTAIN.edge - MOUNTAIN_DRIVER.halfWidth - MOUNTAIN_DRIVER.margin;
   /** Its room either side of the centre line at s (m: the road wider in a bend, roadEdges' widen; not the shoulder). */
@@ -84,6 +145,8 @@ export class MountainDriver implements RivalDriver {
   setRoad(road: Centerline, car: LineCar): void {
     this.road = road;
     this.car = car;
+    this.hairpins = hairpinRuns(road, MOUNTAIN_DRIVER.drift.tight);
+    this.reset();
     this.layLine();
   }
 
@@ -119,6 +182,8 @@ export class MountainDriver implements RivalDriver {
 
   reset(): void {
     this.offset = 0;
+    this.kicked = null;
+    this.kickLeft = 0;
   }
 
   dispose(): void {}
@@ -170,7 +235,29 @@ export class MountainDriver implements RivalDriver {
     const headingErr = here.psi - self.yaw; // (+: the path heads more to the right than the car)
     const angle = Math.atan(p.wheelbase * ahead.kappa) + T.headingGain * headingErr - Math.atan((T.offsetGain * err) / (v + T.offsetSoft));
     const steer = Math.max(-1, Math.min(1, angle / steerRange(v, p)));
+    // Round a hairpin, drifting (MOUNTAIN_DRIVER.drift): slowed for it first, the handbrake pulled coming into it,
+    // the wheel turned in.
+    const D = T.drift;
+    for (const h of this.hairpins) {
+      if (h.to - D.exitEarly < self.s || h.from - self.s > 200) continue;
+      const k = Math.abs(road.curvature((h.from + h.to) / 2));
+      const most = Math.sqrt(D.side * (1 / k + D.room));
+      const toIt = Math.max(0, h.from - self.s);
+      target = Math.min(target, Math.sqrt(most * most + 2 * D.brake * toIt));
+    }
     const pedals = speedPedals(target, self.vLong);
+    const pin = v >= D.minSpeed ? this.hairpins.find((h) => self.s >= h.from - v * D.kickEarly && self.s <= h.to - D.exitEarly) : undefined;
+    if (pin) {
+      if (this.kicked !== pin) {
+        this.kicked = pin;
+        this.kickLeft = D.kickTime;
+      }
+      const handbrake = this.kickLeft > 0;
+      this.kickLeft -= PHYSICS_DT;
+      const slide = Math.abs(Math.atan2(self.vLat, Math.max(Math.abs(self.vLong), 1)));
+      if (slide > D.catchAt) return { ...pedals, steer }; // (sliding too far: caught)
+      return { ...pedals, steer: driftSteer(pin.dir, err + pin.dir * D.wide, D), handbrake };
+    }
     return { ...pedals, steer };
   }
 }
