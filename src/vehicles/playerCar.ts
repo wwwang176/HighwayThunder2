@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -443,15 +443,17 @@ export class PlayerCar {
     // (drifting, as much as it does: the stability control only near a spin; the slide pulled back to what the steering
     // sets, at any slide - the stability control can't, full lock asks for the spin: the wheel let go straight on,
     // slowly; held into the turn, more, slowly. From the slide it starts at; on the handbrake too - its swing as quick
-    // as the angle held grows (the player's: let be, the locked rear turned the car round at once)
-    if (p.drift) {
-      const target = driftHeld(driftInto(slide, this.steer), p.drift);
-      if (dw === 0) this.driftHold = bodySlip;
+    // as the angle held grows (the player's: let be, the locked rear turned the car round at once). The spring all of it
+    // from any slide, at speed (the player's: as it drifted, it turned quick at 1-6° before the spring took hold).
+    const atSpeed = assist ? driftSpeed(this.vLong, assist) : 0;
+    if (assist) {
+      const target = driftHeld(driftInto(slide, this.steer), assist);
+      if (atSpeed === 0) this.driftHold = bodySlip;
       else {
-        this.driftHold = driftFollow(this.driftHold, target, dt, p.drift);
-        esc = esc * (1 + (driftEsc(bodySlip, p.drift) - 1) * dw) + dw * driftLimit(slide, slideRate, p.drift, this.driftHold);
+        this.driftHold = driftFollow(this.driftHold, target, dt, assist);
+        esc = esc * (1 + (driftEsc(bodySlip, assist) - 1) * dw) + atSpeed * driftLimit(slide, slideRate, assist, this.driftHold);
         // (on the throttle, the body turned to slide more - the spring above holding it some way past the steering's)
-        esc += driftSpin(slide, this.throttle, dw, p.drift);
+        esc += driftSpin(slide, this.throttle, dw, assist);
       }
     }
     if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);

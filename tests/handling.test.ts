@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -404,6 +404,12 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftShare(0.25, 5, D)).toBe(0); // (crawling)
     expect(driftShare(0.25, 8.5, D)).toBeCloseTo(0.5, 9); // (speeding up: halfway between minSpeed and fullSpeed)
     expect(driftShare(0.25, -20, D)).toBe(1);
+  });
+  it('at speed: none under minSpeed, all of it from fullSpeed, in proportion between (either way)', () => {
+    expect(driftSpeed(5, D)).toBe(0);
+    expect(driftSpeed(8.5, D)).toBeCloseTo(0.5, 9);
+    expect(driftSpeed(20, D)).toBe(1);
+    expect(driftSpeed(-20, D)).toBe(1);
   });
   it('the drive all of it up to a slide of powerFrom, down to `least` of it by powerTo (full throttle on the keys not spinning it round)', () => {
     expect(driftDrive(0.3, D)).toBe(1);

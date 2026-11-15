@@ -472,15 +472,15 @@ export interface DriftAssist {
   spin: number;
 }
 
-/** At speed: none under minSpeed, all of it from fullSpeed (m/s, either way). */
-function driftAtSpeed(speed: number, d: DriftAssist): number {
+/** At speed: none under minSpeed, all of it from fullSpeed (m/s, either way) - the drift assist's share by speed alone. */
+export function driftSpeed(speed: number, d: DriftAssist): number {
   return Math.min(1, Math.max(0, (Math.abs(speed) - d.minSpeed) / (d.fullSpeed - d.minSpeed)));
 }
 
 /** How much the car drifts (0..1) at this slide (rad, either way) and speed (m/s): from `from` to `full`, smoothly. */
 export function driftShare(slide: number, speed: number, d: DriftAssist): number {
   const x = Math.min(1, Math.max(0, (Math.abs(slide) - d.from) / (d.full - d.from)));
-  return x * x * (3 - 2 * x) * driftAtSpeed(speed, d);
+  return x * x * (3 - 2 * x) * driftSpeed(speed, d);
 }
 
 
@@ -537,7 +537,7 @@ export function driftSpin(slide: number, throttle: number, share: number, d: Dri
 
 /** The push toward the nose (m/s², square to the motion) at this slide (rad, either way), speed (m/s) and throttle (0..1). */
 export function driftCarve(slide: number, speed: number, throttle: number, d: DriftAssist): number {
-  return (d.carve + d.carveOn * throttle) * Math.min(1, Math.abs(slide) / d.carveFull) * driftAtSpeed(speed, d);
+  return (d.carve + d.carveOn * throttle) * Math.min(1, Math.abs(slide) / d.carveFull) * driftSpeed(speed, d);
 }
 
 
