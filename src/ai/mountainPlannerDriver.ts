@@ -100,7 +100,7 @@ export class MountainPlannerDriver implements RivalDriver {
     if (!this.net || !this.inner.lastLine || !this.road) return input;
     const inner = this.inner;
     const plan = this.mplan;
-    mountainNetInputs(self, { d: (s) => inner.refAt(s) + (plan ? plan.offsetAt(s) : 0), kappa: (s) => inner.refKappa(s) }, this.road, (s) => inner.roomAt(s), input, this.inputs);
+    mountainNetInputs(self, { d: (s) => inner.pathRefAt(s) + (plan ? plan.offsetAt(s) : 0), kappa: (s) => inner.refKappa(s) }, this.road, (s) => inner.roomAt(s), input, this.inputs);
     return applyMountainNet(this.net, this.inputs, input);
   }
 
@@ -122,9 +122,12 @@ export class MountainPlannerDriver implements RivalDriver {
     const inner = this.inner;
     const road = this.road!;
     const v = Math.max(0, self.vLong);
-    const refHere = inner.refAt(self.s);
-    const kept = this.mplan && !this.wasDrift ? this.mplan.offsetAt(self.s) : null;
-    const startOffset = kept !== null && Math.abs(self.d - (refHere + kept)) < KEEP_START ? kept : self.d - refHere;
+    const refHere = inner.pathRefAt(self.s);
+    // (from its last plan where it is, however far the car lags it - planned from the car, a car slow to follow its
+    // path was never drawn back to it; out of a drift from its path - it eases back itself from where the drift left
+    // it, eased again onto the next drift's entry, as the mountain driver's always did; at the start or put back, from
+    // its path with the car near it, else from the car)
+    const startOffset = this.wasDrift ? 0 : this.mplan ? this.mplan.offsetAt(self.s) : Math.abs(self.d - refHere) < KEEP_START ? 0 : self.d - refHere;
     const launching = this.moving < LAUNCH_TIME;
     const list: PlanOther[] = others.map((b) => {
       const vAhead = Math.max(b.v, inner.refSpeed(b.s, 0));
@@ -138,7 +141,7 @@ export class MountainPlannerDriver implements RivalDriver {
       startOffset,
       halfWidth: self.halfWidth ?? 1,
       halfLength: self.halfLength ?? 2.2,
-      ref: { d: (s) => inner.refAt(s), v: (s) => inner.refSpeed(s, 0), kappa: (s) => inner.refKappa(s), room: (s) => inner.roomAt(s) },
+      ref: { d: (s) => inner.pathRefAt(s), v: (s) => inner.refSpeed(s, 0), kappa: (s) => inner.refKappa(s), room: (s) => inner.roomAt(s) },
       others: list,
       stopAt: inner.kickAhead(self.s, v),
       roadEnd: road.length + 300,

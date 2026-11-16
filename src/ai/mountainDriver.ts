@@ -342,7 +342,7 @@ export class MountainDriver implements RivalDriver {
     const h = 1;
     const clamp = (x: number, at: number) => Math.max(-this.roomAt(at), Math.min(this.roomAt(at), x));
     const ext = this.external;
-    const at = ext ? (x: number) => clamp(this.refOf(x, 0) + ext.offsetAt(x), x) : (x: number) => this.refOf(x, this.offset);
+    const at = ext ? (x: number) => clamp(this.refOf(x, this.offset) + ext.offsetAt(x), x) : (x: number) => this.refOf(x, this.offset);
     const d = at(s);
     const d1 = at(s + h);
     const d0 = at(s - h);
@@ -360,16 +360,24 @@ export class MountainDriver implements RivalDriver {
     return base * (1 - w) + this.toPin.d * w;
   }
 
-  /** Its reference across the road at s (m): its path with no passing offset (as of its last step's toPin). */
+  /** The computed no-traffic path across the road at s (m): its line eased onto a drift's entry (as of its last step's toPin). */
   refAt(s: number): number {
     return this.line ? this.refOf(s, 0) : 0;
   }
 
-  /** Its reference's curvature at s (1/m, + right): its line's, plus the bend of its easing onto a drift entry. */
+  /**
+   * The path a planner's offsets are taken from at s (m): refAt, but out of a drift still easing back to it from where
+   * the drift left it (its offset, drift.merge a second) - alone, the path it drives as it always did.
+   */
+  pathRefAt(s: number): number {
+    return this.line ? this.refOf(s, this.offset) : 0;
+  }
+
+  /** pathRefAt's curvature at s (1/m, + right): its line's, plus the bend of its easing. */
   refKappa(s: number): number {
     if (!this.line) return 0;
     const h = 2;
-    const b = (x: number) => this.refOf(x, 0) - lineAt(this.line!, x).d;
+    const b = (x: number) => this.refOf(x, this.offset) - lineAt(this.line!, x).d;
     return lineAt(this.line, s).kappa + (b(s + h) - 2 * b(s) + b(s - h)) / (h * h);
   }
 
@@ -488,9 +496,9 @@ export class MountainDriver implements RivalDriver {
       const next = this.hairpins.find((h) => h !== this.done && h.from - v * D0.kickEarly - self.s >= 0 && h.from - v * D0.kickEarly - self.s <= D0.approach);
       if (next) want = this.driftLineOf(next) - lineAt(line, self.s).d;
     }
-    // (out of a drift - this.recover: its path from where it came out back to its line slowly)
-    if (this.external) this.offset = 0;
-    else this.offset += (want - this.offset) * Math.min(1, PHYSICS_DT * (this.recover > 0 && want === 0 ? T.drift.merge : T.passRate));
+    // (out of a drift - this.recover: its path from where it came out back to its line slowly; a planner's offsets on
+    // top of it - its own passing left out, `want` 0)
+    this.offset += (want - this.offset) * Math.min(1, PHYSICS_DT * (this.recover > 0 && want === 0 ? T.drift.merge : T.passRate));
 
     // Round a hairpin, drifting (MOUNTAIN_DRIVER.drift) - which one, if any: one drift a hairpin (out of it, its slide
     // gone after it slid, done with it: drifting on, it drifted again).
@@ -523,8 +531,8 @@ export class MountainDriver implements RivalDriver {
     // while steered by where it is going, not where its nose points (still sliding).
     if (!pin && this.mode !== 'line') {
       const room = this.roomAt(self.s);
-      // (a planner's: it plans from where the car is)
-      if (!this.external) this.offset = Math.max(-2 * room, Math.min(2 * room, self.d - lineAt(line, self.s).d));
+
+      this.offset = Math.max(-2 * room, Math.min(2 * room, self.d - lineAt(line, self.s).d));
       this.recover = D.recover;
       if (this.mode !== 'settle') this.settling = true;
     }
@@ -533,7 +541,7 @@ export class MountainDriver implements RivalDriver {
     // Along the line (Stanley): its curvature a moment ahead steered for, its heading and its offset closed on.
     const look = Math.min(T.lookMax, T.lookBase + T.lookTime * v);
     const aimRoom = this.roomAt(self.s + look);
-    const aim = this.external ? this.refAt(self.s + look) + this.external.offsetAt(self.s + look) : lineAt(line, self.s + look).d + this.offset;
+    const aim = this.external ? this.pathRefAt(self.s + look) + this.external.offsetAt(self.s + look) : lineAt(line, self.s + look).d + this.offset;
     this.aimD = Math.max(-aimRoom, Math.min(aimRoom, aim));
     const here = this.pathAt(self.s);
     const ahead = this.pathAt(self.s + T.steerLead * v);
