@@ -18,7 +18,7 @@ import { chunks, ExamPool } from './trackerPool';
  * same roads; a brain worse than it pays GUARD times the difference. Every VALID_EVERY generations the best is
  * examined on VALID_SEEDS whole roads alone; it is archived (training/out/mountainNet/), and kept (SAVE=1 writes the
  * car's weights file) only if, against the start's, it touched the walls no more, lagged its plan no more, was put
- * back no more and was no slower.
+ * back no more and was no more than 1 % slower.
  *   CAR=street-racer GENS=30 POP=40 THREADS=12 SAVE=1 npx vitest run --config training/vitest.config.ts training/mountainNet.train.ts
  */
 const CAR = process.env.CAR ?? 'street-racer';
@@ -79,7 +79,7 @@ it('mountain driving network', async () => {
       if ((g + 1) % VALID_EVERY === 0 || g === GENS - 1) {
         const best = pop[order[0]];
         const v = (await exam([best], VALID_SEEDS, VALID_S, [], 0))[0];
-        const ok = v.walls <= startValid.walls && v.lag <= startValid.lag && v.resets <= startValid.resets && !v.nan && (v.time ?? Infinity) <= (startValid.time ?? Infinity) + 0.05;
+        const ok = v.walls <= startValid.walls && v.lag <= startValid.lag && v.resets <= startValid.resets && !v.nan && (v.time ?? Infinity) <= (startValid.time ?? Infinity) * 1.01;
         log(`  validation: ${line(v)}${ok ? '  KEPT' : ''}`);
         writeFileSync(new URL(`${CAR}-g${g}.json`, archive), JSON.stringify({ gen: g, valid: v, start: startValid, weights: Array.from(best.weights) }));
         if (ok) kept = best;

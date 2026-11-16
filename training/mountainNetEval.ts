@@ -22,14 +22,14 @@ import { mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/moun
  *     (against the plan just made from where it is a car slow to follow pays nothing - the highway's lesson);
  *   - WALL_COST a wall contact (a contact this far apart from the last, CONTACT_GAP s, one);
  *   - RESET_COST a put-back (under the road, or stuck STUCK_S s), FELL_COST if NaN (and it ends);
- *   - less METRE_GAIN a metre covered.
+ *   - less METRE_GAIN a metre covered (0.01: 3 % slower cost ~1, against tens for its lag - it learned to slow down).
  * Other cars' contacts cost nothing: a street race (the user's).
  */
 
 const WALL_COST = 5;
 const RESET_COST = 5;
 const FELL_COST = 20;
-const METRE_GAIN = 0.01;
+const METRE_GAIN = 0.05;
 const CONTACT_GAP = 0.5;
 const STUCK_S = 3;
 const LAG_AFTER = 0.75;
