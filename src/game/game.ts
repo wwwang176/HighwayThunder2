@@ -86,6 +86,7 @@ import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
 import { WorkerPlanSource } from '../ai/workerPlanSource';
 import { detectNearMiss } from './nearMiss';
+import { DriftTimer } from './driftTimer';
 import { Blocker, computeResetSpot } from './reset';
 import type { EngineSource } from '../audio/otherEngines';
 import type { EarPose } from '../audio/pan';
@@ -206,6 +207,8 @@ export class Game {
   /** Each rival's high-beam flashing (game/flashing). */
   private readonly flashers = new WeakMap<object, BeamFlasher>();
   readonly flow: GameFlow;
+  /** The player's drift (its seconds on the HUD). */
+  private readonly driftTimer = new DriftTimer();
   /** The road bends (laid out at random each race: road/centerline randomRoad), else straight as ever. */
   readonly curved: boolean;
   /** The mountain road (road/mountain: two lanes, hairpins, climbs; no traffic) instead of the highway. */
@@ -1159,6 +1162,7 @@ export class Game {
     if (!this.mountain) this.trafficWorld.maintain(dt, this.focus(), (f) => this.playerOccupants(f));
     this.forgetRemovedNpcs();
     this.checkNearMisses();
+    this.checkDrift(dt);
 
     const wasFinished = this.flow.phase === 'finished';
     const counting = this.flow.phase === 'countdown', countdownWas = this.flow.countdown;
@@ -1373,6 +1377,18 @@ export class Game {
     for (const id of this.prevRelS.keys()) if (!this.npcs.has(id)) this.prevRelS.delete(id);
     for (const id of this.touched) if (!this.npcs.has(id)) this.touched.delete(id);
     for (const key of this.contactSoundAt.keys()) if (key.startsWith('npc ') && !this.npcs.has(+key.slice(4))) this.contactSoundAt.delete(key);
+  }
+
+  /** The player's drift on the HUD (DriftTimer: its seconds, held a moment when let go) - racing only. */
+  private checkDrift(dt: number): void {
+    if (this.flow.phase !== 'racing') {
+      this.driftTimer.reset();
+      this.hud.clearDrift();
+      return;
+    }
+    const p = this.player;
+    const slide = Math.abs(Math.atan2(p.vLat, Math.max(Math.abs(p.vLong), 1)));
+    this.hud.drift(this.driftTimer.update(dt, slide, p.speed));
   }
 
   private checkNearMisses(): void {

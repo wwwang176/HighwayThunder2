@@ -1,3 +1,4 @@
+import type { DriftReport } from '../game/driftTimer';
 import { formatTime, GameFlow } from '../game/gameState';
 import { closestBehind, hudShake, overtook, progress, ResetHint } from './hudMath';
 import { applyLang, onLangChange, t, tx } from './i18n';
@@ -52,6 +53,8 @@ const UI = `${import.meta.env.BASE_URL}ui/`;
 const icon = (name: string, cls = '') => `<span class="icon ${cls}" style="--src:url(${UI}${name}.png)"></span>`;
 /** A rival this close behind (m, bumper to bumper) shows as an arrow on the screen's bottom edge. */
 const BEHIND_RANGE = 30;
+/** A drift's total stays up this long after it ended (s). */
+const DRIFT_TOTAL = 1.2;
 /** The finish marked over its gate (how far it is to go) from this close (m), fading in over the first `GOAL_FADE` m. */
 const GOAL_RANGE = 1000;
 const GOAL_FADE = 100;
@@ -135,6 +138,8 @@ export class Hud {
   private el: Record<string, HTMLElement> = {};
   private lastPhase = '';
   private toastTimer = 0;
+  /** How long more the drift's total stays up after it ended (s; Infinity: a drift on). */
+  private driftHold = 0;
   private lastPlace: number | null = null;
   private dots: HTMLElement[] = [];
   private readonly blocks: SVGPolygonElement[];
@@ -168,6 +173,7 @@ export class Hud {
         <div class="h-badges"><span data-id="ai" class="h-ai cut">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
       </div>
       <div id="toast" class="toast" data-id="toast"></div>
+      <div id="drift" class="toast drift" data-id="drift"><span data-id="driftWord"></span><span class="sec num" data-id="driftSec"></span></div>
       <div id="pause" class="center bracketed">
         <span class="brk tr"></span><span class="brk bl"></span>
         <div class="menu panel cut">
@@ -337,6 +343,23 @@ export class Hud {
     this.message(t('toast.nearMiss'), 1);
   }
 
+  /** The drift's seconds (DriftTimer, to a tenth): up while it lasts, dimmed while let go, its total DRIFT_TOTAL s after. */
+  drift(r: DriftReport): void {
+    if (r.state === 'off') return;
+    const el = this.el.drift;
+    this.el.driftWord.textContent = t('toast.drift');
+    this.el.driftSec.textContent = t('toast.driftTime', { s: r.seconds.toFixed(1) });
+    el.classList.add('on');
+    el.classList.toggle('held', r.state === 'grace');
+    this.driftHold = r.state === 'done' ? DRIFT_TOTAL : Infinity;
+  }
+
+  clearDrift(): void {
+    if (this.driftHold === 0) return;
+    this.el.drift.classList.remove('on', 'held');
+    this.driftHold = 0;
+  }
+
   /** Flash a short message in the middle of the screen. */
   message(text: string, seconds = 2.5): void {
     const t = this.el.toast;
@@ -444,6 +467,10 @@ export class Hud {
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) this.el.toast.classList.remove('show');
+    }
+    if (this.driftHold > 0 && this.driftHold !== Infinity) {
+      this.driftHold -= dt;
+      if (this.driftHold <= 0) this.clearDrift();
     }
   }
 
