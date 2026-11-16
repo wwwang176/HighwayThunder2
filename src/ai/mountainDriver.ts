@@ -106,14 +106,39 @@ export const MOUNTAIN_DRIVER = {
     pullSlide: 0,
     pullGap: 0.2,
     pullMost: 0.9,
-    userCtl: 2,
+    userCtl: 3,
+    /**
+     * userCtl 3 (the player's: a big slide - the AI's slid little, just enough; out of it the player's way): the wheel
+     * holds `bigSlide` rad (35°) of slide, `bigSlideErr` more a metre wide of its line (within bigSlideMin..bigSlideMax);
+     * the throttle steady at `gasMid` (`gasErr` more a metre wide - 0: on it the throttle fell as it went in, it slowed,
+     * its radius ~ v² / 20 tightened, and it crawled round its bend), never under `gasLow`; no pull for a slide short of
+     * its big one (pullAngle 0: pulled and pulled, it slowed to a crawl). Into
+     * the bend's last `exitInFrac` its line eased `exitIn` m in; past `alignAfter` of the bend, its nose come round
+     * parallel to the straight out of it (within `alignAt` rad): counter-steered to hold it so (`alignHead` a rad off,
+     * `alignRate` against its turning, at most `alignSteer`), `alignGas` throttle - sliding on out to the middle.
+     */
+    bigSlide: 0.6,
+    bigSlideErr: 0.1,
+    bigSlideMin: 0.3,
+    bigSlideMax: 0.7,
+    gasMid: 0.75,
+    gasErr: 0,
+    gasLow: 0.1,
+    exitIn: 1.2,
+    exitInFrac: 0.3,
+    alignAfter: 0.4,
+    alignAt: 0.03,
+    alignHead: 2,
+    alignRate: 0.4,
+    alignSteer: 1,
+    alignGas: 0.4,
     slideTarget: 0.45,
     slideGain: 1.5,
     springLimit: Math.PI / 4,
     innerRoom: 1,
     innerSteer: -0.3,
     innerLook: 1.2,
-    pullAngle: 0.25,
+    pullAngle: 0,
     pullAfter: 0.4,
     tightOn: 0,
     entryOut: 1.5,
@@ -244,6 +269,9 @@ export class MountainDriver implements RivalDriver {
   private entryPin: HairpinRun | null = null;
   /** The slide it holds now (rad: the player's way, by how far off its line). */
   private slideT = 0;
+  /** userCtl 3: its throttle now (the line kept by it), and the heading out of the bend it holds its nose to (rad; null: none). */
+  private gasT = 0.5;
+  private alignTo: number | null = null;
 
   /** A hairpin's drift line (d, m): between its inside's edge (kept drift.wide off it) and the middle. */
   private driftLineOf(h: HairpinRun): number {
@@ -399,6 +427,17 @@ export class MountainDriver implements RivalDriver {
     const slideSigned = Math.atan2(self.vLat, Math.max(Math.abs(self.vLong), 1));
     const slide = Math.abs(slideSigned);
     let pin = v >= D.minSpeed ? this.hairpins.find((h) => h !== this.done && self.s >= h.from - v * D.kickEarly && self.s <= h.to - D.exitEarly) : undefined;
+    // (userCtl 3: its nose come round parallel to the straight out of the bend - past alignAfter of it, after it slid:
+    // done with it, counter-steered to hold its nose so, sliding on out - the player's way)
+    if (pin && D.userCtl >= 3 && this.kicked === pin && this.kickLeft <= 0 && this.slid && self.s > pin.from + D.alignAfter * (pin.to - pin.from)) {
+      const out = road.heading(pin.to + 15);
+      const nose = road.heading(self.s) + self.yaw;
+      if (pin.dir * Math.atan2(Math.sin(out - nose), Math.cos(out - nose)) <= D.alignAt) {
+        this.done = pin;
+        this.alignTo = out;
+        pin = undefined;
+      }
+    }
     if (pin && this.kicked === pin && this.kickLeft <= 0) {
       if (slide > D.slid) this.slid = true;
       // (the player's way: its slide let off mid-bend - too far in, the wheel straightened - is not the drift's end; only
@@ -478,7 +517,14 @@ export class MountainDriver implements RivalDriver {
       const targetAt = (x: number) => {
         if (!(D.mergeFrac > 0 && D.userCtl >= 2)) return lineOfPin;
         const u = Math.max(0, Math.min(1, (x - pin.from) / (D.mergeFrac * (pin.to - pin.from))));
-        return this.entryD + (lineOfPin - this.entryD) * u * u * (3 - 2 * u);
+        let d = this.entryD + (lineOfPin - this.entryD) * u * u * (3 - 2 * u);
+        if (D.userCtl >= 3) {
+          // (into its last exitInFrac: a little in - the room it slides out over, its nose held down the straight)
+          const len = D.exitInFrac * (pin.to - pin.from);
+          const w = Math.max(0, Math.min(1, (x - (pin.to - len)) / len));
+          d += pin.dir * D.exitIn * w * w * (3 - 2 * w);
+        }
+        return d;
       };
       const dTarget = targetAt(self.s);
       const want = driftTurnWant(kap, dTarget, self.d, v, vd, D);
@@ -545,6 +591,11 @@ export class MountainDriver implements RivalDriver {
         const exitLen = D.exitTurn / Math.max(1e-3, Math.abs(road.curvature((pin.from + pin.to) / 2)));
         const share = D.exitTaper ? Math.max(0, Math.min(1, (pin.to - self.s) / exitLen)) : 1;
         this.slideT = D.slideErrGain > 0 ? Math.max(D.slideMin * share, Math.min(D.slideMax, D.slideTarget * share + D.slideErrGain * err)) : D.slideTarget * share;
+        if (D.userCtl >= 3) {
+          // (a big slide, all but steady; the line kept by the throttle - wide of it more, the push turning it in)
+          this.slideT = Math.max(D.bigSlideMin, Math.min(D.bigSlideMax, D.bigSlide + D.bigSlideErr * err));
+          this.gasT = Math.max(D.gasLow, Math.min(1, D.gasMid + D.gasErr * err));
+        }
         const hold = Math.sqrt(this.slideT / D.springLimit) + D.slideGain * (this.slideT - inSlide);
         const inRoom = this.roomAt(self.s) - pin.dir * forecast(D.innerLook).d;
         // (too far in, or turning too fast for its line - spun round past it: after the kick only, the kick moves it in)
@@ -552,7 +603,7 @@ export class MountainDriver implements RivalDriver {
         easing = tight;
         turn.steer = pin.dir * (tight ? D.innerSteer : Math.max(D.steerLeast, Math.min(D.steerMost, hold)));
       }
-      const c = { steer: turn.steer, throttle: D.holdGas >= 0 ? (brakeIt > 0 ? 0 : gasNow) : brakeIt > 0 ? 0 : gasIt };
+      const c = { steer: turn.steer, throttle: D.userCtl >= 3 ? this.gasT : D.holdGas >= 0 ? (brakeIt > 0 ? 0 : gasNow) : brakeIt > 0 ? 0 : gasIt };
       // Its last exitTurn rad of the bend: the wheel eased straight (the spring straightens the slide) before it is handed
       // back to its line.
       const rampLen = D.exitTurn / Math.max(1e-3, Math.abs(road.curvature((pin.from + pin.to) / 2)));
@@ -588,7 +639,19 @@ export class MountainDriver implements RivalDriver {
     }
     // Out of a drift, still sliding: settled first - the throttle low (its spin and push: on full throttle, counter-
     // steered, the tail swung over the other way, wall to wall), the wheel a little - the spring straightens it.
-    if (this.settling && slide < D.settleSlide && Math.abs(self.yawRate - v * this.pathAt(self.s).kappa) < D.settleYaw) this.settling = false;
+    if (this.settling && slide < D.settleSlide && Math.abs(self.yawRate - v * this.pathAt(self.s).kappa) < D.settleYaw) {
+      this.settling = false;
+      this.alignTo = null;
+    }
+    if (this.settling && this.alignTo !== null) {
+      // (the player's way out: its nose held parallel to the straight - counter-steered, its turning stopped - sliding on
+      // out to the middle)
+      this.mode = 'settle';
+      const nose = road.heading(self.s) + self.yaw;
+      const a = D.alignHead * Math.atan2(Math.sin(this.alignTo - nose), Math.cos(this.alignTo - nose)) - D.alignRate * self.yawRate;
+      const s = Math.max(-D.alignSteer, Math.min(D.alignSteer, a / steerRange(v, p)));
+      return { throttle: Math.min(pedals.throttle, D.alignGas), brake: 0, steer: s };
+    }
     if (this.settling) {
       this.mode = 'settle';
       // (its nose pointed down the road, its turning stopped: the push draws its course in under its nose)
