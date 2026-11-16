@@ -2,6 +2,7 @@ import { it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { selfStateOf } from '../src/ai/driver';
 import { hairpinRuns, MOUNTAIN_DRIVER, MountainDriver } from '../src/ai/mountainDriver';
+import { MountainPlannerDriver } from '../src/ai/mountainPlannerDriver';
 import { mulberry32 } from '../src/ai/rng';
 import { KMH, PHYSICS_DT } from '../src/config';
 import { FINISHED_SPEED, type RaceView, Rivals } from '../src/game/rivals';
@@ -9,12 +10,36 @@ import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { MOUNTAIN, roadEdges, mountainRoad } from '../src/road/mountain';
 import { surfaceMesh } from '../src/road/surface';
 import { CARS, STREET_RACER } from '../src/vehicles/cars';
+import type { CarSpec } from '../src/vehicles/cars/types';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
 
 /** SETUP=0: the cars as set up for the highway (else the mountain road's, as the game's). */
 const SETUP = process.env.SETUP !== '0';
-type Driver = MountainDriver;
+/** DRIVER=new: every car on the planner driver (MountainPlannerDriver); old (default): the mountain driver. */
+const DRIVER = process.env.DRIVER === 'new' ? 'new' : 'old';
+type Driver = MountainDriver | MountainPlannerDriver;
+const makeDriver = (): Driver => (DRIVER === 'new' ? new MountainPlannerDriver() : new MountainDriver());
+/** The mountain driver inside either (its reference, whether it is drifting). */
+const coreOf = (d: Driver): MountainDriver => (d instanceof MountainPlannerDriver ? d.inner : d);
+/**
+ * SOLO=1: each car alone on every seed (no rivals) - its time, its walls, its drifts, and how far off the computed
+ * no-traffic path (its reference, refAt) it drove: median and p95 every 0.1 s, drifting left out, and out of a drift
+ * till it is first back within SOLO_BACK m of it.
+ */
+const SOLO = !!process.env.SOLO;
+/** NET=0: the planner drivers without their cars' trained networks (the driver's own control). */
+const NO_NET = process.env.NET === '0';
+const SOLO_BACK = 0.3;
+/** STALL=1: the player's car held standing (full brake) the first STALL_S s - a player stalling on the grid. */
+const STALL = !!process.env.STALL;
+const STALL_S = 5;
+/** A pair's contacts this far apart (s) are one; within START_S of the start, a start contact. */
+const CONTACT_GAP = 0.5;
+const START_S = 5;
+/** A pass: one car from behind another to ahead within PASS_NEAR m, still ahead PASS_HOLD s on. */
+const PASS_NEAR = 10;
+const PASS_HOLD = 2;
 /** HAIRPINS=1: each car's every hairpin - its slides (past 15°, off under 8°), most, wall contacts, least room either side. */
 const HAIRPINS = !!process.env.HAIRPINS;
 /** JSON=path (JSON_SEEDS=n, the first n seeds): the road's edges and each car's track every 0.1 s, for a top-down view. */
@@ -58,6 +83,8 @@ interface CarStats {
   time: number | null;
   s: number;
   walls: number;
+  /** Of them, while following its line (not kicking, drifting, settling out of a drift). */
+  lineWalls: number;
   resets: number;
   under: number;
   /** Drifts: its slide past DRIFT_ON (from under DRIFT_OFF), and its most. */
@@ -84,7 +111,16 @@ function hairpinsOf(road: { length: number; curvature(s: number): number }): num
   return n;
 }
 
-function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number; runs: { from: number; to: number; dir: number; r: number }[] } {
+/** A race's counts of the cars' meeting: contact events, those at the start, passes; and (SOLO) the player's off-path samples. */
+interface Meet { contacts: number; startContacts: number; passes: number; dev: number[] }
+
+function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number; runs: { from: number; to: number; dir: number; r: number }[]; meet: Meet } {
+  const meet: Meet = { contacts: 0, startContacts: 0, passes: 0, dev: [] };
+  const lastTouch = new Map<number, number>();
+  /** Per pair (i < j): who is ahead (+1: i), and a pass waiting to hold (by whom, since when). */
+  const order = new Map<number, number>();
+  const pending = new Map<number, { by: number; at: number }>();
+  let back = true; // (SOLO: back on its path since its last drift)
   const road = mountainRoad(mulberry32(seed));
   const runs = hairpinRuns(road, 26).map((h) => ({ ...h, r: Math.abs(1 / road.curvature((h.from + h.to) / 2)) }));
   const pinOf = (s: number) => runs.findIndex((h) => s >= h.from - 10 && s <= h.to + 60);
@@ -93,17 +129,18 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number; h
   // (as the game's: its edges along it, a shoulder on a tight bend's outside; SHOULDER=0: none)
   const e = process.env.SHOULDER === '0' ? { at: () => MOUNTAIN.edge } : roadEdges(road);
   physics.setRoad(road, { rails: { left: (s) => -e.at(s, -1), right: (s) => e.at(s, 1) }, ground: surfaceMesh(road, -MOUNTAIN.before, MOUNTAIN.length + MOUNTAIN.after, (s) => [-e.at(s, -1) - 1.5, e.at(s, 1) + 1.5]) });
-  const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
+  const player = new PlayerCar(physics, null, { spec: playerSpec, entity: { type: 'player' } });
   player.road = road;
-  if (SETUP) Object.assign(player.params, mountainSetup(player.params, mountainSetupOf(STREET_RACER.id))); // (as the game's)
+  if (SETUP) Object.assign(player.params, mountainSetup(player.params, mountainSetupOf(playerSpec.id))); // (as the game's)
   player.resetAt(-3, LANE, 0);
   const t0 = performance.now();
-  const playerAi = new MountainDriver();
+  const playerAi = makeDriver();
   playerAi.budget = BUDGET;
-  playerAi.setRoad(road, SETUP ? mountainAi(STREET_RACER.ai, mountainSetupOf(STREET_RACER.id)) : STREET_RACER.ai);
+  playerAi.setRoad(road, SETUP ? mountainAi(playerSpec.ai, mountainSetupOf(playerSpec.id)) : playerSpec.ai);
+  if (NO_NET && playerAi instanceof MountainPlannerDriver) playerAi.net = null;
   const lineMs = performance.now() - t0;
-  const rivals = new Rivals<Driver>(physics, null, () => null, RIVAL_CARS, {
-    makeDriver: () => new MountainDriver(),
+  const rivals = new Rivals<Driver>(physics, null, () => null, alone ? [] : RIVAL_CARS, {
+    makeDriver,
     grid: GRID,
     gripBoost: 0,
     edge: (s, side) => e.at(s, side),
@@ -112,9 +149,12 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number; h
   });
   rivals.length = MOUNTAIN.length;
   rivals.setRoad(road);
-  for (const r of rivals.list) r.driver.budget = BUDGET;
+  for (const r of rivals.list) {
+    r.driver.budget = BUDGET;
+    if (NO_NET && r.driver instanceof MountainPlannerDriver) r.driver.net = null;
+  }
   rivals.place();
-  const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, resets: 0, under: 0, drifts: 0, sliding: false, most: 0, cars: 0, pins: runs.map(() => ({ slides: 0, on: false, most: 0, walls: 0, inMin: 99, outMin: 99 })) }));
+  const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, lineWalls: 0, resets: 0, under: 0, drifts: 0, sliding: false, most: 0, cars: 0, pins: runs.map(() => ({ slides: 0, on: false, most: 0, walls: 0, inMin: 99, outMin: 99 })) }));
   let time = 0;
   let nan = false;
   const dumpIt = !!JSON_OUT && seed < FIRST + JSON_SEEDS;
@@ -126,7 +166,8 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number; h
     rivals.drive(PHYSICS_DT, view);
     // (past the line, as the game's: rolling on at FINISHED_SPEED)
     const cap = stats[0].time === null ? player.params.maxSpeed : FINISHED_SPEED;
-    player.prePhysics(playerAi.drive(selfStateOf(player, cap), rivals.boxes(), player.params), PHYSICS_DT);
+    const own = playerAi.drive(selfStateOf(player, cap), rivals.boxes(), player.params);
+    player.prePhysics(STALL && time < STALL_S ? { throttle: 0, brake: 1, steer: 0 } : own, PHYSICS_DT);
     physics.step((a, b, normal) => {
       if (!normal) return; // (the ground)
       for (const e of [a, b]) {
@@ -135,10 +176,21 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number; h
         if (k < 0) continue;
         if (other.type === 'player' || other.type === 'rival') {
           stats[k].cars++;
+          const k2 = other.type === 'player' ? 0 : other.id + 1;
+          if (k < k2) {
+            const key = k * 10 + k2;
+            const last = lastTouch.get(key);
+            if (last === undefined || time - last > CONTACT_GAP) {
+              meet.contacts++;
+              if (time < START_S) meet.startContacts++;
+            }
+            lastTouch.set(key, time);
+          }
           continue;
         }
         if (other.type !== 'static') continue;
         stats[k].walls++;
+        if (!coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).inDrift()) stats[k].lineWalls++;
         hitNow[k] = true;
         const car = k === 0 ? player : rivals.list[k - 1].car;
         const pi = pinOf(car.s);
@@ -170,6 +222,39 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number; h
       playerStuck = 0;
     }
     if (stats[0].time === null && player.s >= MOUNTAIN.length) stats[0].time = time;
+    // Passes: a pair's order flipped within PASS_NEAR m, held PASS_HOLD s (both still racing).
+    const cars = [player, ...rivals.list.map((r) => r.car)];
+    const racing = [stats[0].time === null, ...rivals.list.map((r) => r.finishTime === null)];
+    for (let i = 0; i < cars.length; i++) {
+      for (let j = i + 1; j < cars.length; j++) {
+        const key = i * 10 + j;
+        if (!racing[i] || !racing[j]) {
+          pending.delete(key);
+          continue;
+        }
+        const ds = cars[i].s - cars[j].s;
+        const now = ds >= 0 ? 1 : -1;
+        const was = order.get(key);
+        order.set(key, now);
+        if (was !== undefined && was !== now) {
+          if (pending.has(key)) pending.delete(key); // (back again: no pass)
+          else if (Math.abs(ds) < PASS_NEAR) pending.set(key, { by: now, at: time });
+        }
+        const p = pending.get(key);
+        if (p && time - p.at >= PASS_HOLD) {
+          meet.passes++;
+          pending.delete(key);
+        }
+      }
+    }
+    // SOLO: how far off its computed no-traffic path (its reference), drifting and coming back from it left out.
+    if (alone && stats[0].time === null && Math.round(time / PHYSICS_DT) % Math.round(0.1 / PHYSICS_DT) === 0 && player.s > 0) {
+      const core = coreOf(playerAi);
+      const off = Math.abs(player.d - core.refAt(player.s));
+      if (core.inDrift()) back = false;
+      else if (!back && off < SOLO_BACK) back = true;
+      if (back && !core.inDrift()) meet.dev.push(off);
+    }
     if (dumpIt) {
       const step = Math.round(time / PHYSICS_DT);
       [player, ...rivals.list.map((r) => r.car)].forEach((car, k) => {
@@ -242,19 +327,76 @@ function race(seed: number): { cars: CarStats[]; nan: boolean; lineMs: number; h
     };
   }
   physics.free();
-  return { cars: stats, nan, lineMs, hairpins: hairpinsOf(road), runs };
+  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet };
 }
 
-it('mountain races', async () => {
+/** The q quantile of xs (sorted copy). */
+function quantile(xs: number[], q: number): number {
+  if (!xs.length) return NaN;
+  const a = xs.slice().sort((x, y) => x - y);
+  return a[Math.min(a.length - 1, Math.floor(q * a.length))];
+}
+
+it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', async () => {
+  await RAPIER.init();
+  const out: string[] = [`driver ${DRIVER}`];
+  let nans = 0;
+  let fell = 0;
+  let home = 0;
+  let runs = 0;
+  for (const spec of RIVAL_CARS) {
+    const dev: number[] = [];
+    let walls = 0;
+    let lineWalls = 0;
+    let time = 0;
+    let done = 0;
+    const pinT = { n: 0, twice: 0, none: 0, most: 0 };
+    for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
+      const r = race(seed, spec, true);
+      runs++;
+      const c = r.cars[0];
+      if (r.nan) nans++;
+      if (c.under < -2) fell++;
+      if (c.time !== null) {
+        home++;
+        done++;
+        time += c.time;
+      }
+      walls += c.walls;
+      lineWalls += c.lineWalls;
+      dev.push(...r.meet.dev);
+      for (const ps of c.pins) {
+        pinT.n++;
+        if (ps.slides > 1) pinT.twice++;
+        if (ps.slides === 0) pinT.none++;
+        pinT.most += ps.most;
+      }
+      out.push(`  ${spec.id} seed ${seed}: ${c.time !== null ? c.time.toFixed(2) + ' s' : `DNF@${c.s.toFixed(0)}`} walls ${c.walls} (line ${c.lineWalls}) off p50 ${quantile(r.meet.dev, 0.5).toFixed(3)} p95 ${quantile(r.meet.dev, 0.95).toFixed(3)} m`);
+    }
+    out.push(
+      `${spec.id}: home ${done}/${SEEDS}, time avg ${(time / Math.max(1, done)).toFixed(2)} s, walls ${walls} (following its line ${lineWalls}), off its path p50 ${quantile(dev, 0.5).toFixed(3)} p95 ${quantile(dev, 0.95).toFixed(3)} m (${dev.length} samples), ` +
+        `hairpins ${pinT.n}: slid twice+ ${pinT.twice}, not past 15° ${pinT.none}, most avg ${((pinT.most / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°`,
+    );
+  }
+  process.stdout.write(out.join('\n') + '\n');
+  expect(nans).toBe(0);
+  expect(fell).toBe(0);
+  expect(home).toBeGreaterThanOrEqual(Math.ceil(runs * 0.9));
+});
+
+it.runIf(!SOLO)('mountain races', async () => {
   await RAPIER.init();
   const out: string[] = [];
   let allHome = 0;
   let fell = 0;
   let nans = 0;
-  const totals = { walls: 0, resets: 0, drifts: 0, hairpins: 0, cars: 0 };
+  const totals = { walls: 0, resets: 0, drifts: 0, hairpins: 0, cars: 0, contacts: 0, startContacts: 0, passes: 0 };
   const pinT = { n: 0, walled: 0, twice: 0, none: 0, small: 0, tight: 0 };
   for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
     const r = race(seed);
+    totals.contacts += r.meet.contacts;
+    totals.startContacts += r.meet.startContacts;
+    totals.passes += r.meet.passes;
     const home = r.cars.every((c) => c.time !== null);
     if (home) allHome++;
     if (r.nan) nans++;
@@ -277,12 +419,13 @@ it('mountain races', async () => {
     out.push(
       `seed ${String(seed).padStart(2)} (${r.hairpins} hairpins, line ${r.lineMs.toFixed(0)} ms): ` +
         r.cars.map((c, i) => `${i ? `R${i}` : 'P'} ${c.time !== null ? c.time.toFixed(1) + ' s' : `DNF@${c.s.toFixed(0)}`} w${c.walls} r${c.resets} d${c.drifts}/${((c.most * 180) / Math.PI).toFixed(0)}°${c.under < -2 ? ` UNDER ${c.under.toFixed(1)}` : ''}`).join(' | ') +
+        ` | passes ${r.meet.passes}, touches ${r.meet.contacts} (start ${r.meet.startContacts})` +
         (r.nan ? '  NaN!' : ''),
     );
     if (HAIRPINS) r.cars.forEach((c, i) => out.push(`  ${i ? `R${i}` : 'P '} ` + c.pins.map((ps, j) => `#${j} R${r.runs[j].r.toFixed(0)}${r.runs[j].dir > 0 ? 'r' : 'l'} ${ps.slides}x${((ps.most * 180) / Math.PI).toFixed(0)}° w${ps.walls} ${ps.inMin.toFixed(1)}/${ps.outMin.toFixed(1)}`).join('  ')));
     out.push(...log.splice(0));
   }
-  out.push(`all home ${allHome}/${SEEDS}, fell through ${fell}, NaN ${nans}, wall contacts ${totals.walls}, put-backs ${totals.resets}, drifts ${totals.drifts} (hairpins ${totals.hairpins}), car contacts ${totals.cars}`);
+  out.push(`all home ${allHome}/${SEEDS}, fell through ${fell}, NaN ${nans}, wall contacts ${totals.walls}, put-backs ${totals.resets}, drifts ${totals.drifts} (hairpins ${totals.hairpins}), car contacts ${totals.cars} steps / ${totals.contacts} events (at the start ${totals.startContacts}), passes ${totals.passes} (driver ${DRIVER}${STALL ? ", player stalled" : ""})`);
   out.push(`hairpins (all cars) ${pinT.n}: with walls ${pinT.walled}, slid twice+ ${pinT.twice}, not past 15° ${pinT.none}, room under 0.3 m ${pinT.tight}`);
   process.stdout.write(out.join('\n') + '\n');
   if (JSON_OUT) (await import('fs')).writeFileSync(JSON_OUT, JSON.stringify(dump));

@@ -96,6 +96,63 @@ describe('MountainDriver', () => {
   });
 });
 
+describe('MountainDriver open to a planner (external offsets, its reference)', () => {
+  it('external offsets of 0 and no cap: the same inputs as without (no cars, along the bend)', () => {
+    const a = driver();
+    const b = driver();
+    b.external = { offsetAt: () => 0, vAt: () => 1e9 };
+    for (let s = 380; s <= 440; s += 0.3) {
+      const ia = a.drive(onLine(a, s), [], P);
+      const ib = b.drive(onLine(a, s), [], P);
+      expect(ib.steer).toBe(ia.steer);
+      expect(ib.throttle).toBe(ia.throttle);
+      expect(ib.brake).toBe(ia.brake);
+    }
+  });
+
+  it('an external offset steers toward it: +1.5 m - its aim 1.5 m right of its reference there', () => {
+    const m = driver();
+    m.external = { offsetAt: () => 1.5, vAt: () => 1e9 };
+    const self = onLine(m, 120);
+    m.drive(self, [], P);
+    const look = Math.min(MOUNTAIN_DRIVER.lookMax, MOUNTAIN_DRIVER.lookBase + MOUNTAIN_DRIVER.lookTime * self.vLong);
+    expect(m.aimD).toBeCloseTo(Math.min(m.roomAt(120 + look), m.refAt(120 + look) + 1.5), 6);
+  });
+
+  it('an external speed cap slows it: aimed under its speed, it brakes', () => {
+    const m = driver();
+    m.external = { offsetAt: () => 0, vAt: () => 5 };
+    const input = m.drive(onLine(m, 150), [], P);
+    expect(input.throttle).toBe(0);
+    expect(input.brake).toBeGreaterThan(0);
+  });
+
+  it("refAt(s) is its path with no passing offset: on a straight, the line's d", () => {
+    const m = driver();
+    m.drive(onLine(m, 150), [], P);
+    expect(m.refAt(150)).toBeCloseTo(lineAt(m.line!, 150).d, 9);
+  });
+
+  it('refSpeed: the speed it aims at - the line ahead, slower coming to a hairpin than on the straight before', () => {
+    const m = driver();
+    expect(m.refSpeed(150, 0)).toBeCloseTo(m.speedAt(150 + MOUNTAIN_DRIVER.leadMin), 9);
+  });
+
+  it('standing start sliding sideways (vLat 0.5, vLong 1): the throttle is not cut (the slide cut only past drift.minSpeed)', () => {
+    const m = driver();
+    const self = { ...onLine(m, 5), vLong: 1, vLat: 0.5 };
+    expect(m.drive(self, [], P).throttle).toBeGreaterThan(0.9);
+  });
+
+  it('standing start 1.5 m off its line: the wheel not on full lock (softer at low speed)', () => {
+    const m = driver();
+    const self = { ...onLine(m, 5), d: lineAt(m.line!, 5).d + 1.5, vLong: 0.5 };
+    let steer = 0;
+    for (let i = 0; i < 60; i++) steer = m.drive(self, [], P).steer;
+    expect(Math.abs(steer)).toBeLessThan(0.6);
+  });
+});
+
 describe('drifting round the hairpins (MOUNTAIN_DRIVER.drift)', () => {
   /** A right hairpin (R 20) between straights. */
   const PIN = new Centerline([...straight(300), ...bend(20, 180, 10), ...straight(300)], { turnBack: true });

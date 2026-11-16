@@ -3,7 +3,7 @@ import { loadSelection } from './game/carSelection';
 import { PhysicsWorld } from './physics/physicsWorld';
 import { DRIVER_TUNING, PlannerDriver } from './ai/plannerDriver';
 import { WorkerPlanSource } from './ai/workerPlanSource';
-import { MountainDriver } from './ai/mountainDriver';
+import { MountainPlannerDriver } from './ai/mountainPlannerDriver';
 import { loadCarModels } from './vehicles/carModels';
 import { applyUiZoom } from './ui/uiScale';
 import { loadSettings, setLang } from './ui/i18n';
@@ -47,7 +47,7 @@ async function boot() {
   // I hands the car to the AI: the path planner, driven by plain controllers for now
   // (a trained network is to take over the driving part). Plans are worked out in a worker.
   // (the mountain road: its racing-line driver, as the rivals', its line worked out with each race's road)
-  game.aiDriver = mountain ? new MountainDriver() : new PlannerDriver(new WorkerPlanSource());
+  game.aiDriver = mountain ? new MountainPlannerDriver() : new PlannerDriver(new WorkerPlanSource());
   await loading.next('loading.shaders', 0.85);
   game.warmUp();
   game.start();
