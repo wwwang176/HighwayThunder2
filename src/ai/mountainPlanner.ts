@@ -91,6 +91,14 @@ export const MOUNTAIN_PLAN = {
   /** Following one it cannot get by: its speed plus `followGain` a metre of gap past `followGap` (bumper to bumper). */
   followGap: 5,
   followGain: 0.5,
+  /**
+   * No clean way by and a car in the way standing (under `standing` m/s, not speeding up): squeezed past - its side a
+   * cost (`wSqueeze` a station alongside), no faster than `squeezeSpeed` (m/s). Right behind a stalled car there is no
+   * clean way round, and following it waited for ever.
+   */
+  standing: 1,
+  wSqueeze: 30,
+  squeezeSpeed: 3,
 };
 
 /** How far (m) a car at v speeding up at a (to vMax at most) goes in t s. */
@@ -104,7 +112,8 @@ function travelled(v: number, a: number, vMax: number, t: number): number {
 export function planMountain(input: PlanInput): MountainPlan {
   const P = MOUNTAIN_PLAN;
   const { ref } = input;
-  const s0 = Math.max(0, input.s);
+  // (from where it is: on the grid, before 0 - from 0 it took itself level with the car ahead of it)
+  const s0 = input.s;
   let sEnd = s0 + Math.max(P.horizonMin, P.horizonTime * Math.max(0, input.v));
   const stops = input.stopAt !== null && input.stopAt < sEnd && input.stopAt > s0;
   if (stops) sEnd = input.stopAt!;
@@ -137,82 +146,112 @@ export function planMountain(input: PlanInput): MountainPlan {
   const others = input.others.filter((b) => b.s + b.length / 2 >= s0 - input.halfLength); // (behind it now: not its business)
   const otherAt = (b: PlanOther, t: number) => b.s + travelled(Math.max(0, b.v), Math.max(0, b.accel), Math.max(b.v, b.vAhead), t);
 
-  // DP: cost, previous index, time and speed at each state; the offset before the previous (for its curvature).
-  const cost: Float64Array[] = cands.map((c) => new Float64Array(c.length).fill(Infinity));
-  const prev: Int32Array[] = cands.map((c) => new Int32Array(c.length).fill(-1));
-  const time: Float64Array[] = cands.map((c) => new Float64Array(c.length));
-  const speed: Float64Array[] = cands.map((c) => new Float64Array(c.length));
-  const vPathOf: Float64Array[] = cands.map((c) => new Float64Array(c.length).fill(Infinity));
-  cost[0][0] = P.wRef * so * so;
-  speed[0][0] = Math.max(0, input.v);
-  for (let i = 1; i < n; i++) {
-    const s = s0 + i * P.step;
-    const r = ref.room(s);
-    const dRef = ref.d(s);
-    const vRef = ref.v(s);
-    const kRef = ref.kappa(s);
-    const kRefAbs = Math.max(Math.abs(kRef), P.kFloor);
-    const ci = cands[i];
-    const cp = cands[i - 1];
-    for (let b = 0; b < ci.length; b++) {
-      const off = ci[b];
-      const at = dRef + off;
-      const excess = Math.max(0, Math.abs(at) - r);
-      const here = P.wRef * off * off + P.wWall * excess * excess;
-      for (let a = 0; a < cp.length; a++) {
-        const base = cost[i - 1][a];
-        if (base === Infinity) continue;
-        const dOff = off - cp[a];
-        if (Math.abs(dOff) > band + 1e-9) continue;
-        // (its bend: its reference's plus its offsets' kink, spread)
-        const pa = prev[i - 1][a];
-        const before = i >= 2 && pa >= 0 ? cands[i - 2][pa] : cp[a]; // (before the first: as if level)
-        const d2 = (off - 2 * cp[a] + before) / (P.step * P.step);
-        const kPath = Math.abs(kRef + P.smooth * d2);
-        const vPath = kPath > kRefAbs ? vRef * Math.sqrt(kRefAbs / kPath) : vRef;
-        // (its own speed there: speeding up from where it is at accelOthers, no faster than its path allows)
-        const u0 = speed[i - 1][a];
-        const u = Math.min(vPath, Math.sqrt(u0 * u0 + 2 * P.accelOthers * P.step));
-        const t = time[i - 1][a] + P.step / Math.max(0.5, 0.5 * (u0 + u));
-        // (another car where it will be: ruled out)
-        let hit = false;
-        for (const o of others) {
-          const os = otherAt(o, t);
-          if (Math.abs(os - s) >= o.length / 2 + input.halfLength + P.gapS) continue;
-          if (at + input.halfWidth + P.gapD <= o.dMin || at - input.halfWidth - P.gapD >= o.dMax) continue;
-          hit = true;
-          break;
-        }
-        if (hit) continue;
-        let c = base + here + P.wTurn * (dOff / P.step) ** 2 + P.wSlow * Math.max(0, vRef - vPath);
-        if (stops && i === n - 1) c += P.wEnd * off * off;
-        if (c < cost[i][b]) {
-          cost[i][b] = c;
-          prev[i][b] = a;
-          time[i][b] = t;
-          speed[i][b] = u;
-          vPathOf[i][b] = vPath;
+  /**
+   * The cheapest run of offsets (null: none): DP, each state's cost, previous index, time and speed (the offset
+   * before the previous: its curvature). `squeeze`: a standing car in the way not a wall but a cost (wSqueeze a
+   * station alongside it, past it at squeezeSpeed at most).
+   */
+  const search = (squeeze: boolean): { offsets: Float64Array; vCap: Float64Array } | null => {
+    const cost: Float64Array[] = cands.map((c) => new Float64Array(c.length).fill(Infinity));
+    const prev: Int32Array[] = cands.map((c) => new Int32Array(c.length).fill(-1));
+    const time: Float64Array[] = cands.map((c) => new Float64Array(c.length));
+    const speed: Float64Array[] = cands.map((c) => new Float64Array(c.length));
+    const vPathOf: Float64Array[] = cands.map((c) => new Float64Array(c.length).fill(Infinity));
+    cost[0][0] = P.wRef * so * so;
+    speed[0][0] = Math.max(0, input.v);
+    for (let i = 1; i < n; i++) {
+      const s = s0 + i * P.step;
+      const r = ref.room(s);
+      const dRef = ref.d(s);
+      const vRef = ref.v(s);
+      const kRef = ref.kappa(s);
+      const kRefAbs = Math.max(Math.abs(kRef), P.kFloor);
+      const ci = cands[i];
+      const cp = cands[i - 1];
+      for (let b = 0; b < ci.length; b++) {
+        const off = ci[b];
+        const at = dRef + off;
+        const excess = Math.max(0, Math.abs(at) - r);
+        const here = P.wRef * off * off + P.wWall * excess * excess;
+        for (let a = 0; a < cp.length; a++) {
+          const base = cost[i - 1][a];
+          if (base === Infinity) continue;
+          const dOff = off - cp[a];
+          if (Math.abs(dOff) > band + 1e-9) continue;
+          // (its bend: its reference's plus its offsets' kink, spread)
+          const pa = prev[i - 1][a];
+          const before = i >= 2 && pa >= 0 ? cands[i - 2][pa] : cp[a]; // (before the first: as if level)
+          const d2 = (off - 2 * cp[a] + before) / (P.step * P.step);
+          const kPath = Math.abs(kRef + P.smooth * d2);
+          let vPath = kPath > kRefAbs ? vRef * Math.sqrt(kRefAbs / kPath) : vRef;
+          // (its own speed there: speeding up from where it is at accelOthers, no faster than its path allows)
+          const u0 = speed[i - 1][a];
+          let u = Math.min(vPath, Math.sqrt(u0 * u0 + 2 * P.accelOthers * P.step));
+          const t = time[i - 1][a] + P.step / Math.max(0.5, 0.5 * (u0 + u));
+          // (another car where it will be: ruled out - or, squeezing, a standing one a cost and a crawl)
+          let hit = false;
+          let squeezed = 0;
+          for (const o of others) {
+            const os = otherAt(o, t);
+            if (Math.abs(os - s) >= o.length / 2 + input.halfLength + P.gapS) continue;
+            if (at + input.halfWidth + P.gapD <= o.dMin || at - input.halfWidth - P.gapD >= o.dMax) continue;
+            if (squeeze && o.v < P.standing && o.accel <= 0) {
+              squeezed++;
+              continue;
+            }
+            hit = true;
+            break;
+          }
+          if (hit) continue;
+          if (squeezed) {
+            vPath = Math.min(vPath, P.squeezeSpeed);
+            u = Math.min(u, vPath);
+          }
+          let c = base + here + P.wTurn * (dOff / P.step) ** 2 + P.wSlow * Math.max(0, vRef - vPath) + P.wSqueeze * squeezed;
+          if (stops && i === n - 1) c += P.wEnd * off * off;
+          if (c < cost[i][b]) {
+            cost[i][b] = c;
+            prev[i][b] = a;
+            time[i][b] = t;
+            speed[i][b] = u;
+            vPathOf[i][b] = vPath;
+          }
         }
       }
     }
-  }
 
-  // The cheapest end, back through its states.
-  const last = n - 1;
-  let best = -1;
-  for (let b = 0; b < cands[last].length; b++) if (cost[last][b] < Infinity && (best < 0 || cost[last][b] < cost[last][best])) best = b;
-  const offsets = new Float64Array(n);
-  const vCap = new Float64Array(n).fill(Infinity);
-  let blocked = false;
-  if (n === 1) offsets[0] = so;
-  else if (best >= 0) {
+    // The cheapest end, back through its states.
+    const last = n - 1;
+    let best = -1;
+    for (let b = 0; b < cands[last].length; b++) if (cost[last][b] < Infinity && (best < 0 || cost[last][b] < cost[last][best])) best = b;
+    const offsets = new Float64Array(n);
+    const vCap = new Float64Array(n).fill(Infinity);
+    if (n === 1) {
+      offsets[0] = so;
+      return { offsets, vCap };
+    }
+    if (best < 0) return null;
     for (let i = last, k = best; i >= 0; i--) {
       offsets[i] = cands[i][k];
       const vp = vPathOf[i][k];
       vCap[i] = vp < ref.v(s0 + i * P.step) ? vp : Infinity;
       k = prev[i][k];
     }
-  } else {
+    // (squeezing past: a crawl from where it is till it is by)
+    if (squeeze) {
+      let lastSqueeze = -1;
+      for (let i = 0; i < n; i++) if (vCap[i] <= P.squeezeSpeed) lastSqueeze = i;
+      for (let i = 0; i < lastSqueeze; i++) vCap[i] = Math.min(vCap[i], P.squeezeSpeed);
+    }
+    return { offsets, vCap };
+  };
+
+  let blocked = false;
+  let found = search(false);
+  if (!found && others.some((o) => o.v < P.standing && o.accel <= 0)) found = search(true);
+  const offsets = found ? found.offsets : new Float64Array(n);
+  const vCap = found ? found.vCap : new Float64Array(n);
+  if (!found) {
     // No way by: back toward its reference, following the nearest car in the way.
     blocked = true;
     for (let i = 0; i < n; i++) offsets[i] = Math.sign(so) * Math.max(0, Math.abs(so) - i * band);

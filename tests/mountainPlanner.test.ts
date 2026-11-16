@@ -76,12 +76,26 @@ describe('planMountain', () => {
 
   it('s before 0 (the grid) and past the road\'s end: finite', () => {
     const grid = planMountain(input({ s: -11, v: 0 }));
-    expect(grid.s0).toBe(0);
+    expect(grid.s0).toBe(-11); // (where it is: from 0 it took itself level with the car ahead on the grid)
     expect(Array.from(grid.offsets).every(Number.isFinite)).toBe(true);
     const end = planMountain(input({ s: 4990, roadEnd: 5000 }));
     expect(end.offsets.length).toBeGreaterThanOrEqual(1);
     expect(Array.from(end.offsets).every(Number.isFinite)).toBe(true);
     expect(Number.isFinite(end.offsetAt(5100))).toBe(true);
+  });
+
+  it('a car standing right in front (2.3 m off), it standing too: not stuck - it squeezes past on the roomier side at a crawl', () => {
+    const stalled: PlanOther = { s: -3, dMin: 0.9, dMax: 2.9, v: 0, accel: 0, vAhead: 0, length: 4.4 };
+    const p = planMountain(input({ s: -9.7, d: 1.84, v: 0, others: [stalled], ref: { ...STRAIGHT, d: () => 1.84 } }));
+    expect(p.blocked).toBe(false);
+    expect(p.offsetAt(-3)).toBeLessThan(-0.5); // (toward the left: the room is there)
+    expect(p.vAt(-6)).toBeLessThanOrEqual(MOUNTAIN_PLAN.squeezeSpeed + 1e-9);
+  });
+
+  it('a slow car moving right in front with no room: followed, not squeezed past', () => {
+    const slow: PlanOther = { s: 107, dMin: -3.2, dMax: 3.2, v: 8, accel: 0, vAhead: 8, length: 4.4 };
+    const p = planMountain(input({ v: 10, others: [slow] }));
+    expect(p.blocked).toBe(true);
   });
 
   it('a slower car ahead with room beside: passed, not followed (no speed cap at it)', () => {

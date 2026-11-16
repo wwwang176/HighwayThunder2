@@ -81,6 +81,8 @@ interface CarStats {
   time: number | null;
   s: number;
   walls: number;
+  /** Of them, while following its line (not kicking, drifting, settling out of a drift). */
+  lineWalls: number;
   resets: number;
   under: number;
   /** Drifts: its slide past DRIFT_ON (from under DRIFT_OFF), and its most. */
@@ -146,7 +148,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   rivals.setRoad(road);
   for (const r of rivals.list) r.driver.budget = BUDGET;
   rivals.place();
-  const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, resets: 0, under: 0, drifts: 0, sliding: false, most: 0, cars: 0, pins: runs.map(() => ({ slides: 0, on: false, most: 0, walls: 0, inMin: 99, outMin: 99 })) }));
+  const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, lineWalls: 0, resets: 0, under: 0, drifts: 0, sliding: false, most: 0, cars: 0, pins: runs.map(() => ({ slides: 0, on: false, most: 0, walls: 0, inMin: 99, outMin: 99 })) }));
   let time = 0;
   let nan = false;
   const dumpIt = !!JSON_OUT && seed < FIRST + JSON_SEEDS;
@@ -182,6 +184,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         }
         if (other.type !== 'static') continue;
         stats[k].walls++;
+        if (!coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).inDrift()) stats[k].lineWalls++;
         hitNow[k] = true;
         const car = k === 0 ? player : rivals.list[k - 1].car;
         const pi = pinOf(car.s);
@@ -338,6 +341,7 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
   for (const spec of RIVAL_CARS) {
     const dev: number[] = [];
     let walls = 0;
+    let lineWalls = 0;
     let time = 0;
     let done = 0;
     const pinT = { n: 0, twice: 0, none: 0, most: 0 };
@@ -353,6 +357,7 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
         time += c.time;
       }
       walls += c.walls;
+      lineWalls += c.lineWalls;
       dev.push(...r.meet.dev);
       for (const ps of c.pins) {
         pinT.n++;
@@ -360,10 +365,10 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
         if (ps.slides === 0) pinT.none++;
         pinT.most += ps.most;
       }
-      out.push(`  ${spec.id} seed ${seed}: ${c.time !== null ? c.time.toFixed(2) + ' s' : `DNF@${c.s.toFixed(0)}`} walls ${c.walls} off p50 ${quantile(r.meet.dev, 0.5).toFixed(3)} p95 ${quantile(r.meet.dev, 0.95).toFixed(3)} m`);
+      out.push(`  ${spec.id} seed ${seed}: ${c.time !== null ? c.time.toFixed(2) + ' s' : `DNF@${c.s.toFixed(0)}`} walls ${c.walls} (line ${c.lineWalls}) off p50 ${quantile(r.meet.dev, 0.5).toFixed(3)} p95 ${quantile(r.meet.dev, 0.95).toFixed(3)} m`);
     }
     out.push(
-      `${spec.id}: home ${done}/${SEEDS}, time avg ${(time / Math.max(1, done)).toFixed(2)} s, walls ${walls}, off its path p50 ${quantile(dev, 0.5).toFixed(3)} p95 ${quantile(dev, 0.95).toFixed(3)} m (${dev.length} samples), ` +
+      `${spec.id}: home ${done}/${SEEDS}, time avg ${(time / Math.max(1, done)).toFixed(2)} s, walls ${walls} (following its line ${lineWalls}), off its path p50 ${quantile(dev, 0.5).toFixed(3)} p95 ${quantile(dev, 0.95).toFixed(3)} m (${dev.length} samples), ` +
         `hairpins ${pinT.n}: slid twice+ ${pinT.twice}, not past 15° ${pinT.none}, most avg ${((pinT.most / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°`,
     );
   }
