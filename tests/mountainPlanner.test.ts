@@ -92,6 +92,13 @@ describe('planMountain', () => {
     expect(p.vAt(-6)).toBeLessThanOrEqual(MOUNTAIN_PLAN.squeezeSpeed + 1e-9);
   });
 
+  it('blocked closer than followGap to the car in front: its cap under that car\'s speed - backing off, not pushing it on', () => {
+    const slow: PlanOther = { s: 106, dMin: -3.2, dMax: 3.2, v: 2, accel: 0, vAhead: 2, length: 4.4 };
+    const p = planMountain(input({ v: 2, others: [slow] }));
+    expect(p.blocked).toBe(true);
+    expect(p.vAt(100)).toBeLessThan(2);
+  });
+
   it('a slow car moving right in front with no room: followed, not squeezed past', () => {
     const slow: PlanOther = { s: 107, dMin: -3.2, dMax: 3.2, v: 8, accel: 0, vAhead: 8, length: 4.4 };
     const p = planMountain(input({ v: 10, others: [slow] }));

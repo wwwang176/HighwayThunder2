@@ -261,7 +261,8 @@ export function planMountain(input: PlanInput): MountainPlan {
       if (dHere + input.halfWidth + P.gapD <= o.dMin || dHere - input.halfWidth - P.gapD >= o.dMax) continue;
       const gap = o.s - o.length / 2 - (input.s + input.halfLength);
       if (gap < -input.halfLength) continue;
-      follow = Math.min(follow, Math.max(0, o.v) + P.followGain * Math.max(0, gap - P.followGap));
+      // (closer than followGap: slower than it - backing off; no slower floor, a car it touched it pushed on for ever)
+      follow = Math.min(follow, Math.max(0, Math.max(0, o.v) + P.followGain * (gap - P.followGap)));
     }
     vCap.fill(follow);
   }

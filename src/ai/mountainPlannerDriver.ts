@@ -130,9 +130,11 @@ export class MountainPlannerDriver implements RivalDriver {
     const startOffset = this.wasDrift ? 0 : this.mplan ? this.mplan.offsetAt(self.s) : Math.abs(self.d - refHere) < KEEP_START ? 0 : self.d - refHere;
     const launching = this.moving < LAUNCH_TIME;
     const list: PlanOther[] = others.map((b) => {
-      const vAhead = Math.max(b.v, inner.refSpeed(b.s, 0));
-      const a = launching && b.v < 3 ? MOUNTAIN_PLAN.accelOthers : Math.max(0, Math.min(MOUNTAIN_PLAN.accelOthers, this.seen.get(b.id ?? -1)?.a ?? 0));
-      return { s: b.s, dMin: b.dMin, dMax: b.dMax, v: b.v, accel: a, vAhead, length: b.length };
+      // (setting off with it: speeding up as it does, all the way - its line's speed at a standstill's s is ~0, and
+      // capped there the car ahead was taken to stop speeding up at once: a wall it planned round or stopped for)
+      if (launching && b.v < 3) return { s: b.s, dMin: b.dMin, dMax: b.dMax, v: b.v, accel: MOUNTAIN_PLAN.accelOthers, vAhead: Infinity, length: b.length };
+      const a = Math.max(0, Math.min(MOUNTAIN_PLAN.accelOthers, this.seen.get(b.id ?? -1)?.a ?? 0));
+      return { s: b.s, dMin: b.dMin, dMax: b.dMax, v: b.v, accel: a, vAhead: Math.max(b.v, inner.refSpeed(b.s, b.v)), length: b.length };
     });
     this.mplan = planMountain({
       s: self.s,
