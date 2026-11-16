@@ -41,8 +41,10 @@ async function boot() {
   // garage (?mountain / ?highway: that one whatever was picked).
   const params = new URLSearchParams(location.search);
   const curved = !params.has('straight');
-  const mountain = params.has('mountain') || (!params.has('highway') && !params.has('straight') && loadSelection(localStorage).course === 'mountain');
-  const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved, mountain });
+  // (?skidpad: the drift practice ground - on the mountain road's setup, its own world)
+  const skidpad = params.has('skidpad');
+  const mountain = skidpad || params.has('mountain') || (!params.has('highway') && !params.has('straight') && loadSelection(localStorage).course === 'mountain');
+  const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved, mountain, skidpad });
   (window as unknown as { __game: Game }).__game = game;
   // I hands the car to the AI: the path planner, driven by plain controllers for now
   // (a trained network is to take over the driving part). Plans are worked out in a worker.

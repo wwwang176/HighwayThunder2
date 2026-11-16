@@ -109,8 +109,8 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   drift: {
     minSpeed: 25 / 3.6,
     fullSpeed: 35 / 3.6,
-    from: 0, // (the player's: from any slide; 2° at first)
-    full: (6 * Math.PI) / 180, // (the player's: easier into it; 12° at first)
+    from: (3 * Math.PI) / 180, // (the player's: 2° at first, then from any slide; now 3° - a small slide still grips)
+    full: (10 * Math.PI) / 180, // (the player's: 12° at first, then 6° - easier into it; then 10°)
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
     rearGrip: 0.45,
@@ -131,6 +131,21 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     // first, some 10° past what the steering sets on full throttle: too much, a quarter of it - some 2.5°)
     spin: 8_750,
     carveFull: (15 * Math.PI) / 180, // (the player's: from 0°, by the slide only - 25° and times the drift's share at first)
+    // (the player's car - the AI's drifting as it was tuned: the keyboard racers' way, Need for Speed's - the gas and the
+    // steering into the turn the slide more, counter-steering and off the gas less, no ceiling (a ceiling held the gas
+    // back: 22° to 45° took 3 s); its drive kept whole - it circles; past 65° the spring, from 70° the stability control)
+    arcade: {
+      steer: 8_000,
+      gas: 15_000, // (the player's: 12 000 too little on the gas, 18 000 too much)
+      counter: 8_000, // (15 000: full counter-lock with the gas swung it past straight in under a second)
+      lift: 12_000, // (the player's: 6 000 let the slide down too slowly off the gas)
+      align: 34_000, // (full lock and full throttle held at 46° with gas 15 000 - 30 000 let it on to 51°; 60 000 held it at 23°)
+      damp: 30_000,
+      dampMax: 60_000,
+      safe: (65 * Math.PI) / 180,
+      escFrom: (70 * Math.PI) / 180,
+      escFull: (85 * Math.PI) / 180,
+    },
   },
 };
 

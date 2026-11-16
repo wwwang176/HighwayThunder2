@@ -139,6 +139,13 @@ export class FinishGate {
     this.owed = this.fountains.map(() => 0);
   }
 
+  /** None at all (the drift practice ground: no finish) - not shown again by a race's reset, its fountains dry. */
+  private off = false;
+  hide(): void {
+    this.off = true;
+    this.group.visible = false;
+  }
+
   /** Across the road where it ends (s = ROAD_LENGTH), turned with it. */
   setRoad(road: Centerline): void {
     const { inset } = GATE;
@@ -170,12 +177,12 @@ export class FinishGate {
 
   /** The gate seen or not (gone past the player's finish: the show's shots without it; its fountains go on). */
   set shown(on: boolean) {
-    this.group.visible = on;
+    this.group.visible = on && !this.off;
   }
 
   /** The fountains `play` s on (the race's time), into `emit`, the camera at `camera` (none from far off). */
   spray(play: number, camera: { x: number; z: number }, emit: SparkEmitter): void {
-    if (play <= 0 || this.far(camera) > FOUNTAIN.near) return;
+    if (this.off || play <= 0 || this.far(camera) > FOUNTAIN.near) return;
     const within = ([lo, hi]: readonly [number, number]) => lo + Math.random() * (hi - lo);
     this.fountains.forEach((at, i) => {
       this.owed[i] += FOUNTAIN.rate * play;
