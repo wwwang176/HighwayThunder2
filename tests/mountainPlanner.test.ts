@@ -96,7 +96,7 @@ describe('planMountain', () => {
     const t0 = performance.now();
     for (let i = 0; i < 200; i++) planMountain(input({ ref: BENDS, v: 22, others }));
     const each = (performance.now() - t0) / 200;
-    process.stdout.write(`  planMountain: ${each.toFixed(3)} ms a plan\n`);
+    console.log(`  planMountain: ${each.toFixed(3)} ms a plan`);
     expect(each).toBeLessThan(5);
   });
 });
