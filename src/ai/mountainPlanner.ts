@@ -92,12 +92,14 @@ export const MOUNTAIN_PLAN = {
   followGap: 5,
   followGain: 0.5,
   /**
-   * No clean way by and a car in the way standing (under `standing` m/s, not speeding up): squeezed past - its side a
-   * cost (`wSqueeze` a station alongside), no faster than `squeezeSpeed` (m/s). Right behind a stalled car there is no
-   * clean way round, and following it waited for ever.
+   * No clean way by and a car in the way standing or crawling (under `standing` m/s, not speeding up): squeezed past -
+   * its side a cost (`wSqueeze` a station alongside), no faster than `squeezeSpeed` (m/s). Right behind a stalled car
+   * there is no clean way round (its plan's speed only ever rises), and following it waited for ever - behind one
+   * rolling at 1 m/s (a stalled car on a slope), crawled after it for ever. Alongside it dear (30: staying behind it,
+   * three stations on it, cost less than going round - it pushed it down the road), so round it as soon as it can.
    */
-  standing: 1,
-  wSqueeze: 30,
+  standing: 3,
+  wSqueeze: 300,
   squeezeSpeed: 3,
 };
 
@@ -196,7 +198,9 @@ export function planMountain(input: PlanInput): MountainPlan {
             if (Math.abs(os - s) >= o.length / 2 + input.halfLength + P.gapS) continue;
             if (at + input.halfWidth + P.gapD <= o.dMin || at - input.halfWidth - P.gapD >= o.dMax) continue;
             if (squeeze && o.v < P.standing && o.accel <= 0) {
-              squeezed++;
+              // (by how deep across it overlaps it: too near to clear it at once, every path overlaps it - the less the
+              // better, or straight through it was as cheap as round it)
+              squeezed += Math.min(at + input.halfWidth + P.gapD - o.dMin, o.dMax - (at - input.halfWidth - P.gapD));
               continue;
             }
             hit = true;

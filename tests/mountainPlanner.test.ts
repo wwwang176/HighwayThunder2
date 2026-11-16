@@ -92,11 +92,21 @@ describe('planMountain', () => {
     expect(p.vAt(-6)).toBeLessThanOrEqual(MOUNTAIN_PLAN.squeezeSpeed + 1e-9);
   });
 
+  it('rolling up to a stalled car (3 m/s, 0.7 m off its bumper, room on the left): round it on the left, not on through it', () => {
+    const stalled: PlanOther = { s: -3, dMin: 0.88, dMax: 2.88, v: 0, accel: 0, vAhead: 0, length: 4.4 };
+    const ref: PlanRef = { d: (s) => 1.9 - 0.05 * Math.max(0, s), v: () => 15, kappa: () => 0, room: () => 3.2 };
+    const p = planMountain(input({ s: -8.1, d: 1.9, v: 3, others: [stalled], ref }));
+    expect(p.blocked).toBe(false);
+    // (too near to clear it at once: out to its left as fast as it can - beside it, clear of it - and back after)
+    expect(Math.min(...[-4, -2, 0].map((s) => ref.d(s) + p.offsetAt(s)))).toBeLessThan(0.88 - 1 + 0.1); // (its side by the car's, as far as its slope lets it)
+    expect(p.offsetAt(-3)).toBeLessThan(-0.5);
+  });
+
   it('blocked closer than followGap to the car in front: its cap under that car\'s speed - backing off, not pushing it on', () => {
-    const slow: PlanOther = { s: 106, dMin: -3.2, dMax: 3.2, v: 2, accel: 0, vAhead: 2, length: 4.4 };
-    const p = planMountain(input({ v: 2, others: [slow] }));
+    const slow: PlanOther = { s: 106, dMin: -3.2, dMax: 3.2, v: 4, accel: 0, vAhead: 4, length: 4.4 };
+    const p = planMountain(input({ v: 4, others: [slow] }));
     expect(p.blocked).toBe(true);
-    expect(p.vAt(100)).toBeLessThan(2);
+    expect(p.vAt(100)).toBeLessThan(4);
   });
 
   it('a slow car moving right in front with no room: followed, not squeezed past', () => {
