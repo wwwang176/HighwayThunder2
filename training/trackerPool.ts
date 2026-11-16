@@ -11,7 +11,7 @@ import type { ExamTask } from './trackerWorker';
  */
 export class ExamPool {
   private readonly idle: Worker[] = [];
-  private readonly queue: { task: ExamTask; resolve: (r: unknown) => void; reject: (e: Error) => void }[] = [];
+  private readonly queue: { task: ExamTask | object; resolve: (r: unknown) => void; reject: (e: Error) => void }[] = [];
   private readonly pending = new Map<number, { worker: Worker; resolve: (r: unknown) => void; reject: (e: Error) => void }>();
   private nextId = 0;
 
@@ -32,11 +32,11 @@ export class ExamPool {
     }
   }
 
-  /** The worker bundled and `threads` of them started (the environment - the training's settings - goes with them). */
-  static async start(threads: number): Promise<ExamPool> {
-    const out = fileURLToPath(new URL('./out/trackerWorker.mjs', import.meta.url));
+  /** The worker (training/<worker>.ts) bundled and `threads` of them started (the environment - the training's settings - goes with them). */
+  static async start(threads: number, worker = 'trackerWorker'): Promise<ExamPool> {
+    const out = fileURLToPath(new URL(`./out/${worker}.mjs`, import.meta.url));
     await build({
-      input: fileURLToPath(new URL('./trackerWorker.ts', import.meta.url)),
+      input: fileURLToPath(new URL(`./${worker}.ts`, import.meta.url)),
       platform: 'node',
       logLevel: 'silent',
       transform: { define: { 'import.meta.env': '{"BASE_URL":"/"}' } }, // (Vite's, for the game modules that load assets)
@@ -51,7 +51,7 @@ export class ExamPool {
     return new ExamPool(Array.from({ length: threads }, () => new Worker(out, { env: process.env })));
   }
 
-  run<T>(task: ExamTask): Promise<T> {
+  run<T>(task: ExamTask | object): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.queue.push({ task, resolve: resolve as (r: unknown) => void, reject });
       this.pump();
