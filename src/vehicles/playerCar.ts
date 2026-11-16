@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { arcadeTurn, CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
+import { arcadeEnterFrom, arcadeShare, arcadeTurn, CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -192,10 +192,15 @@ export class PlayerCar {
   /** The slide its drift is held to (rad: the steering's, followed - driftFollow). */
   private driftHold = 0;
   /**
-   * The player's car (the game sets it): it drifts the keyboard racers' way (DriftAssist.arcade: turned by the inputs,
-   * no ceiling, its drive kept whole). Off: the AI's and the training's, as their drifting was tuned.
+   * It drifts the keyboard racers' way (DriftAssist.arcade: turned by the inputs, no ceiling, its drive kept whole) -
+   * any car set up with it, the player's and the AI's alike (the mountain road's).
    */
-  arcadeDrift = false;
+  get arcadeDrift(): boolean {
+    return !!this.params.drift?.arcade;
+  }
+  /** An arcade drift: in it; thrown into it (the handbrake, braking with the wheel over) - s left to slide in. */
+  private driftIn = false;
+  private driftArm = 0;
 
   /** Its wheels on the ground (0..1: their share, last step). */
   private grounded(): number {
@@ -441,7 +446,18 @@ export class PlayerCar {
     // Drift assist (drift): the more it slides, the more the car the driver's - no switch; the handbrake only by the
     // slide it starts (the player's: at once its grip dropped and the car turned round).
     const assist = p.drift && !input.hold ? p.drift : undefined;
-    this.driftNow = assist ? driftShare(slide, this.vLong, assist) : 0;
+    const share = assist ? driftShare(slide, this.vLong, assist) : 0;
+    const keyboard = assist?.arcade;
+    if (keyboard) {
+      // (an arcade drift: in on the handbrake or braking with the wheel over - enterArm s on from either - else a big
+      // slide; in, till the slide is gone)
+      const thrown = input.handbrake || (input.brake >= 0.5 && Math.abs(this.steer) >= keyboard.enterSteer);
+      this.driftArm = thrown ? keyboard.enterArm : Math.max(0, this.driftArm - dt);
+      const big = driftShare(slide, this.vLong, { ...assist, from: arcadeEnterFrom(this.vLong, keyboard), full: keyboard.enterFull });
+      if (share <= 0) this.driftIn = false;
+      else if (this.driftArm > 0 || big >= 1) this.driftIn = true;
+      this.driftNow = arcadeShare(share, big, this.driftIn, this.driftNow, dt, keyboard);
+    } else this.driftNow = share;
     const dw = this.driftNow; // (how much it drifts: `w` the wheels below)
     // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
     const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, p);
@@ -783,6 +799,8 @@ export class PlayerCar {
     this.steer = 0;
     this.throttle = 0;
     this.driftNow = 0;
+    this.driftIn = false;
+    this.driftArm = 0;
     this.lastSlide = 0;
     this.driftHold = 0;
     this.backfire.reset();

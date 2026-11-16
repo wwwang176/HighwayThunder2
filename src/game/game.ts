@@ -348,7 +348,6 @@ export class Game {
     if (this.mountain) this.rivalCars = this.rivalCars.slice(0, this.skidpad ? 0 : MOUNTAIN_RIVALS);
     for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);
-    this.player.arcadeDrift = true; // (the player's: drifting the keyboard racers' way)
     this.player.surfaceGrip = surfaceGrip;
     this.bodies = new BodyInstances(this.scene);
     this.planPath = new PlanPath(this.scene);
@@ -767,7 +766,6 @@ export class Game {
       this.aiActive = false; // the new car starts with its own limiter (the AI's hand-back would restore the old car's)
       this.player.dispose(this.physics);
       this.player = new PlayerCar(this.physics, this.scene, { spec: specOf(cars.player), livery: cars.paint[cars.player] });
-      this.player.arcadeDrift = true;
       this.player.surfaceGrip = surfaceGrip;
       this.player.road = this.roadLine;
       const shown = !this.gui._hidden;
@@ -1159,7 +1157,7 @@ export class Game {
     // what is near, unseen).
     const pp = this.player.body.translation();
     const near = (x: number, z: number) => (x - pp.x) ** 2 + (z - pp.z) ** 2 < SMOKE_RANGE ** 2;
-    // (the player's arcade drift: its rear's drive kept whole, the tyres are not "sliding" to the tyre model - they grip
+    // (an arcade drift: its rear's drive kept whole, the tyres are not "sliding" to the tyre model - they grip
     // straight on - yet slide sideways: marked and smoking as they do)
     const sideways = this.player.arcadeDrift && this.player.drifting > 0.5;
     this.player.wheels.forEach((w, i) => {
@@ -1173,8 +1171,9 @@ export class Game {
     // the wrecks' 100 on.)
     for (const r of this.rivals.list) {
       const rv = r.car.body.linvel();
+      const rSideways = r.car.arcadeDrift && r.car.drifting > 0.5; // (as the player's: sliding sideways in an arcade drift)
       r.car.wheels.forEach((w, i) => {
-        const slip = w.inContact && w.sliding && near(w.contactX, w.contactZ) ? w.slip : 0;
+        const slip = w.inContact && (w.sliding || rSideways) && near(w.contactX, w.contactZ) ? w.slip : 0;
         const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, rv.x, rv.z);
         this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, slip, rv.x, rv.z, dt, kick.x, kick.z, w.contactY);
       });

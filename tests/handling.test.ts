@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, arcadeShare, arcadeEnterFrom, type ArcadeDrift, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -478,5 +478,26 @@ describe('drift assist (CarParams.drift)', () => {
     expect(driftCarve(-0.2, 20, 1, D)).toBeCloseTo(4, 9); // (either way: its size)
     expect(driftCarve(0.8, 5, 1, D)).toBe(0); // (crawling)
     expect(driftCarve(0.8, 8.5, 0, D)).toBeCloseTo(2.5, 9);
+  });
+});
+
+describe('arcade drift entry (arcadeShare)', () => {
+  const A = { enterRate: 6 } as ArcadeDrift;
+  it('out of it, by the big slide only; in it, by its own', () => {
+    expect(arcadeShare(0.9, 0.1, false, 0.1, 0.01, A)).toBe(0.1);
+    expect(arcadeShare(0.9, 0.1, true, 0.9, 0.01, A)).toBe(0.9);
+  });
+  it('rises no faster than enterRate a second, falls at once', () => {
+    expect(arcadeShare(0.9, 0.1, true, 0.1, 0.01, A)).toBeCloseTo(0.16, 9);
+    expect(arcadeShare(0.2, 0, true, 0.9, 0.01, A)).toBe(0.2);
+  });
+});
+
+describe('arcade drift entry by speed (arcadeEnterFrom)', () => {
+  const A = { enterFrom: 3, enterFromFast: 6, enterSlow: 50, enterFast: 150 } as ArcadeDrift;
+  it('slow, its least; fast, its most; between, in proportion', () => {
+    expect(arcadeEnterFrom(30, A)).toBe(3);
+    expect(arcadeEnterFrom(100, A)).toBeCloseTo(4.5, 9);
+    expect(arcadeEnterFrom(-200, A)).toBe(6);
   });
 });

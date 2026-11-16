@@ -470,7 +470,7 @@ export interface DriftAssist {
    * against the spring (driftLimit), which holds it some spin / hold rad past what the steering sets.
    */
   spin: number;
-  /** The player's car's drift (PlayerCar.arcadeDrift): by its turning force, not a ceiling - ArcadeDrift. */
+  /** The keyboard racers' drift (PlayerCar.arcadeDrift: any car set up with it): by its turning force, not a ceiling. */
   arcade?: ArcadeDrift;
 }
 
@@ -500,6 +500,38 @@ export interface ArcadeDrift {
   safe: number;
   escFrom: number;
   escFull: number;
+  /**
+   * Into the drift, thrown in - the handbrake, or braking with the wheel `enterSteer` over (its weight forward), its
+   * slide past the drift's own (DriftAssist from) within `enterArm` s: by that slide (from..full). Not the wheel alone
+   * (held round a long bend on grip, 2-4° of slide, it slid out to 20°; a lane change's tap, the wheel all the way over
+   * in 0.1 s). Else only by a big slide: from `enterFrom` (at `enterSlow` m/s and under; `enterFromFast` at
+   * `enterFast` and over - the faster, the more slide it takes) to `enterFull` rad. In, it stays (from..full) till the
+   * slide is back under `from`. How much it drifts rises `enterRate` a second at most (no lurch as it locks in).
+   */
+  enterSteer: number;
+  enterArm: number;
+  enterFrom: number;
+  enterFromFast: number;
+  enterSlow: number;
+  enterFast: number;
+  enterFull: number;
+  enterRate: number;
+}
+
+/** The slide (rad) a big slide's drift starts from at this speed (m/s): ArcadeDrift.enterFrom..enterFromFast. */
+export function arcadeEnterFrom(speed: number, a: ArcadeDrift): number {
+  const k = Math.min(1, Math.max(0, (Math.abs(speed) - a.enterSlow) / (a.enterFast - a.enterSlow)));
+  return a.enterFrom + (a.enterFromFast - a.enterFrom) * k;
+}
+
+/**
+ * How much an arcade drift drifts (0..1) - in it (`latched`) by the drift's slide, else by the bigger one's
+ * (ArcadeDrift.enterFrom..enterFull); `share` and `big` the two shares at this slide, `prev` its last, risen
+ * `enterRate`·dt at most.
+ */
+export function arcadeShare(share: number, big: number, latched: boolean, prev: number, dt: number, a: ArcadeDrift): number {
+  const want = latched ? share : big;
+  return want > prev ? Math.min(want, prev + a.enterRate * dt) : want;
 }
 
 /**

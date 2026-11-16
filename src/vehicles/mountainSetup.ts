@@ -109,8 +109,8 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   drift: {
     minSpeed: 25 / 3.6,
     fullSpeed: 35 / 3.6,
-    from: (3 * Math.PI) / 180, // (the player's: 2° at first, then from any slide; now 3° - a small slide still grips)
-    full: (10 * Math.PI) / 180, // (the player's: 12° at first, then 6° - easier into it; then 10°)
+    from: (1 * Math.PI) / 180, // (the player's: 2° at first, then from any slide, then 3°; now 1°)
+    full: (6 * Math.PI) / 180, // (the player's: 12° at first, then 6°, then 10°; back to 6°)
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
     rearGrip: 0.45,
@@ -145,6 +145,18 @@ export const MOUNTAIN_SETUP: MountainSetup = {
       safe: (65 * Math.PI) / 180,
       escFrom: (70 * Math.PI) / 180,
       escFull: (85 * Math.PI) / 180,
+      // (in from 1° of slide on any: a lane change's slide turned it round on the straight - the keyboard's lane change,
+      // 0.1-0.3 s taps, the wheel all the way over, 1.5-5° of slide on grip; on the wheel past half held 0.4 s: a long
+      // bend held on grip slid out)
+      enterSteer: 0.5,
+      enterArm: 0.5,
+      // (3° at any speed: still too easily in on the fast straights)
+      enterFrom: (3 * Math.PI) / 180,
+      enterFromFast: (6 * Math.PI) / 180,
+      enterSlow: 50 / 3.6,
+      enterFast: 150 / 3.6,
+      enterFull: (10 * Math.PI) / 180,
+      enterRate: 6,
     },
   },
 };
