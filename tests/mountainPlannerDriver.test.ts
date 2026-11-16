@@ -73,6 +73,29 @@ describe('MountainPlannerDriver', () => {
     expect(p.blocked || Math.min(at(-5), at(-3), at(-1)) < 0.88 - 1 + 0.1, `${p.blocked} ${[-9, -7, -5, -3, -1, 1].map((s) => at(s).toFixed(2))} s ${self.s.toFixed(2)}`).toBe(true);
   });
 
+  it('stopped mid-race behind a stalled car (not the start): the car ahead is not taken to set off - no full throttle into it', () => {
+    const { neu } = pair();
+    let self = onLine(neu.inner, 80);
+    for (let i = 0; i < 240; i++) neu.drive(self, [], P); // (racing two seconds: past its launch)
+    self = { ...self, s: 100, vLong: 0 }; // (then stopped, as after a crash)
+    const stalled: TrafficBox = { id: 9, s: 100 + 2.2 + 2.5 + 2.2, dMin: self.d - 1, dMax: self.d + 1, v: 0, length: 4.4 };
+    let input = neu.drive(self, [stalled], P);
+    for (let i = 0; i < 120; i++) input = neu.drive(self, [stalled], P);
+    const p = neu.mplan!;
+    expect(p.blocked || Math.abs(p.offsetAt(stalled.s)) > 1 || input.throttle < 0.5).toBe(true);
+  });
+
+  it('drifting it carries no plan of before: no speed cap from it (a followed car\'s speed held through the drift)', () => {
+    const { neu } = pair();
+    const self = onLine(neu.inner, 100);
+    const slow: TrafficBox = { id: 7, s: 112, dMin: -4, dMax: 4, v: 5, length: 4.4 };
+    neu.drive(self, [slow], P);
+    expect(neu.mplan!.blocked).toBe(true);
+    (neu.inner as unknown as { mode: string }).mode = 'drift'; // (as if it kicked into a hairpin)
+    neu.drive(self, [slow], P);
+    expect(neu.inner.external!.vAt(200)).toBe(Infinity);
+  });
+
   it('reset drops the plan (put back elsewhere: not followed from the old place)', () => {
     const { neu } = pair();
     neu.drive(onLine(neu.inner, 100), [], P);

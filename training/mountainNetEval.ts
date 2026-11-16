@@ -140,17 +140,19 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
       snaps.length = 0; // (a drift: its plans before it are no measure after)
       continue;
     }
-    // Its lag against the plan made LAG_AFTER s before (sampled then along its path), and this plan's sample.
-    const old = snaps.find((x) => time - x.t >= LAG_AFTER - 1e-6);
+    // Its lag against the plan made LAG_AFTER s before: that plan's offsets (sampled then along its path) on its path
+    // now - out of a drift the path itself eases back to the line, and sampled with its path the plan made the car pay
+    // for easing back as it means to. The latest plan at least LAG_AFTER s old (the older ones dropped first).
+    while (snaps.length > 1 && time - snaps[1].t >= LAG_AFTER - 1e-6) snaps.shift();
+    const old = snaps.length && time - snaps[0].t >= LAG_AFTER - 1e-6 ? snaps[0] : null;
     if (old) {
       const k = Math.round(car.s - old.s0);
-      if (k >= 0 && k < old.d.length) res.lag += SAMPLE * (car.d - old.d[k]) ** 2;
+      if (k >= 0 && k < old.d.length) res.lag += SAMPLE * (car.d - (driver.inner.pathRefAt(car.s) + old.d[k])) ** 2;
     }
-    while (snaps.length && time - snaps[0].t >= LAG_AFTER - 1e-6 && snaps.length > 1 && time - snaps[1].t >= LAG_AFTER - 1e-6) snaps.shift();
     const plan = driver.mplan;
     if (plan) {
       const d = new Float32Array(SNAP_AHEAD + 1);
-      for (let i = 0; i <= SNAP_AHEAD; i++) d[i] = driver.inner.pathRefAt(car.s + i) + plan.offsetAt(car.s + i);
+      for (let i = 0; i <= SNAP_AHEAD; i++) d[i] = plan.offsetAt(car.s + i);
       snaps.push({ t: time, s0: car.s, d });
     }
   }
@@ -163,6 +165,7 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
 /** Several runs summed (each brain's exam): `seeds` alone and `raceSeeds` from the grid with rivals. */
 export function examine(brain: Brain | null, spec: CarSpec, seeds: number[], soloS: number, raceSeeds: number[], raceS: number): RunResult {
   const sum: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false };
+  let notHome = false;
   const add = (r: RunResult) => {
     sum.cost += r.cost;
     sum.lag += r.lag;
@@ -170,7 +173,9 @@ export function examine(brain: Brain | null, spec: CarSpec, seeds: number[], sol
     sum.lineWalls += r.lineWalls;
     sum.resets += r.resets;
     sum.metres += r.metres;
-    sum.time = r.time === null || sum.time === null ? (sum.time ?? r.time) : sum.time + r.time;
+    // (one run not home in time: the whole not - it summed the others and looked faster)
+    notHome ||= r.time === null;
+    sum.time = notHome ? null : (sum.time ?? 0) + r.time!;
     sum.nan ||= r.nan;
   };
   for (const s of seeds) add(runOnce(brain, spec, s, soloS, false));

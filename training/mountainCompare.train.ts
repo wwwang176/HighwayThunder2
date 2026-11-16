@@ -35,6 +35,7 @@ it('compare', async () => {
   const neu = new MountainPlannerDriver();
   neu.budget = 0.9;
   neu.setRoad(road, ai);
+  neu.net = null; // (its trained network left out: the driver alone against the mountain driver)
   car.resetAt(-3, old.refAt(0), 0);
   let shown = 0;
   for (let t = 0; t < 130 && shown < 8; t += PHYSICS_DT) {

@@ -18,7 +18,7 @@ export const MOUNTAIN_REPLAN = 0.25;
 const LAUNCH_TIME = 1;
 const LAUNCH_TRUST = 0.3;
 const LAUNCH_ACCEL = 0.5;
-/** Its plan's start kept from its last plan while the car is this near it (m); further (out of a drift): from the car. */
+/** Fresh (the start, put back), its plan starts on its path with the car this near it (m); further, from the car. */
 const KEEP_START = 1;
 /** Others' speeding up, smoothed over this long (s). */
 const ACCEL_LAG = 0.2;
@@ -87,7 +87,20 @@ export class MountainPlannerDriver implements RivalDriver {
     this.since = Infinity;
     this.wasDrift = false;
     this.moving = Infinity; // (put back moving: no launch; standing on the grid, it counts from there)
+    this.launchOpen = true;
     this.seen.clear();
+  }
+
+  /**
+   * Its launch, once after it was put here: standing, then its first LAUNCH_TIME s moving (put back moving: none).
+   * Only then - stopped mid-race behind a stalled car, taken to set off it drove at it on full throttle.
+   */
+  private launchOpen = true;
+  private launch(v: number): void {
+    if (!this.launchOpen) return;
+    if (v < 0.5) this.moving = 0;
+    else if (this.moving === Infinity) this.launchOpen = false;
+    else if ((this.moving += PHYSICS_DT) >= LAUNCH_TIME) this.launchOpen = false;
   }
 
   dispose(): void {
@@ -96,10 +109,12 @@ export class MountainPlannerDriver implements RivalDriver {
 
   drive(self: SelfState, others: TrafficBox[], p?: CarParams): HandlingInput {
     this.watch(others);
-    this.moving = self.vLong < 0.5 ? 0 : this.moving + PHYSICS_DT;
+    this.launch(self.vLong);
     this.since += PHYSICS_DT;
     const drifting = this.inner.inDrift();
-    if (!drifting && this.road && (this.since >= MOUNTAIN_REPLAN - 1e-9 || this.wasDrift || !this.mplan)) this.plan(self, others);
+    // (drifting, no plan of before: its speed cap - a car followed into the hairpin - held it through the drift)
+    if (drifting) this.inner.external = NO_OFFSET;
+    else if (this.road && (this.since >= MOUNTAIN_REPLAN - 1e-9 || this.wasDrift || !this.mplan)) this.plan(self, others);
     this.wasDrift = drifting;
     const input = this.inner.drive(self, others, p);
     if (!this.net || !this.inner.lastLine || !this.road) return input;
@@ -133,7 +148,7 @@ export class MountainPlannerDriver implements RivalDriver {
     // it, eased again onto the next drift's entry, as the mountain driver's always did; at the start or put back, from
     // its path with the car near it, else from the car)
     const startOffset = this.wasDrift ? 0 : this.mplan ? this.mplan.offsetAt(self.s) : Math.abs(self.d - refHere) < KEEP_START ? 0 : self.d - refHere;
-    const launching = this.moving < LAUNCH_TIME;
+    const launching = this.launchOpen && this.moving < LAUNCH_TIME;
     const list: PlanOther[] = others.map((b) => {
       // (setting off with it: speeding up as it does, all the way - its line's speed at a standstill's s is ~0, and
       // capped there the car ahead was taken to stop speeding up at once: a wall it planned round or stopped for)
