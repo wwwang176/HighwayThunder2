@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { groundCeiling, insideReach, keepOverRoad, MOUNTAIN, mountainRoad, roadEdges, WALL_RUN, wallShare, wallSide, wallSides } from '../src/road/mountain';
+import { insideReach, keepOverRoad, MOUNTAIN, mountainRoad, roadEdges } from '../src/road/mountain';
 import { mulberry32 } from '../src/ai/rng';
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -135,83 +135,6 @@ describe('keepOverRoad', () => {
   });
 });
 
-describe('wallSides (the rock wall on the uphill side: where the road beside it is higher)', () => {
-  const rows = (road: Centerline) => {
-    const ss: number[] = [];
-    for (let s = -50; s <= road.length + 50; s += 2) ss.push(s);
-    return ss;
-  };
-  const sideAt = (road: Centerline, s: number) => {
-    const ss = rows(road);
-    return wallSides(road, ss)[Math.round((s + 50) / 2)];
-  };
-  /** A switchback: up (or down) one leg, round a right hairpin, along the other 40 m to its right. */
-  const switchback = (g: number) =>
-    new Centerline([...straight(150), ...bend(20, 180, 10), ...straight(200)], { turnBack: true, grades: [{ len: 2000, g }] });
-  const leg2 = 150 + 20 * Math.PI + 10 + 80;
-
-  it('climbing a switchback: the lower leg\'s wall toward the upper one (its right), the upper leg\'s away from the lower (its left: the cliff over it)', () => {
-    const road = switchback(0.08);
-    expect(sideAt(road, 80)).toBe(1);
-    expect(sideAt(road, leg2)).toBe(-1);
-  });
-
-  it('coming down one: the other way round', () => {
-    const road = switchback(-0.08);
-    expect(sideAt(road, 80)).toBe(-1);
-    expect(sideAt(road, leg2)).toBe(1);
-  });
-
-  it('nothing beside it to say (level, no other part near): on one side all along, not changing with each bend', () => {
-    const road = new Centerline([...straight(100), ...bend(60, 60, 20), ...straight(80), ...bend(60, -60, 20), ...straight(80), ...bend(60, 60, 20), ...straight(100)]);
-    const sides = wallSides(road, rows(road));
-    expect(new Set(Array.from(sides)).size).toBe(1);
-  });
-
-  it('on the races\' roads it changes sides far less than with each bend, and never for a short way', () => {
-    let changes = 0;
-    for (const road of roads.slice(0, 20)) {
-      const ss = rows(road);
-      const sides = wallSides(road, ss);
-      let from = ss[0];
-      for (let i = 1; i < ss.length; i++) {
-        if (sides[i] === sides[i - 1]) continue;
-        changes++;
-        if (from !== ss[0]) expect(ss[i] - from).toBeGreaterThanOrEqual(WALL_RUN - 1e-9);
-        from = ss[i];
-      }
-    }
-    // (with each bend: ~20 a race; now about once a hairpin - turned back, the hill is on the driver's other side)
-    expect(changes / 20).toBeLessThan(14);
-  });
-});
-
-describe('groundCeiling (the ground off the road kept under the rest of it)', () => {
-  /** A steep switchback: up one leg, round a right hairpin, on up the other 40 m to its right. */
-  const road = new Centerline([...straight(150), ...bend(20, 180, 10), ...straight(200)], { turnBack: true, grades: [{ len: 2000, g: 0.15 }] });
-  const ceiling = groundCeiling(road);
-  const leg2 = 150 + 20 * Math.PI + 10 + 80;
-  it('over another part of the road: under it, falling away from its edge', () => {
-    // (from the upper leg's ground, over the lower leg's middle beside it: 80 m before the hairpin as it is 80 m after)
-    const lowS = 70;
-    const c = road.toWorld(lowS, 0);
-    expect(ceiling(c.x, c.z, leg2)).toBeLessThanOrEqual(road.height(lowS) - 1.5 + 1e-6);
-    const off = road.toWorld(lowS, -(MOUNTAIN.edge + 10)); // (10 m past its far edge)
-    expect(ceiling(off.x, off.z, leg2)).toBeLessThan(road.height(lowS) - 1.5 - 5);
-  });
-  it('the road on ahead or behind (not come back round beside it), and far from any of it: no limit', () => {
-    const climb = new Centerline([...straight(200), ...bend(150, 40, 20), ...straight(300)], { grades: [{ len: 2000, g: 0.12 }] });
-    const up = groundCeiling(climb);
-    for (const s of [100, 230, 400]) {
-      for (const d of [MOUNTAIN.edge + 2, -(MOUNTAIN.edge + 20)]) {
-        const p = climb.toWorld(s, d);
-        expect(up(p.x, p.z, s)).toBe(Infinity);
-      }
-    }
-    expect(ceiling(1e4, 1e4, 0)).toBe(Infinity);
-  });
-});
-
 describe('insideReach (how far off the road its slopes may reach on a bend\'s inside: short of its centre)', () => {
   const hairpin = new Centerline([...straight(150), ...bend(20, 180, 10), ...straight(150)], { turnBack: true });
   const reach = insideReach(hairpin);
@@ -230,35 +153,6 @@ describe('insideReach (how far off the road its slopes may reach on a bend\'s in
       const a = hairpin.toWorld(s, reach(s, 1)), b = hairpin.toWorld(s + 1, reach(s + 1, 1));
       expect((b.x - a.x) * Math.sin(th) - (b.z - a.z) * Math.cos(th)).toBeGreaterThan(0);
     }
-  });
-});
-
-describe('wallShare', () => {
-  const ss = [0, 5, 10, 15, 20, 25];
-  const sides = Int8Array.from([1, 1, 1, -1, -1, -1]);
-  it('all of the wall along its side\'s run, past it on down to none over `taper` m: where it changes sides both walls there, no gap', () => {
-    expect(Array.from(wallShare(ss, sides, 1, 10))).toEqual([1, 1, 1, 0.5, 0, 0]);
-    expect(Array.from(wallShare(ss, sides, -1, 10))).toEqual([0, 0, 0.5, 1, 1, 1]);
-    for (let i = 0; i < ss.length; i++) expect(wallShare(ss, sides, 1, 10)[i] + wallShare(ss, sides, -1, 10)[i]).toBeGreaterThanOrEqual(1);
-  });
-  it('rising smoothly (its ends flat: no edge where it starts)', () => {
-    const many = Array.from({ length: 41 }, (_, i) => i);
-    const one = Int8Array.from(many.map((s) => (s < 20 ? 1 : -1)));
-    const w = wallShare(many, one, 1, 10);
-    expect(w[20]).toBeCloseTo(1 - (3 * 0.01 - 2 * 0.001), 9); // (1 m past its run: smoothstep's, not 0.9)
-    expect(w[29] - w[30]).toBeLessThan(0.05); // (flat as it comes to none)
-    expect(w[30]).toBe(0);
-  });
-  it('a side with no run: none of it', () => {
-    expect(Array.from(wallShare(ss, Int8Array.from([1, 1, 1, 1, 1, 1]), -1, 10))).toEqual([0, 0, 0, 0, 0, 0]);
-  });
-});
-
-describe('wallSide', () => {
-  it('the rock wall is on the inside of a bend: +d (right) on a right bend, -d on a left one', () => {
-    const road = new Centerline([...straight(100), ...bend(40, 90, 20), ...straight(100), ...bend(40, -90, 20), ...straight(100)], { turnBack: true });
-    expect(wallSide(road, 100 + 30)).toBe(1);
-    expect(wallSide(road, 100 + 20 + 62.8 + 100 + 30)).toBe(-1);
   });
 });
 

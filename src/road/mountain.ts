@@ -226,154 +226,6 @@ export function keepOverRoad(road: Centerline, p: { x: number; y: number; z: num
   return true;
 }
 
-/**
- * Which side the uphill is on, from the rest of the road: parts of it within WALL_NEAR m (but more than WALL_SKIP m
- * along it: not its own run on), each by how far across it lies (its share of the way to one side), how much higher or
- * lower it is (at most WALL_HIGH m) and how near ((1 - distance / WALL_NEAR)²). A switchback's upper leg is the lower
- * one's uphill; the lower leg is the upper one's downhill - its cliff over it.
- */
-const WALL_NEAR = 90;
-const WALL_SKIP = 50;
-const WALL_HIGH = 15;
-const WALL_STEP = 5;
-/** The uphill's lead (m·share) one side must have to move the wall there (less: as it was). */
-const WALL_SURE = 2;
-/** The wall stays on a side at least this far (m: a shorter run is the one before it on). */
-export const WALL_RUN = 50;
-
-/**
- * The rock wall's side at each of `ss` (ascending; +1 the right, +d): the uphill side - where the rest of the road beside
- * it is higher - kept till the other side is surely the uphill one, and for WALL_RUN m at least (the player's: the
- * wall on each bend's inside changed sides with every bend, ~20 a race, and on a switchback's upper leg stood over the
- * lower one, where the hill falls away). Nothing beside it to say: on the side it was; never: the first bend's inside.
- */
-export function wallSides(road: Centerline, ss: number[]): Int8Array {
-  const n = ss.length;
-  const parts: { s: number; x: number; z: number; y: number }[] = [];
-  for (let s = -MOUNTAIN.before; s <= road.length + MOUNTAIN.after; s += WALL_STEP) {
-    const c = road.center(s);
-    parts.push({ s, x: c.x, z: c.z, y: road.height(s) });
-  }
-  const out = new Int8Array(n);
-  let side = 0;
-  for (let i = 0; i < n; i++) {
-    const s = ss[i];
-    const c = road.toWorld(s, 0);
-    const r = road.toWorld(s, 1);
-    const rx = r.x - c.x, rz = r.z - c.z;
-    const y = road.height(s);
-    let score = 0;
-    for (const p of parts) {
-      if (Math.abs(p.s - s) < WALL_SKIP) continue;
-      const dx = p.x - c.x, dz = p.z - c.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist >= WALL_NEAR || dist < 1e-6) continue;
-      const across = (dx * rx + dz * rz) / dist;
-      const near = 1 - dist / WALL_NEAR;
-      score += across * Math.max(-WALL_HIGH, Math.min(WALL_HIGH, p.y - y)) * near * near;
-    }
-    if (side === 0 ? Math.abs(score) > WALL_SURE : score * side < -WALL_SURE) side = Math.sign(score);
-    out[i] = side;
-  }
-  // Before anything said which side: as the first said; nothing ever did: the first bend's inside.
-  const first = out.find((v) => v !== 0) ?? wallSide(road, 0);
-  for (let i = 0; i < n && out[i] === 0; i++) out[i] = first;
-  // No run between two others shorter than WALL_RUN: the one before it on (the three one run).
-  const runs: { side: number; a: number; b: number }[] = []; // (rows a to b - 1)
-  for (let i = 0; i < n; i++) {
-    if (i > 0 && out[i] === out[i - 1]) runs[runs.length - 1].b = i + 1;
-    else runs.push({ side: out[i], a: i, b: i + 1 });
-  }
-  for (let j = 1; j + 1 < runs.length; ) {
-    const r = runs[j];
-    if (ss[runs[j + 1].a] - ss[r.a] >= WALL_RUN) {
-      j++;
-      continue;
-    }
-    const before = runs[j - 1];
-    before.b = runs[j + 1].b;
-    runs.splice(j, 2);
-    j = Math.max(1, j - 1);
-  }
-  for (const r of runs) out.fill(r.side, r.a, r.b);
-  return out;
-}
-
-/**
- * How much of the rock wall stands on `side` at each of `ss` (ascending; 0..1): all of it along that side's runs
- * (wallSides), past them on down to none over `taper` m - so where the wall changes sides both stand a while, no gap
- * (tapered within its run, both were low where it changed: 3.5 % of the course had no wall either side).
- */
-export function wallShare(ss: number[], sides: Int8Array, side: 1 | -1, taper: number): Float64Array {
-  const n = ss.length;
-  const dist = new Float64Array(n).fill(Infinity);
-  let last = -Infinity;
-  for (let i = 0; i < n; i++) {
-    if (sides[i] === side) last = ss[i];
-    dist[i] = ss[i] - last;
-  }
-  let next = Infinity;
-  for (let i = n - 1; i >= 0; i--) {
-    if (sides[i] === side) next = ss[i];
-    dist[i] = Math.min(dist[i], next - ss[i]);
-  }
-  // (smoothly: its ends flat - the player's: straight up from none, the wall's end stood as a cliff)
-  return dist.map((x) => {
-    const u = Math.max(0, 1 - x / taper);
-    return u * u * (3 - 2 * u);
-  });
-}
-
-/** The ground off the road (its cliff's slope) under the rest of it: this far under its surface at least (m)... */
-const CEILING_CLEAR = 1.5;
-/** ...and falling away from its edges this much a metre (35°)... */
-const CEILING_FALL = 0.7;
-/**
- * ...within this far of it (m); and not the road's own on from the ground's - within CEILING_SKIP m along it, or
- * along it not CEILING_ROUND times as far as across (the road on ahead or behind: not come back round beside it).
- */
-const CEILING_NEAR = 60;
-const CEILING_SKIP = 30;
-const CEILING_ROUND = 1.2;
-const CEILING_CELL = 20;
-
-/**
- * How high the ground off the road may be at (x, z), the ground's own road at `s` (+Infinity: no limit): under any
- * other part of the road near it - CEILING_CLEAR m under its surface over it, falling away CEILING_FALL a metre from its
- * edges (the player's: a road's slope fell gently from its rail, over another one below it).
- */
-export function groundCeiling(road: Centerline, edges: RoadEdges = roadEdges(road)): (x: number, z: number, s: number) => number {
-  const grid = new Map<string, { s: number; x: number; z: number; y: number; e: number }[]>();
-  const key = (ix: number, iz: number) => `${ix},${iz}`;
-  for (let s = -MOUNTAIN.before; s <= road.length + MOUNTAIN.after; s += 2) {
-    const c = road.center(s);
-    const p = { s, x: c.x, z: c.z, y: road.height(s), e: Math.max(edges.at(s, 1), edges.at(s, -1)) };
-    const k = key(Math.floor(c.x / CEILING_CELL), Math.floor(c.z / CEILING_CELL));
-    const list = grid.get(k);
-    if (list) list.push(p);
-    else grid.set(k, [p]);
-  }
-  const reach = Math.ceil(CEILING_NEAR / CEILING_CELL);
-  return (x, z, s) => {
-    let top = Infinity;
-    const ix = Math.floor(x / CEILING_CELL), iz = Math.floor(z / CEILING_CELL);
-    for (let a = -reach; a <= reach; a++) {
-      for (let b = -reach; b <= reach; b++) {
-        const list = grid.get(key(ix + a, iz + b));
-        if (!list) continue;
-        for (const p of list) {
-          const along = Math.abs(p.s - s);
-          if (along < CEILING_SKIP) continue;
-          const dist = Math.hypot(x - p.x, z - p.z);
-          if (dist >= CEILING_NEAR || along < CEILING_ROUND * dist) continue;
-          top = Math.min(top, p.y - CEILING_CLEAR - CEILING_FALL * Math.max(0, dist - p.e));
-        }
-      }
-    }
-    return top;
-  };
-}
-
 /** A slope off the road reaches on a bend's inside at most this share of its radius from the centre line... */
 const INSIDE_SHARE = 0.8;
 /** ...its tightest within this far along either way (m: the clothoids into it, its rows' neighbours). */
@@ -384,8 +236,8 @@ const REACHES = new WeakMap<Centerline, (s: number, side: 1 | -1) => number>();
 /**
  * How far from the centre line (m) the slopes off the road may reach on `side` at s: on a bend's inside, short of its
  * centre (INSIDE_SHARE of the tightest radius within INSIDE_ALONG m) - past it a row's points fall behind the row
- * before's, its triangles turned over (the player's: broken slopes; the wall and the cliff on a bend's inside since
- * the wall went uphill); elsewhere +Infinity. Worked out once a road.
+ * before's, its triangles turned over (the player's: broken slopes) - the edge's strip of ground (mountainScene) stops
+ * there, the ground's grid (terrain) goes on; elsewhere +Infinity. Worked out once a road.
  */
 export function insideReach(road: Centerline): (s: number, side: 1 | -1) => number {
   const known = REACHES.get(road);
@@ -413,18 +265,6 @@ export function insideReach(road: Centerline): (s: number, side: 1 | -1) => numb
   };
   REACHES.set(road, reach);
   return reach;
-}
-
-/** The inside of the bend at s or nearest it (+1: +d, the right) - the rock wall's side where nothing says which is uphill (wallSides). */
-export function wallSide(road: Centerline, s: number): 1 | -1 {
-  for (let k = 0; k <= 600; k++) {
-    for (const t of k === 0 ? [s] : [s - k, s + k]) {
-      const c = road.curvature(t);
-      if (c > 1e-9) return 1;
-      if (c < -1e-9) return -1;
-    }
-  }
-  return 1;
 }
 
 /** A road's edges (MOUNTAIN.widen, MOUNTAIN.shoulder): `at(s, side)`, how far from its centre line its edge is on `side` (+1 right, -1 left; m). */
