@@ -28,6 +28,8 @@ const coreOf = (d: Driver): MountainDriver => (d instanceof MountainPlannerDrive
  * till it is first back within SOLO_BACK m of it.
  */
 const SOLO = !!process.env.SOLO;
+/** NET=0: the planner drivers without their cars' trained networks (the driver's own control). */
+const NO_NET = process.env.NET === '0';
 const SOLO_BACK = 0.3;
 /** STALL=1: the player's car held standing (full brake) the first STALL_S s - a player stalling on the grid. */
 const STALL = !!process.env.STALL;
@@ -135,6 +137,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   const playerAi = makeDriver();
   playerAi.budget = BUDGET;
   playerAi.setRoad(road, SETUP ? mountainAi(playerSpec.ai, mountainSetupOf(playerSpec.id)) : playerSpec.ai);
+  if (NO_NET && playerAi instanceof MountainPlannerDriver) playerAi.net = null;
   const lineMs = performance.now() - t0;
   const rivals = new Rivals<Driver>(physics, null, () => null, alone ? [] : RIVAL_CARS, {
     makeDriver,
@@ -146,7 +149,10 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   });
   rivals.length = MOUNTAIN.length;
   rivals.setRoad(road);
-  for (const r of rivals.list) r.driver.budget = BUDGET;
+  for (const r of rivals.list) {
+    r.driver.budget = BUDGET;
+    if (NO_NET && r.driver instanceof MountainPlannerDriver) r.driver.net = null;
+  }
   rivals.place();
   const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, lineWalls: 0, resets: 0, under: 0, drifts: 0, sliding: false, most: 0, cars: 0, pins: runs.map(() => ({ slides: 0, on: false, most: 0, walls: 0, inMin: 99, outMin: 99 })) }));
   let time = 0;
