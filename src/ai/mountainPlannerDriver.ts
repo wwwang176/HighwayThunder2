@@ -11,8 +11,13 @@ import type { SelfState, TrafficBox } from './sensors';
 
 /** How often it plans anew (s). */
 export const MOUNTAIN_REPLAN = 0.25;
-/** At the start (its own launch's first second) a standing car ahead is taken to set off as it does. */
+/**
+ * At the start (its own launch's first second) a standing car ahead is taken to set off as it does - for its first
+ * LAUNCH_TRUST s whatever it does, after that only if it is seen speeding up (over LAUNCH_ACCEL m/s²).
+ */
 const LAUNCH_TIME = 1;
+const LAUNCH_TRUST = 0.3;
+const LAUNCH_ACCEL = 0.5;
 /** Its plan's start kept from its last plan while the car is this near it (m); further (out of a drift): from the car. */
 const KEEP_START = 1;
 /** Others' speeding up, smoothed over this long (s). */
@@ -94,7 +99,7 @@ export class MountainPlannerDriver implements RivalDriver {
     this.moving = self.vLong < 0.5 ? 0 : this.moving + PHYSICS_DT;
     this.since += PHYSICS_DT;
     const drifting = this.inner.inDrift();
-    if (!drifting && this.road && (this.since >= MOUNTAIN_REPLAN || this.wasDrift || !this.mplan)) this.plan(self, others);
+    if (!drifting && this.road && (this.since >= MOUNTAIN_REPLAN - 1e-9 || this.wasDrift || !this.mplan)) this.plan(self, others);
     this.wasDrift = drifting;
     const input = this.inner.drive(self, others, p);
     if (!this.net || !this.inner.lastLine || !this.road) return input;
@@ -132,7 +137,9 @@ export class MountainPlannerDriver implements RivalDriver {
     const list: PlanOther[] = others.map((b) => {
       // (setting off with it: speeding up as it does, all the way - its line's speed at a standstill's s is ~0, and
       // capped there the car ahead was taken to stop speeding up at once: a wall it planned round or stopped for)
-      if (launching && b.v < 3) return { s: b.s, dMin: b.dMin, dMax: b.dMax, v: b.v, accel: MOUNTAIN_PLAN.accelOthers, vAhead: Infinity, length: b.length };
+      // (past LAUNCH_TRUST s only one seen to speed up: a stalled one taken to set off for a second, it was run into)
+      const seenA = this.seen.get(b.id ?? -1)?.a ?? 0;
+      if (launching && b.v < 3 && (this.moving < LAUNCH_TRUST || seenA > LAUNCH_ACCEL)) return { s: b.s, dMin: b.dMin, dMax: b.dMax, v: b.v, accel: MOUNTAIN_PLAN.accelOthers, vAhead: Infinity, length: b.length };
       const a = Math.max(0, Math.min(MOUNTAIN_PLAN.accelOthers, this.seen.get(b.id ?? -1)?.a ?? 0));
       return { s: b.s, dMin: b.dMin, dMax: b.dMax, v: b.v, accel: a, vAhead: Math.max(b.v, inner.refSpeed(b.s, b.v)), length: b.length };
     });

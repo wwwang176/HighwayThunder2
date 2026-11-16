@@ -58,6 +58,20 @@ describe('MountainPlannerDriver', () => {
     expect(Math.abs(neu.mplan!.offsetAt(140))).toBeGreaterThan(1.5);
   });
 
+  it('on the grid behind a car that never sets off (stalled): within half a second of its own launch it plans round it', () => {
+    const { neu } = pair();
+    const stalled: TrafficBox = { id: -1, s: -3, dMin: 0.88, dMax: 2.88, v: 0, length: 4.4 };
+    let self: SelfState = { s: -11, d: 1.88, yaw: 0, vLong: 0, vLat: 0, yawRate: 0, speedCap: 80 };
+    neu.drive(self, [stalled], P); // (standing on the grid)
+    for (let i = 0; i < 60; i++) {
+      self = { ...self, vLong: self.vLong + 4 / 120, s: self.s + self.vLong / 120 };
+      neu.drive(self, [stalled], P);
+    }
+    const p = neu.mplan!;
+    const at = (s: number) => neu.inner.pathRefAt(s) + p.offsetAt(s);
+    expect(p.blocked || Math.min(at(-5), at(-3), at(-1)) < 0.88 - 1 + 0.1, `${p.blocked} ${[-9, -7, -5, -3, -1, 1].map((s) => at(s).toFixed(2))} s ${self.s.toFixed(2)}`).toBe(true);
+  });
+
   it('reset drops the plan (put back elsewhere: not followed from the old place)', () => {
     const { neu } = pair();
     neu.drive(onLine(neu.inner, 100), [], P);
