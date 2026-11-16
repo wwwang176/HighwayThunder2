@@ -28,14 +28,33 @@ const FALL = 0.45 * TAN_HALF;
  * fade toward the car. `soft`: the cut-off's softness (tangent units; a softer one spread both ways round where the
  * sharp one fades in).
  */
-export function lowBeamPattern(u: number, v: number, soft = EDGE): number {
+export function lowBeamPattern(u: number, v: number, soft = EDGE, stray = 0): number {
   const cut = u > 0 ? CUT_V + Math.min(u * KINK, KINK_RISE) : CUT_V;
   const below = cut - v;
   const edge = Math.min(1, Math.max(0, (below + (soft - EDGE) / 2) / soft));
   const spread = Math.exp(-(((u - 0.073) / SPREAD) ** 2));
   const fall = 0.3 + 0.7 * Math.exp(-(((below - 0.058) / FALL) ** 2));
-  return edge * spread * fall;
+  // (above the cut-off `stray` of it, fading up: STRAY)
+  const lit = edge + (1 - edge) * stray * Math.exp(Math.min(0, below) / STRAY.fade);
+  return lit * spread * fall;
 }
+
+/**
+ * A low beam is not dark above its cut-off (the player's: the signs lit, though the beam is cut - a real one's
+ * regulations ask a little light there for the signs): `share` of it, fading out over `fade` (tangent, ~8°) up. In
+ * the headlights' own light (ht2LowBeam) - not the traffic's painted ground beams nor the smoke's cookie.
+ */
+export const STRAY = { share: 0.04, fade: Math.tan(THREE.MathUtils.degToRad(8)) };
+
+/**
+ * A retroreflective sheeting's (the chevron boards: a material with HT2_RETRO defined): a headlight's light on it sent
+ * back toward the lamp - seen near the lamp (the observation angle under `narrow` rad) `gain` times brighter, none
+ * past `wide` (seen from aside, as by a lamp not one's own: plain); and the ambient light on it `ambient` times (the
+ * player's: a little light on them under the moon - not lit of their own). Wider than a real sheeting's (a driver's
+ * eye is under a metre from the lamps, ~1°): the chase camera is 5-6 m behind them - 17° off them from a board 20 m
+ * ahead, where 2-14° gave it nothing.
+ */
+export const RETRO = { gain: 150, narrow: THREE.MathUtils.degToRad(6), wide: THREE.MathUtils.degToRad(25), ambient: 2 };
 
 /** Every headlight's decay, and no other spot light's (the street lamps': 1.6): the lit shaders know a headlight by it. */
 export const HEADLIGHT_DECAY = 1.0;
@@ -81,9 +100,10 @@ float ht2LowBeam( vec3 lightPos, vec3 towardLight, vec3 p ) {
   float cut = u > 0.0 ? ${g(CUT_V)} + min( u * ${g(KINK)}, ${g(KINK_RISE)} ) : ${g(CUT_V)};
   float below = cut - v;
   float edge = clamp( below / ${g(EDGE)}, 0.0, 1.0 );
+  float lit = edge + ( 1.0 - edge ) * ${g(STRAY.share)} * exp( min( below, 0.0 ) / ${g(STRAY.fade)} );
   float su = ( u - 0.073 ) / ${g(SPREAD)};
   float sb = ( below - 0.058 ) / ${g(FALL)};
-  return edge * exp( - su * su ) * ( 0.3 + 0.7 * exp( - sb * sb ) );
+  return lit * exp( - su * su ) * ( 0.3 + 0.7 * exp( - sb * sb ) );
 }`;
 
 /** A pair of lamps' half spacing (m), as the traffic's beams take it. */
@@ -198,6 +218,10 @@ export function installLowBeamShader(): void {
     SPOT_INFO,
     `${SPOT_INFO}
 		if ( ${isLamp} ) directLight.color *= ht2LowBeam( spotLight.position, spotLight.direction, geometryPosition );
+		#ifdef HT2_RETRO
+		// (retroreflective: back toward the lamp - bright seen near it, the observation angle small: RETRO)
+		if ( ${isLamp} ) directLight.color *= 1.0 + ${g(RETRO.gain)} * smoothstep( ${g(Math.cos(RETRO.wide))}, ${g(Math.cos(RETRO.narrow))}, dot( normalize( - geometryPosition ), directLight.direction ) );
+		#endif
 		#ifdef HT2_GROUND
 		// The ground (npcBeams' materials): a rival's lamp lights it as the traffic's pair does, its shadow on it.
 		// (Its reach the ground beam's own, softly faded, not the spot's narrower cone: that cut it off hard by the nose.)
@@ -218,6 +242,11 @@ export function installLowBeamShader(): void {
   const at = C.lights_fragment_begin.indexOf(call, from);
   if (from < 0 || at < 0 || at > to) throw new Error('installLowBeamShader: three.js spot light loop changed');
   C.lights_fragment_begin = `${C.lights_fragment_begin.slice(0, at)}if ( directLight.visible ) ${C.lights_fragment_begin.slice(at)}`;
+  // (a retroreflective sheeting's ambient light: RETRO.ambient times)
+  C.lights_fragment_begin += `
+#if defined( RE_IndirectDiffuse ) && defined( HT2_RETRO )
+	irradiance *= ${g(RETRO.ambient)};
+#endif`;
 }
 installLowBeamShader(); // (on import: before any lit material is compiled)
 

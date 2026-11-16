@@ -291,7 +291,14 @@ export class MountainScene implements Scenery {
   private readonly grassMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide });
   private readonly railMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide });
   private readonly postMat = new THREE.MeshStandardMaterial({ color: 0x8a8e94, metalness: 0.4, roughness: 0.5 });
-  private readonly reflectorMat = new THREE.MeshBasicMaterial({ color: 0xffa640 });
+  /**
+   * The rail's reflectors: retroreflective as the chevron boards (headlight's RETRO) - not lit of their own; a tenth as
+   * bright as a board's (low on the rail: in the beam, where a board above it has only its stray light).
+   */
+  private readonly reflectorMat = Object.assign(
+    new THREE.MeshStandardMaterial({ color: new THREE.Color(0xffa640).multiplyScalar(CHEVRON.reflect * 0.1), roughness: CHEVRON.roughness }),
+    { defines: { HT2_RETRO: '' } },
+  );
   private readonly chevronMat: THREE.MeshStandardMaterial;
   private readonly beaconMat = new THREE.MeshBasicMaterial({ color: BEACON.color.clone(), toneMapped: false, fog: false });
   /** Race time (s) the beacons blink by. */
@@ -319,6 +326,8 @@ export class MountainScene implements Scenery {
       roughness: CHEVRON.roughness,
       side: THREE.DoubleSide, // (a face mirrored for a left bend: either side drawn)
     });
+    // (retroreflective sheeting: a lamp's light sent back toward it, bright to the driver behind it - headlight's RETRO)
+    this.chevronMat.defines = { HT2_RETRO: '' };
     this.buildFar();
     scene.add(this.course, this.far);
   }
@@ -496,7 +505,8 @@ export class MountainScene implements Scenery {
       this.course.add(mesh);
     };
     place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.95, 0.12), this.postMat, Math.max(1, posts.length)), posts, 0.2, 0.47);
-    place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, 0.09, 0.14), this.reflectorMat, Math.max(1, reflectors.length)), reflectors, 0.02, RAIL.y1 + 0.06);
+    // (its face 0.1 m wide toward the cars coming each way: the lamps' light sent back from it)
+    place(new THREE.InstancedMesh(new THREE.BoxGeometry(0.1, 0.09, 0.04), this.reflectorMat, Math.max(1, reflectors.length)), reflectors, 0.02, RAIL.y1 + 0.06);
   }
 
   /**
