@@ -59,6 +59,7 @@ describe('headlights', () => {
     expect(C.lights_fragment_begin).toContain('#ifdef HT2_RETRO');
     expect(C.lights_fragment_begin).toContain(`1.0 + ${RETRO.gain.toFixed(6)} * smoothstep(`);
     expect(C.lights_fragment_begin).toContain(`irradiance *= ${RETRO.ambient.toFixed(6)}`);
+    expect(C.opaque_fragment).toMatch(new RegExp(`#ifdef HT2_RETRO\\s*outgoingLight \\*= min\\( 1\\.0, ${RETRO.cap.toFixed(6).replace('.', '\\.')} /`)); // (held under the cap: a small glow)
   });
 
   it('on the ground, a rival\'s lamp lights as the traffic\'s pair, before its shadow is put on it', () => {

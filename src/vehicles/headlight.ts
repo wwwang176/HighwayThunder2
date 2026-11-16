@@ -52,9 +52,11 @@ export const STRAY = { share: 0.04, fade: Math.tan(THREE.MathUtils.degToRad(8)) 
  * past `wide` (seen from aside, as by a lamp not one's own: plain); and the ambient light on it `ambient` times (the
  * player's: a little light on them under the moon - not lit of their own). Wider than a real sheeting's (a driver's
  * eye is under a metre from the lamps, ~1°): the chase camera is 5-6 m behind them - 17° off them from a board 20 m
- * ahead, where 2-14° gave it nothing.
+ * ahead, where 2-14° gave it nothing. Its brightness (luminance) held to `cap`: the bloom (threshold 1: render/
+ * bloomPass) blurs what is over its threshold by how bright it is - a reflector in the beam, sent back 151 times, a big
+ * glow round it; held a little over the threshold, a small one.
  */
-export const RETRO = { gain: 150, narrow: THREE.MathUtils.degToRad(6), wide: THREE.MathUtils.degToRad(25), ambient: 2 };
+export const RETRO = { gain: 150, narrow: THREE.MathUtils.degToRad(6), wide: THREE.MathUtils.degToRad(25), ambient: 2, cap: 1.5 };
 
 /** Every headlight's decay, and no other spot light's (the street lamps': 1.6): the lit shaders know a headlight by it. */
 export const HEADLIGHT_DECAY = 1.0;
@@ -247,6 +249,11 @@ export function installLowBeamShader(): void {
 #if defined( RE_IndirectDiffuse ) && defined( HT2_RETRO )
 	irradiance *= ${g(RETRO.ambient)};
 #endif`;
+  // (and its brightness held to RETRO.cap: over the bloom's threshold only a little - a small glow, not a big one)
+  C.opaque_fragment = `#ifdef HT2_RETRO
+	outgoingLight *= min( 1.0, ${g(RETRO.cap)} / max( dot( outgoingLight, vec3( 0.2126729, 0.7151522, 0.0721750 ) ), 1e-4 ) );
+#endif
+${C.opaque_fragment}`;
 }
 installLowBeamShader(); // (on import: before any lit material is compiled)
 
