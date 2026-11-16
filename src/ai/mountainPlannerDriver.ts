@@ -114,7 +114,7 @@ export class MountainPlannerDriver implements RivalDriver {
     const drifting = this.inner.inDrift();
     // (drifting, no plan of before: its speed cap - a car followed into the hairpin - held it through the drift)
     if (drifting) this.inner.external = NO_OFFSET;
-    else if (this.road && (this.since >= MOUNTAIN_REPLAN - 1e-9 || this.wasDrift || !this.mplan)) this.plan(self, others);
+    else if (this.road && (this.since >= MOUNTAIN_REPLAN - 1e-9 || this.wasDrift || !this.mplan)) this.replan(self, others);
     this.wasDrift = drifting;
     const input = this.inner.drive(self, others, p);
     if (!this.net || !this.inner.lastLine || !this.road) return input;
@@ -138,7 +138,8 @@ export class MountainPlannerDriver implements RivalDriver {
     }
   }
 
-  private plan(self: SelfState, others: TrafficBox[]): void {
+  /** Plans anew (not `plan`: the game draws a driver's `plan` on the road - a method of that name it took for a path and froze). */
+  private replan(self: SelfState, others: TrafficBox[]): void {
     const inner = this.inner;
     const road = this.road!;
     const v = Math.max(0, self.vLong);

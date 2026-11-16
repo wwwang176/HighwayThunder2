@@ -96,6 +96,11 @@ describe('MountainPlannerDriver', () => {
     expect(neu.inner.external!.vAt(200)).toBe(Infinity);
   });
 
+  it('has no `plan` (the game draws a driver\'s `plan` - the highway planner\'s path - on the road: a method of that name froze the I key)', () => {
+    const { neu } = pair();
+    expect((neu as unknown as { plan?: unknown }).plan).toBeUndefined();
+  });
+
   it('reset drops the plan (put back elsewhere: not followed from the old place)', () => {
     const { neu } = pair();
     neu.drive(onLine(neu.inner, 100), [], P);
