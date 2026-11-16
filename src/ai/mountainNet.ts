@@ -73,13 +73,17 @@ export function mountainNetFrom(weights: number[] | undefined): Brain | null {
 
 const OUT = new Float32Array(2);
 
-/** The driver's input with the network's correction: its steer added, its throttle scaled (1 + out), the brake as it was. */
+/**
+ * The driver's input with the network's correction: its steer added, its throttle scaled up (1 + out, out > 0 only),
+ * the brake as it was. Never less throttle: the planner sets its speed - let take it away, it learned to drive 1-5 %
+ * slower to keep on its line and off the walls.
+ */
 export function applyMountainNet(brain: Brain | null, inputs: Float32Array, base: HandlingInput): HandlingInput {
   if (!brain) return base;
   const o = forward(brain, inputs, OUT);
   return {
     ...base,
     steer: Math.max(-1, Math.min(1, base.steer + o[0])),
-    throttle: Math.max(0, Math.min(1, base.throttle * (1 + o[1]))),
+    throttle: Math.min(1, base.throttle * (1 + Math.max(0, o[1]))),
   };
 }

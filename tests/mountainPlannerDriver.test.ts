@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
 import { MountainDriver } from '../src/ai/mountainDriver';
 import { MountainPlannerDriver } from '../src/ai/mountainPlannerDriver';
-import { MOUNTAIN_NET_INPUTS, MOUNTAIN_NET_LAYERS, mountainNetInputs, quietMountainNet } from '../src/ai/mountainNet';
+import { applyMountainNet, MOUNTAIN_NET_INPUTS, MOUNTAIN_NET_LAYERS, mountainNetInputs, quietMountainNet } from '../src/ai/mountainNet';
 import { lineAt } from '../src/ai/mountainLine';
 import { mulberry32 } from '../src/ai/rng';
 import type { SelfState, TrafficBox } from '../src/ai/sensors';
@@ -22,6 +22,7 @@ function pair(): { old: MountainDriver; neu: MountainPlannerDriver } {
   old.setRoad(ROAD, STREET_RACER.ai);
   const neu = new MountainPlannerDriver();
   neu.setRoad(ROAD, STREET_RACER.ai);
+  neu.net = null; // (its car's trained network left out: the driver alone)
   return { old, neu };
 }
 
@@ -78,6 +79,17 @@ describe('MountainPlannerDriver', () => {
     expect(neu.mplan).not.toBeNull();
     neu.reset(1.8);
     expect(neu.mplan).toBeNull();
+  });
+
+  it('the network steers and may add throttle, never take it away (the planner sets its speed: it learned to slow down to stay on its line)', () => {
+    const b = quietMountainNet(mulberry32(5));
+    const biasOut1 = b.weights.length - 1; // (the last weight: the second output's bias)
+    b.weights[biasOut1] = -5; // (its throttle output all the way down)
+    const base = { throttle: 0.6, brake: 0, steer: 0.1 };
+    const out = applyMountainNet(b, new Float32Array(MOUNTAIN_NET_INPUTS), base);
+    expect(out.throttle).toBe(0.6);
+    b.weights[biasOut1] = 5;
+    expect(applyMountainNet(b, new Float32Array(MOUNTAIN_NET_INPUTS), base).throttle).toBeGreaterThan(0.6);
   });
 
   it('mountainNetInputs: finite and the right length at s = -11 (the grid), standing', () => {
