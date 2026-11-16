@@ -52,26 +52,88 @@ export const MOUNTAIN_DRIVER = {
     kickEarly: 0.35,
     kickTime: 0.2,
     kickSteer: 0.6,
-    angle: (25 * Math.PI) / 180,
-    angleGain: (6 * Math.PI) / 180,
-    angleLeast: 0.2,
-    angleMost: (38 * Math.PI) / 180,
-    gas: 0.5,
-    gasGain: 0.25,
-    panic: 1,
-    counter: 0.25,
-    rateGain: 1,
-    rateMost: 3,
-    look: 0.5,
-    center: -1,
-    useLine: 0,
-    exitEarly: 4,
+    panic: 0.6,
+    posGain: 1.5,
+    velGain: 3,
+    ffSteer: 0.7,
+    ffSlope: 0.05,
+    ffLeast: 0.4,
+    ffGas: 0.6,
+    steerGain: 1,
+    gasGain: 1,
+    steerLeast: 0.2,
+    steerMost: 1,
+    approach: 60,
+    exitTurn: 0.01,
+    gasLeast: 0.3,
+    dangerLook: 0.4,
+    slid: 0.17,
+    over: 0.09,
+    recover: 1.5,
+    merge: 0.5,
+    recoverSteer: 0.5,
+    exitEarly: 0,
     minSpeed: 30 / 3.6,
-    catchAt: 0.6,
-    side: 11,
-    room: 4,
-    brake: 7,
+    catchAt: 0.75,
+    latDrift: 22,
+    speedGain: 0,
+    overSpeed: 99,
+    speedLine: 0,
+    holdGas: 0.5,
+    speedLook: 0.5,
+    kickLoss: 2.5,
+    brake: 5,
+    brakeGain: 0.3,
     wide: 1.5,
+    lineShare: 0,
+    settleSlide: 0.1,
+    settleGas: 0.3,
+    settleSteer: 0.5,
+    settleHead: 2,
+    settleRate: 0.5,
+    approachBlend: 1,
+    settleYaw: 0.15,
+    lineYawDamp: 0.1,
+    buildSteer: 0,
+    steerRate: 5,
+    satGas: 0,
+    kickSlide: 0,
+    hbOn: 0,
+    hbPulse: 0.1,
+    hbExit: 2,
+    pullLook: 0.6,
+    pullRoom: 2.5,
+    pullSlide: 0,
+    pullGap: 0.2,
+    pullMost: 0.9,
+    userCtl: 2,
+    slideTarget: 0.45,
+    slideGain: 1.5,
+    springLimit: Math.PI / 4,
+    innerRoom: 1,
+    innerSteer: -0.3,
+    innerLook: 1.2,
+    pullAngle: 0.25,
+    pullAfter: 0.4,
+    tightOn: 0,
+    entryOut: 1.5,
+    mergeFrac: 0.5,
+    slideErrGain: 0.1,
+    errLook: 0.8,
+    slideMin: 0.25,
+    pullErr: 0.3,
+    pullLong: 0,
+    arc: 1,
+    arcLag: 0.15,
+    exitTaper: 0,
+    pullLow: 0.1,
+    slideMax: 0.55,
+    kickMax: 0.6,
+    courseLag: 0,
+    settleOff: 0,
+    gasSlideFrom: 0.05,
+    gasSlideSpan: 0.1,
+    gasSlideLeast: 0.3,
   },
   /** Past the finish, braked down to this (m/s; 40 km/h, as the highway's FINISHED_SPEED). */
   pastFinish: 40 / 3.6,
@@ -105,38 +167,32 @@ export function hairpinRuns(road: Centerline, tight: number): HairpinRun[] {
 }
 
 /**
- * In a drift round a hairpin turning `dir` (+1 right): its slide held by the wheel (turned in for `angle` rad of slide:
- * the drift assist's spring asks sqrt(slide / `limit`) of the wheel), its line kept by the throttle (`gas`, `gasGain`
- * more a metre it will be off it outward: the push toward its nose grows with the throttle) and a little by the slide
- * (`angleGain` a metre, within `angleLeast`..`angleMost`) - not catching the slide when it turned in tight, to drift
- * again when it went wide (the player's: each hairpin drifted twice); about to hit the inside wall (`danger`),
- * counter-steered. `off`: where it will be off its line (m, + right of it: driftOff).
+ * In a drift: how fast its course should turn (rad/s, + right) - round its line at `dTarget` (m across) as the road
+ * bends there (`kappa`, 1/m, + right: tighter on its inside), and toward that line from `d`, damped by how fast it
+ * moves across (`vd`, m/s): `posGain` (1/s²) a metre off, `velGain` (1/s) a m/s, over its speed `v`.
  */
-export function driftControl(
-  dir: 1 | -1,
-  off: number,
-  D: { angle: number; angleGain: number; angleLeast: number; angleMost: number; gas: number; gasGain: number; counter: number },
-  limit: number,
-  danger = false,
-): { steer: number; throttle: number } {
-  const outward = -dir * off;
-  const throttle = Math.max(0, Math.min(1, D.gas + D.gasGain * outward));
-  if (danger) return { steer: -dir * D.counter, throttle: D.gas / 2 };
-  const angle = Math.max(D.angleLeast, Math.min(D.angleMost, D.angle + D.angleGain * outward));
-  return { steer: dir * Math.min(1, Math.sqrt(angle / limit)), throttle };
+export function driftTurnWant(kappa: number, dTarget: number, d: number, v: number, vd: number, W: { posGain: number; velGain: number }): number {
+  const along = (v * kappa) / (1 - kappa * dTarget);
+  return along + (W.posGain * (dTarget - d) - W.velGain * vd) / Math.max(v, 5);
 }
+
 /**
- * In a drift round a hairpin turning `dir` (+1 right): how much faster it should be moving in toward its line (m/s;
- * - too fast) - toward its line (`lineD`, kept `wide` m inside the room either side: the car's corners, turned across
- * the road, swept the walls) as fast as `rateGain` x how far it is (1/s), at most `rateMost` m/s; at `d`, moving `vd`
- * m/s across (+ right). (On how far off its line alone it turned in hard from the outside and could not stop: drifted
- * once, caught, drifted again.)
+ * In a drift round a bend turning `dir` (+1 right): the wheel and the throttle on `u`, how much faster its course should
+ * turn (rad/s, + right: driftTurnWant less its course's turning) - both turn it harder (the wheel: more slide and the
+ * front tyres; the throttle: the push toward the nose - measured open loop, flat: a 0.6 / 0.8 / 1.0 wheel held a 17 /
+ * 26 / 37° slide on 0.5-1 throttle, off it the slide died and it turned in tight as it slowed), about `ffSteer` and
+ * `ffGas`, `steerGain` and `gasGain` a rad/s, never under `steerLeast` and `gasLeast` (the drift kept alive).
  */
-export function driftRate(dir: 1 | -1, d: number, vd: number, lineD: number, room: number, D: { wide: number; rateGain: number; rateMost: number }): number {
-  const keep = Math.max(0, room - D.wide);
-  const toIt = dir * (Math.max(-keep, Math.min(keep, lineD)) - d);
-  const want = Math.max(-D.rateMost, Math.min(D.rateMost, D.rateGain * toIt));
-  return want - dir * vd;
+export function driftTurn(
+  dir: 1 | -1,
+  u: number,
+  H: { ffSteer: number; ffGas: number; steerGain: number; gasGain: number; steerLeast: number; steerMost: number; gasLeast: number },
+): { steer: number; throttle: number } {
+  const more = dir * u;
+  return {
+    steer: dir * Math.max(H.steerLeast, Math.min(H.steerMost, H.ffSteer + H.steerGain * more)),
+    throttle: Math.max(H.gasLeast, Math.min(1, H.ffGas + H.gasGain * more)),
+  };
 }
 
 /**
@@ -163,6 +219,37 @@ export class MountainDriver implements RivalDriver {
   private hairpins: HairpinRun[] = [];
   private kicked: HairpinRun | null = null;
   private kickLeft = 0;
+  /** The hairpin it is done drifting round (its slide gone after it slid), whether it has slid in this one, and how long more it steers by its course (s). */
+  private done: HairpinRun | null = null;
+  private slid = false;
+  private recover = 0;
+  /** Its slide last step (rad, signed: its course's turning, out of its heading's). */
+  private lastSlide = 0;
+  /** Out of a drift and still settling it (the slide not yet under drift.settleSlide). */
+  private settling = false;
+  /** The next hairpin's kick point (s, m) and its drift line (d, m): its path eased onto that line coming to it. */
+  private toPin: { kickAt: number; d: number } | null = null;
+  /** What it did last (for tracing): following its line, the handbrake's kick, drifting, catching a slide, the inside wall near. */
+  mode: 'line' | 'kick' | 'drift' | 'catch' | 'danger' | 'exit' | 'settle' | 'pull' | 'ease' = 'line';
+  /** How long more it holds the handbrake mid-drift (s): turning too little, about to be thrown wide. */
+  private pullLeft = 0;
+  /** Since its last pull ended (s). */
+  private pullSince = 99;
+  /** How long it has held this pull (s). */
+  private pullHeld = 0;
+  /** Since the kick ended (s). */
+  private sinceKick = 0;
+  /** Where across it began drifting round `entryPin` (m): its line eased from there to the middle (wide round first). */
+  private entryD = 0;
+  private entryPin: HairpinRun | null = null;
+  /** The slide it holds now (rad: the player's way, by how far off its line). */
+  private slideT = 0;
+
+  /** A hairpin's drift line (d, m): between its inside's edge (kept drift.wide off it) and the middle. */
+  private driftLineOf(h: HairpinRun): number {
+    const at = (h.from + h.to) / 2;
+    return h.dir * Math.max(0, this.roomAt(at) - MOUNTAIN_DRIVER.drift.wide) * MOUNTAIN_DRIVER.drift.lineShare;
+  }
   /** Its room either side of the centre line on a straight (m); roomAt: a bend's wider. */
   readonly room = MOUNTAIN.edge - MOUNTAIN_DRIVER.halfWidth - MOUNTAIN_DRIVER.margin;
   /** Its room either side of the centre line at s (m: the road wider in a bend, roadEdges' widen; not the shoulder). */
@@ -213,9 +300,16 @@ export class MountainDriver implements RivalDriver {
     const line = this.line!;
     const h = 1;
     const clamp = (x: number, at: number) => Math.max(-this.roomAt(at), Math.min(this.roomAt(at), x));
-    const d = clamp(lineAt(line, s).d + this.offset, s);
-    const d1 = clamp(lineAt(line, s + h).d + this.offset, s + h);
-    const d0 = clamp(lineAt(line, s - h).d + this.offset, s - h);
+    const at = (x: number) => {
+      const base = clamp(lineAt(line, x).d + this.offset, x);
+      if (!this.toPin) return base;
+      const u = Math.max(0, Math.min(1, 1 - (this.toPin.kickAt - x) / MOUNTAIN_DRIVER.drift.approach));
+      const w = u * u * (3 - 2 * u);
+      return base * (1 - w) + this.toPin.d * w;
+    };
+    const d = at(s);
+    const d1 = at(s + h);
+    const d0 = at(s - h);
     const kc = this.road!.curvature(s);
     return { d, psi: Math.atan2((d1 - d0) / (2 * h), 1 - kc * d), kappa: lineAt(line, s).kappa };
   }
@@ -224,11 +318,33 @@ export class MountainDriver implements RivalDriver {
     this.offset = 0;
     this.kicked = null;
     this.kickLeft = 0;
+    this.done = null;
+    this.slid = false;
+    this.recover = 0;
+    this.mode = 'line';
   }
 
   dispose(): void {}
 
+  /** Its wheel last step (for its turning rate: drift.steerRate a second at most - a hand's, not a flick). */
+  private lastSteer = 0;
+  /** Its course's turning, smoothed over drift.courseLag s (from its slide's change a step: noisy). */
+  private courseF = 0;
+  /** Its course's turning smoothed over drift.arcLag s, for its forecast (rad/s). */
+  private courseA = 0;
+
   drive(self: SelfState, others: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
+    const input = this.driveRaw(self, others, p);
+    const r = MOUNTAIN_DRIVER.drift.steerRate;
+    if (r > 0) {
+      const step = r * PHYSICS_DT;
+      input.steer = Math.max(this.lastSteer - step, Math.min(this.lastSteer + step, input.steer));
+    }
+    this.lastSteer = input.steer;
+    return input;
+  }
+
+  private driveRaw(self: SelfState, others: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
     const road = this.road;
     const line = this.line;
     if (!road || !line) return { throttle: 0, brake: 1, steer: 0 };
@@ -263,7 +379,45 @@ export class MountainDriver implements RivalDriver {
         if (gap > 0) target = Math.min(target, b.v + T.followGain * Math.max(0, gap - T.followGap));
       }
     }
-    this.offset += (want - this.offset) * Math.min(1, PHYSICS_DT * T.passRate);
+    // Coming to a hairpin it will drift round: onto its drift line first (in grip: from the outside's edge, drifting on a
+    // circle as tight as the bend, it cut in across the road and could not stop).
+    const D0 = T.drift;
+    this.toPin = null;
+    if (D0.approachBlend) {
+      const next = this.hairpins.find((h) => h !== this.done && h.to > self.s && h.from - v * D0.kickEarly - self.s <= D0.approach);
+      if (next && v >= D0.minSpeed) this.toPin = { kickAt: next.from - v * D0.kickEarly, d: this.driftLineOf(next) - next.dir * D0.entryOut };
+    } else if (want === 0 && v >= D0.minSpeed) {
+      const next = this.hairpins.find((h) => h !== this.done && h.from - v * D0.kickEarly - self.s >= 0 && h.from - v * D0.kickEarly - self.s <= D0.approach);
+      if (next) want = this.driftLineOf(next) - lineAt(line, self.s).d;
+    }
+    // (out of a drift - this.recover: its path from where it came out back to its line slowly)
+    this.offset += (want - this.offset) * Math.min(1, PHYSICS_DT * (this.recover > 0 && want === 0 ? T.drift.merge : T.passRate));
+
+    // Round a hairpin, drifting (MOUNTAIN_DRIVER.drift) - which one, if any: one drift a hairpin (out of it, its slide
+    // gone after it slid, done with it: drifting on, it drifted again).
+    const D = T.drift;
+    const slideSigned = Math.atan2(self.vLat, Math.max(Math.abs(self.vLong), 1));
+    const slide = Math.abs(slideSigned);
+    let pin = v >= D.minSpeed ? this.hairpins.find((h) => h !== this.done && self.s >= h.from - v * D.kickEarly && self.s <= h.to - D.exitEarly) : undefined;
+    if (pin && this.kicked === pin && this.kickLeft <= 0) {
+      if (slide > D.slid) this.slid = true;
+      // (the player's way: its slide let off mid-bend - too far in, the wheel straightened - is not the drift's end; only
+      // in its last exitTurn rad: handed to settling mid-bend, no handbrake, it was thrown wide into the wall)
+      else if (this.slid && slide < D.over && (!D.userCtl || pin.to - self.s < D.exitTurn / Math.max(1e-3, Math.abs(road.curvature((pin.from + pin.to) / 2))))) {
+        this.done = pin;
+        pin = undefined;
+      }
+    }
+    // Out of a drift: its path from where the car is, easing back to its line (the passing offset: handed straight back
+    // to its line from the inside of the bend, it counter-steered on full lock and swung from wall to wall), and for a
+    // while steered by where it is going, not where its nose points (still sliding).
+    if (!pin && this.mode !== 'line') {
+      const room = this.roomAt(self.s);
+      this.offset = Math.max(-2 * room, Math.min(2 * room, self.d - lineAt(line, self.s).d));
+      this.recover = D.recover;
+      if (this.mode !== 'settle') this.settling = true;
+    }
+    this.recover = Math.max(0, this.recover - PHYSICS_DT);
 
     // Along the line (Stanley): its curvature a moment ahead steered for, its heading and its offset closed on.
     const look = Math.min(T.lookMax, T.lookBase + T.lookTime * v);
@@ -272,40 +426,180 @@ export class MountainDriver implements RivalDriver {
     const here = this.pathAt(self.s);
     const ahead = this.pathAt(self.s + T.steerLead * v);
     const err = self.d - here.d; // (+: right of where it should be)
-    const headingErr = here.psi - self.yaw; // (+: the path heads more to the right than the car)
-    const angle = Math.atan(p.wheelbase * ahead.kappa) + T.headingGain * headingErr - Math.atan((T.offsetGain * err) / (v + T.offsetSoft));
-    const steer = Math.max(-1, Math.min(1, angle / steerRange(v, p)));
-    // Round a hairpin, drifting (MOUNTAIN_DRIVER.drift): slowed for it first, the handbrake pulled coming into it,
-    // the wheel turned in.
-    const D = T.drift;
+    const heading = this.recover > 0 ? self.yaw + slideSigned : self.yaw; // (out of a drift: its course)
+    const headingErr = here.psi - heading; // (+: the path heads more to the right than the car)
+    const angle = Math.atan(p.wheelbase * ahead.kappa) + T.headingGain * headingErr - Math.atan((T.offsetGain * err) / (v + T.offsetSoft)) - D.lineYawDamp * (self.yawRate - v * here.kappa);
+    // (out of a drift, the wheel gently: turned hard, the drift assist slid it again and it swung wall to wall)
+    const most = D.recoverSteer + (1 - D.recoverSteer) * (1 - this.recover / D.recover); // (out of a drift: back to all of it gradually)
+    const steer = Math.max(-most, Math.min(most, angle / steerRange(v, p)));
+    // Slowed for a hairpin first, the handbrake pulled coming into it, the wheel turned in.
     for (const h of this.hairpins) {
-      if (h.to - D.exitEarly < self.s || h.from - self.s > 200) continue;
+      if (h === this.done || h.to - D.exitEarly < self.s || h.from - self.s > 200) continue;
+      // (drifting, it turns at about latDrift m/s² (measured, flat: 17-23): its radius round its line - between the
+      // inside and the middle - as fast as that, plus what the kick takes off)
       const k = Math.abs(road.curvature((h.from + h.to) / 2));
-      const most = Math.sqrt(D.side * (1 / k + D.room));
-      const toIt = Math.max(0, h.from - self.s);
+      const most = Math.sqrt(D.latDrift * Math.max(5, 1 / k - Math.max(0, this.roomAt((h.from + h.to) / 2) - D.wide) * D.lineShare)) + D.kickLoss;
+      const toIt = Math.max(0, h.from - v * D.kickEarly - self.s); // (to where it kicks)
       target = Math.min(target, Math.sqrt(most * most + 2 * D.brake * toIt));
     }
     const pedals = speedPedals(target, self.vLong);
-    const pin = v >= D.minSpeed ? this.hairpins.find((h) => self.s >= h.from - v * D.kickEarly && self.s <= h.to - D.exitEarly) : undefined;
     if (pin) {
       if (this.kicked !== pin) {
         this.kicked = pin;
         this.kickLeft = D.kickTime;
+        this.slid = false;
       }
-      const handbrake = this.kickLeft > 0;
+      // (held on past kickTime till it slides kickSlide rad into the bend, kickMax s at most: a grippier car needs longer)
+      const handbrake = this.kickLeft > 0 || (this.mode === 'kick' && -pin.dir * slideSigned < D.kickSlide && this.kickLeft > D.kickTime - D.kickMax);
       this.kickLeft -= PHYSICS_DT;
-      if (handbrake) return { ...pedals, steer: pin.dir * D.kickSteer, handbrake }; // (the kick)
-      const slide = Math.abs(Math.atan2(self.vLat, Math.max(Math.abs(self.vLong), 1)));
-      if (slide > D.catchAt) return { ...pedals, steer }; // (sliding too far: caught)
+      if (handbrake) this.sinceKick = 0;
+      else this.sinceKick += PHYSICS_DT;
+      if (handbrake) {
+        this.mode = 'kick';
+        this.lastSlide = slideSigned;
+        return { ...pedals, steer: pin.dir * D.kickSteer, handbrake };
+      }
+      if (slide > D.catchAt) {
+        this.mode = 'catch'; // (sliding too far: caught)
+        return { ...pedals, steer };
+      }
       // (its sideways speed across the road: along its heading off the road's, and its slide)
       const vd = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
-      // (driftControl's `off`: + the way it should turn more, as off its line outward)
-      const off = -pin.dir * driftRate(pin.dir, self.d, vd, D.useLine ? here.d : -pin.dir * D.center, this.roomAt(self.s), D);
-      // (about to hit the inside wall: look s on within panic m of its room's edge)
-      const danger = pin.dir * (self.d + vd * D.look) > this.roomAt(self.s) - D.panic;
-      const c = driftControl(pin.dir, off, D, p.drift?.limit ?? Math.PI / 4, danger);
-      return { throttle: c.throttle, brake: 0, steer: c.steer };
+      // Its line: between the inside's edge (kept `wide` off it) and the middle - its course turned as that line wants
+      // (driftTurnWant), the wheel and the throttle on how far off that it turns (driftTurn).
+      const kap = road.curvature(self.s);
+      // (its line: from where it began - outside, by entryOut - eased in to the middle over the bend's first mergeFrac;
+      // come in on the inside, round wide first: tightened at once, it cut in, counter-steered, came out wide)
+      if (this.entryPin !== pin) {
+        this.entryPin = pin;
+        this.entryD = self.d;
+      }
+      const lineOfPin = this.driftLineOf(pin);
+      const targetAt = (x: number) => {
+        if (!(D.mergeFrac > 0 && D.userCtl >= 2)) return lineOfPin;
+        const u = Math.max(0, Math.min(1, (x - pin.from) / (D.mergeFrac * (pin.to - pin.from))));
+        return this.entryD + (lineOfPin - this.entryD) * u * u * (3 - 2 * u);
+      };
+      const dTarget = targetAt(self.s);
+      const want = driftTurnWant(kap, dTarget, self.d, v, vd, D);
+      const along = self.vLong * Math.cos(self.yaw) - self.vLat * Math.sin(self.yaw);
+      const course = self.yawRate + (kap * along) / Math.max(0.2, 1 - kap * self.d) + (slideSigned - this.lastSlide) / PHYSICS_DT;
+      this.lastSlide = slideSigned;
+      this.courseF = D.courseLag > 0 && this.mode === 'drift' ? this.courseF + (course - this.courseF) * Math.min(1, PHYSICS_DT / D.courseLag) : course;
+      this.courseA = D.arcLag > 0 && this.mode !== 'kick' ? this.courseA + (course - this.courseA) * Math.min(1, PHYSICS_DT / D.arcLag) : course;
+      // (about to hit the inside wall: dangerLook s on within panic m of its room's edge)
+      const danger = pin.dir * (self.d + vd * D.dangerLook) > this.roomAt(self.s) - D.panic;
+      // (its slide by the bend's radius: past 15° the push toward the nose is all there, the turning ~2 g - a wide bend
+      // wants a small slide, the push less, or it cut in)
+      const pinR = Math.abs(1 / road.curvature((pin.from + pin.to) / 2));
+      const ff = Math.max(D.ffLeast, Math.min(D.ffSteer, D.ffSteer - D.ffSlope * (pinR - 15)));
+      const turn = danger ? { steer: pin.dir * D.steerLeast, throttle: D.gasLeast } : driftTurn(pin.dir, want - this.courseF, { ...D, ffSteer: ff });
+      // The throttle and the brake on its speed alone: as fast as its line's radius wants (latDrift m/s², the bend's bank
+      // in it: the throttle both speeds it up and pushes it round - on the turning, it braked, slowed and turned in tight)
+      // (and on where it is: in from its line or moving in - turning too tight - faster, its radius wider; out, slower)
+      const inward = pin.dir * (self.d - dTarget) + D.speedLook * pin.dir * vd;
+      const vStar = Math.sqrt(D.latDrift * Math.max(5, Math.abs(1 / road.curvature((pin.from + pin.to) / 2)) - pin.dir * dTarget)) * Math.max(0.8, Math.min(1.25, 1 + D.speedLine * inward));
+      const gasIt = Math.max(D.gasLeast, Math.min(1, D.ffGas + D.speedGain * (vStar - v)));
+      const brakeIt = v > vStar + D.overSpeed ? Math.min(1, D.brakeGain * (v - vStar - D.overSpeed)) : 0;
+      // (till the slide is built: the wheel kept in at least its feed-forward - turning enough on grip, the feedback let
+      // the wheel off, and the slide came late, at the bend's end, and ran it wide)
+      if (D.buildSteer && !this.slid && !danger) turn.steer = pin.dir * Math.max(Math.abs(turn.steer), ff * D.buildSteer);
+      // (the wheel all the way in and still not turning enough: too fast for this car's drift - off the throttle by how
+      // much more it wants, slowing it, its radius tighter; a heavier, stronger car drifts wider at the same throttle)
+      const excess = Math.max(0, ff + D.steerGain * pin.dir * (want - this.courseF) - D.steerMost);
+      const gasNow = Math.max(0, D.holdGas - D.satGas * excess);
+      // The player's way (userCtl): the wheel holds a slide (slideTarget rad: its spring's rest angle is
+      // springLimit x wheel²), the line kept by the handbrake (thrown wide: pulled a moment, the nose round, slower) and by
+      // the wheel let off (too far in: wheel innerSteer - less slide, less push, out it drifts).
+      // Where it will be `time` s on (d, and how far off its line then: + wide of it): on an arc (D.arc) - its course
+      // turning as it turns now, round the road's bend (a straight line from its sideways speed: drifting, it curves -
+      // moving in fast at the kick, the line said it would hit the inside wall, it straightened and lost the slide)
+      const along0 = Math.max(1, self.vLong * Math.cos(self.yaw) - self.vLat * Math.sin(self.yaw));
+      const forecast = (time: number): { d: number; off: number } => {
+        if (!D.arc) {
+          const d = self.d + vd * time;
+          return { d, off: pin.dir * (targetAt(self.s) - d) };
+        }
+        const sp = Math.hypot(along0, vd);
+        let psi = Math.atan2(vd, along0);
+        let d = self.d;
+        let x = self.s;
+        const n = Math.max(1, Math.round(time / 0.05));
+        const h = time / n;
+        for (let i = 0; i < n; i++) {
+          const k = road.curvature(x);
+          const f = Math.max(0.2, 1 - k * d);
+          d += sp * Math.sin(psi) * h;
+          x += (sp * Math.cos(psi) * h) / f;
+          psi += (this.courseA - (sp * Math.cos(psi) * k) / f) * h;
+        }
+        return { d, off: pin.dir * (targetAt(x) - d) };
+      };
+      let easing = false;
+      if (D.userCtl) {
+        const inSlide = -pin.dir * slideSigned;
+        // (the slide by how far off its line it will be errLook s on: wide of it more - the push, the turning - in, less)
+        const err = forecast(D.errLook).off;
+        // (exitTaper: its last exitTurn rad, the slide it holds eased down to none - the line still kept, the handbrake
+        // still there; not the wheel let off blind)
+        const exitLen = D.exitTurn / Math.max(1e-3, Math.abs(road.curvature((pin.from + pin.to) / 2)));
+        const share = D.exitTaper ? Math.max(0, Math.min(1, (pin.to - self.s) / exitLen)) : 1;
+        this.slideT = D.slideErrGain > 0 ? Math.max(D.slideMin * share, Math.min(D.slideMax, D.slideTarget * share + D.slideErrGain * err)) : D.slideTarget * share;
+        const hold = Math.sqrt(this.slideT / D.springLimit) + D.slideGain * (this.slideT - inSlide);
+        const inRoom = this.roomAt(self.s) - pin.dir * forecast(D.innerLook).d;
+        // (too far in, or turning too fast for its line - spun round past it: after the kick only, the kick moves it in)
+        const tight = this.sinceKick > D.pullAfter && (inRoom < D.innerRoom || (D.tightOn > 0 && pin.dir * (want - this.courseF) < -D.tightOn));
+        easing = tight;
+        turn.steer = pin.dir * (tight ? D.innerSteer : Math.max(D.steerLeast, Math.min(D.steerMost, hold)));
+      }
+      const c = { steer: turn.steer, throttle: D.holdGas >= 0 ? (brakeIt > 0 ? 0 : gasNow) : brakeIt > 0 ? 0 : gasIt };
+      // Its last exitTurn rad of the bend: the wheel eased straight (the spring straightens the slide) before it is handed
+      // back to its line.
+      const rampLen = D.exitTurn / Math.max(1e-3, Math.abs(road.curvature((pin.from + pin.to) / 2)));
+      const rem = pin.to - self.s;
+      // Turning too little (about to be thrown wide: its course turning hbOn rad/s short of what its line wants):
+      // a little more handbrake - the rear lets go, the nose comes round, and it slows (the player's: pull it again).
+      const short = pin.dir * (want - this.courseF);
+      const exiting = rem < rampLen;
+      // (thrown wide: pullLook s on within pullRoom m of the outside's edge; or its slide still under pullSlide and
+      // turning too little)
+      const pullAhead = forecast(D.pullLook);
+      const outRoom = this.roomAt(self.s) + pin.dir * pullAhead.d;
+      // (the player's: about to cross its line outward - pullLook s on, pullErr m past it - pulled before, not after)
+      const crossing = D.pullErr >= 0 && pullAhead.off > D.pullErr;
+      const wideSoon = (D.pullRoom > 0 && outRoom < D.pullRoom) || crossing;
+      const tooLittle = (D.hbOn > 0 && short > D.hbOn && (D.pullSlide <= 0 || slide < D.pullSlide)) ||
+        (D.pullAngle > 0 && this.sinceKick > D.pullAfter && (D.userCtl ? this.slideT : D.slideTarget) - -pin.dir * slideSigned > D.pullAngle);
+      // (a short pull, a gap after it - held on, it slowed to a crawl and spun round past its line - and not past pullMost of slide)
+      if (!danger && (!exiting ? wideSoon || tooLittle : D.hbExit === 1 ? wideSoon || tooLittle : D.hbExit === 2 ? wideSoon : false) && this.pullLeft <= 0 && this.pullSince >= D.pullGap && slide < D.pullMost) this.pullLeft = D.hbPulse;
+      // (its slide gone - a tap does not break it loose again: held on till it slides pullLow rad, pullLong s at most)
+      if (D.pullLong > 0 && this.pullLeft > 0 && this.pullLeft <= PHYSICS_DT * 1.5 && -pin.dir * slideSigned < D.pullLow && this.pullHeld < D.pullLong) this.pullLeft += PHYSICS_DT;
+      this.pullHeld = this.pullLeft > 0 ? this.pullHeld + PHYSICS_DT : 0;
+      if (this.pullLeft > 0) this.pullSince = 0;
+      else this.pullSince += PHYSICS_DT;
+      const pull = this.pullLeft > 0;
+      this.pullLeft = Math.max(0, this.pullLeft - PHYSICS_DT);
+      if (exiting) {
+        this.mode = pull ? 'pull' : 'exit';
+        return { throttle: c.throttle, brake: brakeIt, steer: D.exitTaper && D.userCtl ? c.steer : c.steer * Math.max(0, rem / rampLen), handbrake: pull };
+      }
+      this.mode = danger ? 'danger' : pull ? 'pull' : easing ? 'ease' : 'drift';
+      return { throttle: c.throttle, brake: brakeIt, steer: c.steer, handbrake: pull };
     }
-    return { ...pedals, steer };
+    // Out of a drift, still sliding: settled first - the throttle low (its spin and push: on full throttle, counter-
+    // steered, the tail swung over the other way, wall to wall), the wheel a little - the spring straightens it.
+    if (this.settling && slide < D.settleSlide && Math.abs(self.yawRate - v * this.pathAt(self.s).kappa) < D.settleYaw) this.settling = false;
+    if (this.settling) {
+      this.mode = 'settle';
+      // (its nose pointed down the road, its turning stopped: the push draws its course in under its nose)
+      const roadRate = v * here.kappa;
+      const a = Math.atan(p.wheelbase * ahead.kappa) + D.settleHead * (here.psi - self.yaw) - D.settleRate * (self.yawRate - roadRate) - D.settleOff * Math.atan((T.offsetGain * err) / (v + T.offsetSoft));
+      const s = Math.max(-D.settleSteer, Math.min(D.settleSteer, a / steerRange(v, p)));
+      return { throttle: Math.min(pedals.throttle, D.settleGas), brake: 0, steer: s };
+    }
+    this.mode = 'line';
+    // (sliding, the throttle eased: on full throttle the drift assist's rear let go and swung it)
+    const gasMost = Math.max(D.gasSlideLeast, 1 - ((1 - D.gasSlideLeast) * Math.max(0, slide - D.gasSlideFrom)) / D.gasSlideSpan);
+    return { ...pedals, throttle: Math.min(pedals.throttle, gasMost), steer };
   }
 }
