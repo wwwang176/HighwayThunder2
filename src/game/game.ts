@@ -72,6 +72,7 @@ import { RoadScene, type Scenery } from '../world/roadScene';
 import { MountainScene } from '../world/mountainScene';
 import { Minimap } from '../ui/minimap';
 import { MountainDriver } from '../ai/mountainDriver';
+import { MountainPlannerDriver } from '../ai/mountainPlannerDriver';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
 import type { RivalDriver } from '../ai/driver';
 import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
@@ -863,7 +864,7 @@ export class Game {
       this.gate.setRoad(this.roadLine);
       this.minimap?.setRoad(this.roadLine, this.courseLength);
       // (the player's AI - the I key, past the finish - on the mountain road: its line worked out for this road)
-      if (this.aiDriver instanceof MountainDriver) this.aiDriver.setRoad(this.roadLine, mountainAi(specOf(this.cars.player).ai, mountainSetupOf(this.cars.player)));
+      if (this.aiDriver instanceof MountainDriver || this.aiDriver instanceof MountainPlannerDriver) this.aiDriver.setRoad(this.roadLine, mountainAi(specOf(this.cars.player).ai, mountainSetupOf(this.cars.player)));
     }
     if (this.mountain) this.player.resetAt(-3, MOUNTAIN_LANE, 0);
     else this.player.resetTo(-3, 1, 0);
@@ -921,7 +922,7 @@ export class Game {
   private makeRivals(specs: CarSpec[]): Rivals<RivalDriver> {
     const rivals = this.mountain
       ? new Rivals<RivalDriver>(this.physics, this.scene, () => null, specs, {
-          makeDriver: () => new MountainDriver(),
+          makeDriver: () => new MountainPlannerDriver(),
           grid: MOUNTAIN_GRID,
           gripBoost: 0,
           edge: (s, side) => roadEdges(this.roadLine).at(s, side), // (a shoulder's too)
@@ -938,7 +939,7 @@ export class Game {
   /** The mountain drivers' line at the race's difficulty: its share of the rivals' top speed taken as their share of the grip. */
   private mountainBudget(): void {
     const budget = Math.min(0.97, Math.max(0.8, this.rivalTopShare - 0.03));
-    for (const r of this.rivals.list) if (r.driver instanceof MountainDriver) r.driver.budget = budget;
+    for (const r of this.rivals.list) if (r.driver instanceof MountainDriver || r.driver instanceof MountainPlannerDriver) r.driver.budget = budget;
   }
 
   /**
