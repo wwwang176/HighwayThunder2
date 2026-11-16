@@ -23,6 +23,12 @@ export const MOUNTAIN_DRIVER = {
   headingGain: 1,
   offsetGain: 2.5,
   offsetSoft: 2,
+  /**
+   * At a standstill the offset term soft by this much more (m/s), easing to none at drift.minSpeed: 1.5 m off its line
+   * at the start, atan(2.5 x 1.5 / 2) put the wheel on full lock and it set off 13° across the road (4 more: still
+   * full lock - the wheel's whole range is ~0.55 rad; 10: half of it).
+   */
+  lowSoft: 10,
   /** It aims at the line's speed this many seconds ahead (its braking a moment early: the pedals lag), at least `leadMin` m (off the line: the line starts at a standstill). */
   lead: 0.35,
   leadMin: 5,
@@ -238,6 +244,13 @@ export class MountainDriver implements RivalDriver {
   private budgetNow = 0.9;
   /** Its passing offset from the line now (m, + right). */
   private offset = 0;
+  /**
+   * Offsets and a speed cap from outside (a planner: MountainPlannerDriver): its path its reference (refAt) plus
+   * `offsetAt`, its speed no more than `vAt` a moment ahead; its own passing left out. Null: it passes by itself.
+   */
+  external: { offsetAt(s: number): number; vAt(s: number): number } | null = null;
+  /** Its last step's input if that step followed its line (null: drifting, settling - not the line's). */
+  lastLine: HandlingInput | null = null;
   /** Where it steers for, across the road (m): the line's there plus the offset. */
   aimD = 0;
   /** The road's hairpins (hairpinRuns), the one it last pulled the handbrake into, and how long more it holds it (s). */
@@ -328,18 +341,73 @@ export class MountainDriver implements RivalDriver {
     const line = this.line!;
     const h = 1;
     const clamp = (x: number, at: number) => Math.max(-this.roomAt(at), Math.min(this.roomAt(at), x));
-    const at = (x: number) => {
-      const base = clamp(lineAt(line, x).d + this.offset, x);
-      if (!this.toPin) return base;
-      const u = Math.max(0, Math.min(1, 1 - (this.toPin.kickAt - x) / MOUNTAIN_DRIVER.drift.approach));
-      const w = u * u * (3 - 2 * u);
-      return base * (1 - w) + this.toPin.d * w;
-    };
+    const ext = this.external;
+    const at = ext ? (x: number) => clamp(this.refOf(x, 0) + ext.offsetAt(x), x) : (x: number) => this.refOf(x, this.offset);
     const d = at(s);
     const d1 = at(s + h);
     const d0 = at(s - h);
     const kc = this.road!.curvature(s);
     return { d, psi: Math.atan2((d1 - d0) / (2 * h), 1 - kc * d), kappa: lineAt(line, s).kappa };
+  }
+
+  /** Its line at x plus `offset`, kept on the road, eased onto the next hairpin's drift entry coming to it (toPin). */
+  private refOf(x: number, offset: number): number {
+    const room = this.roomAt(x);
+    const base = Math.max(-room, Math.min(room, lineAt(this.line!, x).d + offset));
+    if (!this.toPin) return base;
+    const u = Math.max(0, Math.min(1, 1 - (this.toPin.kickAt - x) / MOUNTAIN_DRIVER.drift.approach));
+    const w = u * u * (3 - 2 * u);
+    return base * (1 - w) + this.toPin.d * w;
+  }
+
+  /** Its reference across the road at s (m): its path with no passing offset (as of its last step's toPin). */
+  refAt(s: number): number {
+    return this.line ? this.refOf(s, 0) : 0;
+  }
+
+  /** Its reference's curvature at s (1/m, + right): its line's, plus the bend of its easing onto a drift entry. */
+  refKappa(s: number): number {
+    if (!this.line) return 0;
+    const h = 2;
+    const b = (x: number) => this.refOf(x, 0) - lineAt(this.line!, x).d;
+    return lineAt(this.line, s).kappa + (b(s + h) - 2 * b(s) + b(s - h)) / (h * h);
+  }
+
+  /**
+   * The speed it aims at at s going v (m/s): its line's a moment ahead (lead), no faster than it can brake down
+   * from for the next hairpins (drifting round them: drift.latDrift round the bend's radius, plus what the kick takes).
+   */
+  refSpeed(s: number, v: number): number {
+    const T = MOUNTAIN_DRIVER;
+    return Math.min(this.speedAt(Math.max(0, s) + Math.max(T.leadMin, T.lead * v)), this.hairpinCap(s, v));
+  }
+
+  /** No faster at s going v than it can brake down from for the next hairpins (m/s; Infinity: none near). */
+  private hairpinCap(s: number, v: number): number {
+    const D = MOUNTAIN_DRIVER.drift;
+    let target = Infinity;
+    if (!this.road) return target;
+    for (const h of this.hairpins) {
+      if (h === this.done || h.to - D.exitEarly < s || h.from - s > 200) continue;
+      // (drifting, it turns at about latDrift m/s² (measured, flat: 17-23): its radius round its line - between the
+      // inside and the middle - as fast as that, plus what the kick takes off)
+      const k = Math.abs(this.road.curvature((h.from + h.to) / 2));
+      const most = Math.sqrt(D.latDrift * Math.max(5, 1 / k - Math.max(0, this.roomAt((h.from + h.to) / 2) - D.wide) * D.lineShare)) + D.kickLoss;
+      const toIt = Math.max(0, h.from - v * D.kickEarly - s); // (to where it kicks)
+      target = Math.min(target, Math.sqrt(most * most + 2 * D.brake * toIt));
+    }
+    return target;
+  }
+
+  /** The next hairpin's kick point from s going v (s, m), or null: none left (its drift starts there). */
+  kickAhead(s: number, v: number): number | null {
+    const h = this.hairpins.find((x) => x !== this.done && x.to > s);
+    return h ? h.from - v * MOUNTAIN_DRIVER.drift.kickEarly : null;
+  }
+
+  /** Not following its line: kicking, drifting, catching, settling out of a drift. */
+  inDrift(): boolean {
+    return this.mode !== 'line';
   }
 
   reset(): void {
@@ -369,6 +437,7 @@ export class MountainDriver implements RivalDriver {
       input.steer = Math.max(this.lastSteer - step, Math.min(this.lastSteer + step, input.steer));
     }
     this.lastSteer = input.steer;
+    this.lastLine = this.mode === 'line' ? input : null;
     return input;
   }
 
@@ -387,7 +456,8 @@ export class MountainDriver implements RivalDriver {
     // The racer ahead on its line nearest it: passed on the roomier side, or followed.
     let want = 0;
     let nearest = Infinity;
-    for (const b of others) {
+    // (a planner's offsets instead: MountainPlannerDriver)
+    if (!this.external) for (const b of others) {
       const gap = b.s - b.length / 2 - (self.s + halfLen);
       if (gap < -halfLen || gap > T.passFrom || gap >= nearest) continue;
       const myD = lineAt(line, b.s).d + this.offset;
@@ -414,12 +484,13 @@ export class MountainDriver implements RivalDriver {
     if (D0.approachBlend) {
       const next = this.hairpins.find((h) => h !== this.done && h.to > self.s && h.from - v * D0.kickEarly - self.s <= D0.approach);
       if (next && v >= D0.minSpeed) this.toPin = { kickAt: next.from - v * D0.kickEarly, d: this.driftLineOf(next) - next.dir * D0.entryOut };
-    } else if (want === 0 && v >= D0.minSpeed) {
+    } else if (want === 0 && v >= D0.minSpeed && !this.external) {
       const next = this.hairpins.find((h) => h !== this.done && h.from - v * D0.kickEarly - self.s >= 0 && h.from - v * D0.kickEarly - self.s <= D0.approach);
       if (next) want = this.driftLineOf(next) - lineAt(line, self.s).d;
     }
     // (out of a drift - this.recover: its path from where it came out back to its line slowly)
-    this.offset += (want - this.offset) * Math.min(1, PHYSICS_DT * (this.recover > 0 && want === 0 ? T.drift.merge : T.passRate));
+    if (this.external) this.offset = 0;
+    else this.offset += (want - this.offset) * Math.min(1, PHYSICS_DT * (this.recover > 0 && want === 0 ? T.drift.merge : T.passRate));
 
     // Round a hairpin, drifting (MOUNTAIN_DRIVER.drift) - which one, if any: one drift a hairpin (out of it, its slide
     // gone after it slid, done with it: drifting on, it drifted again).
@@ -452,7 +523,8 @@ export class MountainDriver implements RivalDriver {
     // while steered by where it is going, not where its nose points (still sliding).
     if (!pin && this.mode !== 'line') {
       const room = this.roomAt(self.s);
-      this.offset = Math.max(-2 * room, Math.min(2 * room, self.d - lineAt(line, self.s).d));
+      // (a planner's: it plans from where the car is)
+      if (!this.external) this.offset = Math.max(-2 * room, Math.min(2 * room, self.d - lineAt(line, self.s).d));
       this.recover = D.recover;
       if (this.mode !== 'settle') this.settling = true;
     }
@@ -461,26 +533,22 @@ export class MountainDriver implements RivalDriver {
     // Along the line (Stanley): its curvature a moment ahead steered for, its heading and its offset closed on.
     const look = Math.min(T.lookMax, T.lookBase + T.lookTime * v);
     const aimRoom = this.roomAt(self.s + look);
-    this.aimD = Math.max(-aimRoom, Math.min(aimRoom, lineAt(line, self.s + look).d + this.offset));
+    const aim = this.external ? this.refAt(self.s + look) + this.external.offsetAt(self.s + look) : lineAt(line, self.s + look).d + this.offset;
+    this.aimD = Math.max(-aimRoom, Math.min(aimRoom, aim));
     const here = this.pathAt(self.s);
     const ahead = this.pathAt(self.s + T.steerLead * v);
     const err = self.d - here.d; // (+: right of where it should be)
     const heading = this.recover > 0 ? self.yaw + slideSigned : self.yaw; // (out of a drift: its course)
     const headingErr = here.psi - heading; // (+: the path heads more to the right than the car)
-    const angle = Math.atan(p.wheelbase * ahead.kappa) + T.headingGain * headingErr - Math.atan((T.offsetGain * err) / (v + T.offsetSoft)) - D.lineYawDamp * (self.yawRate - v * here.kappa);
+    const soft = T.offsetSoft + T.lowSoft * Math.max(0, 1 - v / D.minSpeed); // (softer at a standstill)
+    const angle = Math.atan(p.wheelbase * ahead.kappa) + T.headingGain * headingErr - Math.atan((T.offsetGain * err) / (v + soft)) - D.lineYawDamp * (self.yawRate - v * here.kappa);
     // (out of a drift, the wheel gently: turned hard, the drift assist slid it again and it swung wall to wall)
     const most = D.recoverSteer + (1 - D.recoverSteer) * (1 - this.recover / D.recover); // (out of a drift: back to all of it gradually)
     const steer = Math.max(-most, Math.min(most, angle / steerRange(v, p)));
     // Slowed for a hairpin first, the handbrake pulled coming into it, the wheel turned in.
-    for (const h of this.hairpins) {
-      if (h === this.done || h.to - D.exitEarly < self.s || h.from - self.s > 200) continue;
-      // (drifting, it turns at about latDrift m/s² (measured, flat: 17-23): its radius round its line - between the
-      // inside and the middle - as fast as that, plus what the kick takes off)
-      const k = Math.abs(road.curvature((h.from + h.to) / 2));
-      const most = Math.sqrt(D.latDrift * Math.max(5, 1 / k - Math.max(0, this.roomAt((h.from + h.to) / 2) - D.wide) * D.lineShare)) + D.kickLoss;
-      const toIt = Math.max(0, h.from - v * D.kickEarly - self.s); // (to where it kicks)
-      target = Math.min(target, Math.sqrt(most * most + 2 * D.brake * toIt));
-    }
+    target = Math.min(target, this.hairpinCap(self.s, v));
+    // (a planner's cap: following a car it cannot get by, a tighter path than its line's)
+    if (this.external) target = Math.min(target, this.external.vAt(self.s + Math.max(T.leadMin, T.lead * v)));
     const pedals = speedPedals(target, self.vLong);
     if (pin) {
       if (this.kicked !== pin) {
@@ -662,7 +730,9 @@ export class MountainDriver implements RivalDriver {
     }
     this.mode = 'line';
     // (sliding, the throttle eased: on full throttle the drift assist's rear let go and swung it)
-    const gasMost = Math.max(D.gasSlideLeast, 1 - ((1 - D.gasSlideLeast) * Math.max(0, slide - D.gasSlideFrom)) / D.gasSlideSpan);
+    // (not at a standstill: turning at a crawl its body moves sideways of its heading - not a slide - and the cut left it
+    // creeping round on full lock at the start)
+    const gasMost = v < D.minSpeed ? 1 : Math.max(D.gasSlideLeast, 1 - ((1 - D.gasSlideLeast) * Math.max(0, slide - D.gasSlideFrom)) / D.gasSlideSpan);
     return { ...pedals, throttle: Math.min(pedals.throttle, gasMost), steer };
   }
 }
