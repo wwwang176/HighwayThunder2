@@ -670,13 +670,16 @@ export class MountainDriver implements RivalDriver {
         if (D.userCtl >= 3) {
           // (a big slide, all but steady; the line kept by the throttle - wide of it more, the push turning it in)
           this.slideT = Math.max(D.bigSlideMin, Math.min(D.bigSlideMax, D.bigSlide + D.bigSlideErr * err));
-          this.gasT = Math.max(D.gasLow, Math.min(1, D.gasMid + D.gasErr * err));
+          this.gasT = Math.max(D.gasLow, Math.min(1, (p.drift?.aiGas ?? D.gasMid) + D.gasErr * err));
         }
         const hold = Math.sqrt(this.slideT / D.springLimit) + D.slideGain * (this.slideT - inSlide);
         const inRoom = this.roomAt(self.s) - pin.dir * forecast(D.innerLook).d;
         // (too far in, or turning too fast for its line - spun round past it: after the kick only, the kick moves it in)
         const tight = this.sinceKick > D.pullAfter && (inRoom < D.innerRoom || (D.tightOn > 0 && pin.dir * (want - this.courseF) < -D.tightOn));
         easing = tight;
+        // (about to hit the inside wall - danger - the wheel and the throttle as ever: tried on the arcade drift, the wheel
+        // straightened there hit the wall more (the jdm 1 -> 19 of 54 flat hairpins), off the gas near the inside (0.15)
+        // none on the flat but 1-2 s slower and 29 -> 36 race walls on the real roads, off it only at danger worse)
         turn.steer = pin.dir * (tight ? D.innerSteer : Math.max(D.steerLeast, Math.min(D.steerMost, hold)));
       }
       const c = { steer: turn.steer, throttle: D.userCtl >= 3 ? this.gasT : D.holdGas >= 0 ? (brakeIt > 0 ? 0 : gasNow) : brakeIt > 0 ? 0 : gasIt };

@@ -472,6 +472,11 @@ export interface DriftAssist {
   spin: number;
   /** The keyboard racers' drift (PlayerCar.arcadeDrift: any car set up with it): by its turning force, not a ceiling. */
   arcade?: ArcadeDrift;
+  /**
+   * The AI's throttle holding its drift (this car's: in an arcade drift the slide is the throttle's - the same throttle
+   * slid a stronger car further; else MOUNTAIN_DRIVER.drift.gasMid).
+   */
+  aiGas?: number;
 }
 
 /**

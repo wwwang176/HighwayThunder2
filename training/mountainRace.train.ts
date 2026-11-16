@@ -195,7 +195,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         const car = k === 0 ? player : rivals.list[k - 1].car;
         const pi = pinOf(car.s);
         if (pi >= 0) stats[k].pins[pi].walls++;
-        if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)}`);
+        if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)} ${coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).mode} pin ${pi}`);
       }
     });
     const resetsBefore = rivals.list.map((r) => r.resets);
@@ -372,6 +372,7 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
         pinT.most += ps.most;
       }
       out.push(`  ${spec.id} seed ${seed}: ${c.time !== null ? c.time.toFixed(2) + ' s' : `DNF@${c.s.toFixed(0)}`} walls ${c.walls} (line ${c.lineWalls}) off p50 ${quantile(r.meet.dev, 0.5).toFixed(3)} p95 ${quantile(r.meet.dev, 0.95).toFixed(3)} m`);
+      out.push(...log.splice(0));
     }
     out.push(
       `${spec.id}: home ${done}/${SEEDS}, time avg ${(time / Math.max(1, done)).toFixed(2)} s, walls ${walls} (following its line ${lineWalls}), off its path p50 ${quantile(dev, 0.5).toFixed(3)} p95 ${quantile(dev, 0.95).toFixed(3)} m (${dev.length} samples), ` +

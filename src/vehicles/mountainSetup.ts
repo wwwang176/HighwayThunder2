@@ -49,6 +49,8 @@ export interface MountainSetup {
    * straightened every slide on the throttle) and the stability control let it be till the slide is over.
    */
   drift: DriftAssist;
+  /** Its AI's throttle holding a drift (DriftAssist.aiGas; none: the driver's own). */
+  aiGas?: number;
 }
 
 export const MOUNTAIN_SETUP: MountainSetup = {
@@ -164,10 +166,14 @@ export const MOUNTAIN_SETUP: MountainSetup = {
 /**
  * Each car's own (by its id) over MOUNTAIN_SETUP. The muscle car: its tail is loose already (its power, its light
  * stability control) - with the rear bar stiffer, the brakes rearward and less stability control it slid wide and
- * spun; those as built.
+ * spun; those as built. Their AI's throttle in a drift (aiGas, solo on 10 roads, 0.6-0.85 tried): the muscle car's
+ * power slid it furthest - on 0.75 it hit the wall 10 times coming out of its drifts, on 0.62 3 (as many as before
+ * the arcade drift); the others on 0.62 slid 19-23°, hardly drifting.
  */
 export const MOUNTAIN_SETUP_BY_CAR: Record<string, Partial<MountainSetup>> = {
-  'muscle-car': { arbRear: 1, brakeBias: 0, esc: 1 },
+  'street-racer': { aiGas: 0.85 },
+  'muscle-car': { arbRear: 1, brakeBias: 0, esc: 1, aiGas: 0.62 },
+  jdm: { aiGas: 0.8 },
 };
 
 /** A car's mountain setup (by its id: MOUNTAIN_SETUP_BY_CAR over MOUNTAIN_SETUP). */
@@ -199,6 +205,6 @@ export function mountainSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): 
     muSlide: p.muSlide * s.frontGrip,
     rearGrip: (p.rearGrip * s.rearGrip) / s.frontGrip,
     tractionSlip: s.tractionSlip,
-    drift: s.drift,
+    drift: s.aiGas === undefined ? s.drift : { ...s.drift, aiGas: s.aiGas },
   };
 }

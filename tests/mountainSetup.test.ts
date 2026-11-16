@@ -63,8 +63,17 @@ describe('mountainSetup', () => {
     expect(s.esc).toBe(1);
     expect(s.comDrop).toBe(MOUNTAIN_SETUP.comDrop);
     expect(s.longGrip).toBe(MOUNTAIN_SETUP.longGrip);
-    expect(mountainSetupOf(STREET_RACER.id)).toEqual(MOUNTAIN_SETUP);
+    const { aiGas, ...street } = mountainSetupOf(STREET_RACER.id);
+    expect(street).toEqual(MOUNTAIN_SETUP);
+    expect(aiGas).toBeGreaterThan(0);
     expect(mountainSetupOf('no-such-car')).toEqual(MOUNTAIN_SETUP);
+  });
+
+  it("each car's AI drift throttle: the muscle car's (its power slid it furthest) the least", () => {
+    const gas = (id: string) => mountainSetup(STREET_RACER.params, mountainSetupOf(id)).drift?.aiGas;
+    expect(gas(MUSCLE_CAR.id)).toBeLessThan(gas(STREET_RACER.id)!);
+    expect(gas(MUSCLE_CAR.id)).toBeLessThan(gas(JDM_CAR.id)!);
+    expect(gas('no-such-car')).toBeUndefined(); // (the driver's own)
   });
 
   it('traction control on every car (the drive eased to hold the rear tyres\' slip at tractionSlip: they keep their sideways grip on the throttle)', () => {
@@ -78,7 +87,7 @@ describe('mountainSetup', () => {
 
   it('drift assist on every car (sliding, the car left to the driver); none on the highway', () => {
     for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
-      expect(mountainSetup(spec.params, mountainSetupOf(spec.id)).drift).toEqual(MOUNTAIN_SETUP.drift);
+      expect(mountainSetup(spec.params, mountainSetupOf(spec.id)).drift).toEqual({ ...MOUNTAIN_SETUP.drift, aiGas: mountainSetupOf(spec.id).aiGas });
       expect(spec.params.drift).toBeUndefined();
     }
     expect(MOUNTAIN_SETUP.drift.full).toBeGreaterThan(MOUNTAIN_SETUP.drift.from);
