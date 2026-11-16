@@ -80,7 +80,8 @@ export function chevronSpots(road: Centerline): { s: number; dir: number; level:
  */
 /**
  * What grows on the mountain (the player's: a forest off the road, brush between it and the road). Trees past `treeFrom`
- * m from the road's edge, one a `treeStep` m square at most (jittered), in stands - where value noise `stand` m across
+ * m from the road's edge and within `treeTo` m of its centre line (the player's: none far off it, never seen), one a
+ * `treeStep` m square at most (jittered), in stands - where value noise `stand` m across
  * runs over `cover` (less of them toward its edge) - none where the ground is steeper than `steep` (its normal's up);
  * `tree` their size (m) and colours. Grass (the player's: a patch of little grass, the ground made of many blades - not
  * lumps, they looked like stones): tufts of `blades` thin blades, `grassFrom` to `grassTo` m off the edge in patches -
@@ -91,6 +92,7 @@ export function chevronSpots(road: Centerline): { s: number; dir: number; level:
 const PLANTS = {
   treeStep: 6.5,
   treeFrom: 14,
+  treeTo: 150,
   stand: 150,
   cover: 0.05,
   steep: 0.8,
@@ -578,6 +580,7 @@ export class MountainScene implements Scenery {
         const wx = t.x0 + x + rnd() * PLANTS.treeStep, wz = t.z0 + z + rnd() * PLANTS.treeStep;
         const past = pastAt(wx, wz);
         if (past < PLANTS.treeFrom) continue; // (on the road, near it, or off the ground)
+        if (t.away(wx, wz) > PLANTS.treeTo) continue; // (the player's: none far off the road, not seen)
         const stand = rolling(wx, wz, PLANTS.stand, seed) - PLANTS.cover;
         if (stand < 0 || rnd() > Math.min(1, stand * 4 + 0.15)) continue;
         if (t.normal(wx, wz)[1] < PLANTS.steep) continue;

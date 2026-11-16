@@ -45,6 +45,17 @@ describe('mountainRoad', () => {
     }
   });
 
+  it('a long strip (the player\'s: not wandering round past itself): all of it, past the finish too, within MOUNTAIN.fan of straight ahead', () => {
+    for (const r of roads) {
+      for (let s = 0; s <= r.length + MOUNTAIN.after; s += 5) {
+        const p = r.toWorld(s, 0);
+        if (Math.hypot(p.x, p.z) < MOUNTAIN.fan.from) continue;
+        expect(-p.z).toBeGreaterThan(0);
+        expect(Math.abs(Math.atan2(p.x, -p.z))).toBeLessThanOrEqual(MOUNTAIN.fan.half + 1e-9);
+      }
+    }
+  });
+
   it('starts and ends straight and level, at height 0 at the start', () => {
     for (const r of roads) {
       for (let s = 0; s <= MOUNTAIN.startStraight; s += 5) {
@@ -59,18 +70,45 @@ describe('mountainRoad', () => {
     }
   });
 
-  it('climbs and falls within the grade limit, both ways', () => {
+  it('goes all one way, up or down (the player\'s: a mountain road climbs or descends), MOUNTAIN.climb.mean of its length in all, no grade past `most`', () => {
+    let ups = 0;
     for (const r of roads) {
-      let up = false;
-      let down = false;
+      const way = Math.sign(r.height(r.length));
+      if (way > 0) ups++;
       for (let s = 0; s <= r.length; s += 2) {
         const g = r.grade(s);
-        expect(Math.abs(g)).toBeLessThanOrEqual(MOUNTAIN.grade[1] + 1e-9);
-        if (g > 0.03) up = true;
-        if (g < -0.03) down = true;
+        expect(Math.abs(g)).toBeLessThanOrEqual(MOUNTAIN.climb.most + 1e-9);
+        expect(g * way).toBeGreaterThanOrEqual(-1e-9); // (never back the other way)
       }
-      expect(up && down).toBe(true);
+      expect(Math.abs(r.height(r.length))).toBeCloseTo(MOUNTAIN.climb.mean * r.length, -1); // (within ~5 m)
     }
+    expect(ups).toBeGreaterThan(0);
+    expect(ups).toBeLessThan(roads.length);
+  });
+
+  it('steeper between a switchback\'s hairpins than round the hairpins themselves (the hairpins there to climb)', () => {
+    let pin = 0, pinN = 0, between = 0, betweenN = 0;
+    for (const r of roads) {
+      // (hairpins: their tight middles; between: straight stretches next to a hairpin on both sides within 90 m)
+      for (let s = 100; s <= r.length - 100; s += 2) {
+        const g = Math.abs(r.grade(s));
+        if (Math.abs(r.curvature(s)) > 1 / 26) {
+          pin += g;
+          pinN++;
+        } else if (r.curvature(s) === 0) {
+          let before = false, after = false;
+          for (let d = 2; d <= 90; d += 2) {
+            if (Math.abs(r.curvature(s - d)) > 1 / 26) before = true;
+            if (Math.abs(r.curvature(s + d)) > 1 / 26) after = true;
+          }
+          if (before && after) {
+            between += g;
+            betweenN++;
+          }
+        }
+      }
+    }
+    expect(between / betweenN).toBeGreaterThan(pin / pinN);
   });
 
   it('its hairpins and tight bends banked into them (MOUNTAIN.bank), eased in over MOUNTAIN.bank.ease m, flat off the grid', () => {

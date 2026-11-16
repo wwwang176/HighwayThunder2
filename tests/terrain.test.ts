@@ -29,7 +29,7 @@ describe('terrainOf (the mountainside the road is built on)', () => {
   const road = mountainRoad(mulberry32(1));
   const t = terrainOf(road);
 
-  it('within a hairpin (its centre): ground between its legs\' heights - no pit under them, no knob over them (the player\'s: a deep hole there)', () => {
+  it('within a hairpin (its centre): no pit under its legs (the player\'s: a deep hole there); over them at most a spur no steeper than TERRAIN.steepest', () => {
     let pins = 0;
     let inRun = false, from = 0;
     for (let s = 0; s <= road.length; s += 0.5) {
@@ -41,7 +41,7 @@ describe('terrainOf (the mountainside the road is built on)', () => {
         const a = road.height(from), b = road.height(s);
         const g = t.height(c.x, c.z);
         expect(g).toBeGreaterThan(Math.min(a, b) - 5);
-        expect(g).toBeLessThan(Math.max(a, b) + 5);
+        expect(g).toBeLessThan(Math.max(a, b) + TERRAIN.steepest * Math.abs(1 / road.curvature(mid)));
         pins++;
       }
       inRun = tight;

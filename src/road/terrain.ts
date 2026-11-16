@@ -31,6 +31,8 @@ export const TERRAIN = {
   seam: 13,
   /** How far from the road the earthwork reaches (m): past it the ground is the natural ground's. */
   reach: 70,
+  /** The ground no steeper than this from the road anywhere (rise a metre: ~35°). */
+  steepest: 0.7,
   /**
    * The mountainside across the road (the road a shelf cut into it): `rise` a metre out from its centre line uphill
    * (~31°), full where the membrane rises `full` a metre or more, growing no more past `out` m (half as fast), gone by
@@ -61,6 +63,8 @@ export interface Terrain {
   cover: Float32Array;
   /** The ground's normal at (x, z) (from its heights, bilinear: the grid's and the strip's alike). */
   normal(x: number, z: number): [number, number, number];
+  /** How far (x, z) is from the road's centre line (m: to slope.coarse's grid; Infinity past slope.reach). */
+  away(x: number, z: number): number;
   /** The ground's height at (x, z) (bilinear). */
   height(x: number, z: number): number;
   /** The natural ground (rolling, before the earthwork) at (x, z). */
@@ -319,10 +323,55 @@ export function terrainOf(road: Centerline, edges: RoadEdges = roadEdges(road), 
       const cross = crossAt(i, j);
       const off = Number.isFinite(past[k]) ? past[k] : T.reach;
       const share = Math.max(0, Math.min(1, (off - T.roll.from) / T.roll.grow));
-      const nv = nat[k] + cross + T.roll.amp * share * share * (3 - 2 * share) * rolling(x, z, T.roll.size, seed);
-      natural[k] = nv;
-      out[k] = Number.isFinite(past[k]) ? earthwork(nv, base[k], past[k], T) : nv;
+      natural[k] = nat[k] + cross + T.roll.amp * share * share * (3 - 2 * share) * rolling(x, z, T.roll.size, seed);
     }
+
+  // No steeper than `steepest` from the road anywhere (the player's: a wall of ground behind a hairpin, too steep): the
+  // ground kept between the road's heights less and plus `steepest` a metre off it - the lowest of the cones up from it,
+  // the highest of those down (two chamfer sweeps each way, the road's nodes their tips). Where two legs' cones cross
+  // (closer than that allows: few - MOUNTAIN.climb.legSlope), midway.
+  const up = new Float32Array(n).fill(Infinity), down = new Float32Array(n).fill(-Infinity);
+  for (let k = 0; k < n; k++)
+    if (past[k] <= 0) {
+      up[k] = base[k];
+      down[k] = base[k];
+    }
+  const a1 = T.steepest * step, a2 = T.steepest * step * Math.SQRT2;
+  const sweep = (j: number, i: number, dj: number) => {
+    const k = j * nx + i;
+    for (const [di, cost] of [[-1, a2], [0, a1], [1, a2]] as const) {
+      const ii = i + di, jj = j - dj;
+      if (ii < 0 || ii >= nx || jj < 0 || jj >= nz) continue;
+      const q = jj * nx + ii;
+      if (up[q] + cost < up[k]) up[k] = up[q] + cost;
+      if (down[q] - cost > down[k]) down[k] = down[q] - cost;
+    }
+  };
+  for (let pass = 0; pass < 2; pass++) {
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) sweep(j, i, 1);
+      for (let i = 1; i < nx; i++) {
+        const k = j * nx + i;
+        if (up[k - 1] + a1 < up[k]) up[k] = up[k - 1] + a1;
+        if (down[k - 1] - a1 > down[k]) down[k] = down[k - 1] - a1;
+      }
+    }
+    for (let j = nz - 1; j >= 0; j--) {
+      for (let i = nx - 1; i >= 0; i--) sweep(j, i, -1);
+      for (let i = nx - 2; i >= 0; i--) {
+        const k = j * nx + i;
+        if (up[k + 1] + a1 < up[k]) up[k] = up[k + 1] + a1;
+        if (down[k + 1] - a1 > down[k]) down[k] = down[k + 1] - a1;
+      }
+    }
+  }
+  for (let k = 0; k < n; k++) {
+    let nv = natural[k];
+    if (down[k] > up[k]) nv = (down[k] + up[k]) / 2;
+    else nv = Math.max(down[k], Math.min(up[k], nv));
+    natural[k] = nv;
+    out[k] = Number.isFinite(past[k]) ? earthwork(nv, base[k], past[k], T) : nv;
+  }
 
   // (its slope at each node, from its neighbours: the normals the grid and the strip are lit by)
   const gradX = new Float32Array(n), gradZ = new Float32Array(n);
@@ -348,6 +397,11 @@ export function terrainOf(road: Centerline, edges: RoadEdges = roadEdges(road), 
       const gx = bilinear(gradX)(x, z), gz = bilinear(gradZ)(x, z);
       const l = Math.hypot(gx, 1, gz);
       return [-gx / l, 1 / l, -gz / l];
+    },
+    away: (x, z) => {
+      const i = Math.round((x - x0) / (step * F)), j = Math.round((z - z0) / (step * F));
+      if (i < 0 || j < 0 || i >= cnx || j >= cnz) return Infinity;
+      return Math.sqrt(coarse.best[j * cnx + i]);
     },
     height: bilinear(out),
     natural: bilinear(natural),
