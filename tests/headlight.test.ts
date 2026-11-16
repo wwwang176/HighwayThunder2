@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { AIM_DOWN, BEAM_LAMP_H, createHeadlight, groundBeam, HALF_ANGLE, HEADLIGHT_DECAY, HIGH_BEAM_DECAY, lowBeamPattern, PENUMBRA, RIVAL_DECAY } from '../src/vehicles/headlight';
+import { AIM_DOWN, BEAM_LAMP_H, createHeadlight, groundBeam, HALF_ANGLE, HEADLIGHT_DECAY, HIGH_BEAM_DECAY, lowBeamPattern, PENUMBRA, RETRO, RIVAL_DECAY, STRAY } from '../src/vehicles/headlight';
 
 /** The traffic's beam as its painted texture had it (a level pair BEAM_LAMP_H up, `x` right, `z` ahead of it). */
 function paintedBeam(x: number, z: number): number {
@@ -41,6 +41,24 @@ describe('headlights', () => {
     const C = THREE.ShaderChunk as Record<string, string>;
     expect(C.lights_pars_begin).toContain('float ht2LowBeam(');
     expect(C.lights_fragment_begin).toMatch(/getSpotLightInfo\( spotLight, geometryPosition, directLight \);\s*if \( abs\( spotLight\.decay - 1\.0000 \) < 0\.01 \) directLight\.color \*= ht2LowBeam\(/);
+  });
+
+  it('above the cut-off not dark (the player\'s: the signs lit): STRAY.share of it there, fading up; below it as it was', () => {
+    const above = 0.08; // (~5° up: a sign's face from a lamp)
+    expect(lowBeamPattern(0, above)).toBe(0); // (the plain pattern: the ground beams' and the smoke's)
+    const lit = lowBeamPattern(0, above, undefined, STRAY.share);
+    expect(lit).toBeGreaterThan(0);
+    expect(lit).toBeLessThan(STRAY.share);
+    expect(lowBeamPattern(0, 0.3, undefined, STRAY.share)).toBeLessThan(lit); // (fading further up)
+    expect(lowBeamPattern(0.1, -0.1, undefined, STRAY.share)).toBeCloseTo(lowBeamPattern(0.1, -0.1), 9); // (below: the beam)
+    expect(THREE.ShaderChunk.lights_pars_begin).toContain(`* ${STRAY.share.toFixed(6)} *`); // (the headlights' own, in the shaders)
+  });
+
+  it('a retroreflective material (HT2_RETRO: the chevrons) gets a lamp\'s light back toward it RETRO.gain times, and RETRO.ambient its ambient', () => {
+    const C = THREE.ShaderChunk as Record<string, string>;
+    expect(C.lights_fragment_begin).toContain('#ifdef HT2_RETRO');
+    expect(C.lights_fragment_begin).toContain(`1.0 + ${RETRO.gain.toFixed(6)} * smoothstep(`);
+    expect(C.lights_fragment_begin).toContain(`irradiance *= ${RETRO.ambient.toFixed(6)}`);
   });
 
   it('on the ground, a rival\'s lamp lights as the traffic\'s pair, before its shadow is put on it', () => {
