@@ -62,6 +62,11 @@ export const STRINGS = {
   'weather.rain': { zh: '雨夜', en: 'Rainy night' },
   'weather.fog': { zh: '霧夜', en: 'Foggy night' },
   'weather.soon': { zh: '即將推出', en: 'Coming soon' },
+  'setup.course.kicker': { zh: 'Course', en: '' },
+  'setup.course': { zh: '路線', en: 'Course' },
+  'course.highway': { zh: '高速公路', en: 'Highway' },
+  'course.mountain': { zh: '山路', en: 'Mountain road' },
+  'course.hint': { zh: '山路：雙線道、急彎與髮夾彎、上下坡，最多 3 台對手。換路線會重新載入。', en: 'Mountain road: two lanes, tight bends and hairpins, climbs and descents, up to 3 rivals. Changing the course reloads the game.' },
   // The controls pop-up.
   'keys.throttle': { zh: '油門', en: 'Throttle' },
   'keys.brake': { zh: '煞車 / 倒車', en: 'Brake / reverse' },
@@ -100,6 +105,8 @@ export const STRINGS = {
   'hud.reset': { zh: '回到賽道', en: 'Back on track' },
   'toast.overtake': { zh: '超車！', en: 'Overtake!' },
   'toast.nearMiss': { zh: '險過！', en: 'Near miss!' },
+  'toast.drift': { zh: '甩尾！', en: 'Drift!' },
+  'toast.driftTime': { zh: '{s} 秒', en: '{s}s' },
   'toast.noAi': { zh: '沒有可用的 AI 駕駛（請先在 lab/train.html 訓練並存檔）', en: 'No AI driver yet (train and save one in lab/train.html first)' },
   'intro.skip': { zh: '按任意鍵跳過', en: 'Press any key to skip' },
   'pause.kicker': { zh: 'Paused', en: '' },
@@ -209,7 +216,7 @@ export type Key = keyof typeof STRINGS;
 /** The small caps over a title in Chinese: the title itself in English, so left empty there (the dash stays). */
 export const KICKERS: Key[] = [
   'tag.street-racer', 'tag.muscle-car', 'tag.jdm', 'setup.kicker', 'setup.rivals.kicker', 'setup.difficulty.kicker',
-  'setup.weather.kicker', 'settings.kicker', 'pause.kicker', 'finish.kicker', 'tune.kicker',
+  'setup.weather.kicker', 'setup.course.kicker', 'settings.kicker', 'pause.kicker', 'finish.kicker', 'tune.kicker',
 ];
 
 /** The language every screen is in now (setLang). */

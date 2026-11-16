@@ -75,6 +75,10 @@ export class Sparks {
   private readonly vel = new Float32Array(MAX * 3);
   private readonly age = new Float32Array(MAX).fill(Infinity);
   private readonly life = new Float32Array(MAX).fill(1);
+  /** The road's height under each where it was born (it bounces off that). */
+  private readonly floor = new Float32Array(MAX);
+  /** The road's height at (x, z) (flat: 0; a road that climbs and falls: its own). */
+  floorAt: (x: number, z: number) => number = () => 0;
   private readonly mesh: THREE.InstancedMesh;
   private next = 0;
   /** The fraction of a spark owed (a slow scrape throws one every few steps). */
@@ -113,6 +117,7 @@ export class Sparks {
     this.pos[o] = x;
     this.pos[o + 1] = y;
     this.pos[o + 2] = z;
+    this.floor[i] = this.floorAt(x, z);
     this.vel[o] = vx;
     this.vel[o + 1] = vy;
     this.vel[o + 2] = vz;
@@ -130,8 +135,10 @@ export class Sparks {
     const kick = (Math.random() < 0.5 ? -1 : 1) * Math.random() * SPARKS.kick * slide;
     const s = SPARKS.spread * slide;
     const o = i * 3;
+    const floor = this.floorAt(at.x, at.z);
+    this.floor[i] = floor;
     this.pos[o] = at.x;
-    this.pos[o + 1] = Math.max(0.03, at.y);
+    this.pos[o + 1] = Math.max(floor + 0.03, at.y);
     this.pos[o + 2] = at.z;
     const vx = t.vb.x + (t.va.x - t.vb.x) * u + (Math.random() - 0.5) * 2 * s + t.normal.x * kick;
     const vy = t.vb.y + (t.va.y - t.vb.y) * u + Math.random() * s * 0.35 + 0.3 + Math.random() * 1.2;
@@ -167,8 +174,9 @@ export class Sparks {
       let vy = this.vel[o + 1] * damp + G * dt;
       let vz = this.vel[o + 2] * damp;
       let y = this.pos[o + 1] + vy * dt;
-      if (y < 0.02 && vy < 0) {
-        y = 0.02;
+      const ground = this.floor[i] + 0.02;
+      if (y < ground && vy < 0) {
+        y = ground;
         vy = -vy * SPARKS.bounce;
         vx *= 0.7;
         vz *= 0.7;

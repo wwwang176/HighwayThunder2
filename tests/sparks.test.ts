@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { burstSparks, scrapeSparks, slideSpeed, SPARKS } from '../src/world/sparks';
+import { burstSparks, scrapeSparks, slideSpeed, Sparks, SPARKS } from '../src/world/sparks';
 
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
@@ -21,5 +21,41 @@ describe('collision sparks', () => {
     expect(burstSparks(SPARKS.minSlide / 2)).toBe(0);
     expect(burstSparks(10)).toBe(Math.round(SPARKS.burst * 10));
     expect(burstSparks(200)).toBe(SPARKS.burstMax);
+  });
+});
+
+describe('sparks on a road that climbs and falls', () => {
+  /** A rail scraped at 30 m/s where the road is `floor` m up (its contact half a metre over it). */
+  function scrape(floor: number, over = 0.5) {
+    const sparks = new Sparks(new THREE.Scene());
+    sparks.floorAt = () => floor;
+    const at = v(5, floor + over, -100);
+    const touch = {
+      a: { type: 'player' as const }, b: { type: 'static' as const },
+      points: [at], count: 1, normal: v(1, 0, 0), mid: at.clone(),
+      va: v(0, 0, -30), vb: v(0, 0, 0), upA: v(0, 1, 0), upB: v(0, 0, 0), fresh: true,
+    };
+    sparks.touch(touch, 1 / 120);
+    const s = sparks as unknown as { pos: Float32Array; age: Float32Array };
+    const live = () => [...s.age.keys()].filter((i) => s.age[i] !== Infinity);
+    const born = live().map((i) => s.pos[3 * i + 1]);
+    let lowest = Infinity;
+    for (let k = 0; k < 120; k++) {
+      sparks.update(1 / 60, v(0, 0, 0));
+      for (const i of live()) lowest = Math.min(lowest, s.pos[3 * i + 1]);
+    }
+    return { born, lowest };
+  }
+
+  it('are born at the contact, down in a valley too (not lifted to the height 0)', () => {
+    const { born } = scrape(-40);
+    expect(born.length).toBeGreaterThan(0);
+    for (const y of born) expect(y).toBeCloseTo(-39.5, 3);
+  });
+
+  it('bounce off the road where it is, up on a hill too (not falling through it to the height 0)', () => {
+    const { lowest } = scrape(30, 0.05); // (born just over it: they reach it before they die)
+    expect(lowest).toBeGreaterThanOrEqual(30);
+    expect(lowest).toBeLessThan(30.1);
   });
 });

@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle } from './handling';
+import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -103,7 +103,17 @@ export function quatFromYaw(yaw: number): { x: number; y: number; z: number; w: 
   return { x: 0, y: Math.sin(-yaw / 2), z: 0, w: Math.cos(-yaw / 2) };
 }
 
+/** A car's inertia (kg·m²) about its own axes: a box its length and width, 0.8 m high. */
+function inertiaOf(p: CarParams): { x: number; y: number; z: number } {
+  return {
+    x: (p.mass / 12) * (0.8 * 0.8 + p.length * p.length),
+    y: (p.mass / 12) * (p.width * p.width + p.length * p.length),
+    z: (p.mass / 12) * (p.width * p.width + 0.8 * 0.8),
+  };
+}
+
 const TMP_Q = new THREE.Quaternion();
+const RESET_EULER = new THREE.Euler();
 const TMP_V = new THREE.Vector3();
 /** s its acceleration is smoothed over (a crash's spike, the springs' shake). */
 const ACCEL_SMOOTH = 0.1;
@@ -173,6 +183,18 @@ export class PlayerCar {
   private launchTrim = 1;
   /** Of the drive, what launch control lets through: launchTrim as much as it holds (the tail following the nose). */
   private launchShare = 1;
+  /** Of the drive, what traction control lets through (CarParams.tractionSlip, tractionTrim). */
+  private tractionShare = 1;
+  /** Drift assist (CarParams.drift): how much it drifts (0..1: driftShare, by its slide). */
+  private driftNow = 0;
+  /** The body's slide (rad, signed) last step: its growing, for the drift assist's limit. */
+  private lastSlide = 0;
+  /** The slide its drift is held to (rad: the steering's, followed - driftFollow). */
+  private driftHold = 0;
+  /** How much it drifts (0..1: drift assist, by its slide). */
+  get drifting(): number {
+    return this.driftNow;
+  }
   /** s on the rev limiter (-1: off it). */
   private onLimiter = -1;
   driveMode: DriveMode = 'D';
@@ -213,17 +235,12 @@ export class PlayerCar {
     const p = this.params;
     const ghost = !opts.entity && scene === null;
     const entity = opts.entity ?? { type: 'player' };
-    const inertia = {
-      x: (p.mass / 12) * (0.8 * 0.8 + p.length * p.length),
-      y: (p.mass / 12) * (p.width * p.width + p.length * p.length),
-      z: (p.mass / 12) * (p.width * p.width + 0.8 * 0.8),
-    };
     // The mass is the body's own (COM at body y + comY, comFwd toward the nose), not its colliders' (they
     // weigh nothing): the collision shape can follow the car's body without changing how it drives.
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(laneCenter(1), RIDE_Y, 0)
       .setCanSleep(false)
-      .setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: -p.comFwd }, inertia, { x: 0, y: 0, z: 0, w: 1 });
+      .setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: -p.comFwd }, inertiaOf(p), { x: 0, y: 0, z: 0, w: 1 });
     if (ghost) {
       // No collider at all: a ghost stands on its wheel rays only, and with dozens
       // of them stacked on the start line, the rays must not have to test each other.
@@ -407,14 +424,39 @@ export class PlayerCar {
     this.rollFriction();
 
     this.steer = smoothSteer(this.steer, input.steer, p, dt, this.vLong);
+    const slide = Math.atan2(this.vLat, Math.max(Math.abs(this.vLong), 1));
+    const bodySlip = Math.abs(slide);
+    // Drift assist (drift): the more it slides, the more the car the driver's - no switch; the handbrake only by the
+    // slide it starts (the player's: at once its grip dropped and the car turned round).
+    const assist = p.drift && !input.hold ? p.drift : undefined;
+    this.driftNow = assist ? driftShare(slide, this.vLong, assist) : 0;
+    const dw = this.driftNow; // (how much it drifts: `w` the wheels below)
     // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
     const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, p);
     // Stability control: nudge the rotation toward what the steering asks for (not on the handbrake: the slide
-    // it asks for let be).
+    // it asks for let be - with the drift assist, by the slide only, as the rest of it; drifting, not till the slide
+    // nears a spin).
     const yawRate = -this.body.angvel().y;
-    const esc = input.handbrake && !input.hold ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
+    let esc = input.handbrake && !input.hold && !p.drift ? 0 : escTorque(yawRate, escTargetYawRate(steerAngleCmd, this.vLong, p), this.vLong, p);
+    const slideRate = (slide - this.lastSlide) / dt;
+    this.lastSlide = slide;
+    // (drifting, as much as it does: the stability control only near a spin; the slide pulled back to what the steering
+    // sets, at any slide - the stability control can't, full lock asks for the spin: the wheel let go straight on,
+    // slowly; held into the turn, more, slowly. From the slide it starts at; on the handbrake too - its swing as quick
+    // as the angle held grows (the player's: let be, the locked rear turned the car round at once). The spring all of it
+    // from any slide, at speed (the player's: as it drifted, it turned quick at 1-6° before the spring took hold).
+    const atSpeed = assist ? driftSpeed(this.vLong, assist) : 0;
+    if (assist) {
+      const target = driftHeld(driftInto(slide, this.steer), assist);
+      if (atSpeed === 0) this.driftHold = bodySlip;
+      else {
+        this.driftHold = driftFollow(this.driftHold, target, dt, assist);
+        esc = esc * (1 + (driftEsc(bodySlip, assist) - 1) * dw) + atSpeed * driftLimit(slide, slideRate, assist, this.driftHold);
+        // (on the throttle, the body turned to slide more - the spring above holding it some way past the steering's)
+        esc += driftSpin(slide, this.throttle, dw, assist);
+      }
+    }
     if (esc !== 0) this.body.applyTorqueImpulse({ x: 0, y: -esc * dt, z: 0 }, true);
-    const bodySlip = Math.abs(Math.atan2(this.vLat, Math.max(Math.abs(this.vLong), 1)));
     const targetThrottle = input.throttle;
     this.throttle += Math.sign(targetThrottle - this.throttle) * Math.min(Math.abs(targetThrottle - this.throttle), p.throttleRise * dt);
 
@@ -447,8 +489,11 @@ export class PlayerCar {
     // the simple pedal force). The rev limiter bounds wheelspin.
     if (cmd.engineForce > 0) cmd.engineForce = this.gearbox.wheelTorque(this.throttle, rearOmega, p) / p.wheelRadius;
     if (boost && this.driveMode === 'D') cmd.engineForce *= NITRO.force * (p.nitroForce ?? 1);
-    // Stability control also trims power once the car is sliding sideways (never all of it: escPowerTrim).
-    if (p.escGain > 0 && cmd.engineForce > 0) cmd.engineForce *= escPowerTrim(bodySlip);
+    // Stability control also trims power once the car is sliding sideways (never all of it: escPowerTrim) - the less
+    // the more it drifts (the throttle the driver's).
+    if (p.escGain > 0 && cmd.engineForce > 0) cmd.engineForce *= 1 + (escPowerTrim(bodySlip) - 1) * (1 - dw);
+    // Drifting, the drive eased as the slide grows big (driftDrive: full throttle on the keys spun it round).
+    if (dw > 0 && p.drift && cmd.engineForce > 0) cmd.engineForce *= 1 + (driftDrive(bodySlip, p.drift) - 1) * dw;
     // Launch control (launchSlip): the tail following the nose, the drive eased back to hold the rear tyres' slip at its
     // target - near their grip's peak, a little smoke - not all of it lost spinning them up; the tail stepping out, it
     // lets them be (power slides).
@@ -464,6 +509,15 @@ export class PlayerCar {
       this.launchShare = 1 - hold * (1 - this.launchTrim);
       cmd.engineForce *= this.launchShare;
     } else this.launchTrim = this.launchShare = 1;
+    // Traction control (tractionSlip): the drive eased to hold the rear tyres' slip, sliding or not - the one spinning
+    // more (the diff lets the inside one spin up: their mean hid it), each against its own ground speed round a bend.
+    // (the more it drifts, the less of it: a drift is the tail on wheelspin)
+    if (p.tractionSlip !== undefined && cmd.engineForce > 0 && !cmd.burnout && dw < 1) {
+      const turn = yawRate * HALF_TRACK;
+      const slip = Math.max(this.wheels[2].omega * p.wheelRadius - (this.vLong + turn), this.wheels[3].omega * p.wheelRadius - (this.vLong - turn));
+      this.tractionShare = tractionTrim(this.tractionShare, slip, p.tractionSlip, dt);
+      cmd.engineForce *= 1 + (this.tractionShare - 1) * (1 - dw);
+    } else this.tractionShare = 1;
     // The brakes' balance (the player's tuning, brakeShift): braking, some of the front tyres' grip straight on moved to
     // the rear, as much as the loads on them come to (all four stop as well as ever) - and the brakes' split with it,
     // each axle as near locking as it was. The rear doing more of the braking, its cornering grip goes sooner.
@@ -508,7 +562,10 @@ export class PlayerCar {
       w.bump = p.damperBump;
       w.rebound = p.damperRebound;
       // In a burnout the spinning rear tyres push less (arcade): the front brakes hold every car, even a tail-heavy one.
-      w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1)) * grip;
+      // Drifting, the rear's grip less, sideways and straight on, the throttle on or off: drift.rearGrip of it drifting
+      // all the way, as much less as it drifts.
+      const driftRear = p.drift ? 1 + (p.drift.rearGrip - 1) * dw : 1;
+      w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1) * driftRear) * grip;
       w.longScale = w.front ? frontLong : rearLong;
       w.dragged = lever && !w.front; // (the handbrake's locked rear tyres: dragged, holding sideways as their tail swings out)
     }
@@ -527,6 +584,16 @@ export class PlayerCar {
     // 3) Aerodynamics: drag against motion, downforce growing with speed.
     const lv = this.body.linvel();
     const sp = Math.hypot(lv.x, lv.z);
+    // Sliding, the car pushed toward its nose (driftCarve: by its slide, from any): square to its motion, its speed as it
+    // was - on the handbrake too (the player's: the handbrake only locks the rear wheels).
+    if (p.drift && !input.hold && this.vLong > 0 && sp > 1) {
+      const a = Math.min(driftCarve(slide, this.vLong, this.throttle, p.drift), (bodySlip * sp) / dt);
+      const h = this.worldYaw, phi = Math.atan2(this.vLat, this.vLong), way = Math.sign(phi);
+      // (its motion turned toward the nose: in the body's frame (sin phi, -cos phi) the side it slides, along (fx, fz), lateral (cos h, sin h))
+      const pl = way * Math.sin(phi), pt = -way * Math.cos(phi);
+      const k = this.body.mass() * a * dt;
+      this.body.applyImpulse({ x: k * (pl * Math.sin(h) + pt * Math.cos(h)), y: 0, z: k * (-pl * Math.cos(h) + pt * Math.sin(h)) }, true);
+    }
     if (sp > 0.1) {
       const drag = p.dragK * sp * dt;
       const down = p.downforceK * sp * sp * dt;
@@ -583,6 +650,12 @@ export class PlayerCar {
     this.prevPos.copy(this.currPos);
     this.currQuat.set(q.x, q.y, q.z, q.w);
     this.prevQuat.copy(this.currQuat);
+  }
+
+  /** Its body given its params' mass, centre of mass and inertia anew (read only when it was built: a setup changing them, vehicles/mountainSetup). */
+  applyMass(): void {
+    const p = this.params;
+    this.body.setAdditionalMassProperties(p.mass, { x: 0, y: p.comY, z: -p.comFwd }, inertiaOf(p), { x: 0, y: 0, z: 0, w: 1 }, true);
   }
 
   /** Place the car in a lane, upright, pointing down the road, at the given speed. */
@@ -651,14 +724,29 @@ export class PlayerCar {
   }
 
   resetTo(s: number, lane: number, speed: number): void {
+    this.resetAt(s, laneCenter(lane), speed);
+  }
+
+  /** Place the car at road position (s, d), upright on the road (pitched to its grade, leaning with its bank), pointing down it, at `speed`. */
+  resetAt(s: number, d: number, speed: number): void {
     const p = this.params;
-    if (this.road.straight) {
-      this.body.setTranslation({ x: laneCenter(lane), y: RIDE_Y + 0.02, z: -s }, true);
+    if (this.road.hilly) {
+      const at = this.road.toWorld(s, d);
+      const th = this.road.heading(s);
+      const pitch = Math.atan(this.road.grade(s));
+      const roll = Math.atan(this.road.crossSlope(s)); // (+: its right side up)
+      this.body.setTranslation({ x: at.x, y: this.road.surfaceHeight(s, d) + RIDE_Y + 0.02, z: at.z }, true);
+      const q = TMP_Q.setFromEuler(RESET_EULER.set(pitch, -th, roll, 'YXZ'));
+      this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+      const c = Math.cos(pitch);
+      this.body.setLinvel({ x: speed * c * Math.sin(th), y: speed * Math.sin(pitch), z: -speed * c * Math.cos(th) }, true);
+    } else if (this.road.straight) {
+      this.body.setTranslation({ x: d, y: RIDE_Y + 0.02, z: -s }, true);
       this.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
       this.body.setLinvel({ x: 0, y: 0, z: -speed }, true);
     } else {
       // Along the road where it is put.
-      const at = this.road.toWorld(s, laneCenter(lane));
+      const at = this.road.toWorld(s, d);
       const th = this.road.heading(s);
       this.body.setTranslation({ x: at.x, y: RIDE_Y + 0.02, z: at.z }, true);
       this.body.setRotation(quatFromYaw(th), true);
@@ -668,6 +756,9 @@ export class PlayerCar {
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.steer = 0;
     this.throttle = 0;
+    this.driftNow = 0;
+    this.lastSlide = 0;
+    this.driftHold = 0;
     this.backfire.reset();
     this.gearbox.reset();
     this.driveMode = 'D';

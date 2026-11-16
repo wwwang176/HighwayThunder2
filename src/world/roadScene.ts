@@ -191,7 +191,7 @@ diffuseColor.rgb *= mix(vec3(0.62, 0.72, 0.62), vec3(1.2, 1.15, 0.9), patchy);`,
   return mat;
 }
 
-function repeating(file: string): THREE.Texture {
+export function repeating(file: string): THREE.Texture {
   const t = new THREE.TextureLoader().load(TEXTURES + file);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
@@ -203,7 +203,7 @@ function repeating(file: string): THREE.Texture {
  * tiled by world position: the markings' texture stays small, the asphalt sharp. Its average brightness 1
  * (ASPHALT.strength of its contrast), so the markings' colours keep their brightness.
  */
-function withAsphalt(mat: THREE.MeshStandardMaterial, renderer: THREE.WebGLRenderer): THREE.MeshStandardMaterial {
+export function withAsphalt(mat: THREE.MeshStandardMaterial, renderer: THREE.WebGLRenderer): THREE.MeshStandardMaterial {
   const detail = repeating(ASPHALT.file);
   detail.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const mean = ASPHALT.mean; // the picture's mean, linear (for the brightness 1)
@@ -360,7 +360,21 @@ const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const P3 = new THREE.Vector3();
 const S3 = new THREE.Vector3();
 
-export class RoadScene {
+/** What the game asks of the scenery along the road (the highway's, the mountain road's). */
+export interface Scenery {
+  /** The road to lay the scenery along (a new race's). */
+  setRoad(line: Centerline): void;
+  /** Kept round the player (`playerS` along the road), each frame; `play` s of race time on (its blinking: 0 paused). */
+  update(playerS: number, play?: number): void;
+  /** Surfaces lit by the other cars' headlight beams (render/npcBeams). */
+  readonly groundMaterials: THREE.MeshStandardMaterial[];
+  /** The real lights shining now (tyre smoke is lit by them). */
+  activeLights(): THREE.SpotLight[];
+  /** Its lamps' flares' material (sized to the view each frame). */
+  readonly lampFlareMaterial: THREE.ShaderMaterial;
+}
+
+export class RoadScene implements Scenery {
   private strip = new THREE.Group();
   private trees = new THREE.Group();
   private far = new THREE.Group();

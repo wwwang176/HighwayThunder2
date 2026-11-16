@@ -310,7 +310,7 @@ export class TireSmoke {
    * spinning tyre's throw (smokeKick) - the puffs shot off it, slowing fast (the air), then drifting up. None: the
    * tyre is not spinning (locked, sliding), its puffs NOT_SPINNING_SHARE as thick.
    */
-  emit(id: number, x: number, z: number, slip: number, carVx: number, carVz: number, dt: number, kickX = 0, kickZ = 0): void {
+  emit(id: number, x: number, z: number, slip: number, carVx: number, carVz: number, dt: number, kickX = 0, kickZ = 0, y = 0): void {
     if (slip < 3) {
       this.carry.delete(id);
       return;
@@ -323,7 +323,7 @@ export class TireSmoke {
       const i = this.next;
       this.next = (this.next + 1) % MAX;
       this.pos[i * 3] = x + (Math.random() - 0.5) * 0.3;
-      this.pos[i * 3 + 1] = 0.25;
+      this.pos[i * 3 + 1] = y + 0.25;
       this.pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.3;
       // Smoke is left behind: it keeps only a little of the car's motion; a spinning tyre throws it back (its kick,
       // each puff a little more or less of it).

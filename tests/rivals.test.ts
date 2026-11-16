@@ -7,6 +7,7 @@ import { laneCenter } from '../src/road/coords';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { MUSCLE_CAR, STREET_RACER } from '../src/vehicles/cars';
+import { MountainDriver } from '../src/ai/mountainDriver';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -107,6 +108,21 @@ describe('needsReset', () => {
 
   it('a car racing along is left alone', () => {
     expect(needsReset(ok)).toBe(null);
+  });
+
+  it('without teleports (the mountain road\'s): far behind or ahead it races on; off its own narrow road, put back', () => {
+    expect(needsReset({ ...ok, playerS: ok.s + T.teleportBehind + 1 }, 4.75, false)).toBe(null);
+    expect(needsReset({ ...ok, playerS: ok.s - T.teleportAhead - 1 }, 4.75, false)).toBe(null);
+    expect(needsReset({ ...ok, d: 5, playerS: ok.s + T.teleportBehind + 1 }, 4.75, false)).toBe('off-road');
+  });
+
+  it('its road\'s edges along it (a shoulder: each side\'s own at s): off the road past that side\'s edge there', () => {
+    const edge = (s: number, side: 1 | -1) => (side < 0 && s > 400 ? 7.75 : 4.75);
+    const far = { ...ok, playerS: ok.s + 300 };
+    expect(needsReset({ ...far, d: -6 }, edge, false)).toBe(null); // (on the shoulder)
+    expect(needsReset({ ...far, d: -8 }, edge, false)).toBe('off-road');
+    expect(needsReset({ ...far, d: 6 }, edge, false)).toBe('off-road'); // (its other side as it was)
+    expect(needsReset({ ...far, s: 300, playerS: 600, d: -6 }, edge, false)).toBe('off-road');
   });
 
   it('stopped too long, spun round, off the road (the player well away), or hopelessly far behind: back into the race', () => {
@@ -240,5 +256,32 @@ describe('revving on the grid', () => {
       expect(r.s).toBeGreaterThanOrEqual(lo - dt);
       expect(r.s).toBeLessThanOrEqual(hi + dt);
     }
+  });
+});
+
+describe('Rivals on a road of their own setup (the mountain road\'s)', () => {
+  const grip = (p: { latGrip?: number }) => ({ ...p, latGrip: 1.25 });
+
+  it('their cars set up as given, as built and when tuned afresh each race; their drivers given its tables', () => {
+    const physics = PhysicsWorld.createSync();
+    const seen: number[] = [];
+    const rivals = new Rivals<MountainDriver>(physics, null, () => null, [MUSCLE_CAR], {
+      makeDriver: () => new MountainDriver(),
+      setup: {
+        params: grip as never,
+        ai: (ai) => {
+          seen.push(ai.latAccel[0][1]);
+          return ai;
+        },
+      },
+    });
+    expect(rivals.list[0].car.params.latGrip).toBe(1.25);
+    rivals.tuneAtRandom = true;
+    rivals.place();
+    expect(rivals.list[0].car.params.latGrip).toBe(1.25);
+    expect(rivals.list[0].base.latGrip).toBe(1.25);
+    rivals.setRoad(rivals.list[0].car.road);
+    expect(seen.length).toBeGreaterThan(0);
+    physics.free();
   });
 });

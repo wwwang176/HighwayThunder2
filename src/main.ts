@@ -1,7 +1,9 @@
-import { Game } from './game/game';
+import { AUTOSTART, Game } from './game/game';
+import { loadSelection } from './game/carSelection';
 import { PhysicsWorld } from './physics/physicsWorld';
 import { DRIVER_TUNING, PlannerDriver } from './ai/plannerDriver';
 import { WorkerPlanSource } from './ai/workerPlanSource';
+import { MountainDriver } from './ai/mountainDriver';
 import { loadCarModels } from './vehicles/carModels';
 import { applyUiZoom } from './ui/uiScale';
 import { loadSettings, setLang } from './ui/i18n';
@@ -35,17 +37,30 @@ async function boot() {
     }),
   ]);
   await loading.next('loading.scene', 0.7);
-  // The road bends (?straight: the straight road as ever, its own record).
-  const curved = !new URLSearchParams(location.search).has('straight');
-  const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved });
+  // The road bends (?straight: the straight road as ever, its own record); the mountain road when picked in the
+  // garage (?mountain / ?highway: that one whatever was picked).
+  const params = new URLSearchParams(location.search);
+  const curved = !params.has('straight');
+  const mountain = params.has('mountain') || (!params.has('highway') && !params.has('straight') && loadSelection(localStorage).course === 'mountain');
+  const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved, mountain });
   (window as unknown as { __game: Game }).__game = game;
   // I hands the car to the AI: the path planner, driven by plain controllers for now
   // (a trained network is to take over the driving part). Plans are worked out in a worker.
-  game.aiDriver = new PlannerDriver(new WorkerPlanSource());
+  // (the mountain road: its racing-line driver, as the rivals', its line worked out with each race's road)
+  game.aiDriver = mountain ? new MountainDriver() : new PlannerDriver(new WorkerPlanSource());
   await loading.next('loading.shaders', 0.85);
   game.warmUp();
   game.start();
   await loading.finish('loading.ready');
+  // Loaded again on another course (picked in the garage, its start pressed): its race straight away.
+  let autostart = false;
+  try {
+    autostart = sessionStorage.getItem(AUTOSTART) === '1';
+    sessionStorage.removeItem(AUTOSTART);
+  } catch {
+    // (no session storage: the garage)
+  }
+  if (autostart) game.startRace(loadSelection(localStorage), true);
 }
 
 boot();

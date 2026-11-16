@@ -1,4 +1,4 @@
-import { CAR_CARDS, CarSelection, MAX_RIVALS, PICKABLE, RivalMode, setRival, setRivalCount, Weather } from '../game/carSelection';
+import { CAR_CARDS, CarSelection, type Course, COURSES, MAX_RIVALS, PICKABLE, RivalMode, setRival, setRivalCount, Weather } from '../game/carSelection';
 import { DIFFICULTIES } from '../game/difficulty';
 import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
@@ -81,6 +81,8 @@ const WEATHERS: [Weather, string][] = [
 ];
 /** The weathers out so far (the rest shown, "coming soon"). */
 const OPEN_WEATHERS: Weather[] = ['clear'];
+/** Each course's icon (public/ui). */
+const COURSE_ICONS: Record<Course, string> = { highway: 'icon-topspeed', mountain: 'icon-handling' };
 /** A car stat's tip, by its icon. */
 const STAT_TIPS: Record<string, Key> = { 'icon-accel': 'stat.accel', 'icon-topspeed': 'stat.top', 'icon-handling': 'stat.grip' };
 /** The tuning panel's knobs, in their groups (src/vehicles/tuning). */
@@ -510,7 +512,7 @@ export class Garage {
   /** The race setup's rows the keys walk: how many rivals, how their cars are picked, each rival (custom only), the difficulty, the weather. */
   private rowKeys(): string[] {
     const each = this.sel.rivalMode === 'custom' ? this.sel.rivals.map((_, i) => `rival${i}`) : [];
-    return ['count', 'mode', ...each, 'difficulty', 'weather'];
+    return ['course', 'count', 'mode', ...each, 'difficulty', 'weather'];
   }
 
   /** ↑ ↓ in the race setup: the row above or below. */
@@ -526,7 +528,10 @@ export class Garage {
     const s = this.sel;
     const key = this.rowKeys()[this.row];
     this.keyed = true;
-    if (key === 'weather') {
+    if (key === 'course') {
+      const k = COURSES.indexOf(s.course);
+      this.change({ ...s, course: COURSES[Math.max(0, Math.min(COURSES.length - 1, k + d))] });
+    } else if (key === 'weather') {
       const open = WEATHERS.filter(([k]) => OPEN_WEATHERS.includes(k)).map(([k]) => k); // (the ones out so far)
       const k = open.indexOf(s.weather);
       this.change({ ...s, weather: open[Math.max(0, Math.min(open.length - 1, k + d))] });
@@ -631,7 +636,8 @@ export class Garage {
       <div class="head"><span class="lbl">Race setup</span><span class="edit"><kbd>E</kbd><span class="lbl">Edit ▸</span></span></div>
       <div class="row">${icon('icon-rivals')}<span class="lbl">Rivals</span><span class="val">${this.lineUp()}</span></div>
       <div class="row">${icon('icon-difficulty')}<span class="lbl">Difficulty</span><span class="val">${t(`diff.${s.difficulty}` as Key)}</span></div>
-      <div class="row">${icon(w[1])}<span class="lbl">Weather</span><span class="val">${t(`weather.${w[0]}` as Key)}</span></div>`;
+      <div class="row">${icon(w[1])}<span class="lbl">Weather</span><span class="val">${t(`weather.${w[0]}` as Key)}</span></div>
+      <div class="row">${icon(COURSE_ICONS[s.course])}<span class="lbl">Course</span><span class="val">${t(`course.${s.course}`)}</span></div>`;
     if (this.setupOpen) this.drawSetup();
     if (this.tuneOpen) this.drawTune();
   }
@@ -776,6 +782,10 @@ export class Garage {
     const scrolled = body.scrollTop; // (redrawn on every change: kept where it was)
     body.innerHTML = html`
       <div class="s-sec">
+        ${head('setup.course.kicker', 'setup.course', rowHelp('course', t('course.hint')))}
+        <div class="s-weather ${focus('course')}">${COURSES.map((c) => `<button class="s-btn ${c === s.course ? 'sel' : ''}" data-course="${c}">${icon(COURSE_ICONS[c])}<span>${t(`course.${c}`)}</span></button>`).join('')}</div>
+      </div>
+      <div class="s-sec">
         ${head('setup.rivals.kicker', 'setup.rivals', this.lineUp())}
         <div class="s-sub ${focus('count')}"><span class="lbl">${t('setup.count')}</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) => `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`).join('')}</div></div>
         <div class="s-sub ${focus('mode')}"><span class="lbl">${t('setup.mode')}</span><div class="s-modes">${MODES.map(([m, ic]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${t(`mode.${m}`)}</span></button>`).join('')}</div>${rowHelp('mode', ...MODES.map(([m]) => t(`mode.help.${m}`)))}</div>
@@ -807,6 +817,7 @@ export class Garage {
     all('[data-car]').forEach((b) => (b.onclick = () => this.change(setRival(this.sel, Number(b.dataset.i), b.dataset.car!))));
     all('[data-d]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, difficulty: Number(b.dataset.d) })));
     all('[data-w]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, weather: b.dataset.w as Weather })));
+    all('[data-course]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, course: b.dataset.course as Course })));
     body.scrollTop = scrolled;
     // Worked by the keys: the row's "?" open (focused: its tip shows), any other let go.
     const rowTip = this.keyed ? body.querySelector<HTMLElement>(`.help[data-row="${rows[this.row]}"]`) : null;

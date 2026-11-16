@@ -16,7 +16,7 @@ export class SkidMarks {
   private readonly pos: Float32Array;
   private readonly alpha: Float32Array;
   private next = 0;
-  private last = new Map<number, { x: number; z: number; lx: number; lz: number; rx: number; rz: number }>();
+  private last = new Map<number, { x: number; y: number; z: number; lx: number; lz: number; rx: number; rz: number }>();
 
   constructor(scene: THREE.Scene) {
     this.pos = new Float32Array(CAPACITY * 6 * 3);
@@ -61,7 +61,7 @@ export class SkidMarks {
    * Report a wheel contact this step. `intensity` 0..1 (0 = not sliding).
    * `dirX/dirZ` is the wheel's heading on the ground (unit vector).
    */
-  add(wheel: number, x: number, z: number, dirX: number, dirZ: number, intensity: number): void {
+  add(wheel: number, x: number, z: number, dirX: number, dirZ: number, intensity: number, y = 0): void {
     if (intensity <= 0) {
       this.last.delete(wheel);
       return;
@@ -69,7 +69,7 @@ export class SkidMarks {
     // Perpendicular to the wheel heading.
     const px = -dirZ * (WIDTH / 2);
     const pz = dirX * (WIDTH / 2);
-    const cur = { x, z, lx: x - px, lz: z - pz, rx: x + px, rz: z + pz };
+    const cur = { x, y, z, lx: x - px, lz: z - pz, rx: x + px, rz: z + pz };
     const prev = this.last.get(wheel);
     if (!prev) {
       this.last.set(wheel, cur);
@@ -99,17 +99,18 @@ export class SkidMarks {
   }
 
   private writeQuad(
-    a: { lx: number; lz: number; rx: number; rz: number },
-    b: { lx: number; lz: number; rx: number; rz: number },
+    a: { y: number; lx: number; lz: number; rx: number; rz: number },
+    b: { y: number; lx: number; lz: number; rx: number; rz: number },
     alpha: number,
   ): void {
     const i = this.next;
     this.next = (this.next + 1) % CAPACITY;
     const v = [a.lx, a.lz, a.rx, a.rz, b.rx, b.rz, a.lx, a.lz, b.rx, b.rz, b.lx, b.lz];
+    const ys = [a.y, a.y, b.y, a.y, b.y, b.y];
     for (let k = 0; k < 6; k++) {
       const o = (i * 6 + k) * 3;
       this.pos[o] = v[k * 2];
-      this.pos[o + 1] = Y;
+      this.pos[o + 1] = ys[k] + Y;
       this.pos[o + 2] = v[k * 2 + 1];
       this.alpha[i * 6 + k] = alpha;
     }

@@ -77,8 +77,8 @@ export class TrafficWorld {
     private readonly opts: { oncoming: boolean; bothWays?: boolean; edge?: [number, number]; gone?: number; planEvery?: number },
   ) {}
 
-  /** Clear all traffic and wrecks and fill the road ahead of the focus. */
-  reset(focus: TrafficFocus, occupants: (frame: RoadFrame) => Occupant[]): void {
+  /** Clear all traffic and wrecks and fill the road ahead of the focus (`fill` false: none, a road without traffic). */
+  reset(focus: TrafficFocus, occupants: (frame: RoadFrame) => Occupant[], fill = true): void {
     for (const npc of this.npcs.values()) npc.dispose();
     this.npcs.clear();
     this.side.clear();
@@ -87,7 +87,7 @@ export class TrafficWorld {
     this.spawnTimer = SPAWN_INTERVAL;
     this.sincePlan = 0;
     this.stepsSincePlan = 0;
-    this.spawn(focus, occupants, true);
+    if (fill) this.spawn(focus, occupants, true);
   }
 
   sideOf(id: number): TrafficSide | undefined {

@@ -17,6 +17,15 @@ export interface Piece {
   k: number;
 }
 
+/**
+ * A piece of the height profile: `len` m over which the grade (rise over run) goes linearly from the last piece's end
+ * to `g` - a parabolic vertical curve; constant: an even slope. Starts level (grade 0) at s = 0.
+ */
+export interface GradePiece {
+  len: number;
+  g: number;
+}
+
 /** A straight `len` m long. */
 export const straight = (len: number): Piece[] => [{ len, k: 0 }];
 
@@ -38,6 +47,42 @@ export function bend(radius: number, angleDeg: number, ease: number): Piece[] {
 
 /** Sample spacing of the precomputed positions (m). */
 const STEP = 1;
+/** Sample spacing of the bank's slope (m), and how far its easing reaches before and after a bend (m) unless given. */
+const BANK_STEP = 1;
+const BANK_EASE = 20;
+
+/**
+ * A road's slope across (see Centerline.crossSlope) every BANK_STEP m from s = -from to its end + from: each point's
+ * by its curvature (the inside lower: `slope` from `full` curvature on, in proportion below), then averaged twice over
+ * `ease` m (a box of ease / 2 either side, twice): eased in and out over `ease` m before and after, its change at
+ * most its whole over `ease` m.
+ */
+function bankSlopes(road: Centerline, slope: number, full: number, ease: number, from: number): Float64Array {
+  const n = Math.ceil((road.length + 2 * from) / BANK_STEP) + 1;
+  const a = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const k = road.curvature(i * BANK_STEP - from);
+    a[i] = k === 0 ? 0 : -Math.sign(k) * slope * Math.min(1, Math.abs(k) / full);
+  }
+  return easeTwice(a, Math.round(ease / 2 / BANK_STEP));
+}
+
+/** `a` averaged twice over a box of `h` samples either side (past its ends: 0): eased in and out over 2h + 1 samples, its change at most its whole over as many. */
+export function easeTwice(a: Float64Array, h: number): Float64Array {
+  const n = a.length;
+  for (let pass = 0; pass < 2; pass++) {
+    const sum = new Float64Array(n + 1);
+    for (let i = 0; i < n; i++) sum[i + 1] = sum[i] + a[i];
+    const out = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const lo = Math.max(0, i - h);
+      const hi = Math.min(n - 1, i + h);
+      out[i] = (sum[hi + 1] - sum[lo]) / (2 * h + 1); // (past the ends: flat)
+    }
+    a = out;
+  }
+  return a;
+}
 
 export class Centerline {
   /** Its length (m); beyond it, straight on. */
@@ -52,8 +97,45 @@ export class Centerline {
   private readonly zs: Float64Array;
   /** Its sharpest bend's radius (m; Infinity straight). */
   readonly minRadius: number;
+  /** It climbs and falls (its grades given): else flat at height 0. */
+  readonly hilly: boolean;
+  /** It may turn back on itself (a mountain road's hairpins): no -z check, projection seeded from the nearest point. */
+  readonly turnBack: boolean;
+  private readonly gStarts: number[] = [];
+  private readonly g0: number[] = [];
+  private readonly g1: number[] = [];
+  private readonly gLen: number[] = [];
+  private readonly h0: number[] = [];
+  /** Where its grades end, and its height from there on (level). */
+  private readonly gradesEnd: number = 0;
+  private readonly hEnd: number = 0;
 
-  constructor(readonly pieces: Piece[]) {
+  /** Its bends banked (see crossSlope): the slope across every BANK_STEP m from s = -bankFrom, eased (null: flat). */
+  private readonly banks: Float64Array | null = null;
+  private readonly bankFrom: number = 0;
+
+  constructor(
+    readonly pieces: Piece[],
+    opts: { grades?: GradePiece[]; turnBack?: boolean; bank?: { max: number; full: number; ease?: number } } = {},
+  ) {
+    this.turnBack = opts.turnBack ?? false;
+    let gs = 0;
+    let g = 0;
+    let h = 0;
+    for (const p of opts.grades ?? []) {
+      if (!(p.len > 0)) continue;
+      this.gStarts.push(gs);
+      this.g0.push(g);
+      this.g1.push(p.g);
+      this.gLen.push(p.len);
+      this.h0.push(h);
+      h += ((g + p.g) / 2) * p.len;
+      gs += p.len;
+      g = p.g;
+    }
+    this.hilly = this.gStarts.length > 0;
+    this.gradesEnd = gs;
+    this.hEnd = h;
     let s = 0;
     let k = 0;
     let th = 0;
@@ -82,8 +164,60 @@ export class Centerline {
       this.xs[i] = this.xs[i - 1] + p.x;
       this.zs[i] = this.zs[i - 1] + p.z;
     }
-    // Monotonic along -z (projection's first guess relies on it).
-    for (let i = 1; i < n; i++) if (!(this.zs[i] < this.zs[i - 1])) throw new Error('Centerline: the road must keep heading along -z (|heading| < 90°)');
+    // Monotonic along -z (projection's first guess relies on it) - unless it may turn back (then its nearest point).
+    if (!this.turnBack) for (let i = 1; i < n; i++) if (!(this.zs[i] < this.zs[i - 1])) throw new Error('Centerline: the road must keep heading along -z (|heading| < 90°)');
+    if (opts.bank) {
+      const ease = opts.bank.ease ?? BANK_EASE;
+      this.bankFrom = ease + 1;
+      this.banks = bankSlopes(this, Math.tan(opts.bank.max), opts.bank.full, ease, this.bankFrom);
+    }
+  }
+
+  /** The road's height at s (m; 0 flat): its grades integrated, level before 0 and past their end. */
+  height(s: number): number {
+    if (!this.hilly || s <= 0) return 0;
+    if (s >= this.gradesEnd) return this.hEnd;
+    const i = this.gradePieceAt(s);
+    const t = s - this.gStarts[i];
+    return this.h0[i] + this.g0[i] * t + ((this.g1[i] - this.g0[i]) * t * t) / (2 * this.gLen[i]);
+  }
+
+  /**
+   * How it slopes across at s (rise per metre toward +d): its bends banked into them - the inside lower - by its
+   * curvature (as steep as `bank.max` from `bank.full` on, less in proportion below), eased in and out over
+   * `bank.ease` m before and after (a hairpin's own clothoids, 10 m, banked it in 4: its edges rose 0.7 m in a few
+   * metres, a step in the road). Flat on a straight away from bends, and on a road built without banking.
+   */
+  crossSlope(s: number): number {
+    const b = this.banks;
+    if (!b) return 0;
+    const x = (s + this.bankFrom) / BANK_STEP;
+    if (x <= 0 || x >= b.length - 1) return 0;
+    const i = Math.floor(x);
+    return b[i] + (b[i + 1] - b[i]) * (x - i);
+  }
+
+  /** The road's surface height at (s, d): its centre line's height, and its slope across (crossSlope). */
+  surfaceHeight(s: number, d: number): number {
+    return this.height(s) + this.crossSlope(s) * d;
+  }
+
+  /** Its grade at s (rise over run; > 0 climbing along +s). */
+  grade(s: number): number {
+    if (!this.hilly || s < 0 || s > this.gradesEnd) return 0;
+    const i = this.gradePieceAt(s);
+    return this.g0[i] + ((this.g1[i] - this.g0[i]) * (s - this.gStarts[i])) / this.gLen[i];
+  }
+
+  private gradePieceAt(s: number): number {
+    let lo = 0;
+    let hi = this.gStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.gStarts[mid] <= s) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
   }
 
   private pieceAt(s: number): number {
@@ -157,7 +291,7 @@ export class Centerline {
    */
   project(x: number, z: number, hint?: number): { s: number; d: number } {
     if (this.straight) return { s: z === 0 ? 0 : -z, d: x };
-    let s = hint ?? this.guess(z);
+    let s = hint ?? (this.turnBack ? this.nearest(x, z) : this.guess(z));
     for (let it = 0; it < 6; it++) {
       const c = this.center(s);
       const th = this.heading(s);
@@ -175,6 +309,23 @@ export class Centerline {
     const c = this.center(s);
     const th = this.heading(s);
     return { s, d: (x - c.x) * Math.cos(th) + (z - c.z) * Math.sin(th) };
+  }
+
+  /** The s of its precomputed point nearest (x, z) (a road turning back: no z order to search by; past its ends, along them). */
+  private nearest(x: number, z: number): number {
+    const n = this.xs.length - 1;
+    let best = 0;
+    let bestD = Infinity;
+    for (let i = 0; i <= n; i++) {
+      const dx = x - this.xs[i];
+      const dz = z - this.zs[i];
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD) {
+        bestD = d2;
+        best = i;
+      }
+    }
+    return Math.min(best * STEP, this.length);
   }
 
   /** An s whose centre point is level with z (the line keeps heading along -z). */

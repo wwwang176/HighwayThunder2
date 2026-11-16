@@ -3,8 +3,8 @@ import { LANE_WIDTH, ROAD_LENGTH } from '../config';
 /** Car length (m, bumper to bumper gaps): the racers are all this long. */
 const CAR_L = 4.4;
 /** How far along the race `s` (m) is: 0 at the start, 1 at the finish. */
-export function progress(s: number): number {
-  return Math.min(1, Math.max(0, s / ROAD_LENGTH));
+export function progress(s: number, length = ROAD_LENGTH): number {
+  return Math.min(1, Math.max(0, s / length));
 }
 
 /**

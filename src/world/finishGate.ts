@@ -35,8 +35,6 @@ const FOUNTAIN = { off: 1.8, rate: 120, up: [8, 12] as const, across: 1.2, life:
 /** Where a spark goes: at (x, y, z), going (vx, vy, vz), for `life` s (Sparks.emit). */
 export type SparkEmitter = (x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number) => void;
 
-const Z = -ROAD_LENGTH;
-
 export class FinishGate {
   private readonly group = new THREE.Group();
   private readonly tube: THREE.MeshBasicMaterial;
@@ -51,10 +49,19 @@ export class FinishGate {
   private readonly owed: number[];
 
   /** Over the middle of the gate, a little above its bars (world): where the HUD marks it (Hud: goal). */
-  readonly mark = new THREE.Vector3((GATE.left + GATE.right) / 2, GATE.height + 1, Z);
+  readonly mark: THREE.Vector3;
+  /** Its sides (d, m: GATE's on the highway, the road's own on another), and the race's length (where it stands). */
+  private readonly left: number;
+  private readonly right: number;
+  private readonly length: number;
 
-  constructor(scene: THREE.Scene) {
-    const { left, right, height: h, inset, bar } = GATE;
+  constructor(scene: THREE.Scene, opts: { left?: number; right?: number; length?: number } = {}) {
+    this.left = opts.left ?? GATE.left;
+    this.right = opts.right ?? GATE.right;
+    this.length = opts.length ?? ROAD_LENGTH;
+    this.mark = new THREE.Vector3((this.left + this.right) / 2, GATE.height + 1, -this.length);
+    const { height: h, inset, bar } = GATE;
+    const { left, right } = this;
     const width = right - left;
     const mid = (left + right) / 2;
     const inner = h - 0.2;
@@ -123,35 +130,37 @@ export class FinishGate {
     curtain.position.set(mid, inner / 2, 0);
     curtain.renderOrder = 2;
     this.group.add(curtain);
-    this.group.position.z = Z;
+    this.group.position.z = -this.length;
     scene.add(this.group);
     this.fade(1);
     this.fountains = [];
     for (const x of [left + inset + 0.25, right - inset - 0.25])
-      for (const z of [FOUNTAIN.off, -FOUNTAIN.off]) this.fountains.push(new THREE.Vector3(x, 0.05, Z + z));
+      for (const z of [FOUNTAIN.off, -FOUNTAIN.off]) this.fountains.push(new THREE.Vector3(x, 0.05, -this.length + z));
     this.owed = this.fountains.map(() => 0);
   }
 
   /** Across the road where it ends (s = ROAD_LENGTH), turned with it. */
   setRoad(road: Centerline): void {
-    const { left, right, inset } = GATE;
-    const at = road.toWorld(ROAD_LENGTH, 0);
-    this.group.position.set(at.x, 0, at.z);
-    this.group.rotation.y = -road.heading(ROAD_LENGTH); // (its x across the road, as the road's d)
-    const m = road.toWorld(ROAD_LENGTH, (left + right) / 2);
-    this.mark.set(m.x, GATE.height + 1, m.z);
+    const { inset } = GATE;
+    const { left, right, length } = this;
+    const at = road.toWorld(length, 0);
+    const y = road.height(length);
+    this.group.position.set(at.x, y, at.z);
+    this.group.rotation.y = -road.heading(length); // (its x across the road, as the road's d)
+    const m = road.toWorld(length, (left + right) / 2);
+    this.mark.set(m.x, y + GATE.height + 1, m.z);
     let i = 0;
     for (const d of [left + inset + 0.25, right - inset - 0.25])
       for (const off of [-FOUNTAIN.off, FOUNTAIN.off]) {
-        const f = road.toWorld(ROAD_LENGTH + off, d);
-        this.fountains[i++].set(f.x, 0.05, f.z);
+        const f = road.toWorld(length + off, d);
+        this.fountains[i++].set(f.x, road.height(length + off) + 0.05, f.z);
       }
   }
 
   /** Where `mark` would be were the gate at `s` along `road` (over its middle, as high): the HUD's goal marked ahead on a bend. */
   markAt(road: Centerline, s: number, out: THREE.Vector3): THREE.Vector3 {
-    const m = road.toWorld(s, (GATE.left + GATE.right) / 2);
-    return out.set(m.x, GATE.height + 1, m.z);
+    const m = road.toWorld(s, (this.left + this.right) / 2);
+    return out.set(m.x, road.height(s) + GATE.height + 1, m.z);
   }
 
   /** How far the camera is from the gate (m, on the ground). */
@@ -182,9 +191,9 @@ export class FinishGate {
   pass(key: number, s: number, x: number): void {
     const prev = this.lastS.get(key);
     this.lastS.set(key, s);
-    if (prev === undefined || prev >= ROAD_LENGTH || s < ROAD_LENGTH) return;
+    if (prev === undefined || prev >= this.length || s < this.length) return;
     const f = this.flashes.find((v) => v.y < 0) ?? this.flashes.reduce((a, b) => (b.y > a.y ? b : a));
-    f.set(x - GATE.left - GATE.inset, 0);
+    f.set(x - this.left - GATE.inset, 0);
   }
 
   /** `play` s on (the race's time), the camera at `camera`: the curtain's drift, the flares, the fade in from far. */

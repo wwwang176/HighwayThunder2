@@ -66,6 +66,8 @@ export interface CarParams {
   escMaxTorque: number; // N·m
   gearTops?: number[]; // its gearbox: each gear's top speed (km/h, at the redline); unset: GEAR_TOP_KMH
   launchSlip?: number; // launch control: the tail following the nose, the drive eased to hold the rear tyres' slip at this (m/s); unset: none
+  tractionSlip?: number; // traction control: the drive eased to hold the rear tyres' slip at this (m/s), sliding or not (tractionTrim); unset: none
+  drift?: DriftAssist; // drift assist: the more it slides the more the car the driver's - less traction control, the stability control only near a spin (driftShare, driftEsc); unset: none
   rearLongGrip?: number; // drag tyres: the rear tyres' grip straight on (driving, braking) times this, always (on rearGrip); unset: 1
   // The player's tuning (src/vehicles/tuning.ts); unset: as built.
   gearScale?: number; // final drive: every gear's top speed (and the limiter's) times this (> 1 taller)
@@ -400,6 +402,144 @@ export function escPowerTrim(bodySlip: number): number {
   const k = Math.min(1, Math.max(0, (bodySlip - ESC_TRIM_FROM) / (ESC_TRIM_FULL - ESC_TRIM_FROM)));
   return 1 - (1 - ESC_TRIM_LEAST) * k;
 }
+
+/**
+ * Traction control (CarParams.tractionSlip): its share of the drive let through, moved toward holding the rear tyres'
+ * slip (m/s: their tread's speed over the road, forward) at `target` - TRACTION_RATE per second per target's worth of
+ * slip off it, never under TRACTION_LEAST. Unlike launch control it holds in a slide too: a tyre spinning loses its
+ * sideways grip with it, and the car, on the throttle, slid on along its old line instead of the nose's.
+ */
+export const TRACTION_RATE = 8;
+export const TRACTION_LEAST = 0.15;
+export function tractionTrim(trim: number, slip: number, target: number, dt: number): number {
+  return Math.min(1, Math.max(TRACTION_LEAST, trim + TRACTION_RATE * dt * ((target - slip) / target)));
+}
+
+/**
+ * Drift assist (CarParams.drift): the more the car slides the more it drifts (driftShare: no switch - from a slide of
+ * `from` to `full`, smoothly; the handbrake only by the slide it starts), and the more it drifts the more the car is the
+ * driver's - the traction control lets the rear tyres spin (a drift is the tail on wheelspin; it straightened every
+ * slide on the throttle), the stability control lets the slide be till it nears a spin, the rear's grip less, the
+ * drive eased as the slide grows big - and the slide pulled to what the steering sets (driftLimit), the car pushed
+ * toward its nose (driftCarve). Angles: the body's slide (its motion's angle off its nose), rad.
+ */
+export interface DriftAssist {
+  /** None slower than `minSpeed` (m/s), all of it from `fullSpeed`, in proportion between. */
+  minSpeed: number;
+  fullSpeed: number;
+  /** None up to a slide of `from`, all of it from `full`, smoothly between (a switch at one angle dropped the grip at once). */
+  from: number;
+  full: number;
+  /** The stability control none of it to a slide of `escFrom`, all of it from `escFull` (a spin caught). */
+  escFrom: number;
+  escFull: number;
+  /**
+   * The rear tyres' grip (sideways and straight on) times this, the throttle on or off (the player holds it on: the
+   * slide is the steering's).
+   */
+  rearGrip: number;
+  /**
+   * The slide pulled back to what the steering sets, at any slide (a spring: driftHeld, driftInto, driftLimit; the
+   * stability control can't - it holds the turning to what the steering asks, and full lock asks for a spin): none
+   * (straight on) with the wheel straight or counter-steered, `limit` on full lock into the turn, between by the
+   * steering's square (a little steering a little of it), followed (driftFollow: at once it was too quick) - growing
+   * over `steerUp` s (the turn held into a while), coming back over `steerDown` s (let go: slowly straight). Past it the
+   * body turned back, `hold` N·m per rad past, `damp` per rad/s of its growing, at most `holdMax`. Under it, nothing.
+   */
+  limit: number;
+  steerUp: number;
+  steerDown: number;
+  hold: number;
+  damp: number;
+  holdMax: number;
+  /** The drive in full up to a slide of `powerFrom`, down to `least` of it by `powerTo` (full throttle on the keys spun the cars round). */
+  powerFrom: number;
+  powerTo: number;
+  least: number;
+  /**
+   * The car pushed toward its nose (arcade, driftCarve): square to its motion (its speed as it was), `carve` m/s², and
+   * `carveOn` more on full throttle (in proportion: on the throttle it goes faster and took the bend wider) once the
+   * slide is `carveFull` (rad), in proportion under it from none - by the slide, not by how much it drifts (it was too
+   * little in a small slide) - it goes where the nose points.
+   */
+  carve: number;
+  carveOn: number;
+  carveFull: number;
+  /**
+   * On the throttle sliding, the body turned to slide more (driftSpin: N·m on full throttle, as much as it drifts) -
+   * against the spring (driftLimit), which holds it some spin / hold rad past what the steering sets.
+   */
+  spin: number;
+}
+
+/** At speed: none under minSpeed, all of it from fullSpeed (m/s, either way) - the drift assist's share by speed alone. */
+export function driftSpeed(speed: number, d: DriftAssist): number {
+  return Math.min(1, Math.max(0, (Math.abs(speed) - d.minSpeed) / (d.fullSpeed - d.minSpeed)));
+}
+
+/** How much the car drifts (0..1) at this slide (rad, either way) and speed (m/s): from `from` to `full`, smoothly. */
+export function driftShare(slide: number, speed: number, d: DriftAssist): number {
+  const x = Math.min(1, Math.max(0, (Math.abs(slide) - d.from) / (d.full - d.from)));
+  return x * x * (3 - 2 * x) * driftSpeed(speed, d);
+}
+
+
+/** In a drift, the share of the drive let through at this slide (rad). */
+export function driftDrive(slide: number, d: DriftAssist): number {
+  const k = Math.min(1, Math.max(0, (slide - d.powerFrom) / (d.powerTo - d.powerFrom)));
+  return 1 - (1 - d.least) * k;
+}
+
+/**
+ * In a drift, the steering into the turn (-1..1: toward the side the nose swung, + into it, - counter-steering), from
+ * the slide (rad, + its motion to its right: the nose left of it) and the steering (-1..1, + right).
+ */
+export function driftInto(slide: number, steer: number): number {
+  return -Math.sign(slide) * steer + 0;
+}
+
+/**
+ * In a drift, the slide the steering asks to be pulled back to (rad) at `into` (driftInto): `limit` on full lock into
+ * the turn, none with the wheel straight or counter-steered, between by `into`'s square.
+ */
+export function driftHeld(into: number, d: DriftAssist): number {
+  return into > 0 ? d.limit * into * into : 0;
+}
+
+/** In a drift, the slide held (rad) following the steering's `target` (driftHeld): up over steerUp s, down over steerDown. */
+export function driftFollow(held: number, target: number, dt: number, d: DriftAssist): number {
+  return held + (target - held) * Math.min(1, dt / (target > held ? d.steerUp : d.steerDown));
+}
+
+/**
+ * In a drift, the yaw torque (N·m; + turning it right, as escTorque) keeping the slide under `held` (rad: driftHeld,
+ * followed): `slide` signed (+ its motion to its right), `rate` its change (rad/s). None under it.
+ */
+export function driftLimit(slide: number, rate: number, d: DriftAssist, held = d.limit): number {
+  const over = Math.abs(slide) - held;
+  if (over <= 0) return 0;
+  const way = Math.sign(slide);
+  return way * Math.min(d.holdMax, Math.max(0, d.hold * over + d.damp * rate * way));
+}
+
+/** In a drift, the share of the stability control at this slide (rad). */
+export function driftEsc(slide: number, d: DriftAssist): number {
+  return Math.min(1, Math.max(0, (slide - d.escFrom) / (d.escFull - d.escFrom)));
+}
+
+/**
+ * The throttle's turn of the body (N·m; + turning it right, as escTorque - the slide more: against driftLimit) at this
+ * slide (rad, + its motion to its right), throttle (0..1) and drift (0..1, driftShare).
+ */
+export function driftSpin(slide: number, throttle: number, share: number, d: DriftAssist): number {
+  return -Math.sign(slide) * d.spin * throttle * share + 0;
+}
+
+/** The push toward the nose (m/s², square to the motion) at this slide (rad, either way), speed (m/s) and throttle (0..1). */
+export function driftCarve(slide: number, speed: number, throttle: number, d: DriftAssist): number {
+  return (d.carve + d.carveOn * throttle) * Math.min(1, Math.abs(slide) / d.carveFull) * driftSpeed(speed, d);
+}
+
 
 const FOLLOW_FADE_LO = 3; // m/s
 const FOLLOW_FADE_HI = 8; // m/s

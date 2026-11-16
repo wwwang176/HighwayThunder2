@@ -23,7 +23,7 @@ const memory = () => {
 
 describe('carSelection', () => {
   it('by default: the player on the supercar, five rivals on cars at random, hard, a clear night', () => {
-    expect(defaultSelection()).toEqual({ player: 'street-racer', rivals: Array(5).fill('street-racer'), rivalMode: 'random', difficulty: 2, weather: 'clear', paint: {}, tuning: {} });
+    expect(defaultSelection()).toEqual({ player: 'street-racer', rivals: Array(5).fill('street-racer'), rivalMode: 'random', difficulty: 2, weather: 'clear', course: 'highway', paint: {}, tuning: {} });
   });
 
   it('anything it does not know becomes the default; between 0 and 5 rivals', () => {
@@ -33,6 +33,7 @@ describe('carSelection', () => {
       rivalMode: 'custom',
       difficulty: 3,
       weather: 'clear',
+      course: 'highway',
       paint: {},
       tuning: {},
     });
@@ -46,7 +47,7 @@ describe('carSelection', () => {
 
   it('an old save (cars only) keeps its cars and gets the defaults for the rest', () => {
     const old = { player: 'muscle-car', rivals: ['jdm', 'jdm', 'muscle-car', 'street-racer', 'jdm'] };
-    expect(sanitize(old)).toEqual({ ...old, rivalMode: 'custom', difficulty: 2, weather: 'clear', paint: {}, tuning: {} });
+    expect(sanitize(old)).toEqual({ ...old, rivalMode: 'custom', difficulty: 2, weather: 'clear', course: 'highway', paint: {}, tuning: {} });
   });
 
   it('keeps a paint job (by name) per pickable car, nothing else', () => {
@@ -57,7 +58,7 @@ describe('carSelection', () => {
 
   it('is kept between visits; a broken saved value is the default', () => {
     const s = memory();
-    const picked = { player: 'muscle-car', rivals: ['jdm', 'street-racer'], rivalMode: 'same' as const, difficulty: 2, weather: 'clear' as const, paint: { 'muscle-car': 'black' }, tuning: { 'muscle-car': { wing: 2, springs: -1 } } };
+    const picked = { player: 'muscle-car', rivals: ['jdm', 'street-racer'], rivalMode: 'same' as const, difficulty: 2, weather: 'clear' as const, course: 'mountain' as const, paint: { 'muscle-car': 'black' }, tuning: { 'muscle-car': { wing: 2, springs: -1 } } };
     saveSelection(s, picked);
     expect(loadSelection(s)).toEqual(picked);
     s.setItem('ht2.cars', '{not json');
@@ -122,5 +123,17 @@ describe('tuning in the selection', () => {
   it('keeps known knobs at whole levels -2..2 for pickable cars only', () => {
     const s = sanitize({ player: 'jdm', rivals: [], tuning: { jdm: { wing: 3, springs: -1, bogus: 2, camber: 0.5, esc: 0 }, 'no-such-car': { wing: 1 } } });
     expect(s.tuning).toEqual({ jdm: { wing: 2, springs: -1 } });
+  });
+});
+
+describe('the course', () => {
+  it('a first visit, and a save from before there was a choice: the highway', () => {
+    expect(defaultSelection().course).toBe('highway');
+    expect(sanitize({ player: 'jdm', rivals: [] }).course).toBe('highway');
+    expect(sanitize({ player: 'jdm', rivals: [], course: 'moon' }).course).toBe('highway');
+  });
+
+  it('the mountain road kept', () => {
+    expect(sanitize({ player: 'jdm', rivals: [], course: 'mountain' }).course).toBe('mountain');
   });
 });

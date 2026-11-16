@@ -33,6 +33,8 @@ export interface ChassisWheel {
   fy: number;
   alpha: number;
   contactX: number;
+  /** Its contact point's height (0 on flat ground). */
+  contactY: number;
   contactZ: number;
   dirX: number;
   dirZ: number;
@@ -102,7 +104,7 @@ export function makeWheel(
   return {
     ...w,
     omega: 0, spin: 0, susp, steer: 0, inContact: true, sliding: false, slip: 0, load: 0, longScale: 1, dragged: false,
-    fx: 0, fy: 0, alpha: 0, contactX: 0, contactZ: 0, dirX: 0, dirZ: -1,
+    fx: 0, fy: 0, alpha: 0, contactX: 0, contactY: 0, contactZ: 0, dirX: 0, dirZ: -1,
   };
 }
 
@@ -112,6 +114,7 @@ const UP = new THREE.Vector3();
 const FWD = new THREE.Vector3();
 const RIGHT = new THREE.Vector3();
 const HARD = new THREE.Vector3();
+const NRM = new THREE.Vector3();
 const CONTACT = new THREE.Vector3();
 
 /**
@@ -122,6 +125,8 @@ const CONTACT = new THREE.Vector3();
  */
 export class TyreChassis {
   private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+  /** The ground's normal under each wheel (x, y, z a wheel; on a sloped ground only: physics.sloped). */
+  private readonly normals = new Float64Array(12).fill(0).map((_, k) => (k % 3 === 1 ? 1 : 0));
 
   constructor(
     private physics: PhysicsWorld,
@@ -145,13 +150,21 @@ export class TyreChassis {
     const raise = 1 - (s.rollInfluence ?? 1);
     const com = raise > 0 ? this.body.worldCom() : null;
 
-    // 1) Suspension: ray from each hard point down along the chassis.
+    // 1) Suspension: ray from each hard point down along the chassis. On a sloped ground (the road's mesh) the
+    // ground's normal under each wheel too: its tyre works along the road there (2).
     const comp: number[] = [];
-    for (const w of this.wheels) {
+    const sloped = this.physics.sloped;
+    for (const [i, w] of this.wheels.entries()) {
       HARD.set(w.x, w.connY, w.z).applyQuaternion(TMP_Q).add(TMP_V.set(t.x, t.y, t.z));
       this.ray.origin = { x: HARD.x, y: HARD.y, z: HARD.z };
       this.ray.dir = { x: -UP.x, y: -UP.y, z: -UP.z };
-      const hit = this.physics.world.castRay(this.ray, s.rest + w.r, true, undefined, WHEEL_RAY_GROUPS, undefined, this.body);
+      let hit: { timeOfImpact: number } | null;
+      if (sloped) {
+        const h = this.physics.world.castRayAndGetNormal(this.ray, s.rest + w.r, true, undefined, WHEEL_RAY_GROUPS, undefined, this.body);
+        // (a normal facing down: the mesh's underside, a car got under it - taken as up, the car pushed back up)
+        if (h) this.normals.set(h.normal.y >= 0 ? [h.normal.x, h.normal.y, h.normal.z] : [-h.normal.x, -h.normal.y, -h.normal.z], 3 * i);
+        hit = h;
+      } else hit = this.physics.world.castRay(this.ray, s.rest + w.r, true, undefined, WHEEL_RAY_GROUPS, undefined, this.body);
       const prev = w.susp;
       let x = 0; // compression, past full travel too (the bump stop's)
       if (hit && UP.y > 0.2) {
@@ -184,13 +197,27 @@ export class TyreChassis {
       }
       CONTACT.copy(HARD).addScaledVector(UP, -(w.susp + w.r));
       FWD.set(Math.sin(w.steer), 0, -Math.cos(w.steer)).applyQuaternion(TMP_Q);
-      FWD.y = 0;
-      if (FWD.lengthSq() < 1e-6) FWD.set(0, 0, -1);
-      FWD.normalize();
-      RIGHT.set(-FWD.z, 0, FWD.x);
-      const v = this.body.velocityAtPoint(CONTACT);
-      const vx = v.x * FWD.x + v.z * FWD.z;
-      const vy = v.x * RIGHT.x + v.z * RIGHT.z;
+      let vx: number;
+      let vy: number;
+      if (sloped && w.inContact) {
+        // Along the ground under it: the wheel's heading laid on the road's plane there, its right across it.
+        NRM.fromArray(this.normals, 3 * i);
+        FWD.addScaledVector(NRM, -FWD.dot(NRM));
+        if (FWD.lengthSq() < 1e-6) FWD.set(0, 0, -1);
+        FWD.normalize();
+        RIGHT.crossVectors(FWD, NRM).normalize();
+        const v = this.body.velocityAtPoint(CONTACT);
+        vx = v.x * FWD.x + v.y * FWD.y + v.z * FWD.z;
+        vy = v.x * RIGHT.x + v.y * RIGHT.y + v.z * RIGHT.z;
+      } else {
+        FWD.y = 0;
+        if (FWD.lengthSq() < 1e-6) FWD.set(0, 0, -1);
+        FWD.normalize();
+        RIGHT.set(-FWD.z, 0, FWD.x);
+        const v = this.body.velocityAtPoint(CONTACT);
+        vx = v.x * FWD.x + v.z * FWD.z;
+        vy = v.x * RIGHT.x + v.z * RIGHT.z;
+      }
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 0.5));
       const trip = tripGripScale(alpha, s.sideTrip, s.tire.muPeak);
       const res = solveWheel({
@@ -218,6 +245,7 @@ export class TyreChassis {
       w.fy = res.Fy;
       w.alpha = alpha;
       w.contactX = CONTACT.x;
+      w.contactY = sloped ? CONTACT.y : 0;
       w.contactZ = CONTACT.z;
       w.dirX = FWD.x;
       w.dirZ = FWD.z;
@@ -226,7 +254,8 @@ export class TyreChassis {
         const fz = FWD.z * res.Fx + RIGHT.z * res.Fy;
         // rollInfluence: the force acts part way up from the road toward the centre of mass' height.
         if (com) CONTACT.addScaledVector(UP, raise * ((com.x - CONTACT.x) * UP.x + (com.y - CONTACT.y) * UP.y + (com.z - CONTACT.z) * UP.z));
-        this.body.applyImpulseAtPoint({ x: fx * dt, y: 0, z: fz * dt }, CONTACT, true);
+        const fy = sloped ? FWD.y * res.Fx + RIGHT.y * res.Fy : 0; // (on a slope the tyre's force lies along it)
+        this.body.applyImpulseAtPoint({ x: fx * dt, y: fy * dt, z: fz * dt }, CONTACT, true);
       }
     });
   }
