@@ -585,6 +585,10 @@ export class MountainScene implements Scenery {
     for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
     const boards = [new THREE.InstancedMesh(plane, this.chevronMat, Math.max(1, 2 * spots.length)), new THREE.InstancedMesh(mirrored, this.chevronMat, Math.max(1, 2 * spots.length))];
     const counts = [0, 0];
+    // (each board's back: grey sheet metal, facing the other way just behind it - its face drawn on one side only, from
+    // behind a board was not there at all)
+    const backs = new THREE.InstancedMesh(plane, this.postMat, Math.max(1, 2 * spots.length));
+    let nBacks = 0;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
@@ -625,6 +629,10 @@ export class MountainScene implements Scenery {
         // (its texture's chevron points to its local +x: that away from the road, the board of the mirrored texture)
         const k = outward > 0 ? 1 : 0;
         boards[k].setMatrixAt(counts[k]++, m);
+        const behind = back - 0.004;
+        q.setFromEuler(e.set(0, yaw + Math.PI, 0));
+        m.compose(p.set(w.x + outward * rx * along + Math.sin(yaw) * behind, y, w.z + outward * rz * along + Math.cos(yaw) * behind), q, sc.set(1, 1, 1));
+        backs.setMatrixAt(nBacks++, m);
       }
       q.setFromEuler(e.set(0, -th, 0));
       m.compose(p.set(w.x, h + poleH / 2, w.z), q, sc.set(1, 1, 1));
@@ -633,7 +641,8 @@ export class MountainScene implements Scenery {
       beacons.setMatrixAt(i, m);
     });
     boards.forEach((b, k) => (b.count = counts[k]));
-    for (const mesh of [...boards, poles, beacons]) {
+    backs.count = nBacks;
+    for (const mesh of [...boards, backs, poles, beacons]) {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.frustumCulled = false;
       this.course.add(mesh);
