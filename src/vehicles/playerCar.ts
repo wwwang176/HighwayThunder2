@@ -218,6 +218,13 @@ export class PlayerCar {
   get drifting(): number {
     return this.driftNow;
   }
+  /**
+   * Sliding sideways in an arcade drift: its rear's drive kept whole, the tyres are not "sliding" to the tyre model -
+   * they grip straight on - yet slide sideways (marked, smoking and squealing as they do).
+   */
+  get slidingSideways(): boolean {
+    return this.arcadeDrift && this.driftNow > 0.5;
+  }
   /** s on the rev limiter (-1: off it). */
   private onLimiter = -1;
   driveMode: DriveMode = 'D';
@@ -395,7 +402,10 @@ export class PlayerCar {
 
   /** Strongest tyre slide this step (m/s of slip), for sound. */
   get maxSlip(): number {
-    return this.chassis.maxSlip;
+    if (!this.slidingSideways) return this.chassis.maxSlip;
+    let m = 0; // (sliding sideways in an arcade drift: every tyre on the ground)
+    for (const w of this.wheels) if (w.inContact) m = Math.max(m, w.slip);
+    return m;
   }
 
   private chassisSetup(speed = 0) {
