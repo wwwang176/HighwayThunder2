@@ -357,7 +357,7 @@ export class MountainScene implements Scenery {
   private terrain: Terrain | null = null;
 
   /** The ground's height as drawn at (x, z) (`hint`: an s near it); -Infinity before a road. */
-  groundAt(x: number, z: number, hint: number): number {
+  groundAt(x: number, z: number, hint?: number): number {
     return this.terrain ? groundAt(this.line, this.terrain, x, z, hint) : -Infinity;
   }
 

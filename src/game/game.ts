@@ -49,7 +49,7 @@ import { SettingsPopup } from '../ui/settings';
 import { IntroOverlay } from '../ui/introOverlay';
 import { LoadingScreen } from '../ui/loading';
 import { loadSettings, setLang, t } from '../ui/i18n';
-import { Intro, nextIntro, type IntroBag } from './intro';
+import { Intro, INTRO_KINDS, MOUNTAIN_INTRO_KINDS, nextIntro, type IntroBag } from './intro';
 import { FinishShow } from './finishShow';
 
 /** A car type by id (the supercar for an id no longer known). */
@@ -698,15 +698,18 @@ export class Game {
   /** The race's intro: the next of its shuffled round (none twice in a row, every one once in each round). */
   private beginIntro(): void {
     // From the shuffled round kept between visits (game/intro nextIntro: every one once in each round).
+    // (the mountain road its own intros - up into its bends - and its own round of them)
+    const mountain = this.mountain && !this.skidpad;
+    const key = mountain ? `${INTRO_BAG_KEY}.mountain` : INTRO_BAG_KEY;
     let bag: IntroBag = { left: [], last: null };
     try {
-      bag = { ...bag, ...JSON.parse(localStorage.getItem(INTRO_BAG_KEY) ?? '{}') };
+      bag = { ...bag, ...JSON.parse(localStorage.getItem(key) ?? '{}') };
     } catch {
       // (unreadable: a fresh round)
     }
-    const next = nextIntro(bag);
-    localStorage.setItem(INTRO_BAG_KEY, JSON.stringify(next.bag));
-    this.intro = new Intro(next.kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car), chase: this.rig.params });
+    const next = nextIntro(bag, Math.random, mountain ? MOUNTAIN_INTRO_KINDS : INTRO_KINDS);
+    localStorage.setItem(key, JSON.stringify(next.bag));
+    this.intro = new Intro(next.kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car), chase: this.rig.params, road: mountain ? this.roadLine : undefined });
     this.introOn = true;
     this.overlay.show(true);
   }
@@ -1635,17 +1638,20 @@ export class Game {
     else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
     // The camera kept clear of the scenery's ground (Scenery.groundAt: the mountain's rock and hillside, the highway's
     // flat) on an arm from over the car (cameraArm: in along it, looking the same way - no jump in the view); the set
-    // shots (intro, finish) only out of it, some low on purpose (CAMERA_SHOT). (The mountain road's chase camera
-    // swinging wide round a hairpin went into the rock; kept within the road's edges instead, the side looks were
-    // pulled in to the edge on the narrow road where no rock was too.)
+    // shots (intro, finish) only lifted out of it where they are, some low on purpose (CAMERA_SHOT) - a shot far off
+    // (over a hairpin, 200 m up the road) pulled in along an arm from the car went down behind the hill between. (The
+    // mountain road's chase camera swinging wide round a hairpin went into the rock; kept within the road's edges
+    // instead, the side looks were pulled in to the edge on the narrow road where no rock was too.)
     const scene = this.road;
     if (scene.groundAt) {
-      const A = this.introOn || show ? CAMERA_SHOT : CAMERA_ARM;
+      const shot = this.introOn || !!show;
+      const A = shot ? CAMERA_SHOT : CAMERA_ARM;
       const c = this.player.body.translation();
       const pivot = { x: c.x, y: c.y + A.pivot, z: c.z };
       const want = { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z };
-      const ground = (x: number, z: number) => scene.groundAt!(x, z, this.player.s);
-      this.armShare = armFollow(this.armShare, armReach(pivot, want, ground, A), play, A);
+      // (a shot far off: where it is on the road found anywhere, not near the car)
+      const ground = (x: number, z: number) => scene.groundAt!(x, z, shot ? undefined : this.player.s);
+      this.armShare = shot ? 1 : armFollow(this.armShare, armReach(pivot, want, ground, A), play, A);
       const at = armPlace(pivot, want, this.armShare, ground, A);
       this.camera.position.set(at.x, at.y, at.z);
     }

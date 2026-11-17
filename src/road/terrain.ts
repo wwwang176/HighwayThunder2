@@ -85,12 +85,12 @@ export function earthwork(n: number, base: number, past: number, T = TERRAIN): n
 }
 
 /**
- * The ground as drawn at (x, z) (`hint`: an s near it - the car's): on the road its surface; past its edge, within the
+ * The ground as drawn at (x, z) (`hint`: an s near it - the car's; none: the nearest anywhere): on the road its surface; past its edge, within the
  * edge's strip (`seam` m, short of a tight bend's inside: mountainScene's), the earthwork against the edge as the strip
  * is drawn; past that, the grid's. (The grid's alone, 3 m between its nodes, cut the cut's face - 1.33 up a metre -
  * a metre or more off.)
  */
-export function groundAt(road: Centerline, t: Terrain, x: number, z: number, hint: number, T = TERRAIN): number {
+export function groundAt(road: Centerline, t: Terrain, x: number, z: number, hint?: number, T = TERRAIN): number {
   const at = road.project(x, z, hint);
   const side: 1 | -1 = at.d >= 0 ? 1 : -1;
   const E = roadEdges(road).at(at.s, side);

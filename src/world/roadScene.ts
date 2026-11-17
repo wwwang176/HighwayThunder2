@@ -376,7 +376,7 @@ export interface Scenery {
    * The ground's height as drawn at (x, z) (`hint`: an s near it - the car's): the camera kept clear of it
    * (render/cameraArm). None: the camera left be (the practice ground: flat and open).
    */
-  groundAt?(x: number, z: number, hint: number): number;
+  groundAt?(x: number, z: number, hint?: number): number;
 }
 
 export class RoadScene implements Scenery {
