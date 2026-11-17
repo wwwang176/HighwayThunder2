@@ -33,11 +33,12 @@ const RAIL = { y0: 0.5, y1: 0.82, post: 4, reflector: 8 };
  * Chevron boards outside the bends, two to a post (one for each way): `width` m wide, `tall` m high (3:4 upright, as
  * the real one-chevron alignment sign's: 45 x 60 cm, 60 x 75 - not square), `height` m up, each turned to the
  * drivers coming its way - toward the road `sight` m back along it, so the
- * two open out away from the road at an angle (the sharper the bend, the wider), their inner edges `gap` m apart at
- * the post. No light of their own: they reflect what reaches them `reflect` times as strongly as paint (a reflective
+ * two open out away from the road at an angle (the sharper the bend, the wider) - the `post` m thick post between
+ * them, up to their top (the lamp on it), each board's back on it and its inner edge `over` m past it (the player's:
+ * the post between the boards; its inner edge at the post, the post stopped under it, the lamp above its corner). No light of their own: they reflect what reaches them `reflect` times as strongly as paint (a reflective
  * sheeting's) - faint under the moon, bright in the low beam, glaring in the high beam (the player's real lamps).
  */
-const CHEVRON = { width: 0.6, tall: 0.8, height: 1.1, reflect: 3.5, roughness: 0.35, sight: 40, gap: 0.02 };
+const CHEVRON = { width: 0.6, tall: 0.8, height: 1.1, reflect: 3.5, roughness: 0.35, sight: 40, post: 0.06, over: 0.12 };
 /**
  * How sharp a bend is, by its tightest radius (m): how far apart its boards stand (m; one chevron each, whatever the
  * bend - the user's: as the road's own signs) - a big bend (to R 130: at 150 km/h it wants more grip than the cars
@@ -573,7 +574,9 @@ export class MountainScene implements Scenery {
       return cutAt[side][s - rows[lo] < rows[hi] - s ? lo : hi];
     };
     const edges = roadEdges(road);
-    const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, CHEVRON.height, 0.06), this.postMat, Math.max(1, spots.length));
+    // (the post up between the boards to their top, the lamp on it)
+    const poleH = CHEVRON.height + CHEVRON.tall;
+    const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(CHEVRON.post, poleH, CHEVRON.post), this.postMat, Math.max(1, spots.length));
     const beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(BEACON.radius, 10, 8), this.beaconMat, Math.max(1, spots.length));
     // (a board's chevron pointing right of its face, or - its texture mirrored - left)
     const plane = new THREE.PlaneGeometry(CHEVRON.width, CHEVRON.tall);
@@ -601,23 +604,32 @@ export class MountainScene implements Scenery {
       const az = away.z - w.z;
       // A board toward the cars coming up the road (from CHEVRON.sight m back) and one toward those coming down it:
       // its face turned to them, the board out from the post away from the road, its chevron toward the road.
-      for (const way of [-1, 1]) {
+      const faces = [-1, 1].map((way) => {
         const seen = road.toWorld(Math.max(-MOUNTAIN.before, Math.min(MOUNTAIN.length + MOUNTAIN.after, s + way * CHEVRON.sight)), 0);
         const yaw = Math.atan2(seen.x - w.x, seen.z - w.z); // (its face, local +z, toward them)
         const rx = Math.cos(yaw);
         const rz = -Math.sin(yaw); // (its local +x)
         const outward = Math.sign(rx * ax + rz * az) || 1; // (its local +x away from the road: 1)
-        const half = CHEVRON.gap / 2 + CHEVRON.width / 2;
+        return { yaw, rx, rz, outward };
+      });
+      // (the post between them: each board's back on it, its inner edge CHEVRON.over m past it - less as they open
+      // wider, their inner edges meeting no nearer than the post's thickness)
+      const [f0, f1] = faces;
+      const opening = Math.acos(Math.max(-1, Math.min(1, f0.outward * f1.outward * (f0.rx * f1.rx + f0.rz * f1.rz)))) / 2;
+      const over = Math.min(CHEVRON.over, CHEVRON.post / 2 / Math.max(Math.sin(opening), 1e-3));
+      for (const { yaw, rx, rz, outward } of faces) {
+        const along = CHEVRON.width / 2 - over;
+        const back = CHEVRON.post / 2 + 0.005;
         q.setFromEuler(e.set(0, yaw, 0));
-        m.compose(p.set(w.x + outward * rx * half, y, w.z + outward * rz * half), q, sc.set(1, 1, 1));
+        m.compose(p.set(w.x + outward * rx * along + Math.sin(yaw) * back, y, w.z + outward * rz * along + Math.cos(yaw) * back), q, sc.set(1, 1, 1));
         // (its texture's chevron points to its local +x: that away from the road, the board of the mirrored texture)
         const k = outward > 0 ? 1 : 0;
         boards[k].setMatrixAt(counts[k]++, m);
       }
       q.setFromEuler(e.set(0, -th, 0));
-      m.compose(p.set(w.x, h + CHEVRON.height / 2, w.z), q, sc.set(1, 1, 1));
+      m.compose(p.set(w.x, h + poleH / 2, w.z), q, sc.set(1, 1, 1));
       poles.setMatrixAt(i, m);
-      m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.tall + BEACON.radius + 0.03, w.z), q, sc.set(1, 1, 1));
+      m.compose(p.set(w.x, h + poleH + BEACON.radius, w.z), q, sc.set(1, 1, 1));
       beacons.setMatrixAt(i, m);
     });
     boards.forEach((b, k) => (b.count = counts[k]));
