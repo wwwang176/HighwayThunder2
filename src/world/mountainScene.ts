@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { makeFlareMaterial } from '../render/lightFlares';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { insideReach, MOUNTAIN, roadEdges } from '../road/mountain';
-import { rolling, TERRAIN, terrainOf, type Terrain } from '../road/terrain';
+import { groundAt, rolling, TERRAIN, terrainOf, type Terrain } from '../road/terrain';
 import { roadRows } from '../road/surface';
 import { repeating, type Scenery, withAsphalt } from './roadScene';
 
@@ -353,6 +353,14 @@ export class MountainScene implements Scenery {
     scene.add(this.course, this.far);
   }
 
+  /** The road's ground (null: none yet) - the camera kept clear of it (groundAt). */
+  private terrain: Terrain | null = null;
+
+  /** The ground's height as drawn at (x, z) (`hint`: an s near it); -Infinity before a road. */
+  groundAt(x: number, z: number, hint?: number): number {
+    return this.terrain ? groundAt(this.line, this.terrain, x, z, hint) : -Infinity;
+  }
+
   activeLights(): THREE.SpotLight[] {
     return [];
   }
@@ -369,6 +377,7 @@ export class MountainScene implements Scenery {
     const edges = roadEdges(road);
     const reach = insideReach(road);
     const ground = terrainOf(road, edges);
+    this.terrain = ground;
     this.course.add(this.groundMesh(ground));
     const uOf = (d: number) => (d + E0) / (2 * E0);
     const roadGeo = strip(road, rows, 6, (s, _i, p) => {

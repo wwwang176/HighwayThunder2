@@ -49,7 +49,7 @@ import { SettingsPopup } from '../ui/settings';
 import { IntroOverlay } from '../ui/introOverlay';
 import { LoadingScreen } from '../ui/loading';
 import { loadSettings, setLang, t } from '../ui/i18n';
-import { Intro, nextIntro, type IntroBag } from './intro';
+import { Intro, INTRO_KINDS, MOUNTAIN_INTRO_KINDS, nextIntro, type IntroBag } from './intro';
 import { FinishShow } from './finishShow';
 
 /** A car type by id (the supercar for an id no longer known). */
@@ -77,7 +77,8 @@ import { MountainDriver } from '../ai/mountainDriver';
 import { MountainPlannerDriver } from '../ai/mountainPlannerDriver';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
 import type { RivalDriver } from '../ai/driver';
-import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
+import { MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
+import { armFollow, armPlace, armReach, CAMERA_ARM, CAMERA_SHOT } from '../render/cameraArm';
 import { surfaceMesh } from '../road/surface';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
@@ -301,6 +302,8 @@ export class Game {
   private introOn = false;
   /** The hood camera instead of the chase camera (V). */
   private hoodCam = false;
+  /** The mountain road's camera arm: how far out it is now (0..1 of where the camera would be; cameraArm). */
+  private armShare = 1;
   /** The finish's show (past the line, till the next race), and the gate it is at. */
   private finishShow: FinishShow | null = null;
   private readonly gate: FinishGate;
@@ -695,15 +698,18 @@ export class Game {
   /** The race's intro: the next of its shuffled round (none twice in a row, every one once in each round). */
   private beginIntro(): void {
     // From the shuffled round kept between visits (game/intro nextIntro: every one once in each round).
+    // (the mountain road its own intros - up into its bends - and its own round of them)
+    const mountain = this.mountain && !this.skidpad;
+    const key = mountain ? `${INTRO_BAG_KEY}.mountain` : INTRO_BAG_KEY;
     let bag: IntroBag = { left: [], last: null };
     try {
-      bag = { ...bag, ...JSON.parse(localStorage.getItem(INTRO_BAG_KEY) ?? '{}') };
+      bag = { ...bag, ...JSON.parse(localStorage.getItem(key) ?? '{}') };
     } catch {
       // (unreadable: a fresh round)
     }
-    const next = nextIntro(bag);
-    localStorage.setItem(INTRO_BAG_KEY, JSON.stringify(next.bag));
-    this.intro = new Intro(next.kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car), chase: this.rig.params });
+    const next = nextIntro(bag, Math.random, mountain ? MOUNTAIN_INTRO_KINDS : INTRO_KINDS);
+    localStorage.setItem(key, JSON.stringify(next.bag));
+    this.intro = new Intro(next.kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car), chase: this.rig.params, road: mountain ? this.roadLine : undefined });
     this.introOn = true;
     this.overlay.show(true);
   }
@@ -1299,7 +1305,8 @@ export class Game {
       if (!f) this.flashers.set(r, (f = new BeamFlasher()));
       const me = road[i + 1];
       const flashing = f.update(play, racing && wantsToFlash(me, road.filter((o) => o !== me)));
-      return { mesh: r.car.mesh, width: r.car.width, length: r.car.length, high: flashing };
+      // (a car drawn through a bend in an intro: its high beam on - lighting the bend up, the dark night round it)
+      return { mesh: r.car.mesh, width: r.car.width, length: r.car.length, high: flashing || !!r.car.showPose };
     });
     const { painted, shadows } = this.rivalLights.assign(cars, this.camera);
     this.rivalShadows = shadows;
@@ -1470,7 +1477,8 @@ export class Game {
       key: 0, kind: 'sedan', pos: [0, 0, 0], vel: [0, 0, 0], rpm: 0, idle: 0, redline: 1, throttle: 0, gain: 1,
     });
     for (const r of this.rivals.list) {
-      const c = r.car, s = next(), p = c.mesh.position, v = c.body.linvel();
+      // (a car drawn through a bend in an intro: heard going as it is drawn going)
+      const c = r.car, s = next(), p = c.mesh.position, v = c.showPose?.vel ?? c.body.linvel();
       s.key = -1 - r.index;
       s.kind = c.style;
       s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
@@ -1549,7 +1557,7 @@ export class Game {
     for (let i = 0; i < list.length; i++) {
       const s = (out[i] ??= { pos: { x: 0, y: 0, z: 0 }, slip: 0 }), p = list[i].car.mesh.position;
       s.pos.x = p.x; s.pos.y = p.y; s.pos.z = p.z;
-      s.slip = list[i].car.maxSlip;
+      s.slip = list[i].car.showPose?.slip ?? list[i].car.maxSlip; // (drawn drifting in an intro: squealing as drawn)
     }
     out.length = list.length;
     return out;
@@ -1572,6 +1580,11 @@ export class Game {
     // shot, the chase camera after it.
     if (this.introOn) {
       const over = this.intro!.step(play);
+      // (a car drawn drifting through a bend: its rear tyres' smoke - keys 60 on, clear of the cars' own)
+      this.intro!.puffs().forEach((f, i) => {
+        const kick = smokeKick(f.dirX, f.dirZ, f.omega, f.r, f.vx, f.vz);
+        this.smoke.emit(60 + i, f.x, f.z, f.slip, f.vx, f.vz, play, kick.x, kick.z, f.y);
+      });
       if (this.flow.phase === 'intro' && this.intro!.countdownDue) this.startCountdown();
       if (over) this.finishIntro();
     }
@@ -1630,11 +1643,24 @@ export class Game {
     else if (show) show.placeCamera();
     else if (this.hoodCam && look === 'ahead') this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
     else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
-    // The mountain road: the chase camera swinging wide round a hairpin, the intro's and the finish's shots set wide
-    // of the car, all went into the rock - kept over the road (moved in, looking the same way: no jump in the view).
-    if (this.mountain && !this.skidpad) { // (the practice ground: flat and open - no rock to keep it out of)
-      const e = roadEdges(this.roadLine);
-      keepOverRoad(this.roadLine, this.camera.position, this.player.s, (s, side) => e.at(s, side) - 0.6, 0.8); // (a shoulder's room too)
+    // The camera kept clear of the scenery's ground (Scenery.groundAt: the mountain's rock and hillside, the highway's
+    // flat) on an arm from over the car (cameraArm: in along it, looking the same way - no jump in the view); the set
+    // shots (intro, finish) only lifted out of it where they are, some low on purpose (CAMERA_SHOT) - a shot far off
+    // (over a hairpin, 200 m up the road) pulled in along an arm from the car went down behind the hill between. (The
+    // mountain road's chase camera swinging wide round a hairpin went into the rock; kept within the road's edges
+    // instead, the side looks were pulled in to the edge on the narrow road where no rock was too.)
+    const scene = this.road;
+    if (scene.groundAt) {
+      const shot = this.introOn || !!show;
+      const A = shot ? CAMERA_SHOT : CAMERA_ARM;
+      const c = this.player.body.translation();
+      const pivot = { x: c.x, y: c.y + A.pivot, z: c.z };
+      const want = { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z };
+      // (a shot far off: where it is on the road found anywhere, not near the car)
+      const ground = (x: number, z: number) => scene.groundAt!(x, z, shot ? undefined : this.player.s);
+      this.armShare = shot ? 1 : armFollow(this.armShare, armReach(pivot, want, ground, A), play, A);
+      const at = armPlace(pivot, want, this.armShare, ground, A);
+      this.camera.position.set(at.x, at.y, at.z);
     }
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);

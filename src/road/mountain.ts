@@ -320,25 +320,6 @@ function legsApart(road: Centerline): boolean {
   return true;
 }
 
-/**
- * A point (a camera) kept over the road: within `room` m of its centre line across (between the wall and the rail),
- * at least `lift` m over its surface. `hint`: an s near it (the car it films). Moved in place; whether it was.
- */
-export function keepOverRoad(road: Centerline, p: { x: number; y: number; z: number }, hint: number, room: number | ((s: number, side: 1 | -1) => number), lift: number): boolean {
-  const at = road.project(p.x, p.z, hint);
-  // (each side's room its own at s: a shoulder's)
-  const left = typeof room === 'number' ? room : room(at.s, -1);
-  const right = typeof room === 'number' ? room : room(at.s, 1);
-  const d = Math.max(-left, Math.min(right, at.d));
-  const floor = road.surfaceHeight(at.s, d) + lift;
-  if (at.d >= -left && at.d <= right && p.y >= floor) return false;
-  const w = road.toWorld(at.s, d);
-  p.x = w.x;
-  p.z = w.z;
-  p.y = Math.max(p.y, floor);
-  return true;
-}
-
 /** A slope off the road reaches on a bend's inside at most this share of its radius from the centre line... */
 const INSIDE_SHARE = 0.8;
 /** ...its tightest within this far along either way (m: the clothoids into it, its rows' neighbours). */

@@ -1,11 +1,20 @@
 import * as THREE from 'three';
 import { LANE_WIDTH } from '../config';
 import type { CameraParams } from '../render/cameraRig';
+import type { Centerline } from '../road/centerline';
+import { roadEdges } from '../road/mountain';
 import type { PlayerCar } from '../vehicles/playerCar';
 
 /** The race's intro shot lists (one picked at random each race, Game.startRace). */
-export type IntroKind = 'arrival' | 'grid' | 'details' | 'tracking';
+export type IntroKind = 'arrival' | 'grid' | 'details' | 'tracking' | 'skyline' | 'climb' | 'hairpin';
+/** The highway's: a flat, straight road, lanes on lanes. */
 export const INTRO_KINDS: IntroKind[] = ['arrival', 'grid', 'details', 'tracking'];
+/**
+ * The mountain road's (its two lanes, its four cars; up into its bends - the highway's, drawn on a flat straight road,
+ * had cars and cameras in the rock): from high over its hairpins down to the grid ('skyline'); the cars coming up the
+ * straight to the grid ('climb'); the first hairpin's chevron boards blinking, then the grid ('hairpin').
+ */
+export const MOUNTAIN_INTRO_KINDS: IntroKind[] = ['skyline', 'climb', 'hairpin'];
 
 /** The intros left in this round (shuffled), and the last one shown (the next round never starts with it). */
 export interface IntroBag {
@@ -18,10 +27,10 @@ export interface IntroBag {
  * the one just shown) - every one seen once in each round, none twice in a row. A bag with something
  * unknown in it (read back from an older game) starts a fresh round.
  */
-export function nextIntro(bag: IntroBag, rng: () => number = Math.random): { kind: IntroKind; bag: IntroBag } {
-  let left = bag.left.every((k) => INTRO_KINDS.includes(k)) ? [...bag.left] : [];
+export function nextIntro(bag: IntroBag, rng: () => number = Math.random, kinds: IntroKind[] = INTRO_KINDS): { kind: IntroKind; bag: IntroBag } {
+  let left = bag.left.every((k) => kinds.includes(k)) ? [...bag.left] : [];
   if (left.length === 0) {
-    left = [...INTRO_KINDS];
+    left = [...kinds];
     for (let i = left.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
       [left[i], left[j]] = [left[j], left[i]];
@@ -32,11 +41,15 @@ export function nextIntro(bag: IntroBag, rng: () => number = Math.random): { kin
   return { kind, bag: { left: rest, last: kind } };
 }
 
-/** A camera pose in the grid's frame: x right, y up from the ground, z ahead (the player's car on the origin). */
+/**
+ * A camera pose in the grid's frame: x right, y up from the ground, z ahead (the player's car on the origin). `road`:
+ * along the road instead (the mountain road's, up into its bends) - x its d, y up from its surface there, z its s.
+ */
 interface Pose {
   pos: [number, number, number];
   look: [number, number, number];
   fov: number;
+  road?: boolean;
 }
 
 /**
@@ -60,6 +73,34 @@ interface Shot {
   ride?: Ride;
   lookRide?: Ride;
   shake?: number;
+  pass?: Pass;
+}
+
+/**
+ * A car through a bend in a shot (the mountain road's: its headlights lighting the bend up - without one, it was
+ * near black): one of the rivals drawn there (its body held on the grid; back on it at the cut). `at`: where it is
+ * `t` s into the shot - along the road, across it, and how far its nose is turned in from the way it goes (rad: a
+ * drift's). `inside`: the bend's inside (d's sign). `brake`: its brake lights on; `smoke`: its rear tyres smoking.
+ */
+interface Pass {
+  at: (t: number) => { s: number; d: number; slip: number };
+  inside: number;
+  brake?: boolean;
+  smoke?: boolean;
+}
+
+/** A puff of tyre smoke at a wheel drawn sliding (Intro.puffs: the game's TireSmoke from them). */
+export interface Puff {
+  x: number;
+  y: number;
+  z: number;
+  slip: number;
+  vx: number;
+  vz: number;
+  dirX: number;
+  dirZ: number;
+  omega: number;
+  r: number;
 }
 
 
@@ -113,8 +154,39 @@ function arriving(speed: number, stop: number, t: number): number {
   const left = Math.max(0, stop - t);
   return -(left > ARRIVE_BRAKE ? speed * (ARRIVE_BRAKE / 2 + left - ARRIVE_BRAKE) : (speed * left * left) / (2 * ARRIVE_BRAKE));
 }
+/** The car drifting through the first hairpin (the mountain road's 'skyline'): its speed (m/s), its nose turned in (rad). */
+const DRIFT_SPEED = 15;
+const DRIFT_SLIP = 0.65;
+/** Its shot: straight down from this high (m), sliding this far either side of the middle (m), this long (s). */
+const TOP_HEIGHT = 26;
+const TOP_SLIDE = 8;
+const TOP_SECONDS = 2.7;
+/** The car driven round it ('hairpin'): from this far before it (m), at this speed (m/s), braking (m/s²). */
+const CRUISE_BACK = 11;
+const CRUISE_SPEED = 14;
+const CRUISE_BRAKE = 2.5;
+/** Their engines as heard (a share of the way from idle to the redline): the drift's on the throttle; the other's off it. */
+const DRIFT_REV = 0.72;
+const CRUISE_REV = 0.5;
+const UP = new THREE.Vector3(0, 1, 0);
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
+
+/**
+ * One move from `from` to `to` (grid poses), easing out, over a shot `first` s long and the last shot (LAST_SHOT):
+ * the cut between them only where the countdown has to come (no change of speed or way at it - a shot moving on
+ * evenly into the last one easing out from fast had a kink in it at the cut).
+ */
+function pullBack(from: Pose, to: Pose, first: number): Shot[] {
+  const total = first + LAST_SHOT;
+  const split = easeOut(first / total);
+  const lerp = (a: number[], b: number[]) => a.map((v, i) => THREE.MathUtils.lerp(v, b[i], split)) as [number, number, number];
+  const at: Pose = { pos: lerp(from.pos, to.pos), look: lerp(from.look, to.look), fov: THREE.MathUtils.lerp(from.fov, to.fov, split) };
+  return [
+    { seconds: first, from, to: at, ease: (u) => easeOut((u * first) / total) / split },
+    { seconds: LAST_SHOT, from: at, to, ease: (u) => (easeOut((first + u * LAST_SHOT) / total) - split) / (1 - split) },
+  ];
+}
 
 /**
  * Every intro's last shot (round into the chase camera's place) is this long (s); the countdown starts this far
@@ -134,6 +206,8 @@ export interface IntroScene {
   player: PlayerCar;
   rivals: PlayerCar[];
   chase: CameraParams;
+  /** The road (the mountain road's intros: their shots along it). */
+  road?: Centerline;
 }
 
 /**
@@ -156,6 +230,10 @@ export class Intro {
   private readonly arrivals: { speed: number; stop: number }[];
   private readonly playerArrival: { speed: number; stop: number };
   private elapsed = 0;
+  /** The car drawn through a bend (a shot's Pass), its body's height over the road; its rear tyres' smoke now. */
+  private readonly passCar: PlayerCar | null;
+  private readonly passRide: number = 0;
+  private passPuffs: Puff[] = [];
 
   constructor(
     readonly kind: IntroKind,
@@ -196,6 +274,15 @@ export class Intro {
     for (const [g, i] of back) {
       const ahead = stops.get(lane(g[0])) ?? (tracking ? playerStop + TRACK_FRONT_LATER[1] : ARRIVE_FRONT_STOP[1]);
       this.arrivals[i] = { speed: speedOf(g[0]), stop: ahead + within(tracking ? TRACK_BACK_LATER : ARRIVE_BACK_LATER) };
+    }
+    // (the back row's car on the left: in none of the grid's shots up close)
+    const road = scene.road;
+    const pick = this.rivalsAt.findIndex((g) => g[0] < -1 && g[2] < -1);
+    const i = pick >= 0 ? pick : 0;
+    this.passCar = road && scene.rivals.length ? scene.rivals[i] : null;
+    if (road && this.passCar) {
+      const [x, y, z] = this.rivalsAt[i];
+      this.passRide = y - road.surfaceHeight(scene.player.s + z, scene.player.d + x);
     }
     this.shots = this.script(kind, car.y);
   }
@@ -240,8 +327,73 @@ export class Intro {
     if (!done && s.blip !== undefined && this.t >= s.blip && this.blipAt === null) this.blipAt = 0;
     else if (this.blipAt !== null) this.blipAt += dt;
     car.showRev = this.blipAt === null ? null : this.rev(this.blipAt);
+    this.passPuffs = [];
+    if (this.passCar) {
+      if (!done && s.pass) this.drawPass(this.passCar, s.pass, this.t);
+      else {
+        this.passCar.showPose = null;
+        this.passCar.showBrake = null;
+        this.passCar.showRev = null;
+      }
+    }
     if (done) this.end();
     return done;
+  }
+
+  /** The tyre smoke of the car drawn through a bend, this frame (none: no such car, or it is not sliding). */
+  puffs(): Puff[] {
+    return this.passPuffs;
+  }
+
+  /** `car` drawn where `pass` has it `t` s into its shot: on the road, its nose turned in by the slip, steering. */
+  private drawPass(car: PlayerCar, pass: Pass, t: number): void {
+    const road = this.scene.road!;
+    const point = (s: number, d: number) => {
+      const w = road.toWorld(s, d);
+      return new THREE.Vector3(w.x, road.surfaceHeight(s, d), w.z);
+    };
+    const now = pass.at(t);
+    const before = pass.at(t - 0.02);
+    const after = pass.at(t + 0.02);
+    const go = point(after.s, after.d).sub(point(before.s, before.d)); // (the way it goes, uphill or down)
+    const speed = go.length() / 0.04;
+    go.normalize();
+    const at = point(now.s, now.d);
+    const inward = point(now.s, now.d + pass.inside).sub(at).setY(0).normalize();
+    const fwd = go.clone().multiplyScalar(Math.cos(now.slip)).addScaledVector(inward, Math.sin(now.slip)).normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, UP).normalize();
+    const up = new THREE.Vector3().crossVectors(right, fwd);
+    const quat = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, fwd.clone().negate()));
+    at.y += this.passRide;
+    // Steering into the bend (as far as it turns), less a drift's countersteer (its wheels on round toward the way
+    // it goes). (+: left)
+    const p = car.params;
+    const into = Math.atan(p.wheelbase * Math.abs(road.curvature(now.s))) - 0.8 * now.slip;
+    const steer = (inward.dot(right) < 0 ? 1 : -1) * THREE.MathUtils.clamp(into, -0.55, 0.6);
+    // Heard as drawn: going its way at its speed; its tyres squealing as fast as it slides sideways (a drift's, full;
+    // gripping, none); its engine held high on the throttle drifting (wavering), off it braking in (falling).
+    const sliding = pass.smoke && now.slip >= 0.15;
+    const share = sliding ? DRIFT_REV + 0.04 * Math.sin(t * 5) : CRUISE_REV - 0.12 * Math.min(1, t / 2);
+    car.showPose = { pos: at, quat, rolled: now.s, steer, vel: go.clone().multiplyScalar(speed), slip: sliding ? speed * Math.sin(now.slip) + 3 : 0 };
+    car.showBrake = pass.brake ?? null;
+    car.showRev = { rpm: p.idleRpm + share * (p.redline - p.idleRpm), throttle: sliding ? 1 : 0 };
+    if (!sliding) return;
+    // Its rear tyres (the last two) sliding sideways: as fast as it goes across them; spinning on (driven).
+    for (const w of car.wheels.slice(2)) {
+      const c = new THREE.Vector3(w.x, -this.passRide, w.z).applyQuaternion(quat).add(at);
+      this.passPuffs.push({
+        x: c.x,
+        y: c.y,
+        z: c.z,
+        slip: speed * Math.sin(now.slip) + 3,
+        vx: go.x * speed,
+        vz: go.z * speed,
+        dirX: fwd.x,
+        dirZ: fwd.z,
+        omega: (speed * 1.4) / p.wheelRadius,
+        r: p.wheelRadius,
+      });
+    }
   }
 
   /**
@@ -259,7 +411,7 @@ export class Intro {
 
   /** Whether the cars are drawn arriving (and braking to their places). */
   private get drawnArriving(): boolean {
-    return this.kind === 'arrival' || this.kind === 'tracking';
+    return this.kind === 'arrival' || this.kind === 'tracking' || this.kind === 'climb';
   }
 
   /** How far a camera riding along with `ride` is from the grid now (m ahead: < 0 behind). */
@@ -274,19 +426,29 @@ export class Intro {
     const s = this.shots[Math.min(this.shot, this.shots.length - 1)];
     const k = this.shot >= this.shots.length ? 1 : s.ease(this.t / s.seconds);
     const lerp = (a: number[], b: number[]) => [0, 1, 2].map((i) => THREE.MathUtils.lerp(a[i], b[i], k));
-    const pos = lerp(s.from.pos, s.to.pos);
-    const look = lerp(s.from.look, s.to.look);
-    pos[2] += this.along(s.ride);
-    look[2] += this.along(s.lookRide);
-    if (s.shake) {
-      // A camera car's shake: a few quick sines out of step (never the same twice in a second).
-      const e = this.elapsed;
-      pos[0] += s.shake * (Math.sin(e * 29) + 0.6 * Math.sin(e * 47 + 1.3) + 0.3 * Math.sin(e * 83 + 2.1)) / 1.9;
-      pos[1] += s.shake * (Math.sin(e * 37 + 0.7) + 0.6 * Math.sin(e * 59 + 2.4) + 0.3 * Math.sin(e * 97 + 0.4)) / 1.9;
-    }
     const cam = this.scene.camera;
-    cam.position.copy(this.world(pos));
-    cam.lookAt(this.world(look));
+    if (s.from.road || s.to.road) {
+      // Along the road: between two of its poses, along it (round its bends); from one to the grid's, in the world.
+      const both = !!s.from.road && !!s.to.road;
+      const at = (p: number[], road: boolean | undefined) => (road ? this.roadWorld(p) : this.world(p));
+      const pos = both ? this.roadWorld(lerp(s.from.pos, s.to.pos)) : at(s.from.pos, s.from.road).lerp(at(s.to.pos, s.to.road), k);
+      const look = both ? this.roadWorld(lerp(s.from.look, s.to.look)) : at(s.from.look, s.from.road).lerp(at(s.to.look, s.to.road), k);
+      cam.position.copy(pos);
+      cam.lookAt(look);
+    } else {
+      const pos = lerp(s.from.pos, s.to.pos);
+      const look = lerp(s.from.look, s.to.look);
+      pos[2] += this.along(s.ride);
+      look[2] += this.along(s.lookRide);
+      if (s.shake) {
+        // A camera car's shake: a few quick sines out of step (never the same twice in a second).
+        const e = this.elapsed;
+        pos[0] += s.shake * (Math.sin(e * 29) + 0.6 * Math.sin(e * 47 + 1.3) + 0.3 * Math.sin(e * 83 + 2.1)) / 1.9;
+        pos[1] += s.shake * (Math.sin(e * 37 + 0.7) + 0.6 * Math.sin(e * 59 + 2.4) + 0.3 * Math.sin(e * 97 + 0.4)) / 1.9;
+      }
+      cam.position.copy(this.world(pos));
+      cam.lookAt(this.world(look));
+    }
     const fov = THREE.MathUtils.lerp(s.from.fov, s.to.fov, k);
     if (Math.abs(cam.fov - fov) > 0.01) {
       cam.fov = fov;
@@ -303,7 +465,10 @@ export class Intro {
     for (const r of this.scene.rivals) {
       r.showOffset = 0;
       r.showBrake = null;
+      r.showPose = null;
+      r.showRev = null;
     }
+    this.passPuffs = [];
   }
 
   /** The blip `t` s in: the rpm up fast and the throttle held, then let go and the rpm falling back. */
@@ -318,6 +483,13 @@ export class Intro {
     return new THREE.Vector3().copy(this.origin).addScaledVector(this.right, x).addScaledVector(this.ahead, z).setY(y);
   }
 
+  /** A road pose's point in the world: (d, up from its surface there, s). */
+  private roadWorld([d, h, s]: number[]): THREE.Vector3 {
+    const road = this.scene.road!;
+    const w = road.toWorld(s, d);
+    return new THREE.Vector3(w.x, road.surfaceHeight(s, d) + h, w.z);
+  }
+
   /** Grid coordinates of a world point. */
   private grid(p: THREE.Vector3): [number, number, number] {
     const dx = p.x - this.origin.x;
@@ -327,6 +499,7 @@ export class Intro {
 
   /** The shots of `kind`, the car's centre `carY` up. */
   private script(kind: IntroKind, carY: number): Shot[] {
+    if (MOUNTAIN_INTRO_KINDS.includes(kind)) return this.mountainScript(kind, carY);
     const car = this.scene.player;
     const p = car.params;
     const c = this.scene.chase;
@@ -515,6 +688,169 @@ export class Intro {
         to: chase,
         ease: easeOut, // (in moving, settling where the chase camera starts)
       },
+    ];
+  }
+
+  /**
+   * The mountain road's shots (MOUNTAIN_INTRO_KINDS), the car's centre `carY` up: the grid on the straight before the
+   * road's start (level: the cars drawn arriving as on the highway), the bends' shots along the road (Pose.road).
+   * (Never ahead of a car looking back at it, low: its headlights white the picture out.)
+   */
+  private mountainScript(kind: IntroKind, carY: number): Shot[] {
+    const road = this.scene.road!;
+    const edges = roadEdges(road);
+    const car = this.scene.player;
+    const p = car.params;
+    const c = this.scene.chase;
+    const chase: Pose = { pos: [0, carY + c.height, -c.distance], look: [0, carY + 0.9, c.lookAhead], fov: c.fovMin };
+    const s0 = car.s;
+    const d0 = car.d;
+    // (the grid's frame: the other lane's x, the road's middle, its edges)
+    const other = -2 * d0;
+    const middle = -d0;
+    const leftEdge = -edges.at(s0, -1) - d0;
+    const rightEdge = edges.at(s0, 1) - d0;
+    // The first hairpin up the road (tighter than R 26), and which way it turns (+1 right).
+    let from = -1;
+    let to = -1;
+    for (let s = Math.max(0, s0); s < road.length; s += 1) {
+      const tight = Math.abs(road.curvature(s)) > 1 / 26;
+      if (tight && from < 0) from = s;
+      else if (!tight && from >= 0) {
+        to = s;
+        break;
+      }
+    }
+    if (from < 0 || to < 0) [from, to] = [s0 + 120, s0 + 160];
+    const dir = Math.sign(road.curvature((from + to) / 2)) || 1;
+    const mid = (from + to) / 2;
+    const r = p.wheelRadius;
+    const half = p.wheelbase / 2;
+    const track = Math.abs(car.wheels[0].x);
+    const smooth = THREE.MathUtils.smoothstep;
+    // A car drifting through the hairpin (DRIFT_SPEED, through its middle halfway through the shot) round its middle
+    // line (as drawn: between its edges - a hairpin is widened on its inside); its nose turned in DRIFT_SLIP. (Swung
+    // out-in-out within the bend, its line ran near straight at the middle: its body turned back the other way for a
+    // moment, -31 deg/s against a round's +40. On one line it turns round evenly; near the inside, too close to it.)
+    const middleLine = (s: number) => (dir * (edges.at(s, dir as 1 | -1) - edges.at(s, -dir as 1 | -1))) / 2;
+    const drift = (seconds: number): Pass => ({
+      at: (t) => {
+        const s = mid + DRIFT_SPEED * (t - seconds / 2);
+        const slip = DRIFT_SLIP * smooth(s, from - 12, from + 2) * (1 - smooth(s, to - 2, to + 12));
+        return { s, d: middleLine(s), slip };
+      },
+      inside: dir,
+      smoke: true,
+    });
+
+    if (kind === 'skyline') {
+      // Straight down on the first hairpin's middle (its outside up the picture: an arch), sliding along it as a car
+      // drifts through under it (its headlights lighting the bend up: without one, near black); the pack from up the
+      // road ahead of it, drawing slowly nearer, all of it in the picture; then from just behind the player's car on
+      // the grid pulling back to the chase camera's place, in one move round the countdown (pullBack).
+      // (2.2 m back: at 1 m its tail light filled the picture)
+      const waiting: Pose = { pos: [0, carY + 0.55, -p.length / 2 - 2.2], look: [0, carY + 0.35, 8], fov: 40 };
+      // (the middle between its edges: a hairpin is widened on its inside)
+      const dMid = (dir * (edges.at(mid, dir as 1 | -1) - edges.at(mid, -dir as 1 | -1))) / 2;
+      const apex = this.roadWorld([dMid, 0, mid]);
+      const along = this.roadWorld([dMid, 0, mid + 1]).sub(apex).setY(0).normalize();
+      const inward = this.roadWorld([dMid + dir, 0, mid]).sub(apex).setY(0).normalize();
+      // (over a point a little inside the middle, `x` m along the way the road goes there; looking down, tipped
+      // a hair outward - straight down, which way is up the picture is not set)
+      const above = (x: number, fov: number): Pose => {
+        const at = apex.clone().addScaledVector(inward, 4).addScaledVector(along, x);
+        const look = at.clone().addScaledVector(inward, -0.4);
+        return { pos: this.grid(at.setY(apex.y + TOP_HEIGHT)), look: this.grid(look), fov };
+      };
+      return [
+        {
+          seconds: TOP_SECONDS,
+          from: above(-TOP_SLIDE, 42),
+          to: above(TOP_SLIDE, 42),
+          ease: linear, // (still moving at the cut)
+          pass: drift(TOP_SECONDS),
+        },
+        {
+          // Up over the road ahead of the pack, looking back down on it, drawing nearer (~11 m/s; diving down from
+          // 40-80 m up the road in 1.2 s was a blur; sliding on back over the cars, at the cut only the back row - unlit
+          // - was left in the picture).
+          seconds: 1.2,
+          from: { pos: [middle, 12, 32], look: [middle, 0, -5], fov: 40 },
+          to: { pos: [middle, 9, 19], look: [middle, 0, -5], fov: 40 },
+          ease: linear, // (still moving at the cut)
+        },
+        ...pullBack(waiting, chase, 0.6),
+      ];
+    }
+    if (kind === 'climb') {
+      // The cars coming up the straight to the grid, each in its lane (as the highway's arrival, on the mountain
+      // road's two): on the left shoulder behind the grid as they come by, on up the road away from it (past the rail,
+      // low, its posts filled the picture and a car going by close blacked half of it); up on the right behind them as
+      // they draw up; the player's front wheel rolling to a stop; then up behind it.
+      const wheel: [number, number, number] = [-track, r, half];
+      const stopped: Pose = { pos: [wheel[0] - 1.15, 0.45, wheel[2] - 0.8], look: [wheel[0] + 0.2, r + 0.1, wheel[2]], fov: 34 };
+      return [
+        {
+          seconds: 1.5,
+          from: { pos: [leftEdge + 0.4, 1.1, -36], look: [other / 2, 0.8, -6], fov: 38 },
+          to: { pos: [leftEdge + 0.45, 1.15, -34], look: [other / 2, 0.8, -6], fov: 35 },
+          ease: linear, // (still moving at the cut)
+        },
+        {
+          seconds: 1.5,
+          from: { pos: [rightEdge + 2.5, 3.6, -15], look: [other / 2, 0.4, -2], fov: 40 },
+          to: { pos: [rightEdge + 2.2, 3.3, -12], look: [other / 2, 0.4, -2], fov: 38 },
+          ease: linear, // (still moving at the cut)
+        },
+        {
+          seconds: 1.5,
+          from: { pos: [wheel[0] - 1.35, 0.3, wheel[2] - 1.3], look: [...wheel], fov: 36 },
+          to: { pos: [wheel[0] - 1.2, 0.32, wheel[2] - 1.0], look: [...wheel], fov: 34 },
+          ease: linear, // (still moving at the cut)
+        },
+        { seconds: LAST_SHOT, from: stopped, to: chase, ease: easeOut },
+      ];
+    }
+    // The first hairpin: low by its outside's chevron boards, their lamps blinking, looking round it; then the grid
+    // low between the lanes from behind (four cars' tail lights); the exhaust popping (a blip); its tail light; out.
+    const out = -dir;
+    const edgeOut = edges.at(from, out as 1 | -1);
+    const tips = (car.mesh.userData.exhausts ?? []) as THREE.Vector3[];
+    const tip: [number, number, number] = tips.length ? [tips[0].x, carY + tips[0].y, -tips[0].z] : [0.5, 0.35, -p.length / 2];
+    const tail: Pose = { pos: [-1.3, 0.42, -p.length / 2 - 2.3], look: [0, 0.6, -p.length / 2 + 0.4], fov: 34 };
+    return [
+      {
+        seconds: 2.6,
+        from: { pos: [out * (edgeOut - 0.7), 1.3, from - 7], look: [out * (edgeOut + 0.5), 1.5, from + 0.35 * (to - from)], fov: 42, road: true },
+        to: { pos: [out * (edgeOut - 0.7), 1.3, from - 4], look: [out * (edgeOut + 0.5), 1.5, from + 0.35 * (to - from)], fov: 40, road: true },
+        ease: linear, // (still moving at the cut)
+        // A car coming up its lane from behind the camera, braking into the hairpin, by it and on round it.
+        pass: {
+          at: (t) => ({ s: from - CRUISE_BACK + CRUISE_SPEED * t - (CRUISE_BRAKE * t * t) / 2, d: d0, slip: 0 }),
+          inside: dir,
+          brake: true,
+        },
+      },
+      {
+        seconds: 0.9,
+        from: { pos: [middle, 0.55, -17], look: [middle, 0.75, 4], fov: 34 },
+        to: { pos: [middle, 0.55, -14], look: [middle, 0.75, 4], fov: 33 },
+        ease: linear, // (still moving at the cut)
+      },
+      {
+        seconds: 0.6,
+        from: { pos: [tip[0] + 0.9, tip[1] + 0.18, tip[2] - 1.6], look: [...tip], fov: 30 },
+        to: { pos: [tip[0] + 0.75, tip[1] + 0.15, tip[2] - 1.35], look: [...tip], fov: 28 },
+        ease: linear, // (still moving at the cut)
+        blip: 0.1,
+      },
+      {
+        seconds: 0.4,
+        from: tail,
+        to: { ...tail, pos: [-1.1, 0.42, -p.length / 2 - 2.1] },
+        ease: linear, // (still moving at the cut)
+      },
+      { seconds: LAST_SHOT, from: { ...tail, pos: [-1.1, 0.42, -p.length / 2 - 2.1] }, to: chase, ease: easeOut },
     ];
   }
 }

@@ -84,6 +84,23 @@ export function earthwork(n: number, base: number, past: number, T = TERRAIN): n
   return Math.max(base - T.fill * Math.max(0, past - T.verge), n);
 }
 
+/**
+ * The ground as drawn at (x, z) (`hint`: an s near it - the car's; none: the nearest anywhere): on the road its surface; past its edge, within the
+ * edge's strip (`seam` m, short of a tight bend's inside: mountainScene's), the earthwork against the edge as the strip
+ * is drawn; past that, the grid's. (The grid's alone, 3 m between its nodes, cut the cut's face - 1.33 up a metre -
+ * a metre or more off.)
+ */
+export function groundAt(road: Centerline, t: Terrain, x: number, z: number, hint?: number, T = TERRAIN): number {
+  const at = road.project(x, z, hint);
+  const side: 1 | -1 = at.d >= 0 ? 1 : -1;
+  const E = roadEdges(road).at(at.s, side);
+  const off = Math.abs(at.d);
+  if (off <= E) return road.surfaceHeight(at.s, at.d);
+  const past = off - E;
+  if (past > T.seam || off > insideReach(road)(at.s, side)) return t.height(x, z);
+  return earthwork(t.natural(x, z), road.surfaceHeight(at.s, side * E), past, T);
+}
+
 /** A smooth hash noise in [-1, 1] (value noise, smoothstepped), two octaves. */
 export function rolling(x: number, z: number, size: number, seed: number): number {
   const v = (ix: number, iz: number) => {

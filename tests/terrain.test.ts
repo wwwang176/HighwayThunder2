@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mulberry32 } from '../src/ai/rng';
-import { mountainRoad } from '../src/road/mountain';
-import { earthwork, TERRAIN, terrainOf } from '../src/road/terrain';
+import { mountainRoad, roadEdges } from '../src/road/mountain';
+import { earthwork, groundAt, TERRAIN, terrainOf } from '../src/road/terrain';
 
 describe('earthwork (the road cut into the ground or built up on it)', () => {
   it('on the road (past <= 0): the edge\'s height, whatever the ground', () => {
@@ -56,5 +56,31 @@ describe('terrainOf (the mountainside the road is built on)', () => {
       expect(Math.hypot(x, y, z)).toBeCloseTo(1, 6);
       expect(y).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('groundAt (the ground as drawn: what the camera keeps clear of)', () => {
+  const road = mountainRoad(mulberry32(2));
+  const t = terrainOf(road);
+  const edges = roadEdges(road);
+  const s = 500;
+
+  it('on the road: its surface', () => {
+    const w = road.toWorld(s, 1.2);
+    expect(groundAt(road, t, w.x, w.z, s)).toBeCloseTo(road.surfaceHeight(s, 1.2), 3);
+  });
+
+  it('past the edge, within the edge\'s strip: the earthwork against the edge, as the strip is drawn (not the grid\'s 3 m between nodes)', () => {
+    for (const side of [-1, 1] as const) {
+      const E = edges.at(s, side);
+      const w = road.toWorld(s, side * (E + 2));
+      const base = road.surfaceHeight(s, side * E);
+      expect(groundAt(road, t, w.x, w.z, s)).toBeCloseTo(earthwork(t.natural(w.x, w.z), base, 2), 3);
+    }
+  });
+
+  it('far off the road: the grid\'s', () => {
+    const w = road.toWorld(s, edges.at(s, 1) + TERRAIN.seam + 15);
+    expect(groundAt(road, t, w.x, w.z, s)).toBeCloseTo(t.height(w.x, w.z), 6);
   });
 });

@@ -1,7 +1,9 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Intro, INTRO_KINDS, nextIntro, type IntroBag, type IntroKind } from '../src/game/intro';
+import { Intro, INTRO_KINDS, MOUNTAIN_INTRO_KINDS, nextIntro, type IntroBag, type IntroKind } from '../src/game/intro';
+import { mulberry32 } from '../src/ai/rng';
+import { mountainRoad } from '../src/road/mountain';
 import { PHYSICS_DT } from '../src/config';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { DEFAULT_CAMERA } from '../src/render/cameraRig';
@@ -60,6 +62,18 @@ describe('nextIntro', () => {
     expect(new Set(picks.slice(0, 60 / n).map((_, i) => picks.slice(i * n, i * n + n).join())).size).toBeGreaterThan(1); // shuffled
   });
 
+  it('the mountain road its own round (its own kinds): a highway\'s bag read back there starts a fresh one', () => {
+    let bag: IntroBag = { left: [], last: null };
+    const picks = new Set<string>();
+    for (let i = 0; i < 9; i++) {
+      const next = nextIntro(bag, Math.random, MOUNTAIN_INTRO_KINDS);
+      picks.add(next.kind);
+      bag = next.bag;
+    }
+    expect([...picks].sort()).toEqual([...MOUNTAIN_INTRO_KINDS].sort());
+    expect(MOUNTAIN_INTRO_KINDS).toContain(nextIntro({ left: ['grid', 'details'], last: 'grid' }, Math.random, MOUNTAIN_INTRO_KINDS).kind);
+  });
+
   it('a bag read back with junk in it starts a fresh round', () => {
     const next = nextIntro({ left: ['nope' as IntroKind], last: 'grid' }, () => 0.5);
     expect(INTRO_KINDS).toContain(next.kind);
@@ -80,6 +94,24 @@ describe('Intro', () => {
         due = t + 0.01;
       }
       expect(due, kind).toBeCloseTo(5, 1);
+    }
+  });
+
+  it('the mountain road\'s: as long, the countdown as due, the camera a real point all through (its shots along the road)', () => {
+    const road = mountainRoad(mulberry32(3));
+    const car = new PlayerCar(PhysicsWorld.createSync(), null);
+    car.road = road;
+    car.resetAt(-3, 1.75, 0);
+    const camera = new THREE.PerspectiveCamera();
+    for (const kind of MOUNTAIN_INTRO_KINDS) {
+      const intro = new Intro(kind, { camera, player: car, rivals: [], chase: DEFAULT_CAMERA, road });
+      expect(intro.seconds, kind).toBeCloseTo(6.5);
+      expect(intro.countdownAt, kind).toBeCloseTo(5);
+      for (let t = 0; t < 6.5; t += 0.05) {
+        intro.step(0.05);
+        intro.placeCamera();
+        expect([camera.position.x, camera.position.y, camera.position.z].every(Number.isFinite), `${kind} at ${t}`).toBe(true);
+      }
     }
   });
 });

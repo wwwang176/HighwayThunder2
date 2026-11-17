@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { insideReach, keepOverRoad, MOUNTAIN, mountainRoad, roadEdges } from '../src/road/mountain';
+import { insideReach, MOUNTAIN, mountainRoad, roadEdges } from '../src/road/mountain';
 import { mulberry32 } from '../src/ai/rng';
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
@@ -132,44 +132,6 @@ describe('mountainRoad', () => {
     const b = mountainRoad(mulberry32(7));
     expect(a.pieces).toEqual(b.pieces);
     expect(a.height(2000)).toBe(b.height(2000));
-  });
-});
-
-describe('keepOverRoad', () => {
-  const road = new Centerline([...straight(100), ...bend(30, 90, 10), ...straight(100)], { turnBack: true, grades: [{ len: 1, g: 0.05 }, { len: 300, g: 0.05 }] });
-
-  it('a point over the road between its sides is left where it is', () => {
-    const w = road.toWorld(50, 2);
-    const p = { x: w.x, y: road.height(50) + 3, z: w.z };
-    expect(keepOverRoad(road, p, 50, 4, 0.8)).toBe(false);
-    expect(p).toEqual({ x: w.x, y: road.height(50) + 3, z: w.z });
-  });
-
-  it('one past a side (in the rock) is brought in to it, as high', () => {
-    const w = road.toWorld(120, 9);
-    const p = { x: w.x, y: road.height(120) + 3, z: w.z };
-    expect(keepOverRoad(road, p, 118, 4, 0.8)).toBe(true);
-    const at = road.project(p.x, p.z, 120);
-    expect(at.d).toBeCloseTo(4, 3);
-    expect(p.y).toBeCloseTo(road.height(120) + 3, 6);
-  });
-
-  it('each side\'s room its own at s (a shoulder): over it left be, past the other side brought in', () => {
-    const room = (s: number, side: 1 | -1) => (side < 0 && s > 100 ? 7 : 4);
-    const w = road.toWorld(120, -6);
-    const p = { x: w.x, y: road.height(120) + 3, z: w.z };
-    expect(keepOverRoad(road, p, 118, room, 0.8)).toBe(false);
-    const w2 = road.toWorld(120, 6);
-    const p2 = { x: w2.x, y: road.height(120) + 3, z: w2.z };
-    expect(keepOverRoad(road, p2, 118, room, 0.8)).toBe(true);
-    expect(road.project(p2.x, p2.z, 120).d).toBeCloseTo(4, 3);
-  });
-
-  it('one under the road is lifted over it', () => {
-    const w = road.toWorld(150, -1);
-    const p = { x: w.x, y: road.height(150) - 2, z: w.z };
-    expect(keepOverRoad(road, p, 150, 4, 0.8)).toBe(true);
-    expect(p.y).toBeCloseTo(road.height(150) + 0.8, 6);
   });
 });
 
