@@ -1477,7 +1477,8 @@ export class Game {
       key: 0, kind: 'sedan', pos: [0, 0, 0], vel: [0, 0, 0], rpm: 0, idle: 0, redline: 1, throttle: 0, gain: 1,
     });
     for (const r of this.rivals.list) {
-      const c = r.car, s = next(), p = c.mesh.position, v = c.body.linvel();
+      // (a car drawn through a bend in an intro: heard going as it is drawn going)
+      const c = r.car, s = next(), p = c.mesh.position, v = c.showPose?.vel ?? c.body.linvel();
       s.key = -1 - r.index;
       s.kind = c.style;
       s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
@@ -1556,7 +1557,7 @@ export class Game {
     for (let i = 0; i < list.length; i++) {
       const s = (out[i] ??= { pos: { x: 0, y: 0, z: 0 }, slip: 0 }), p = list[i].car.mesh.position;
       s.pos.x = p.x; s.pos.y = p.y; s.pos.z = p.z;
-      s.slip = list[i].car.maxSlip;
+      s.slip = list[i].car.showPose?.slip ?? list[i].car.maxSlip; // (drawn drifting in an intro: squealing as drawn)
     }
     out.length = list.length;
     return out;

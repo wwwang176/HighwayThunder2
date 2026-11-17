@@ -163,9 +163,10 @@ export class PlayerCar {
   showOffset = 0;
   /**
    * For show (the mountain road's intros: a car through its first hairpin): drawn here instead (a world pose), its
-   * wheels rolled `rolled` m, its front ones turned `steer` rad (left +); null: where it is.
+   * wheels rolled `rolled` m, its front ones turned `steer` rad (left +); heard going `vel` (world, m/s), its tyres
+   * sliding `slip` m/s (its squeal: 0 gripping); null: where it is, as it is.
    */
-  showPose: { pos: THREE.Vector3; quat: THREE.Quaternion; rolled: number; steer: number } | null = null;
+  showPose: { pos: THREE.Vector3; quat: THREE.Quaternion; rolled: number; steer: number; vel: THREE.Vector3; slip: number } | null = null;
   showRev: { rpm: number; throttle: number } | null = null;
   showBrake: boolean | null = null;
   readonly chassis: TyreChassis;

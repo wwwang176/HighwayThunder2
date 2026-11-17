@@ -165,6 +165,9 @@ const TOP_SECONDS = 2.7;
 const CRUISE_BACK = 11;
 const CRUISE_SPEED = 14;
 const CRUISE_BRAKE = 2.5;
+/** Their engines as heard (a share of the way from idle to the redline): the drift's on the throttle; the other's off it. */
+const DRIFT_REV = 0.72;
+const CRUISE_REV = 0.5;
 const UP = new THREE.Vector3(0, 1, 0);
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
@@ -330,6 +333,7 @@ export class Intro {
       else {
         this.passCar.showPose = null;
         this.passCar.showBrake = null;
+        this.passCar.showRev = null;
       }
     }
     if (done) this.end();
@@ -366,9 +370,14 @@ export class Intro {
     const p = car.params;
     const into = Math.atan(p.wheelbase * Math.abs(road.curvature(now.s))) - 0.8 * now.slip;
     const steer = (inward.dot(right) < 0 ? 1 : -1) * THREE.MathUtils.clamp(into, -0.55, 0.6);
-    car.showPose = { pos: at, quat, rolled: now.s, steer };
+    // Heard as drawn: going its way at its speed; its tyres squealing as fast as it slides sideways (a drift's, full;
+    // gripping, none); its engine held high on the throttle drifting (wavering), off it braking in (falling).
+    const sliding = pass.smoke && now.slip >= 0.15;
+    const share = sliding ? DRIFT_REV + 0.04 * Math.sin(t * 5) : CRUISE_REV - 0.12 * Math.min(1, t / 2);
+    car.showPose = { pos: at, quat, rolled: now.s, steer, vel: go.clone().multiplyScalar(speed), slip: sliding ? speed * Math.sin(now.slip) + 3 : 0 };
     car.showBrake = pass.brake ?? null;
-    if (!pass.smoke || now.slip < 0.15) return;
+    car.showRev = { rpm: p.idleRpm + share * (p.redline - p.idleRpm), throttle: sliding ? 1 : 0 };
+    if (!sliding) return;
     // Its rear tyres (the last two) sliding sideways: as fast as it goes across them; spinning on (driven).
     for (const w of car.wheels.slice(2)) {
       const c = new THREE.Vector3(w.x, -this.passRide, w.z).applyQuaternion(quat).add(at);
@@ -457,6 +466,7 @@ export class Intro {
       r.showOffset = 0;
       r.showBrake = null;
       r.showPose = null;
+      r.showRev = null;
     }
     this.passPuffs = [];
   }
