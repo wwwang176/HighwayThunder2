@@ -372,6 +372,11 @@ export interface Scenery {
   activeLights(): THREE.SpotLight[];
   /** Its lamps' flares' material (sized to the view each frame). */
   readonly lampFlareMaterial: THREE.ShaderMaterial;
+  /**
+   * The ground's height as drawn at (x, z) (`hint`: an s near it - the car's): the camera kept clear of it
+   * (render/cameraArm). None: the camera left be (the practice ground: flat and open).
+   */
+  groundAt?(x: number, z: number, hint: number): number;
 }
 
 export class RoadScene implements Scenery {
@@ -406,6 +411,11 @@ export class RoadScene implements Scenery {
   /** The street lights currently shining (for things lit by hand, like tyre smoke). */
   activeLights(): THREE.SpotLight[] {
     return this.realLights.filter((l) => l.visible && l.intensity > 0);
+  }
+
+  /** The ground: flat (the road 0.01 m up, the grass 0.02 down) - the camera kept clear of it (Scenery.groundAt). */
+  groundAt(): number {
+    return 0;
   }
 
   constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {

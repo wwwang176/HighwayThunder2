@@ -78,7 +78,7 @@ import { MountainPlannerDriver } from '../ai/mountainPlannerDriver';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
 import type { RivalDriver } from '../ai/driver';
 import { MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
-import { armFollow, armPlace, armReach, CAMERA_ARM } from '../render/cameraArm';
+import { armFollow, armPlace, armReach, CAMERA_ARM, CAMERA_SHOT } from '../render/cameraArm';
 import { surfaceMesh } from '../road/surface';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
@@ -1633,18 +1633,20 @@ export class Game {
     else if (show) show.placeCamera();
     else if (this.hoodCam && look === 'ahead') this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
     else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
-    // The mountain road: the chase camera swinging wide round a hairpin, the intro's and the finish's shots set wide
-    // of the car, all went into the rock - kept clear of the ground on an arm from over the car (cameraArm: in along it,
-    // looking the same way - no jump in the view). (Kept within the road's edges, the side looks were pulled in to the
-    // edge on the narrow road where no rock was too.)
-    if (this.mountain && !this.skidpad && this.road instanceof MountainScene) { // (the practice ground: flat and open)
-      const scene = this.road;
+    // The camera kept clear of the scenery's ground (Scenery.groundAt: the mountain's rock and hillside, the highway's
+    // flat) on an arm from over the car (cameraArm: in along it, looking the same way - no jump in the view); the set
+    // shots (intro, finish) only out of it, some low on purpose (CAMERA_SHOT). (The mountain road's chase camera
+    // swinging wide round a hairpin went into the rock; kept within the road's edges instead, the side looks were
+    // pulled in to the edge on the narrow road where no rock was too.)
+    const scene = this.road;
+    if (scene.groundAt) {
+      const A = this.introOn || show ? CAMERA_SHOT : CAMERA_ARM;
       const c = this.player.body.translation();
-      const pivot = { x: c.x, y: c.y + CAMERA_ARM.pivot, z: c.z };
+      const pivot = { x: c.x, y: c.y + A.pivot, z: c.z };
       const want = { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z };
-      const ground = (x: number, z: number) => scene.groundAt(x, z, this.player.s);
-      this.armShare = armFollow(this.armShare, armReach(pivot, want, ground), play);
-      const at = armPlace(pivot, want, this.armShare, ground);
+      const ground = (x: number, z: number) => scene.groundAt!(x, z, this.player.s);
+      this.armShare = armFollow(this.armShare, armReach(pivot, want, ground, A), play, A);
+      const at = armPlace(pivot, want, this.armShare, ground, A);
       this.camera.position.set(at.x, at.y, at.z);
     }
     if (show?.done && !this.hud.finishShown) {

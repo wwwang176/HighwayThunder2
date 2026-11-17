@@ -16,13 +16,20 @@ export const CAMERA_ARM = {
   pivot: 1,
 };
 
+/**
+ * The set shots' (the intro's, the finish's): only out of the ground - some low on purpose (0.3 m by a wheel), on the
+ * chase camera's clearance pulled in toward the car.
+ */
+export const CAMERA_SHOT = { ...CAMERA_ARM, clear: 0.1 };
+
 export interface P3 {
   x: number;
   y: number;
   z: number;
 }
 
-const along = (a: P3, b: P3, f: number): P3 => ({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f });
+// (all the way out: exactly where it would be)
+const along = (a: P3, b: P3, f: number): P3 => (f >= 1 ? { x: b.x, y: b.y, z: b.z } : { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f });
 const clearAt = (p: P3, ground: (x: number, z: number) => number, A: typeof CAMERA_ARM) => p.y >= ground(p.x, p.z) + A.clear;
 
 /** How far out along the arm (0..1 of pivot to `want`) the camera stays clear of the ground - no nearer than A.least m. */

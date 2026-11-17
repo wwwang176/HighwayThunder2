@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { armFollow, armPlace, armReach, CAMERA_ARM } from '../src/render/cameraArm';
+import { armFollow, armPlace, armReach, CAMERA_ARM, CAMERA_SHOT } from '../src/render/cameraArm';
 
 const flat = () => 0;
 /** A wall (the ground `top` m high) from x = `at` on. */
@@ -32,6 +32,13 @@ describe('camera arm (the camera kept clear of the ground, not of the road\'s ed
     expect(f * 8).toBeCloseTo(CAMERA_ARM.least, 1);
     const p = armPlace(pivot, { x: 8, y: 1.3, z: 0 }, f, wall(0.5, 3));
     expect(p.y).toBeCloseTo(3 + CAMERA_ARM.clear, 6);
+  });
+
+  it('a set shot low on purpose (0.3 m over flat ground, the intro\'s by a wheel): left be on its own clearance (CAMERA_SHOT)', () => {
+    const want = { x: 4, y: 0.3, z: 0 };
+    expect(armReach(pivot, want, flat, CAMERA_SHOT)).toBe(1);
+    expect(armPlace(pivot, want, 1, flat, CAMERA_SHOT)).toEqual(want);
+    expect(armReach(pivot, want, flat)).toBeLessThan(1); // (on the chase camera's it was pulled in)
   });
 
   it('in at once (not through the ground), back out over CAMERA_ARM.ease s', () => {
