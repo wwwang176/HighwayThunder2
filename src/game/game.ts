@@ -77,7 +77,8 @@ import { MountainDriver } from '../ai/mountainDriver';
 import { MountainPlannerDriver } from '../ai/mountainPlannerDriver';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
 import type { RivalDriver } from '../ai/driver';
-import { keepOverRoad, MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
+import { MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
+import { armFollow, armPlace, armReach, CAMERA_ARM } from '../render/cameraArm';
 import { surfaceMesh } from '../road/surface';
 import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
@@ -301,6 +302,8 @@ export class Game {
   private introOn = false;
   /** The hood camera instead of the chase camera (V). */
   private hoodCam = false;
+  /** The mountain road's camera arm: how far out it is now (0..1 of where the camera would be; cameraArm). */
+  private armShare = 1;
   /** The finish's show (past the line, till the next race), and the gate it is at. */
   private finishShow: FinishShow | null = null;
   private readonly gate: FinishGate;
@@ -1631,10 +1634,18 @@ export class Game {
     else if (this.hoodCam && look === 'ahead') this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
     else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
     // The mountain road: the chase camera swinging wide round a hairpin, the intro's and the finish's shots set wide
-    // of the car, all went into the rock - kept over the road (moved in, looking the same way: no jump in the view).
-    if (this.mountain && !this.skidpad) { // (the practice ground: flat and open - no rock to keep it out of)
-      const e = roadEdges(this.roadLine);
-      keepOverRoad(this.roadLine, this.camera.position, this.player.s, (s, side) => e.at(s, side) - 0.6, 0.8); // (a shoulder's room too)
+    // of the car, all went into the rock - kept clear of the ground on an arm from over the car (cameraArm: in along it,
+    // looking the same way - no jump in the view). (Kept within the road's edges, the side looks were pulled in to the
+    // edge on the narrow road where no rock was too.)
+    if (this.mountain && !this.skidpad && this.road instanceof MountainScene) { // (the practice ground: flat and open)
+      const scene = this.road;
+      const c = this.player.body.translation();
+      const pivot = { x: c.x, y: c.y + CAMERA_ARM.pivot, z: c.z };
+      const want = { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z };
+      const ground = (x: number, z: number) => scene.groundAt(x, z, this.player.s);
+      this.armShare = armFollow(this.armShare, armReach(pivot, want, ground), play);
+      const at = armPlace(pivot, want, this.armShare, ground);
+      this.camera.position.set(at.x, at.y, at.z);
     }
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
