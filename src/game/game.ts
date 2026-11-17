@@ -1163,9 +1163,8 @@ export class Game {
     // what is near, unseen).
     const pp = this.player.body.translation();
     const near = (x: number, z: number) => (x - pp.x) ** 2 + (z - pp.z) ** 2 < SMOKE_RANGE ** 2;
-    // (an arcade drift: its rear's drive kept whole, the tyres are not "sliding" to the tyre model - they grip
-    // straight on - yet slide sideways: marked and smoking as they do)
-    const sideways = this.player.arcadeDrift && this.player.drifting > 0.5;
+    // (an arcade drift: sliding sideways, marked and smoking - PlayerCar.slidingSideways)
+    const sideways = this.player.slidingSideways;
     this.player.wheels.forEach((w, i) => {
       const sliding = w.inContact && (w.sliding || sideways);
       const k = sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
@@ -1173,15 +1172,16 @@ export class Game {
       const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, pv.x, pv.z); // (spinning: thrown back)
       this.smoke.emit(i, w.contactX, w.contactZ, sliding ? w.slip : 0, pv.x, pv.z, dt, kick.x, kick.z, w.contactY);
     });
-    // The rivals' tyres smoke as the player's (their burnouts on the grid too). (Their keys 10 on: the player's 0..3,
-    // the wrecks' 100 on.)
+    // The rivals' tyres mark the road and smoke as the player's (their burnouts on the grid too; smoke only near the
+    // player). (Their keys 10 on: the player's 0..3, the wrecks' 100 on.)
     for (const r of this.rivals.list) {
       const rv = r.car.body.linvel();
-      const rSideways = r.car.arcadeDrift && r.car.drifting > 0.5; // (as the player's: sliding sideways in an arcade drift)
+      const rSideways = r.car.slidingSideways;
       r.car.wheels.forEach((w, i) => {
-        const slip = w.inContact && (w.sliding || rSideways) && near(w.contactX, w.contactZ) ? w.slip : 0;
+        const sliding = w.inContact && (w.sliding || rSideways);
+        this.skids.add(10 + r.index * 4 + i, w.contactX, w.contactZ, w.dirX, w.dirZ, sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0, w.contactY);
         const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, rv.x, rv.z);
-        this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, slip, rv.x, rv.z, dt, kick.x, kick.z, w.contactY);
+        this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, sliding && near(w.contactX, w.contactZ) ? w.slip : 0, rv.x, rv.z, dt, kick.x, kick.z, w.contactY);
       });
     }
     // Wrecks run on the same tyre model, so they leave marks and smoke too.
