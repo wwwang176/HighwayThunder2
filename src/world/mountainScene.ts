@@ -33,11 +33,12 @@ const RAIL = { y0: 0.5, y1: 0.82, post: 4, reflector: 8 };
  * Chevron boards outside the bends, two to a post (one for each way): `width` m wide, `tall` m high (3:4 upright, as
  * the real one-chevron alignment sign's: 45 x 60 cm, 60 x 75 - not square), `height` m up, each turned to the
  * drivers coming its way - toward the road `sight` m back along it, so the
- * two open out away from the road at an angle (the sharper the bend, the wider), their inner edges `gap` m apart at
- * the post. No light of their own: they reflect what reaches them `reflect` times as strongly as paint (a reflective
+ * two open out away from the road at an angle (the sharper the bend, the wider) - the `post` m thick post between
+ * them, up to their top (the lamp on it), each board's back on it and its inner edge `over` m past it (the player's:
+ * the post between the boards; its inner edge at the post, the post stopped under it, the lamp above its corner). No light of their own: they reflect what reaches them `reflect` times as strongly as paint (a reflective
  * sheeting's) - faint under the moon, bright in the low beam, glaring in the high beam (the player's real lamps).
  */
-const CHEVRON = { width: 0.6, tall: 0.8, height: 1.1, reflect: 3.5, roughness: 0.35, sight: 40, gap: 0.02 };
+const CHEVRON = { width: 0.6, tall: 0.8, height: 1.1, reflect: 3.5, roughness: 0.35, sight: 40, post: 0.06, over: 0.12 };
 /**
  * How sharp a bend is, by its tightest radius (m): how far apart its boards stand (m; one chevron each, whatever the
  * bend - the user's: as the road's own signs) - a big bend (to R 130: at 150 km/h it wants more grip than the cars
@@ -114,6 +115,21 @@ const PLANTS = {
   /** Grass drawn in blocks `block` m square, only those within `show` m of the player (the player's: far off it is not seen). */
   block: 50,
   show: 110,
+  /**
+   * Weeds along the road's edge (the player's: grass on the seam where the asphalt meets the ground - under the rail,
+   * in a cut's ditch, on a tight bend's inside - blurring it): every `edgeStep` m of each side at `edgeOdds` odds a clump
+   * of `edgeTufts` tufts, `edgeSpread` m along, from `edgeFrom` (on the asphalt: their blades over its edge) to `edgeTo`
+   * m off the edge, most near it (its square), `edgeScale` the grass's size - in the grass's blocks, no draws more
+   * (the player's: not to cost frames). (Every 8 m at 0.4 odds, up to 1.2 m out evenly, few were on the seam itself;
+   * every 3 m at 0.6, 2-5 tufts, 0.45-0.85 the size: there, but too few and too small to be seen.)
+   */
+  edgeStep: 2,
+  edgeOdds: 0.75,
+  edgeTufts: [3, 6],
+  edgeSpread: 1.5,
+  edgeFrom: -0.1,
+  edgeTo: 1,
+  edgeScale: [0.55, 1],
 };
 const BEACON = { color: new THREE.Color(1, 0.68, 0.06), bright: 6, dim: 0.06, period: 1, on: 0.45, radius: 0.09 };
 
@@ -405,7 +421,33 @@ export class MountainScene implements Scenery {
       this.addPosts(road, runs, side);
     }
     this.addChevrons(road, rows, cutAt);
-    this.addPlants(ground, Math.round(road.length * 13) % 997);
+    const seed = Math.round(road.length * 13) % 997;
+    // Weeds at the road's edge (PLANTS.edge*): set on the earthwork's ground there as the seam is (not the grid's), on a
+    // tight bend's inside no further than its ground reaches.
+    const rnd = seeded(seed + 211);
+    const weeds: THREE.Matrix4[] = [];
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const sc = new THREE.Vector3();
+    for (const side of [-1, 1] as const)
+      for (let s0 = RUN_FROM; s0 < RUN_TO(); s0 += PLANTS.edgeStep) {
+        if (rnd() > PLANTS.edgeOdds) continue;
+        const n = PLANTS.edgeTufts[0] + Math.floor(rnd() * (PLANTS.edgeTufts[1] - PLANTS.edgeTufts[0] + 1));
+        const at = s0 + rnd() * PLANTS.edgeStep;
+        for (let k = 0; k < n; k++) {
+          const s = at + (rnd() * 2 - 1) * PLANTS.edgeSpread;
+          const E = edges.at(s, side);
+          const u = rnd();
+          const past = Math.min(PLANTS.edgeFrom + u * u * (PLANTS.edgeTo - PLANTS.edgeFrom), Math.max(0, reach(s, side) - E));
+          const w = road.toWorld(s, side * (E + past));
+          // (on the asphalt: its surface; off it, the earthwork's ground)
+          const y = past <= 0 ? edgeHeight(road, s, side * (E + past)) : ground.earthwork(ground.natural(w.x, w.z), edgeHeight(road, s, side * E), past);
+          const size = PLANTS.edgeScale[0] + rnd() * (PLANTS.edgeScale[1] - PLANTS.edgeScale[0]);
+          q.setFromAxisAngle(up, rnd() * Math.PI * 2);
+          weeds.push(new THREE.Matrix4().compose(new THREE.Vector3(w.x, y - 0.03, w.z), q, sc.set(size, size * (0.8 + rnd() * 0.5), size)));
+        }
+      }
+    this.addPlants(ground, seed, weeds);
   }
 
   update(playerS: number, play = 0): void {
@@ -532,7 +574,9 @@ export class MountainScene implements Scenery {
       return cutAt[side][s - rows[lo] < rows[hi] - s ? lo : hi];
     };
     const edges = roadEdges(road);
-    const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, CHEVRON.height, 0.06), this.postMat, Math.max(1, spots.length));
+    // (the post up between the boards to their top, the lamp on it)
+    const poleH = CHEVRON.height + CHEVRON.tall;
+    const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(CHEVRON.post, poleH, CHEVRON.post), this.postMat, Math.max(1, spots.length));
     const beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(BEACON.radius, 10, 8), this.beaconMat, Math.max(1, spots.length));
     // (a board's chevron pointing right of its face, or - its texture mirrored - left)
     const plane = new THREE.PlaneGeometry(CHEVRON.width, CHEVRON.tall);
@@ -541,6 +585,10 @@ export class MountainScene implements Scenery {
     for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
     const boards = [new THREE.InstancedMesh(plane, this.chevronMat, Math.max(1, 2 * spots.length)), new THREE.InstancedMesh(mirrored, this.chevronMat, Math.max(1, 2 * spots.length))];
     const counts = [0, 0];
+    // (each board's back: grey sheet metal, facing the other way just behind it - its face drawn on one side only, from
+    // behind a board was not there at all)
+    const backs = new THREE.InstancedMesh(plane, this.postMat, Math.max(1, 2 * spots.length));
+    let nBacks = 0;
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
@@ -560,35 +608,52 @@ export class MountainScene implements Scenery {
       const az = away.z - w.z;
       // A board toward the cars coming up the road (from CHEVRON.sight m back) and one toward those coming down it:
       // its face turned to them, the board out from the post away from the road, its chevron toward the road.
-      for (const way of [-1, 1]) {
+      const faces = [-1, 1].map((way) => {
         const seen = road.toWorld(Math.max(-MOUNTAIN.before, Math.min(MOUNTAIN.length + MOUNTAIN.after, s + way * CHEVRON.sight)), 0);
         const yaw = Math.atan2(seen.x - w.x, seen.z - w.z); // (its face, local +z, toward them)
         const rx = Math.cos(yaw);
         const rz = -Math.sin(yaw); // (its local +x)
         const outward = Math.sign(rx * ax + rz * az) || 1; // (its local +x away from the road: 1)
-        const half = CHEVRON.gap / 2 + CHEVRON.width / 2;
+        return { yaw, rx, rz, outward };
+      });
+      // (the post between them: each board's back on it, its inner edge CHEVRON.over m past it - less as they open
+      // wider, their inner edges meeting no nearer than the post's thickness)
+      const [f0, f1] = faces;
+      const opening = Math.acos(Math.max(-1, Math.min(1, f0.outward * f1.outward * (f0.rx * f1.rx + f0.rz * f1.rz)))) / 2;
+      const over = Math.min(CHEVRON.over, CHEVRON.post / 2 / Math.max(Math.sin(opening), 1e-3));
+      for (const { yaw, rx, rz, outward } of faces) {
+        const along = CHEVRON.width / 2 - over;
+        const back = CHEVRON.post / 2 + 0.005;
         q.setFromEuler(e.set(0, yaw, 0));
-        m.compose(p.set(w.x + outward * rx * half, y, w.z + outward * rz * half), q, sc.set(1, 1, 1));
+        m.compose(p.set(w.x + outward * rx * along + Math.sin(yaw) * back, y, w.z + outward * rz * along + Math.cos(yaw) * back), q, sc.set(1, 1, 1));
         // (its texture's chevron points to its local +x: that away from the road, the board of the mirrored texture)
         const k = outward > 0 ? 1 : 0;
         boards[k].setMatrixAt(counts[k]++, m);
+        const behind = back - 0.004;
+        q.setFromEuler(e.set(0, yaw + Math.PI, 0));
+        m.compose(p.set(w.x + outward * rx * along + Math.sin(yaw) * behind, y, w.z + outward * rz * along + Math.cos(yaw) * behind), q, sc.set(1, 1, 1));
+        backs.setMatrixAt(nBacks++, m);
       }
       q.setFromEuler(e.set(0, -th, 0));
-      m.compose(p.set(w.x, h + CHEVRON.height / 2, w.z), q, sc.set(1, 1, 1));
+      m.compose(p.set(w.x, h + poleH / 2, w.z), q, sc.set(1, 1, 1));
       poles.setMatrixAt(i, m);
-      m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.tall + BEACON.radius + 0.03, w.z), q, sc.set(1, 1, 1));
+      m.compose(p.set(w.x, h + poleH + BEACON.radius, w.z), q, sc.set(1, 1, 1));
       beacons.setMatrixAt(i, m);
     });
     boards.forEach((b, k) => (b.count = counts[k]));
-    for (const mesh of [...boards, poles, beacons]) {
+    backs.count = nBacks;
+    for (const mesh of [...boards, backs, poles, beacons]) {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.frustumCulled = false;
       this.course.add(mesh);
     }
   }
 
-  /** The forest and the grass (PLANTS) on the ground, by how far each spot is from the road's edge and how steep it is. */
-  private addPlants(t: Terrain, seed: number): void {
+  /**
+   * The forest and the grass (PLANTS) on the ground, by how far each spot is from the road's edge and how steep it is;
+   * `weeds` tufts more with the grass (the road edge's: set where they stand).
+   */
+  private addPlants(t: Terrain, seed: number, weeds: THREE.Matrix4[] = []): void {
     const rnd = seeded(seed + 101);
     const pastAt = (x: number, z: number) => {
       const i = Math.round((x - t.x0) / t.step), j = Math.round((z - t.z0) / t.step);
@@ -677,6 +742,7 @@ export class MountainScene implements Scenery {
         if (t.normal(wx, wz)[1] < G.grassSteep) continue;
         tuft(wx, wz, 0.6 + rnd() * 0.6);
       }
+    tufts.push(...weeds);
     if (tufts.length) {
       // (a tuft: `blades` thin blades from a point, leaning out, dark at the root, yellower at the tip; lit as the ground
       // is - their normals up - not as flat cards)
