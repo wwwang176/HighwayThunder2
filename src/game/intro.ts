@@ -157,10 +157,14 @@ function arriving(speed: number, stop: number, t: number): number {
 /** The car drifting through the first hairpin (the mountain road's 'skyline'): its speed (m/s), its nose turned in (rad). */
 const DRIFT_SPEED = 15;
 const DRIFT_SLIP = 0.65;
+/** Its shot: straight down from this high (m), sliding this far either side of the middle (m), this long (s). */
+const TOP_HEIGHT = 26;
+const TOP_SLIDE = 8;
+const TOP_SECONDS = 2.7;
 /** The car driven round it ('hairpin'): from this far before it (m), at this speed (m/s), braking (m/s²). */
 const CRUISE_BACK = 11;
 const CRUISE_SPEED = 14;
-const CRUISE_BRAKE = 3.5;
+const CRUISE_BRAKE = 2.5;
 const UP = new THREE.Vector3(0, 1, 0);
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
@@ -705,33 +709,49 @@ export class Intro {
         const s = mid + DRIFT_SPEED * (t - seconds / 2);
         const u = THREE.MathUtils.clamp((s - from) / (to - from), 0, 1);
         const slip = DRIFT_SLIP * smooth(s, from - 8, from + 4) * (1 - smooth(s, to - 6, to + 10)) + 0.05 * Math.sin(t * 6);
-        return { s, d: -dir * 0.55 * LANE_WIDTH * Math.cos(2 * Math.PI * u), slip };
+        // (by the road's own edges: a hairpin is widened on its inside, its middle line drawn between them - a line
+        // by the centre had it on the outside of that line at the middle)
+        const outside = -dir * (edges.at(s, -dir as 1 | -1) - 1.6);
+        const inside = dir * (edges.at(s, dir as 1 | -1) - 1.9);
+        return { s, d: THREE.MathUtils.lerp(outside, inside, (1 - Math.cos(2 * Math.PI * u)) / 2), slip };
       },
       inside: dir,
       smoke: true,
     });
 
     if (kind === 'skyline') {
-      // From high over the first hairpin, looking on round it as a car drifts through (its headlights lighting it up:
-      // without one, near black; from its way out looking back, the car came at the camera, its lights at it) diving down
-      // the road to over the grid, looking down on it; then low behind the cars, their tail lights in a row.
+      // Straight down on the first hairpin's middle (its outside up the picture: an arch), sliding along it as a car
+      // drifts through under it (its headlights lighting the bend up: without one, near black); diving down the road
+      // to over the grid, looking down on it; then low behind the cars, their tail lights in a row.
       const behind: Pose = { pos: [middle + 0.2, 1.4, -20], look: [middle, 0.8, 0], fov: 40 };
+      // (the middle between its edges: a hairpin is widened on its inside)
+      const dMid = (dir * (edges.at(mid, dir as 1 | -1) - edges.at(mid, -dir as 1 | -1))) / 2;
+      const apex = this.roadWorld([dMid, 0, mid]);
+      const along = this.roadWorld([dMid, 0, mid + 1]).sub(apex).setY(0).normalize();
+      const inward = this.roadWorld([dMid + dir, 0, mid]).sub(apex).setY(0).normalize();
+      // (over a point a little inside the middle, `x` m along the way the road goes there; looking down, tipped
+      // a hair outward - straight down, which way is up the picture is not set)
+      const above = (x: number, fov: number): Pose => {
+        const at = apex.clone().addScaledVector(inward, 4).addScaledVector(along, x);
+        const look = at.clone().addScaledVector(inward, -0.4);
+        return { pos: this.grid(at.setY(apex.y + TOP_HEIGHT)), look: this.grid(look), fov };
+      };
       return [
         {
-          seconds: 2.0,
-          from: { pos: [0, 24, mid - 40], look: [0, 0, mid - 11], fov: 44, road: true },
-          to: { pos: [0, 20, mid - 6], look: [0, 0, mid + 19], fov: 42, road: true },
+          seconds: TOP_SECONDS,
+          from: above(-TOP_SLIDE, 42),
+          to: above(TOP_SLIDE, 42),
           ease: linear, // (still moving at the cut)
-          pass: drift(2.0),
+          pass: drift(TOP_SECONDS),
         },
         {
-          seconds: 1.7,
+          seconds: 1.2,
           from: { pos: [0, 30, s0 + 80], look: [0, 0, s0 + 25], fov: 44, road: true },
           to: { pos: [d0 / 2, 14, s0 + 6], look: [d0 / 2, 0, s0 - 6], fov: 44, road: true },
           ease: linear, // (still moving at the cut)
         },
         {
-          seconds: 0.8,
+          seconds: 0.6,
           from: { pos: [middle, 1.6, -24], look: [middle, 0.8, 0], fov: 40 },
           to: behind,
           ease: linear, // (still moving at the cut)
@@ -777,7 +797,7 @@ export class Intro {
     const tail: Pose = { pos: [-1.3, 0.42, -p.length / 2 - 2.3], look: [0, 0.6, -p.length / 2 + 0.4], fov: 34 };
     return [
       {
-        seconds: 1.8,
+        seconds: 2.6,
         from: { pos: [out * (edgeOut - 0.7), 1.3, from - 7], look: [out * (edgeOut + 0.5), 1.5, from + 0.35 * (to - from)], fov: 42, road: true },
         to: { pos: [out * (edgeOut - 0.7), 1.3, from - 4], look: [out * (edgeOut + 0.5), 1.5, from + 0.35 * (to - from)], fov: 40, road: true },
         ease: linear, // (still moving at the cut)
@@ -789,20 +809,20 @@ export class Intro {
         },
       },
       {
-        seconds: 1.2,
+        seconds: 0.9,
         from: { pos: [middle, 0.55, -17], look: [middle, 0.75, 4], fov: 34 },
         to: { pos: [middle, 0.55, -14], look: [middle, 0.75, 4], fov: 33 },
         ease: linear, // (still moving at the cut)
       },
       {
-        seconds: 0.9,
+        seconds: 0.6,
         from: { pos: [tip[0] + 0.9, tip[1] + 0.18, tip[2] - 1.6], look: [...tip], fov: 30 },
         to: { pos: [tip[0] + 0.75, tip[1] + 0.15, tip[2] - 1.35], look: [...tip], fov: 28 },
         ease: linear, // (still moving at the cut)
         blip: 0.1,
       },
       {
-        seconds: 0.6,
+        seconds: 0.4,
         from: tail,
         to: { ...tail, pos: [-1.1, 0.42, -p.length / 2 - 2.1] },
         ease: linear, // (still moving at the cut)
