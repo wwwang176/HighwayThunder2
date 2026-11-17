@@ -119,8 +119,22 @@ function hairpinsOf(road: { length: number; curvature(s: number): number }): num
 /** A race's counts of the cars' meeting: contact events, those at the start, passes; and (SOLO) the player's off-path samples. */
 interface Meet { contacts: number; startContacts: number; passes: number; dev: number[] }
 
-function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number; runs: { from: number; to: number; dir: number; r: number }[]; meet: Meet } {
+/**
+ * Where the time goes (SOLO, the car racing): the road by part - a hairpin (its tight run), SEG_NEAR m before one
+ * (coming to it), SEG_NEAR m after one (out of it), a bend (tighter than R SEG_BEND), a straight - and in each its
+ * seconds, and summed over them its speed (m/s), its throttle, full throttle (>= 0.95: 1) and its brake on (1), each
+ * times the step (to be added up over many roads, then divided by the seconds).
+ */
+const SEGS = ['straight', 'bend', 'approach', 'hairpin', 'exit'] as const;
+type Seg = (typeof SEGS)[number];
+type SegSums = Record<Seg, { t: number; v: number; thr: number; full: number; brk: number }>;
+const SEG_NEAR = 60;
+const SEG_BEND = 150;
+const segSums = (): SegSums => Object.fromEntries(SEGS.map((k) => [k, { t: 0, v: 0, thr: 0, full: 0, brk: 0 }])) as SegSums;
+
+function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number; runs: { from: number; to: number; dir: number; r: number }[]; meet: Meet; seg: SegSums } {
   const meet: Meet = { contacts: 0, startContacts: 0, passes: 0, dev: [] };
+  const seg = segSums();
   const lastTouch = new Map<number, number>();
   /** Per pair (i < j): who is ahead (+1: i), and a pass waiting to hold (by whom, since when). */
   const order = new Map<number, number>();
@@ -129,6 +143,12 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   const road = mountainRoad(mulberry32(seed));
   const runs = hairpinRuns(road, 26).map((h) => ({ ...h, r: Math.abs(1 / road.curvature((h.from + h.to) / 2)) }));
   const pinOf = (s: number) => runs.findIndex((h) => s >= h.from - 10 && s <= h.to + 60);
+  const segOf = (s: number): Seg => {
+    if (runs.some((h) => s >= h.from && s <= h.to)) return 'hairpin';
+    if (runs.some((h) => s >= h.from - SEG_NEAR && s < h.from)) return 'approach';
+    if (runs.some((h) => s > h.to && s <= h.to + SEG_NEAR)) return 'exit';
+    return Math.abs(road.curvature(s)) > 1 / SEG_BEND ? 'bend' : 'straight';
+  };
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   // (as the game's: its edges along it, a shoulder on a tight bend's outside; SHOULDER=0: none)
@@ -207,6 +227,14 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     const poseBefore = rivals.list.map((r) => `yaw ${r.car.yaw.toFixed(2)} up ${upY(r.car).toFixed(2)} ${(r.car.speed / KMH).toFixed(0)} km/h stuck ${r.stuckFor.toFixed(1)} d ${r.car.d.toFixed(2)}`);
     player.postPhysics();
     time += PHYSICS_DT;
+    if (alone && stats[0].time === null && player.s >= 0) {
+      const g = seg[segOf(player.s)];
+      g.t += PHYSICS_DT;
+      g.v += player.speed * PHYSICS_DT;
+      g.thr += own.throttle * PHYSICS_DT;
+      if (own.throttle >= 0.95) g.full += PHYSICS_DT;
+      if (own.brake > 0) g.brk += PHYSICS_DT;
+    }
     rivals.after(PHYSICS_DT, view, []);
     if (DEBUG) rivals.list.forEach((r, i) => {
       if (r.resets > resetsBefore[i] && r.resets <= 4) log.push(`  reset R${i + 1} t ${time.toFixed(1)} s ${r.car.s.toFixed(0)} player s ${player.s.toFixed(0)} (was ${poseBefore[i]})`);
@@ -338,7 +366,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     };
   }
   physics.free();
-  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet };
+  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet, seg };
 }
 
 /** The q quantile of xs (sorted copy). */
@@ -363,8 +391,10 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
     let time = 0;
     let done = 0;
     const pinT = { n: 0, twice: 0, none: 0, most: 0, through: 0, into: 0 };
+    const segAll = segSums();
     for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
       const r = race(seed, spec, true);
+      for (const k of SEGS) for (const f of ['t', 'v', 'thr', 'full', 'brk'] as const) segAll[k][f] += r.seg[k][f];
       runs++;
       const c = r.cars[0];
       if (r.nan) nans++;
@@ -392,6 +422,8 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
       `${spec.id}: home ${done}/${SEEDS}, time avg ${(time / Math.max(1, done)).toFixed(2)} s, walls ${walls} (following its line ${lineWalls}), off its path p50 ${quantile(dev, 0.5).toFixed(3)} p95 ${quantile(dev, 0.95).toFixed(3)} m (${dev.length} samples), ` +
         `hairpins ${pinT.n}: slid twice+ ${pinT.twice}, not past 15° ${pinT.none}, most avg ${((pinT.most / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°, through avg ${((pinT.through / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°, slid past 20° in its first third ${pinT.into}`,
     );
+    // (summed over its races, to be added up across runs: seconds, then speed/throttle/full/brake times the seconds)
+    out.push(`${spec.id} segs races ${SEEDS}: ` + SEGS.map((k) => `${k} ${['t', 'v', 'thr', 'full', 'brk'].map((f) => segAll[k][f as 't'].toFixed(2)).join(' ')}`).join(' | '));
   }
   process.stdout.write(out.join('\n') + '\n');
   expect(nans).toBe(0);
