@@ -30,13 +30,14 @@ const RAIL_WHERE = { rail: 1, railAt: 2.5, railRun: 16 };
 /** The guardrail: its beam's bottom and top over the road, posts and reflectors (m apart). */
 const RAIL = { y0: 0.5, y1: 0.82, post: 4, reflector: 8 };
 /**
- * Chevron boards outside the bends, two to a post (one for each way): `size` m high, as wide again for each chevron
- * more, `height` m up, each turned to the drivers coming its way - toward the road `sight` m back along it, so the
+ * Chevron boards outside the bends, two to a post (one for each way): `width` m wide, `tall` m high (3:4 upright, as
+ * the real one-chevron alignment sign's: 45 x 60 cm, 60 x 75 - not square), `height` m up, each turned to the
+ * drivers coming its way - toward the road `sight` m back along it, so the
  * two open out away from the road at an angle (the sharper the bend, the wider), their inner edges `gap` m apart at
  * the post. No light of their own: they reflect what reaches them `reflect` times as strongly as paint (a reflective
  * sheeting's) - faint under the moon, bright in the low beam, glaring in the high beam (the player's real lamps).
  */
-const CHEVRON = { size: 0.75, height: 1.1, reflect: 3.5, roughness: 0.35, sight: 40, gap: 0.02 };
+const CHEVRON = { width: 0.6, tall: 0.8, height: 1.1, reflect: 3.5, roughness: 0.35, sight: 40, gap: 0.02 };
 /**
  * How sharp a bend is, by its tightest radius (m): how far apart its boards stand (m; one chevron each, whatever the
  * bend - the user's: as the road's own signs) - a big bend (to R 130: at 150 km/h it wants more grip than the cars
@@ -152,21 +153,22 @@ function markingsTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   return tex;
 }
 
-/** A yellow chevron board pointing right (a left bend's: flipped). */
+/** A yellow chevron board pointing right (a left bend's: flipped), as tall as CHEVRON's (3:4). */
 function chevronTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = c.height = 128;
+  c.width = 96;
+  c.height = 128;
   const g = c.getContext('2d')!;
   g.fillStyle = '#111';
-  g.fillRect(0, 0, 128, 128);
+  g.fillRect(0, 0, 96, 128);
   g.fillStyle = '#f2c200';
   g.beginPath();
-  g.moveTo(30, 14);
-  g.lineTo(74, 64);
-  g.lineTo(30, 114);
-  g.lineTo(54, 114);
-  g.lineTo(98, 64);
-  g.lineTo(54, 14);
+  g.moveTo(20, 14);
+  g.lineTo(56, 64);
+  g.lineTo(20, 114);
+  g.lineTo(40, 114);
+  g.lineTo(76, 64);
+  g.lineTo(40, 14);
   g.closePath();
   g.fill();
   const tex = new THREE.CanvasTexture(c);
@@ -533,7 +535,7 @@ export class MountainScene implements Scenery {
     const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, CHEVRON.height, 0.06), this.postMat, Math.max(1, spots.length));
     const beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(BEACON.radius, 10, 8), this.beaconMat, Math.max(1, spots.length));
     // (a board's chevron pointing right of its face, or - its texture mirrored - left)
-    const plane = new THREE.PlaneGeometry(CHEVRON.size, CHEVRON.size);
+    const plane = new THREE.PlaneGeometry(CHEVRON.width, CHEVRON.tall);
     const mirrored = plane.clone();
     const uv = mirrored.getAttribute('uv') as THREE.BufferAttribute;
     for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
@@ -551,7 +553,7 @@ export class MountainScene implements Scenery {
       const w = road.toWorld(s, d);
       const h = edgeHeight(road, s, d);
       const th = road.heading(s);
-      const y = h + CHEVRON.height + CHEVRON.size / 2;
+      const y = h + CHEVRON.height + CHEVRON.tall / 2;
       // (away from the road, across it here)
       const away = road.toWorld(s, d + out);
       const ax = away.x - w.x;
@@ -564,7 +566,7 @@ export class MountainScene implements Scenery {
         const rx = Math.cos(yaw);
         const rz = -Math.sin(yaw); // (its local +x)
         const outward = Math.sign(rx * ax + rz * az) || 1; // (its local +x away from the road: 1)
-        const half = CHEVRON.gap / 2 + CHEVRON.size / 2;
+        const half = CHEVRON.gap / 2 + CHEVRON.width / 2;
         q.setFromEuler(e.set(0, yaw, 0));
         m.compose(p.set(w.x + outward * rx * half, y, w.z + outward * rz * half), q, sc.set(1, 1, 1));
         // (its texture's chevron points to its local +x: that away from the road, the board of the mirrored texture)
@@ -574,7 +576,7 @@ export class MountainScene implements Scenery {
       q.setFromEuler(e.set(0, -th, 0));
       m.compose(p.set(w.x, h + CHEVRON.height / 2, w.z), q, sc.set(1, 1, 1));
       poles.setMatrixAt(i, m);
-      m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.size + BEACON.radius + 0.03, w.z), q, sc.set(1, 1, 1));
+      m.compose(p.set(w.x, h + CHEVRON.height + CHEVRON.tall + BEACON.radius + 0.03, w.z), q, sc.set(1, 1, 1));
       beacons.setMatrixAt(i, m);
     });
     boards.forEach((b, k) => (b.count = counts[k]));
