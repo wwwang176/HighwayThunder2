@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
+import { arcadeEnterFrom, arcadeShare, arcadeTurn, CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
@@ -191,6 +191,23 @@ export class PlayerCar {
   private lastSlide = 0;
   /** The slide its drift is held to (rad: the steering's, followed - driftFollow). */
   private driftHold = 0;
+  /**
+   * It drifts the keyboard racers' way (DriftAssist.arcade: turned by the inputs, no ceiling, its drive kept whole) -
+   * any car set up with it, the player's and the AI's alike (the mountain road's).
+   */
+  get arcadeDrift(): boolean {
+    return !!this.params.drift?.arcade;
+  }
+  /** An arcade drift: in it; thrown into it (the handbrake, braking with the wheel over) - s left to slide in. */
+  private driftIn = false;
+  private driftArm = 0;
+
+  /** Its wheels on the ground (0..1: their share, last step). */
+  private grounded(): number {
+    let n = 0;
+    for (const w of this.wheels) if (w.inContact) n++;
+    return n / this.wheels.length;
+  }
   /** How much it drifts (0..1: drift assist, by its slide). */
   get drifting(): number {
     return this.driftNow;
@@ -429,7 +446,18 @@ export class PlayerCar {
     // Drift assist (drift): the more it slides, the more the car the driver's - no switch; the handbrake only by the
     // slide it starts (the player's: at once its grip dropped and the car turned round).
     const assist = p.drift && !input.hold ? p.drift : undefined;
-    this.driftNow = assist ? driftShare(slide, this.vLong, assist) : 0;
+    const share = assist ? driftShare(slide, this.vLong, assist) : 0;
+    const keyboard = assist?.arcade;
+    if (keyboard) {
+      // (an arcade drift: in on the handbrake or braking with the wheel over - enterArm s on from either - else a big
+      // slide; in, till the slide is gone)
+      const thrown = input.handbrake || (input.brake >= 0.5 && Math.abs(this.steer) >= keyboard.enterSteer);
+      this.driftArm = thrown ? keyboard.enterArm : Math.max(0, this.driftArm - dt);
+      const big = driftShare(slide, this.vLong, { ...assist, from: arcadeEnterFrom(this.vLong, keyboard), full: keyboard.enterFull });
+      if (share <= 0) this.driftIn = false;
+      else if (this.driftArm > 0 || big >= 1) this.driftIn = true;
+      this.driftNow = arcadeShare(share, big, this.driftIn, this.driftNow, dt, keyboard);
+    } else this.driftNow = share;
     const dw = this.driftNow; // (how much it drifts: `w` the wheels below)
     // Driver input: relative to the nose, range from speed. Hands off: wheels trail the slide.
     const steerAngleCmd = steerAngle(this.steer, this.vLong, this.vLat, p);
@@ -446,7 +474,18 @@ export class PlayerCar {
     // as the angle held grows (the player's: let be, the locked rear turned the car round at once). The spring all of it
     // from any slide, at speed (the player's: as it drifted, it turned quick at 1-6° before the spring took hold).
     const atSpeed = assist ? driftSpeed(this.vLong, assist) : 0;
-    if (assist) {
+    const arcade = this.arcadeDrift ? assist?.arcade : undefined;
+    if (assist && arcade) {
+      // The player's car (ArcadeDrift): turned by the inputs - into the turn and the gas more slide, counter-steering and
+      // off the gas less, its change damped - no ceiling; its drive kept whole (below), pushing along the nose: it
+      // circles. Past `safe` the spring, and the stability control from escFrom: a last net.
+      const into = driftInto(slide, this.steer);
+      if (atSpeed > 0) {
+        esc = esc * (1 + (driftEsc(bodySlip, { ...assist, escFrom: arcade.escFrom, escFull: arcade.escFull }) - 1) * dw);
+        // (the tyres' doing: as much as they are on the ground - off it, in the air, no turning it)
+        esc += atSpeed * this.grounded() * (arcadeTurn(slide, slideRate, into, this.throttle, dw, arcade) + driftLimit(slide, slideRate, assist, arcade.safe));
+      }
+    } else if (assist) {
       const target = driftHeld(driftInto(slide, this.steer), assist);
       if (atSpeed === 0) this.driftHold = bodySlip;
       else {
@@ -493,7 +532,8 @@ export class PlayerCar {
     // the more it drifts (the throttle the driver's).
     if (p.escGain > 0 && cmd.engineForce > 0) cmd.engineForce *= 1 + (escPowerTrim(bodySlip) - 1) * (1 - dw);
     // Drifting, the drive eased as the slide grows big (driftDrive: full throttle on the keys spun it round).
-    if (dw > 0 && p.drift && cmd.engineForce > 0) cmd.engineForce *= 1 + (driftDrive(bodySlip, p.drift) - 1) * dw;
+    // (the player's arcade drift: none - its drive kept whole, pushing along the nose: it circles)
+    if (dw > 0 && p.drift && !arcade && cmd.engineForce > 0) cmd.engineForce *= 1 + (driftDrive(bodySlip, p.drift) - 1) * dw;
     // Launch control (launchSlip): the tail following the nose, the drive eased back to hold the rear tyres' slip at its
     // target - near their grip's peak, a little smoke - not all of it lost spinning them up; the tail stepping out, it
     // lets them be (power slides).
@@ -566,7 +606,8 @@ export class PlayerCar {
       // all the way, as much less as it drifts.
       const driftRear = p.drift ? 1 + (p.drift.rearGrip - 1) * dw : 1;
       w.gripScale = (w.front ? 1 : p.rearGrip * (cmd.burnout ? BURNOUT_REAR_GRIP : 1) * driftRear) * grip;
-      w.longScale = w.front ? frontLong : rearLong;
+      // (the player's arcade drift: the rear's grip less sideways only - its drive straight on kept whole)
+      w.longScale = w.front ? frontLong : rearLong * (arcade && driftRear > 0 ? 1 / driftRear : 1);
       w.dragged = lever && !w.front; // (the handbrake's locked rear tyres: dragged, holding sideways as their tail swings out)
     }
     const brakes = [brakeTorqueFront, brakeTorqueFront, brakeTorqueRear, brakeTorqueRear];
@@ -591,7 +632,8 @@ export class PlayerCar {
       const h = this.worldYaw, phi = Math.atan2(this.vLat, this.vLong), way = Math.sign(phi);
       // (its motion turned toward the nose: in the body's frame (sin phi, -cos phi) the side it slides, along (fx, fz), lateral (cos h, sin h))
       const pl = way * Math.sin(phi), pt = -way * Math.cos(phi);
-      const k = this.body.mass() * a * dt;
+      // (the player's arcade drift: the tyres' push, as much as they are on the ground)
+      const k = this.body.mass() * a * dt * (this.arcadeDrift && p.drift.arcade ? this.grounded() : 1);
       this.body.applyImpulse({ x: k * (pl * Math.sin(h) + pt * Math.cos(h)), y: 0, z: k * (-pl * Math.cos(h) + pt * Math.sin(h)) }, true);
     }
     if (sp > 0.1) {
@@ -757,6 +799,8 @@ export class PlayerCar {
     this.steer = 0;
     this.throttle = 0;
     this.driftNow = 0;
+    this.driftIn = false;
+    this.driftArm = 0;
     this.lastSlide = 0;
     this.driftHold = 0;
     this.backfire.reset();

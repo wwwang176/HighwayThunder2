@@ -107,6 +107,7 @@ export const STRINGS = {
   'toast.nearMiss': { zh: '險過！', en: 'Near miss!' },
   'toast.drift': { zh: '甩尾！', en: 'Drift!' },
   'toast.driftTime': { zh: '{s} 秒', en: '{s}s' },
+  'hud.slide': { zh: '側滑 {deg}°', en: 'Slide {deg}°' },
   'toast.noAi': { zh: '沒有可用的 AI 駕駛（請先在 lab/train.html 訓練並存檔）', en: 'No AI driver yet (train and save one in lab/train.html first)' },
   'intro.skip': { zh: '按任意鍵跳過', en: 'Press any key to skip' },
   'pause.kicker': { zh: 'Paused', en: '' },

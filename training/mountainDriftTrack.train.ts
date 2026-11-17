@@ -13,6 +13,7 @@ import { CARS, STREET_RACER } from '../src/vehicles/cars';
 const SPEC = (process.env.CAR && CARS[process.env.CAR]) || STREET_RACER;
 import { selfStateOf } from '../src/ai/driver';
 import { PHYSICS_DT } from '../src/config';
+import { aimDump } from './aimDump';
 
 /**
  * The mountain driver's drift round flat test hairpins (the player judges by the tracks, not totals:
@@ -108,7 +109,7 @@ function run(name: string, road: Centerline, trace: boolean): string[] {
     if (process.env.JSON && car.s > from - 30 && car.s < to && Math.round(t / PHYSICS_DT) % Math.round(0.1 / PHYSICS_DT) === 0) {
       const at = car.body.translation();
       const f = road.forwardWorld(car.yaw, car.s);
-      track.push([+t.toFixed(2), +at.x.toFixed(2), +at.z.toFixed(2), +f.x.toFixed(3), +f.z.toFixed(3), ai.mode, +slide.toFixed(1), +input.steer.toFixed(2), +(car.speed * 3.6).toFixed(0), input.handbrake ? 1 : 0, wallHit, +input.throttle.toFixed(2)]);
+      track.push([+t.toFixed(2), +at.x.toFixed(2), +at.z.toFixed(2), +f.x.toFixed(3), +f.z.toFixed(3), ai.mode, +slide.toFixed(1), +input.steer.toFixed(2), +(car.speed * 3.6).toFixed(0), input.handbrake ? 1 : 0, wallHit, +input.throttle.toFixed(2), +car.s.toFixed(1), aimDump(ai, road)] as (number | string)[]);
       wallHit = '';
     }
     hit = '';

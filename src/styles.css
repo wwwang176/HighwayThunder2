@@ -113,6 +113,10 @@ button { margin: 0; padding: 0; border: 0; background: none; color: inherit; fon
 .toast.drift .sec { margin-top: 0.5vw; font: italic 700 1.1vw/1 var(--f-num); letter-spacing: 0.15vw; }
 .toast.drift.on { opacity: 1; }
 .toast.drift.held { opacity: 0.55; }
+/* The practice ground (?skidpad): no time, no track to the finish, no position. */
+body.skidpad #hud .h-time, body.skidpad #hud .h-track, body.skidpad #hud .h-place, body.skidpad #hud .h-goal, body.skidpad #hud .h-behind { display: none !important; }
+/* The practice ground's slide (?skidpad: game.ts checkDrift), over the speedometer. */
+.slide-readout { position: fixed; right: 3.4vw; bottom: 17vw; z-index: 15; font: italic 700 2vw/1 var(--f-num); color: #fff; letter-spacing: 0.1vw; text-shadow: 0 0 0.6vw rgba(0, 0, 0, 0.7); pointer-events: none; }
 /* The race paused (game.ts frame()): the HUD's animations hold where they are. */
 body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused !important; }
 @keyframes pop {

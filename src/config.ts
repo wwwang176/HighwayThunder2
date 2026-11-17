@@ -32,6 +32,8 @@ export const BEST_TIME_KEY = 'highwayThunder2.bestTime.5km'; // per race length:
 export const CURVED_BEST_TIME_KEY = 'highwayThunder2.bestTime.5km-curve';
 /** The mountain road's best time (laid out at random each race). */
 export const MOUNTAIN_BEST_TIME_KEY = 'highwayThunder2.bestTime.mountain';
+/** The drift practice ground's (?skidpad): its own, not the mountain road's. */
+export const SKIDPAD_BEST_TIME_KEY = 'highwayThunder2.bestTime.skidpad';
 
 export type VehicleKind = 'car' | 'truck' | 'container';
 

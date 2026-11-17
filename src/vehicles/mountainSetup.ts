@@ -1,4 +1,4 @@
-import type { CarParams, DriftAssist } from './handling';
+import type { AiDrift, CarParams, DriftAssist } from './handling';
 import type { AccelTable } from '../ai/planner';
 
 /**
@@ -49,6 +49,8 @@ export interface MountainSetup {
    * straightened every slide on the throttle) and the stability control let it be till the slide is over.
    */
   drift: DriftAssist;
+  /** Its AI's drift (DriftAssist.ai; none: the driver's own). */
+  ai?: AiDrift;
 }
 
 export const MOUNTAIN_SETUP: MountainSetup = {
@@ -109,8 +111,8 @@ export const MOUNTAIN_SETUP: MountainSetup = {
   drift: {
     minSpeed: 25 / 3.6,
     fullSpeed: 35 / 3.6,
-    from: 0, // (the player's: from any slide; 2° at first)
-    full: (6 * Math.PI) / 180, // (the player's: easier into it; 12° at first)
+    from: (1 * Math.PI) / 180, // (the player's: 2° at first, then from any slide, then 3°; now 1°)
+    full: (6 * Math.PI) / 180, // (the player's: 12° at first, then 6°, then 10°; back to 6°)
     escFrom: (55 * Math.PI) / 180,
     escFull: (75 * Math.PI) / 180,
     rearGrip: 0.45,
@@ -131,16 +133,54 @@ export const MOUNTAIN_SETUP: MountainSetup = {
     // first, some 10° past what the steering sets on full throttle: too much, a quarter of it - some 2.5°)
     spin: 8_750,
     carveFull: (15 * Math.PI) / 180, // (the player's: from 0°, by the slide only - 25° and times the drift's share at first)
+    // (the player's car - the AI's drifting as it was tuned: the keyboard racers' way, Need for Speed's - the gas and the
+    // steering into the turn the slide more, counter-steering and off the gas less, no ceiling (a ceiling held the gas
+    // back: 22° to 45° took 3 s); its drive kept whole - it circles; past 65° the spring, from 70° the stability control)
+    arcade: {
+      steer: 8_000,
+      gas: 15_000, // (the player's: 12 000 too little on the gas, 18 000 too much)
+      counter: 8_000, // (15 000: full counter-lock with the gas swung it past straight in under a second)
+      lift: 12_000, // (the player's: 6 000 let the slide down too slowly off the gas)
+      align: 34_000, // (full lock and full throttle held at 46° with gas 15 000 - 30 000 let it on to 51°; 60 000 held it at 23°)
+      damp: 30_000,
+      dampMax: 60_000,
+      safe: (65 * Math.PI) / 180,
+      escFrom: (70 * Math.PI) / 180,
+      escFull: (85 * Math.PI) / 180,
+      // (in from 1° of slide on any: a lane change's slide turned it round on the straight - the keyboard's lane change,
+      // 0.1-0.3 s taps, the wheel all the way over, 1.5-5° of slide on grip; on the wheel past half held 0.4 s: a long
+      // bend held on grip slid out)
+      enterSteer: 0.5,
+      enterArm: 0.5,
+      // (3° at any speed: still too easily in on the fast straights)
+      enterFrom: (3 * Math.PI) / 180,
+      enterFromFast: (6 * Math.PI) / 180,
+      enterSlow: 50 / 3.6,
+      enterFast: 150 / 3.6,
+      enterFull: (10 * Math.PI) / 180,
+      enterRate: 6,
+    },
   },
 };
 
 /**
  * Each car's own (by its id) over MOUNTAIN_SETUP. The muscle car: its tail is loose already (its power, its light
  * stability control) - with the rear bar stiffer, the brakes rearward and less stability control it slid wide and
- * spun; those as built.
+ * spun; those as built. Their AI's drift (ai): the throttle (solo on 10 roads, 0.6-0.85 tried) - the others on 0.62
+ * slid 19-23°, hardly drifting. The muscle car's power slid it furthest: on 0.62 its handbrake as the others' it slid
+ * 25°, looking all but on its grip; on more throttle it ran wide in the bend's second half (at the outside's edge as
+ * its drift ended) and hit the wall - eased off the throttle there, held nose-in out of it, more throttle on it wide
+ * of its line: 28° at most, or the walls. Its handbrake pulled sooner (looked for 1 s on, 0.6) and longer (0.15 s,
+ * 0.1) caught it: on 0.9 35°, 2.6 s faster, 18 walls on 30 roads (15); the others on it more walls, less slide.
+ * Off the throttle near the inside (MOUNTAIN_DRIVER.drift.innerGas), the supercar's and the jdm's up to 1 (33° / 27°,
+ * 31° / 24° before; 11 / 8 walls, 25 / 13) - the muscle car's on 1 hit the wall 35 times (12 on 0.9).
+ * Aimed at the bend's exit (aimSlide), on 30 roads: the supercar 33° -> 35° (11 -> 13 walls), the jdm 27° -> 30°
+ * (8 -> 7); the muscle car 12 -> 30 walls - not it.
  */
 export const MOUNTAIN_SETUP_BY_CAR: Record<string, Partial<MountainSetup>> = {
-  'muscle-car': { arbRear: 1, brakeBias: 0, esc: 1 },
+  'street-racer': { ai: { gas: 1, aimSlide: 0.2 } },
+  'muscle-car': { arbRear: 1, brakeBias: 0, esc: 1, ai: { gas: 0.9, pullLook: 1, hbPulse: 0.15 } },
+  jdm: { ai: { gas: 1, aimSlide: 0.2 } },
 };
 
 /** A car's mountain setup (by its id: MOUNTAIN_SETUP_BY_CAR over MOUNTAIN_SETUP). */
@@ -172,6 +212,6 @@ export function mountainSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): 
     muSlide: p.muSlide * s.frontGrip,
     rearGrip: (p.rearGrip * s.rearGrip) / s.frontGrip,
     tractionSlip: s.tractionSlip,
-    drift: s.drift,
+    drift: s.ai === undefined ? s.drift : { ...s.drift, ai: s.ai },
   };
 }

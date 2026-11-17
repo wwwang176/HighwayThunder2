@@ -10,7 +10,7 @@ import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
-import { BEST_TIME_KEY, CURVED_BEST_TIME_KEY, MAX_FRAME_DT, MAX_SUBSTEPS, MOUNTAIN_BEST_TIME_KEY, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
+import { BEST_TIME_KEY, CURVED_BEST_TIME_KEY, MAX_FRAME_DT, MAX_SUBSTEPS, MOUNTAIN_BEST_TIME_KEY, SKIDPAD_BEST_TIME_KEY, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { Centerline, randomRoad, STRAIGHT_ROAD } from '../road/centerline';
 import { boxToFrame, OUR_FRAME, RoadFrame, useRoad } from '../road/frame';
 import { Sound, IMPACT_PEAK, type SkidSource } from '../audio/sound';
@@ -70,6 +70,8 @@ const FALLEN = 5;
 import { FinishGate, type SparkEmitter } from '../world/finishGate';
 import { RoadScene, type Scenery } from '../world/roadScene';
 import { MountainScene } from '../world/mountainScene';
+import { SkidpadScene } from '../world/skidpadScene';
+import { SKIDPAD, skidpadRoad } from '../road/skidpad';
 import { Minimap } from '../ui/minimap';
 import { MountainDriver } from '../ai/mountainDriver';
 import { MountainPlannerDriver } from '../ai/mountainPlannerDriver';
@@ -210,10 +212,15 @@ export class Game {
   readonly flow: GameFlow;
   /** The player's drift (its seconds on the HUD). */
   private readonly driftTimer = new DriftTimer();
+  /** The practice ground's slide readout (degrees, by the speedometer) and what it shows now (to write it only when it changes). */
+  private slideReadout: HTMLElement | null = null;
+  private slideShown = -1;
   /** The road bends (laid out at random each race: road/centerline randomRoad), else straight as ever. */
   readonly curved: boolean;
   /** The mountain road (road/mountain: two lanes, hairpins, climbs; no traffic) instead of the highway. */
   readonly mountain: boolean;
+  /** The drift practice ground (?skidpad; road/skidpad): flat, lined, no rivals - on the mountain road's setup. */
+  readonly skidpad: boolean;
   /** The race's length (m). */
   readonly courseLength: number;
   /** The mountain road's round map (bottom left of the HUD; none on the highway). */
@@ -311,11 +318,12 @@ export class Game {
   /** Debug: stop the real-time loop from advancing the simulation. */
   freeze = false;
 
-  constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld, opts: { curved?: boolean; mountain?: boolean } = {}) {
-    this.mountain = opts.mountain ?? false;
+  constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld, opts: { curved?: boolean; mountain?: boolean; skidpad?: boolean } = {}) {
+    this.skidpad = opts.skidpad ?? false;
+    this.mountain = this.skidpad || (opts.mountain ?? false);
     this.curved = !this.mountain && (opts.curved ?? false);
-    this.courseLength = this.mountain ? MOUNTAIN.length : ROAD_LENGTH;
-    this.flow = new GameFlow(localStorage, this.mountain ? MOUNTAIN_BEST_TIME_KEY : this.curved ? CURVED_BEST_TIME_KEY : BEST_TIME_KEY, this.courseLength);
+    this.courseLength = this.skidpad ? Infinity : this.mountain ? MOUNTAIN.length : ROAD_LENGTH;
+    this.flow = new GameFlow(localStorage, this.skidpad ? SKIDPAD_BEST_TIME_KEY : this.mountain ? MOUNTAIN_BEST_TIME_KEY : this.curved ? CURVED_BEST_TIME_KEY : BEST_TIME_KEY, this.courseLength);
     physics.timestep = PHYSICS_DT;
     // (No antialiasing of its own: the picture's edges are smoothed in render/postFx.)
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -330,9 +338,14 @@ export class Game {
     container.appendChild(this.renderer.domElement);
     this.post = new PostFx(this.renderer, this.scene, this.camera);
     this.flares = new LightFlares(this.post.flares.scene, 2000, this.post.flares.depth); // (faded by how hidden, not cut)
-    this.road = this.mountain ? new MountainScene(this.scene, this.renderer) : new RoadScene(this.scene, this.renderer);
-    this.gate = this.mountain ? new FinishGate(this.scene, { left: -MOUNTAIN.edge - 0.6, right: MOUNTAIN.edge + 0.6, length: this.courseLength }) : new FinishGate(this.scene);
-    if (this.mountain) this.rivalCars = this.rivalCars.slice(0, MOUNTAIN_RIVALS);
+    this.road = this.skidpad ? new SkidpadScene(this.scene, this.renderer) : this.mountain ? new MountainScene(this.scene, this.renderer) : new RoadScene(this.scene, this.renderer);
+    this.gate = this.mountain ? new FinishGate(this.scene, { left: -MOUNTAIN.edge - 0.6, right: MOUNTAIN.edge + 0.6, length: this.skidpad ? SKIDPAD.length : this.courseLength }) : new FinishGate(this.scene);
+    // (the practice ground: no finish, no time - its course endless, the gate and the HUD's time and track not shown)
+    if (this.skidpad) {
+      this.gate.hide();
+      document.body.classList.add('skidpad');
+    }
+    if (this.mountain) this.rivalCars = this.rivalCars.slice(0, this.skidpad ? 0 : MOUNTAIN_RIVALS);
     for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
     this.player = new PlayerCar(physics, this.scene);
     this.player.surfaceGrip = surfaceGrip;
@@ -362,7 +375,12 @@ export class Game {
       onTitle: () => this.toTitle(),
       onSettings: () => this.settings.open(uiRoot),
     });
-    if (this.mountain) this.minimap = new Minimap(uiRoot.querySelector<HTMLElement>('#hud')!); // (in the HUD Hud built)
+    if (this.mountain && !this.skidpad) this.minimap = new Minimap(uiRoot.querySelector<HTMLElement>('#hud')!); // (in the HUD Hud built)
+    if (this.skidpad) {
+      this.slideReadout = document.createElement('div');
+      this.slideReadout.className = 'slide-readout';
+      uiRoot.appendChild(this.slideReadout);
+    }
     this.settings = new SettingsPopup(uiRoot);
     this.settings.onQuality = (pr) => this.setQuality(pr);
     this.settings.onVolumes = (v) => this.setVolumes(v);
@@ -379,7 +397,7 @@ export class Game {
         }
         // (the course's own flags off - the saved pick decides - any other, ?t= say, kept)
         const params = new URLSearchParams(location.search);
-        for (const k of ['mountain', 'highway', 'straight']) params.delete(k);
+        for (const k of ['mountain', 'highway', 'straight', 'skidpad']) params.delete(k);
         location.search = params.toString();
         return;
       }
@@ -764,7 +782,7 @@ export class Game {
       this.aiDriver.recovery = trackerFrom(spec.ai.recovery);
     }
     const drawn = raceRivals(cars, Math.random); // (at random: drawn afresh each race, the same race again too)
-    const rivals = this.mountain ? drawn.slice(0, MOUNTAIN_RIVALS) : drawn;
+    const rivals = this.mountain ? drawn.slice(0, this.skidpad ? 0 : MOUNTAIN_RIVALS) : drawn;
     if (rivals.length !== this.rivalCars.length || rivals.some((id, i) => id !== this.rivalCars[i])) {
       this.rivals.dispose();
       this.rivals = this.makeRivals(rivals.map(specOf));
@@ -850,9 +868,13 @@ export class Game {
     this.contactSoundAt.clear();
     if (this.curved || this.mountain) {
       // A new road each race (and on the title's road too).
-      this.roadLine = this.mountain ? mountainRoad(Math.random) : randomRoad(Math.random, ROAD_LENGTH);
+      this.roadLine = this.skidpad ? skidpadRoad() : this.mountain ? mountainRoad(Math.random) : randomRoad(Math.random, ROAD_LENGTH);
       useRoad(this.roadLine); // (both carriageways' frames: the traffic's places, the obstacles every AI sees)
-      if (this.mountain) {
+      if (this.skidpad) {
+        // (the practice ground: flat tarmac as wide as it is, walls along its sides)
+        const ground = surfaceMesh(this.roadLine, -100, SKIDPAD.length + 100, () => [-SKIDPAD.half - 40, SKIDPAD.half + 40]);
+        this.physics.setRoad(this.roadLine, { rails: { left: () => -SKIDPAD.half, right: () => SKIDPAD.half }, ground });
+      } else if (this.mountain) {
         // (its edges along it: a shoulder on a tight bend's outside)
         const e = roadEdges(this.roadLine);
         const ground = surfaceMesh(this.roadLine, -MOUNTAIN.before, this.courseLength + MOUNTAIN.after, (s) => [-e.at(s, -1) - 1.5, e.at(s, 1) + 1.5]); // (past the walls: no edge to fall off)
@@ -866,7 +888,8 @@ export class Game {
       // (the player's AI - the I key, past the finish - on the mountain road: its line worked out for this road)
       if (this.aiDriver instanceof MountainDriver || this.aiDriver instanceof MountainPlannerDriver) this.aiDriver.setRoad(this.roadLine, mountainAi(specOf(this.cars.player).ai, mountainSetupOf(this.cars.player)));
     }
-    if (this.mountain) this.player.resetAt(-3, MOUNTAIN_LANE, 0);
+    if (this.skidpad) this.player.resetAt(SKIDPAD.start, 0, 0);
+    else if (this.mountain) this.player.resetAt(-3, MOUNTAIN_LANE, 0);
     else this.player.resetTo(-3, 1, 0);
     this.player.nitro.reset();
     this.playerNitroAi.reset();
@@ -947,6 +970,14 @@ export class Game {
    * few car lengths), pointing along the road, at a speed it can take the bends ahead at.
    */
   private putBackOnMountain(): void {
+    // (the practice ground: back to its start, standing)
+    if (this.skidpad) {
+      this.player.resetAt(SKIDPAD.start, 0, 0);
+      this.aiDriver?.reset(this.player.d);
+      this.skids.cut();
+      this.rig.snap();
+      return;
+    }
     const road = this.roadLine;
     const rivals = this.rivals.boxes(this.rivalBoxes);
     let s = Math.max(0, Math.min(this.player.s, this.courseLength));
@@ -1126,8 +1157,11 @@ export class Game {
     // what is near, unseen).
     const pp = this.player.body.translation();
     const near = (x: number, z: number) => (x - pp.x) ** 2 + (z - pp.z) ** 2 < SMOKE_RANGE ** 2;
+    // (an arcade drift: its rear's drive kept whole, the tyres are not "sliding" to the tyre model - they grip
+    // straight on - yet slide sideways: marked and smoking as they do)
+    const sideways = this.player.arcadeDrift && this.player.drifting > 0.5;
     this.player.wheels.forEach((w, i) => {
-      const sliding = w.inContact && w.sliding;
+      const sliding = w.inContact && (w.sliding || sideways);
       const k = sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0;
       this.skids.add(i, w.contactX, w.contactZ, w.dirX, w.dirZ, k, w.contactY);
       const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, pv.x, pv.z); // (spinning: thrown back)
@@ -1137,8 +1171,9 @@ export class Game {
     // the wrecks' 100 on.)
     for (const r of this.rivals.list) {
       const rv = r.car.body.linvel();
+      const rSideways = r.car.arcadeDrift && r.car.drifting > 0.5; // (as the player's: sliding sideways in an arcade drift)
       r.car.wheels.forEach((w, i) => {
-        const slip = w.inContact && w.sliding && near(w.contactX, w.contactZ) ? w.slip : 0;
+        const slip = w.inContact && (w.sliding || rSideways) && near(w.contactX, w.contactZ) ? w.slip : 0;
         const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, rv.x, rv.z);
         this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, slip, rv.x, rv.z, dt, kick.x, kick.z, w.contactY);
       });
@@ -1390,6 +1425,14 @@ export class Game {
     const p = this.player;
     const slide = Math.abs(Math.atan2(p.vLat, Math.max(Math.abs(p.vLong), 1)));
     this.hud.drift(this.driftTimer.update(dt, slide, p.speed));
+    // (the practice ground: its slide in degrees, written only when it changes)
+    if (this.slideReadout) {
+      const deg = p.speed > 1 ? Math.round((slide * 180) / Math.PI) : 0;
+      if (deg !== this.slideShown) {
+        this.slideShown = deg;
+        this.slideReadout.textContent = t('hud.slide', { deg: String(deg) });
+      }
+    }
   }
 
   private checkNearMisses(): void {
@@ -1589,7 +1632,7 @@ export class Game {
     else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
     // The mountain road: the chase camera swinging wide round a hairpin, the intro's and the finish's shots set wide
     // of the car, all went into the rock - kept over the road (moved in, looking the same way: no jump in the view).
-    if (this.mountain) {
+    if (this.mountain && !this.skidpad) { // (the practice ground: flat and open - no rock to keep it out of)
       const e = roadEdges(this.roadLine);
       keepOverRoad(this.roadLine, this.camera.position, this.player.s, (s, side) => e.at(s, side) - 0.6, 0.8); // (a shoulder's room too)
     }

@@ -470,6 +470,98 @@ export interface DriftAssist {
    * against the spring (driftLimit), which holds it some spin / hold rad past what the steering sets.
    */
   spin: number;
+  /** The keyboard racers' drift (PlayerCar.arcadeDrift: any car set up with it): by its turning force, not a ceiling. */
+  arcade?: ArcadeDrift;
+  /** The AI's drift, this car's own (none: MOUNTAIN_DRIVER.drift's). */
+  ai?: AiDrift;
+}
+
+/** A car's own AI drift (over MOUNTAIN_DRIVER.drift). */
+export interface AiDrift {
+  /**
+   * Its throttle holding the drift (in an arcade drift the slide is the throttle's - the same throttle slid a stronger
+   * car further; MOUNTAIN_DRIVER.drift.gasMid).
+   */
+  gas: number;
+  /** Its handbrake mid-drift: pulled when it will run wide this far on (s; drift.pullLook)... */
+  pullLook?: number;
+  /** ...for this long (s; drift.hbPulse). */
+  hbPulse?: number;
+  /** Aimed at the bend's exit: the slide it holds this much more (rad) a rad/s it turns short of it (drift.aimSlide; 0: not). */
+  aimSlide?: number;
+}
+
+/**
+ * The player's drift, the keyboard racers' way (Need for Speed's): no ceiling on the slide - the inputs turn the body
+ * (N·m, as much as it drifts): steering into the turn and the throttle more of it, counter-steering and off the gas
+ * less; the slide's change damped. The rear tyres' drive kept whole (their grip less sideways only): pushing along the
+ * nose, the car's path turns after its nose - it circles, it does not spin. Past `safe` (rad) the spring (hold, damp)
+ * pulls it back, and the stability control from `escFrom` to `escFull` - a last net, out of the way.
+ */
+export interface ArcadeDrift {
+  /** Into the turn on full lock, and on full throttle (more slide). */
+  steer: number;
+  gas: number;
+  /** Counter-steering on full lock, and off the gas (less slide). */
+  counter: number;
+  lift: number;
+  /**
+   * The slide drawn back, N·m per rad of it, from none (its path catching up its nose, the tyres' own straightening -
+   * not a ceiling: at any slide, in proportion): the inputs' turn against it settles the slide (without it the car
+   * with its rear's grip down turned on round by itself, full lock 75°/s, to the last net).
+   */
+  align: number;
+  /** The slide's change held back, N·m per rad/s, at most `dampMax`. */
+  damp: number;
+  dampMax: number;
+  safe: number;
+  escFrom: number;
+  escFull: number;
+  /**
+   * Into the drift, thrown in - the handbrake, or braking with the wheel `enterSteer` over (its weight forward), its
+   * slide past the drift's own (DriftAssist from) within `enterArm` s: by that slide (from..full). Not the wheel alone
+   * (held round a long bend on grip, 2-4° of slide, it slid out to 20°; a lane change's tap, the wheel all the way over
+   * in 0.1 s). Else only by a big slide: from `enterFrom` (at `enterSlow` m/s and under; `enterFromFast` at
+   * `enterFast` and over - the faster, the more slide it takes) to `enterFull` rad. In, it stays (from..full) till the
+   * slide is back under `from`. How much it drifts rises `enterRate` a second at most (no lurch as it locks in).
+   */
+  enterSteer: number;
+  enterArm: number;
+  enterFrom: number;
+  enterFromFast: number;
+  enterSlow: number;
+  enterFast: number;
+  enterFull: number;
+  enterRate: number;
+}
+
+/** The slide (rad) a big slide's drift starts from at this speed (m/s): ArcadeDrift.enterFrom..enterFromFast. */
+export function arcadeEnterFrom(speed: number, a: ArcadeDrift): number {
+  const k = Math.min(1, Math.max(0, (Math.abs(speed) - a.enterSlow) / (a.enterFast - a.enterSlow)));
+  return a.enterFrom + (a.enterFromFast - a.enterFrom) * k;
+}
+
+/**
+ * How much an arcade drift drifts (0..1) - in it (`latched`) by the drift's slide, else by the bigger one's
+ * (ArcadeDrift.enterFrom..enterFull); `share` and `big` the two shares at this slide, `prev` its last, risen
+ * `enterRate`·dt at most.
+ */
+export function arcadeShare(share: number, big: number, latched: boolean, prev: number, dt: number, a: ArcadeDrift): number {
+  const want = latched ? share : big;
+  return want > prev ? Math.min(want, prev + a.enterRate * dt) : want;
+}
+
+/**
+ * The player's drift turn (N·m; + turning it right, as escTorque) at this slide (rad, + its motion to its right), its
+ * change (rad/s), the steering into the turn (driftInto, -1..1), the throttle (0..1) and how much it drifts (0..1).
+ */
+export function arcadeTurn(slide: number, rate: number, into: number, throttle: number, share: number, a: ArcadeDrift): number {
+  const more = a.steer * Math.max(0, into) + a.gas * throttle; // (toward more slide)
+  const less = a.counter * Math.max(0, -into) + a.lift * (1 - throttle);
+  const damp = Math.max(-a.dampMax, Math.min(a.dampMax, a.damp * rate));
+  // (more slide: turning against its sign - as driftSpin; drawn back by it, in proportion; the damping against its
+  // change, either way)
+  return (-Math.sign(slide) * (more - less) + a.align * slide + damp) * share + 0;
 }
 
 /** At speed: none under minSpeed, all of it from fullSpeed (m/s, either way) - the drift assist's share by speed alone. */
