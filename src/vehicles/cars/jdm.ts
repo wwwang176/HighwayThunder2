@@ -3,6 +3,7 @@ import { SUPERCAR_TUNE } from './streetRacer';
 import { withMass } from './mass';
 import { JDM_TRACKER } from './jdmTracker';
 import { JDM_MOUNTAIN_NET } from './jdmMountainNet';
+import { JDM_DRIFT_NET } from './jdmDriftNet';
 import { JDM_RECOVERY } from './jdmRecovery';
 import { JDM_COLLIDER } from './jdmCollider';
 
@@ -86,5 +87,6 @@ export const JDM_CAR: CarSpec = {
     tracker: JDM_TRACKER,
     recovery: JDM_RECOVERY,
     mountainTracker: JDM_MOUNTAIN_NET,
+    mountainDrift: JDM_DRIFT_NET,
   },
 };

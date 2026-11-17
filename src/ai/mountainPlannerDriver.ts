@@ -126,7 +126,7 @@ export class MountainPlannerDriver implements RivalDriver {
     // (round a hairpin after the kick: its drift network on top)
     const view = this.inner.driftView;
     if (!this.driftNet || !view) return input;
-    return applyDriftNet(this.driftNet, driftNetInputs(view, input, this.driftInputs), input);
+    return applyDriftNet(this.driftNet, driftNetInputs(view, input, this.driftInputs), input, view.dir);
   }
 
   /** The driver's input with its driving network's correction (none, or no road or line yet: as it was). */

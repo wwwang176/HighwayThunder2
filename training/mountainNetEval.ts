@@ -26,11 +26,17 @@ import { mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/moun
  *   - less METRE_GAIN a metre covered (0.01: 3 % slower cost ~1, against tens for its lag - it learned to slow down).
  * Other cars' contacts cost nothing: a street race (the user's).
  * The drift network's (mode 'drift': the brain round the hairpins after the kick, the car's own driving network on its
- * line): its slide, not its speed (the user's: bigger looks better, no more walls) - less ANGLE_GAIN a degree of each
- * hairpin's most slide, DRIFT_WALL_COST a wall contact, the put-backs as above, less DRIFT_METRE_GAIN a metre.
+ * line): its slide, not its speed (the user's: bigger looks better, no more walls; sliding into it scores too) - less
+ * ANGLE_GAIN a degree of each hairpin's slide on average through it, and ENTRY_BONUS degrees' worth more for one slid
+ * past ENTRY_SLIDE in its first ENTRY_SHARE; DRIFT_WALL_COST a wall contact, the put-backs as above, less
+ * DRIFT_METRE_GAIN a metre. (On each hairpin's most slide alone it learned to slide late: its slide going in halved,
+ * its handbrake on three times as long there - the muscle car slid late into a tenth of its hairpins.)
  */
 
 const ANGLE_GAIN = 0.1;
+const ENTRY_BONUS = 10;
+const ENTRY_SLIDE = 20;
+const ENTRY_SHARE = 1 / 3;
 const DRIFT_WALL_COST = 10;
 const DRIFT_METRE_GAIN = 0.005;
 const WALL_COST = 5;
@@ -66,9 +72,17 @@ export interface RunResult {
   metres: number;
   time: number | null;
   nan: boolean;
-  /** Each hairpin's most slide (deg) summed, and the hairpins it went into. */
+  /** Each hairpin's most slide (deg) summed, and the hairpins it went into... */
   angle: number;
   pins: number;
+  /** ...each one's slide on average through it (deg) summed, and those it slid past ENTRY_SLIDE in its first ENTRY_SHARE. */
+  mean: number;
+  entered: number;
+}
+
+/** The drift network's slide score a hairpin (deg): its slide on average through them, ENTRY_BONUS more for one slid into. */
+export function slideScore(r: RunResult): number {
+  return (r.mean + ENTRY_BONUS * r.entered) / Math.max(1, r.pins);
 }
 
 /** Which network the brain is: the driving network on its line, or the drift network round the hairpins. */
@@ -107,9 +121,10 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
   }
   rivals.place();
 
-  const res: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0 };
+  const res: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
   const runs = hairpinRuns(road, 26);
   const most = runs.map(() => -1); // (each hairpin's most slide, deg; -1: not there yet)
+  const through = runs.map(() => ({ sum: 0, n: 0, early: 0 })); // (in it: its slide summed a step, the steps, its most in its first ENTRY_SHARE)
   const snaps: { t: number; s0: number; d: Float32Array }[] = [];
   let lastWall = -Infinity;
   let stuck = 0;
@@ -133,7 +148,17 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
     car.postPhysics();
     time += PHYSICS_DT;
     const pi = runs.findIndex((h) => car.s >= h.from && car.s <= h.to + 15);
-    if (pi >= 0) most[pi] = Math.max(most[pi], (Math.abs(Math.atan2(car.vLat, Math.max(Math.abs(car.vLong), 1))) * 180) / Math.PI);
+    if (pi >= 0) {
+      const h = runs[pi];
+      const slideNow = (Math.abs(Math.atan2(car.vLat, Math.max(Math.abs(car.vLong), 1))) * 180) / Math.PI;
+      most[pi] = Math.max(most[pi], slideNow);
+      if (car.s <= h.to) {
+        const t = through[pi];
+        t.sum += slideNow;
+        t.n++;
+        if (car.s <= h.from + ENTRY_SHARE * (h.to - h.from)) t.early = Math.max(t.early, slideNow);
+      }
+    }
     rivals.after(PHYSICS_DT, view, []);
     const p = car.body.translation();
     if (![p.x, p.y, p.z].every(Number.isFinite)) {
@@ -177,21 +202,24 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
   }
   res.metres = Math.max(0, car.s + 3);
   physics.free();
-  for (const m of most) {
-    if (m < 0) continue;
+  most.forEach((m, i) => {
+    if (m < 0) return;
     res.angle += m;
     res.pins++;
-  }
+    const t = through[i];
+    res.mean += t.n ? t.sum / t.n : 0;
+    if (t.early >= ENTRY_SLIDE) res.entered++;
+  });
   const fell = RESET_COST * res.resets + (res.nan ? FELL_COST : 0);
   res.cost = mode === 'drift'
-    ? DRIFT_WALL_COST * res.walls + fell - ANGLE_GAIN * res.angle - DRIFT_METRE_GAIN * res.metres
+    ? DRIFT_WALL_COST * res.walls + fell - ANGLE_GAIN * (res.mean + ENTRY_BONUS * res.entered) - DRIFT_METRE_GAIN * res.metres
     : res.lag + WALL_COST * res.walls + fell - METRE_GAIN * res.metres;
   return res;
 }
 
 /** Several runs summed (each brain's exam): `seeds` alone and `raceSeeds` from the grid with rivals. */
 export function examine(brain: Brain | null, spec: CarSpec, seeds: number[], soloS: number, raceSeeds: number[], raceS: number, mode: NetMode = 'line'): RunResult {
-  const sum: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0 };
+  const sum: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
   let notHome = false;
   const add = (r: RunResult) => {
     sum.cost += r.cost;
@@ -206,6 +234,8 @@ export function examine(brain: Brain | null, spec: CarSpec, seeds: number[], sol
     sum.nan ||= r.nan;
     sum.angle += r.angle;
     sum.pins += r.pins;
+    sum.mean += r.mean;
+    sum.entered += r.entered;
   };
   for (const s of seeds) add(runOnce(brain, spec, s, soloS, false, mode));
   for (const s of raceSeeds) add(runOnce(brain, spec, s, raceS, true, mode));

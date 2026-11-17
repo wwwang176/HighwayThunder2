@@ -3,7 +3,7 @@ import { applyDriftNet, DRIFT_NET_INPUTS, DRIFT_NET_LAYERS, driftNetFrom, driftN
 import { weightCount } from '../src/ai/brain';
 import { mulberry32 } from '../src/ai/rng';
 
-const view: DriftView = { miss: 1.5, missRate: -2, roomIn: 1.2, roomOut: 3.4, slide: 0.55, yawRate: 1.1, vIn: -0.8, v: 19, through: 0.4, kappa: 1 / 18, sinceKick: 0.9 };
+const view: DriftView = { dir: 1, miss: 1.5, missRate: -2, roomIn: 1.2, roomOut: 3.4, slide: 0.55, yawRate: 1.1, vIn: -0.8, v: 19, through: 0.4, kappa: 1 / 18, sinceKick: 0.9 };
 const base = { throttle: 0.9, brake: 0, steer: 0.4, handbrake: false };
 
 /** A drift network whose outputs are tanh(bias) alone (all its weights 0 but its output biases). */
@@ -29,22 +29,36 @@ describe('mountainDriftNet', () => {
   it('a quiet network (its start) changes nothing - the handbrake either way as the driver had it', () => {
     const q = quietDriftNet(mulberry32(7));
     const inputs = driftNetInputs(view, base, new Float32Array(DRIFT_NET_INPUTS));
-    expect(applyDriftNet(q, inputs, base)).toEqual(base);
-    expect(applyDriftNet(q, inputs, { ...base, handbrake: true })).toEqual({ ...base, handbrake: true });
-    expect(applyDriftNet(null, inputs, base)).toBe(base);
+    expect(applyDriftNet(q, inputs, base, 1)).toEqual(base);
+    expect(applyDriftNet(q, inputs, { ...base, handbrake: true }, 1)).toEqual({ ...base, handbrake: true });
+    expect(applyDriftNet(null, inputs, base, 1)).toBe(base);
   });
 
   it('its outputs: the wheel added to, the throttle moved either way (0..1), the handbrake pulled past 0.5 and let go under -0.5', () => {
     const inputs = driftNetInputs(view, base, new Float32Array(DRIFT_NET_INPUTS));
-    const a = applyDriftNet(biased(0.3, -0.5, 0.8), inputs, base);
+    const a = applyDriftNet(biased(0.3, -0.5, 0.8), inputs, base, 1);
     expect(a.steer).toBeCloseTo(0.7, 5);
     expect(a.throttle).toBeCloseTo(0.4, 5);
     expect(a.handbrake).toBe(true);
-    const b = applyDriftNet(biased(0.9, 0.5, -0.8), inputs, { ...base, handbrake: true });
+    const b = applyDriftNet(biased(0.9, 0.5, -0.8), inputs, { ...base, handbrake: true }, 1);
     expect(b.steer).toBe(1);
     expect(b.throttle).toBe(1);
     expect(b.handbrake).toBe(false);
-    expect(applyDriftNet(biased(0, 0, 0.3), inputs, { ...base, handbrake: true }).handbrake).toBe(true);
+    expect(applyDriftNet(biased(0, 0, 0.3), inputs, { ...base, handbrake: true }, 1).handbrake).toBe(true);
+  });
+
+  it('a left-hand bend the mirror of a right-hand one: the same inputs (its wheel into the bend), its wheel out the other way', () => {
+    const net = quietDriftNet(mulberry32(3));
+    for (let i = 0; i < net.weights.length; i++) net.weights[i] = Math.sin(i * 1.7) * 0.4; // (any network)
+    const right = driftNetInputs(view, base, new Float32Array(DRIFT_NET_INPUTS));
+    const leftBase = { ...base, steer: -base.steer };
+    const left = driftNetInputs({ ...view, dir: -1 }, leftBase, new Float32Array(DRIFT_NET_INPUTS));
+    expect(Array.from(left)).toEqual(Array.from(right));
+    const r = applyDriftNet(net, right, base, 1);
+    const l = applyDriftNet(net, left, leftBase, -1);
+    expect(l.steer).toBeCloseTo(-r.steer, 6);
+    expect(l.throttle).toBeCloseTo(r.throttle, 6);
+    expect(l.handbrake).toBe(r.handbrake);
   });
 
   it('a car\'s weights: of its layout a network, else none', () => {

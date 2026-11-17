@@ -743,7 +743,7 @@ export class MountainDriver implements RivalDriver {
       this.lastMiss = missV;
       this.lastMissPin = pin;
       const roomNow = this.roomAt(self.s);
-      this.driftView = { miss: missV, missRate, roomIn: roomNow - pin.dir * self.d, roomOut: roomNow + pin.dir * self.d, slide: -pin.dir * slideSigned, yawRate: pin.dir * self.yawRate, vIn: pin.dir * vd, v, through: (self.s - pin.from) / Math.max(1, pin.to - pin.from), kappa: Math.abs(road.curvature((pin.from + pin.to) / 2)), sinceKick: this.sinceKick };
+      this.driftView = { dir: pin.dir, miss: missV, missRate, roomIn: roomNow - pin.dir * self.d, roomOut: roomNow + pin.dir * self.d, slide: -pin.dir * slideSigned, yawRate: pin.dir * self.yawRate, vIn: pin.dir * vd, v, through: (self.s - pin.from) / Math.max(1, pin.to - pin.from), kappa: Math.abs(road.curvature((pin.from + pin.to) / 2)), sinceKick: this.sinceKick };
       if (this.record) {
         // (to be drawn: where it is going; and, aiming, the arc it wants and its point)
         const pred: [number, number][] = [[self.s, self.d]];

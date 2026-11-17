@@ -26,9 +26,10 @@ const coreOf = (d: Driver): MountainDriver => (d instanceof MountainPlannerDrive
 /**
  * SOLO=1: each car alone on every seed (no rivals) - its time, its walls, its drifts, and how far off the computed
  * no-traffic path (its reference, refAt) it drove: median and p95 every 0.1 s, drifting left out, and out of a drift
- * till it is first back within SOLO_BACK m of it.
+ * till it is first back within SOLO_BACK m of it. SOLO_CARS=street-racer,jdm: those cars alone.
  */
 const SOLO = !!process.env.SOLO;
+const SOLO_CARS = process.env.SOLO_CARS?.split(',');
 /** NET=0: the planner drivers without their cars' trained networks (the driver's own control). */
 const NO_NET = process.env.NET === '0';
 const SOLO_BACK = 0.3;
@@ -47,7 +48,8 @@ const HAIRPINS = !!process.env.HAIRPINS;
 const JSON_OUT = process.env.JSON;
 const JSON_SEEDS = Number(process.env.JSON_SEEDS ?? 5);
 const dump: Record<string, unknown> = {};
-interface PinStat { slides: number; on: boolean; most: number; walls: number; inMin: number; outMin: number }
+/** (sum, n: its slide summed in it a step, the steps - its slide on average through it; early: its most in its first third) */
+interface PinStat { slides: number; on: boolean; most: number; walls: number; inMin: number; outMin: number; sum: number; n: number; early: number }
 
 /**
  * Mountain races without drawing (Task 10 of docs/superpowers/plans/2026-11-15-mountain-road.md): the player's car
@@ -155,7 +157,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     if (NO_NET && r.driver instanceof MountainPlannerDriver) r.driver.net = null;
   }
   rivals.place();
-  const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, lineWalls: 0, resets: 0, under: 0, drifts: 0, sliding: false, most: 0, cars: 0, pins: runs.map(() => ({ slides: 0, on: false, most: 0, walls: 0, inMin: 99, outMin: 99 })) }));
+  const stats: CarStats[] = Array.from({ length: 4 }, () => ({ time: null, s: 0, walls: 0, lineWalls: 0, resets: 0, under: 0, drifts: 0, sliding: false, most: 0, cars: 0, pins: runs.map(() => ({ slides: 0, on: false, most: 0, walls: 0, inMin: 99, outMin: 99, sum: 0, n: 0, early: 0 })) }));
   let time = 0;
   let nan = false;
   const dumpIt = !!JSON_OUT && seed < FIRST + JSON_SEEDS;
@@ -283,6 +285,12 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         const ps = st.pins[pi];
         const dir = runs[pi].dir;
         ps.most = Math.max(ps.most, a);
+        const h = runs[pi];
+        if (car.s >= h.from && car.s <= h.to) {
+          ps.sum += a;
+          ps.n++;
+          if (car.s <= h.from + (h.to - h.from) / 3) ps.early = Math.max(ps.early, a);
+        }
         if (!ps.on && a > (15 * Math.PI) / 180) {
           ps.on = true;
           ps.slides++;
@@ -346,12 +354,13 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
   let home = 0;
   let runs = 0;
   for (const spec of RIVAL_CARS) {
+    if (SOLO_CARS && !SOLO_CARS.includes(spec.id)) continue;
     const dev: number[] = [];
     let walls = 0;
     let lineWalls = 0;
     let time = 0;
     let done = 0;
-    const pinT = { n: 0, twice: 0, none: 0, most: 0 };
+    const pinT = { n: 0, twice: 0, none: 0, most: 0, through: 0, into: 0 };
     for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
       const r = race(seed, spec, true);
       runs++;
@@ -371,13 +380,15 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
         if (ps.slides > 1) pinT.twice++;
         if (ps.slides === 0) pinT.none++;
         pinT.most += ps.most;
+        pinT.through += ps.n ? ps.sum / ps.n : 0;
+        if (ps.early >= (20 * Math.PI) / 180) pinT.into++;
       }
       out.push(`  ${spec.id} seed ${seed}: ${c.time !== null ? c.time.toFixed(2) + ' s' : `DNF@${c.s.toFixed(0)}`} walls ${c.walls} (line ${c.lineWalls}) off p50 ${quantile(r.meet.dev, 0.5).toFixed(3)} p95 ${quantile(r.meet.dev, 0.95).toFixed(3)} m`);
       out.push(...log.splice(0));
     }
     out.push(
       `${spec.id}: home ${done}/${SEEDS}, time avg ${(time / Math.max(1, done)).toFixed(2)} s, walls ${walls} (following its line ${lineWalls}), off its path p50 ${quantile(dev, 0.5).toFixed(3)} p95 ${quantile(dev, 0.95).toFixed(3)} m (${dev.length} samples), ` +
-        `hairpins ${pinT.n}: slid twice+ ${pinT.twice}, not past 15° ${pinT.none}, most avg ${((pinT.most / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°`,
+        `hairpins ${pinT.n}: slid twice+ ${pinT.twice}, not past 15° ${pinT.none}, most avg ${((pinT.most / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°, through avg ${((pinT.through / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°, slid past 20° in its first third ${pinT.into}`,
     );
   }
   process.stdout.write(out.join('\n') + '\n');

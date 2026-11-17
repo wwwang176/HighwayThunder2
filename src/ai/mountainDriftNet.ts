@@ -11,6 +11,8 @@ import type { HandlingInput } from '../vehicles/handling';
 
 /** What the driver sees round a hairpin (MountainDriver.driftView). */
 export interface DriftView {
+  /** Which way the bend turns (+1 right): its wheel in and out mirrored by it - a left-hand bend the mirror of a right-hand one. */
+  dir: number;
   /** How far wide of its exit point it is going (m; -: inside it) - turning on as it turns now till it heads down the straight out - and how fast that is changing (m/s). */
   miss: number;
   missRate: number;
@@ -33,7 +35,11 @@ export const DRIFT_NET_LAYERS = [DRIFT_NET_INPUTS, 10, 3];
 
 const clamp3 = (x: number) => (Number.isFinite(x) ? Math.max(-3, Math.min(3, x)) : 0);
 
-/** Its inputs into `out` (DRIFT_NET_INPUTS long): what it sees, and the driver's own input this step. */
+/**
+ * Its inputs into `out` (DRIFT_NET_INPUTS long): what it sees, and the driver's own input this step - its wheel into
+ * the bend (+), as all it sees: one network for both ways (not mirrored, it learned left-hand bends apart - its wheel in
+ * 0.75 there, 0.97 in right-hand ones, and slid late into a quarter of the left-hand downhill hairpins).
+ */
 export function driftNetInputs(view: DriftView, base: HandlingInput, out: Float32Array): Float32Array {
   let k = 0;
   out[k++] = clamp3(view.miss / 3);
@@ -47,7 +53,7 @@ export function driftNetInputs(view: DriftView, base: HandlingInput, out: Float3
   out[k++] = clamp3(view.through * 2 - 1);
   out[k++] = clamp3(view.kappa * 20);
   out[k++] = clamp3(view.sinceKick);
-  out[k++] = clamp3(base.steer);
+  out[k++] = clamp3(view.dir * base.steer);
   out[k++] = clamp3(base.throttle);
   out[k++] = base.handbrake ? 1 : 0;
   return out;
@@ -71,13 +77,16 @@ export function driftNetFrom(weights: number[] | undefined): Brain | null {
 export const DRIFT_NET_HB = 0.5;
 const OUT = new Float32Array(3);
 
-/** The driver's input with the drift network's: its wheel added to, its throttle moved (either way), its handbrake pulled or let go. */
-export function applyDriftNet(brain: Brain | null, inputs: Float32Array, base: HandlingInput): HandlingInput {
+/**
+ * The driver's input with the drift network's: its wheel added to (into the bend +: `dir` the bend's way, as its inputs),
+ * its throttle moved (either way), its handbrake pulled or let go.
+ */
+export function applyDriftNet(brain: Brain | null, inputs: Float32Array, base: HandlingInput, dir: number): HandlingInput {
   if (!brain) return base;
   const o = forward(brain, inputs, OUT);
   return {
     ...base,
-    steer: Math.max(-1, Math.min(1, base.steer + o[0])),
+    steer: Math.max(-1, Math.min(1, base.steer + dir * o[0])),
     throttle: Math.max(0, Math.min(1, base.throttle + o[1])),
     handbrake: o[2] > DRIFT_NET_HB ? true : o[2] < -DRIFT_NET_HB ? false : base.handbrake,
   };
