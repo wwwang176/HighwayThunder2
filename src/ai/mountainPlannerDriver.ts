@@ -6,6 +6,7 @@ import type { Brain } from './brain';
 import type { RivalDriver } from './driver';
 import { MountainDriver } from './mountainDriver';
 import { applyMountainNet, MOUNTAIN_NET_INPUTS, mountainNetFrom, mountainNetInputs } from './mountainNet';
+import { applyDriftNet, DRIFT_NET_INPUTS, driftNetFrom, driftNetInputs } from './mountainDriftNet';
 import { MOUNTAIN_PLAN, type MountainPlan, type PlanOther, planMountain } from './mountainPlanner';
 import type { SelfState, TrafficBox } from './sensors';
 
@@ -37,6 +38,9 @@ export class MountainPlannerDriver implements RivalDriver {
   readonly inner = new MountainDriver();
   /** Its driving network (none: the mountain driver's own control on the plan). */
   net: Brain | null = null;
+  /** Its drift network (none: the mountain driver's own drift). */
+  driftNet: Brain | null = null;
+  private readonly driftInputs = new Float32Array(DRIFT_NET_INPUTS);
   /** Its plan now (null: none yet, or put back). */
   mplan: MountainPlan | null = null;
   private road: Centerline | null = null;
@@ -77,6 +81,7 @@ export class MountainPlannerDriver implements RivalDriver {
     this.road = road;
     this.inner.setRoad(road, ai);
     this.net = mountainNetFrom(ai.mountainTracker);
+    this.driftNet = driftNetFrom(ai.mountainDrift);
     this.reset(0);
   }
 
@@ -116,7 +121,16 @@ export class MountainPlannerDriver implements RivalDriver {
     if (drifting) this.inner.external = NO_OFFSET;
     else if (this.road && (this.since >= MOUNTAIN_REPLAN - 1e-9 || this.wasDrift || !this.mplan)) this.replan(self, others);
     this.wasDrift = drifting;
-    const input = this.inner.drive(self, others, p);
+    const own = this.inner.drive(self, others, p);
+    const input = this.withNet(self, own);
+    // (round a hairpin after the kick: its drift network on top)
+    const view = this.inner.driftView;
+    if (!this.driftNet || !view) return input;
+    return applyDriftNet(this.driftNet, driftNetInputs(view, input, this.driftInputs), input);
+  }
+
+  /** The driver's input with its driving network's correction (none, or no road or line yet: as it was). */
+  private withNet(self: SelfState, input: HandlingInput): HandlingInput {
     if (!this.net || !this.inner.lastLine || !this.road) return input;
     const inner = this.inner;
     const plan = this.mplan;

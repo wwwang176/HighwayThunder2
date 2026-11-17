@@ -49,4 +49,9 @@ export interface CarPerformance {
    * the mountain driver's own control along its plan. None: that control alone.
    */
   mountainTracker?: number[];
+  /**
+   * Weights of its mountain road drift network (src/ai/mountainDriftNet.ts, training/mountainNet.train.ts NET=drift):
+   * round a hairpin after the kick, on top of the mountain driver's own drift. None: that drift alone.
+   */
+  mountainDrift?: number[];
 }

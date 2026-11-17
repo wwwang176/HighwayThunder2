@@ -487,6 +487,8 @@ export interface AiDrift {
   pullLook?: number;
   /** ...for this long (s; drift.hbPulse). */
   hbPulse?: number;
+  /** Aimed at the bend's exit: the slide it holds this much more (rad) a rad/s it turns short of it (drift.aimSlide; 0: not). */
+  aimSlide?: number;
 }
 
 /**

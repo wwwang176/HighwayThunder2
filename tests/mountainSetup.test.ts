@@ -80,6 +80,13 @@ describe('mountainSetup', () => {
     expect(ai('no-such-car')).toBeUndefined();
   });
 
+  it("the supercar and the jdm aim their drifts at the bend's exit; the muscle car (thrown wide by it) does not", () => {
+    const ai = (id: string) => mountainSetup(STREET_RACER.params, mountainSetupOf(id)).drift?.ai;
+    expect(ai(STREET_RACER.id)?.aimSlide).toBeGreaterThan(0);
+    expect(ai(JDM_CAR.id)?.aimSlide).toBeGreaterThan(0);
+    expect(ai(MUSCLE_CAR.id)?.aimSlide ?? MOUNTAIN_DRIVER.drift.aimSlide).toBe(0);
+  });
+
   it('traction control on every car (the drive eased to hold the rear tyres\' slip at tractionSlip: they keep their sideways grip on the throttle)', () => {
     expect(MOUNTAIN_SETUP.tractionSlip).toBeGreaterThan(0);
     for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {

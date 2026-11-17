@@ -172,11 +172,15 @@ export const MOUNTAIN_SETUP: MountainSetup = {
  * its drift ended) and hit the wall - eased off the throttle there, held nose-in out of it, more throttle on it wide
  * of its line: 28° at most, or the walls. Its handbrake pulled sooner (looked for 1 s on, 0.6) and longer (0.15 s,
  * 0.1) caught it: on 0.9 35°, 2.6 s faster, 18 walls on 30 roads (15); the others on it more walls, less slide.
+ * Off the throttle near the inside (MOUNTAIN_DRIVER.drift.innerGas), the supercar's and the jdm's up to 1 (33° / 27°,
+ * 31° / 24° before; 11 / 8 walls, 25 / 13) - the muscle car's on 1 hit the wall 35 times (12 on 0.9).
+ * Aimed at the bend's exit (aimSlide), on 30 roads: the supercar 33° -> 35° (11 -> 13 walls), the jdm 27° -> 30°
+ * (8 -> 7); the muscle car 12 -> 30 walls - not it.
  */
 export const MOUNTAIN_SETUP_BY_CAR: Record<string, Partial<MountainSetup>> = {
-  'street-racer': { ai: { gas: 0.85 } },
+  'street-racer': { ai: { gas: 1, aimSlide: 0.2 } },
   'muscle-car': { arbRear: 1, brakeBias: 0, esc: 1, ai: { gas: 0.9, pullLook: 1, hbPulse: 0.15 } },
-  jdm: { ai: { gas: 0.8 } },
+  jdm: { ai: { gas: 1, aimSlide: 0.2 } },
 };
 
 /** A car's mountain setup (by its id: MOUNTAIN_SETUP_BY_CAR over MOUNTAIN_SETUP). */

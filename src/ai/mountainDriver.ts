@@ -5,6 +5,7 @@ import { type CarParams, DEFAULT_CAR, type HandlingInput, steerRange } from '../
 import { type RivalDriver, speedPedals } from './driver';
 import { type LineCar, lineAt, type RaceLine, racingLine, speedProfile } from './mountainLine';
 import type { SelfState, TrafficBox } from './sensors';
+import type { DriftView } from './mountainDriftNet';
 
 /** The mountain driver's settings (mutable: tuning). */
 export const MOUNTAIN_DRIVER = {
@@ -144,6 +145,12 @@ export const MOUNTAIN_DRIVER = {
     innerRoom: 1,
     innerSteer: -0.3,
     innerLook: 1.2,
+    innerGas: 0.2,
+    aimSlide: 0,
+    aimPull: 0.5,
+    aimMinT: 0.6,
+    exitD: 0,
+    viewExitD: 2,
     pullAngle: 0,
     pullAfter: 0.4,
     tightOn: 0,
@@ -285,6 +292,15 @@ export class MountainDriver implements RivalDriver {
   /** userCtl 3: its throttle now (the line kept by it), and the heading out of the bend it holds its nose to (rad; null: none). */
   private gasT = 0.5;
   private alignTo: number | null = null;
+  /** Aimed at a bend's exit (drift.aimSlide): the course rate it wants (rad/s)... */
+  aimRate = 0;
+  /** Drifting round a hairpin, kept to be drawn (record: on; the benches' trajectory dumps): its path turning on as it turns now, and, aiming, the arc it wants and the point it aims at (s, d; null: none this step). */
+  aimPath: { pred: [number, number][]; need: [number, number][] | null; at: [number, number] | null } | null = null;
+  record = false;
+  /** Round a hairpin after the kick, what it sees (mountainDriftNet.ts; null: not there this step). */
+  driftView: DriftView | null = null;
+  private lastMiss = 0;
+  private lastMissPin: HairpinRun | null = null;
 
   /** A hairpin's drift line (d, m): between its inside's edge (kept drift.wide off it) and the middle. */
   private driftLineOf(h: HairpinRun): number {
@@ -503,6 +519,9 @@ export class MountainDriver implements RivalDriver {
     // Round a hairpin, drifting (MOUNTAIN_DRIVER.drift) - which one, if any: one drift a hairpin (out of it, its slide
     // gone after it slid, done with it: drifting on, it drifted again).
     const D = T.drift;
+    this.aimPath = null;
+    const hadView = this.driftView !== null;
+    this.driftView = null;
     const slideSigned = Math.atan2(self.vLat, Math.max(Math.abs(self.vLong), 1));
     const slide = Math.abs(slideSigned);
     let pin = v >= D.minSpeed ? this.hairpins.find((h) => h !== this.done && self.s >= h.from - v * D.kickEarly && self.s <= h.to - D.exitEarly) : undefined;
@@ -657,6 +676,82 @@ export class MountainDriver implements RivalDriver {
         }
         return { d, off: pin.dir * (targetAt(x) - d) };
       };
+      // Aimed at the bend's exit (the car's own aimSlide, DriftAssist.ai; 0: not): the course rate (rad/s) that, held,
+      // brings it to the middle (exitD m in) by the bend's end (aimMinT s on at least) - the slide it holds aimSlide rad
+      // more a rad/s it turns short of that (the wheel in: it turns more), the handbrake aimPull rad/s short.
+      // (Tried: the throttle on it instead - the arcade drift's throttle turns it more - slid less, as many walls: off
+      // the throttle the slide went; on full throttle short still, the muscle car thrown wide at 45 walls of 10 roads)
+      const aimSlide = p.drift?.ai?.aimSlide ?? D.aimSlide;
+      let aimShort = 0;
+      const sAim = Math.max(pin.to, self.s + v * D.aimMinT);
+      const dAim = pin.dir * D.exitD;
+      const sp = Math.hypot(along0, vd);
+      // (where it ends up across the road by sAim, turning steadily at omega; its arc into `path` every 0.1 s)
+      const endAt = (omega: number, path?: [number, number][]): number => {
+        let psi = Math.atan2(vd, along0);
+        let d = self.d;
+        let x = self.s;
+        for (let i = 0; i < 80 && x < sAim && Math.cos(psi) > 0.05; i++) {
+          const k = road.curvature(x);
+          const f = Math.max(0.2, 1 - k * d);
+          d += sp * Math.sin(psi) * 0.05;
+          x += (sp * Math.cos(psi) * 0.05) / f;
+          psi += (omega - (sp * Math.cos(psi) * k) / f) * 0.05;
+          if (path && i % 2) path.push([x, d]);
+        }
+        path?.push([x, d]);
+        return d;
+      };
+      if (aimSlide > 0) {
+        let lo = this.courseA - 4;
+        let hi = this.courseA + 4;
+        for (let i = 0; i < 14; i++) {
+          const mid = (lo + hi) / 2;
+          if (endAt(mid) < dAim) lo = mid;
+          else hi = mid;
+        }
+        this.aimRate = (lo + hi) / 2;
+        aimShort = pin.dir * (this.aimRate - this.courseA); // (+: turning too little)
+      }
+      // Where it is going, the driver's way: turning on as it turns now (omega, rad/s) till it heads down the straight
+      // out of the bend, then straight on - where it is across the road by sAim (its path into `path` every 0.1 s).
+      // (Turning on to the bend's end, it went round and round: inside of its point all through the drift.)
+      const hOut = road.heading(pin.to + 15);
+      const goTo = (omega: number, path?: [number, number][]): number => {
+        let course = road.heading(self.s) + Math.atan2(vd, along0);
+        let d = self.d;
+        let x = self.s;
+        for (let i = 0; i < 120 && x < sAim; i++) {
+          const left = pin.dir * Math.atan2(Math.sin(hOut - course), Math.cos(hOut - course)); // (to turn yet)
+          if (left > 0) course += pin.dir * Math.min(left, pin.dir * omega * 0.05);
+          const psi = Math.atan2(Math.sin(course - road.heading(x)), Math.cos(course - road.heading(x)));
+          if (Math.cos(psi) <= 0.05) break;
+          const f = Math.max(0.2, 1 - road.curvature(x) * d);
+          d += sp * Math.sin(psi) * 0.05;
+          x += (sp * Math.cos(psi) * 0.05) / f;
+          if (path && i % 2) path.push([x, d]);
+        }
+        path?.push([x, d]);
+        return d;
+      };
+      // What it sees, for its drift network (mountainDriftNet.ts): where it is going (goTo) by the bend's exit, how far
+      // wide (m; -: inside) of a point viewExitD m in from the middle - it slides out from there to the middle on the
+      // straight. (Tried: the wheel, the throttle and the handbrake on that miss by rule - as many walls, 3-4° less
+      // slide: the arcade drift's slide is its throttle's, the throttle kept the line at its cost.)
+      const missV = pin.dir * (pin.dir * D.viewExitD - goTo(this.courseA));
+      const missRate = hadView && this.lastMissPin === pin ? (missV - this.lastMiss) / PHYSICS_DT : 0;
+      this.lastMiss = missV;
+      this.lastMissPin = pin;
+      const roomNow = this.roomAt(self.s);
+      this.driftView = { miss: missV, missRate, roomIn: roomNow - pin.dir * self.d, roomOut: roomNow + pin.dir * self.d, slide: -pin.dir * slideSigned, yawRate: pin.dir * self.yawRate, vIn: pin.dir * vd, v, through: (self.s - pin.from) / Math.max(1, pin.to - pin.from), kappa: Math.abs(road.curvature((pin.from + pin.to) / 2)), sinceKick: this.sinceKick };
+      if (this.record) {
+        // (to be drawn: where it is going; and, aiming, the arc it wants and its point)
+        const pred: [number, number][] = [[self.s, self.d]];
+        goTo(this.courseA, pred);
+        let need: [number, number][] | null = null;
+        if (aimSlide > 0) endAt(this.aimRate, (need = [[self.s, self.d]]));
+        this.aimPath = { pred, need, at: aimSlide > 0 ? [sAim, dAim] : null };
+      }
       let easing = false;
       if (D.userCtl) {
         const inSlide = -pin.dir * slideSigned;
@@ -671,6 +766,7 @@ export class MountainDriver implements RivalDriver {
           // (a big slide, all but steady; the line kept by the throttle - wide of it more, the push turning it in)
           this.slideT = Math.max(D.bigSlideMin, Math.min(D.bigSlideMax, D.bigSlide + D.bigSlideErr * err));
           this.gasT = Math.max(D.gasLow, Math.min(1, (p.drift?.ai?.gas ?? D.gasMid) + D.gasErr * err));
+          if (aimSlide > 0) this.slideT = Math.max(D.bigSlideMin, Math.min(D.bigSlideMax, D.bigSlide + aimSlide * aimShort));
           // (tried for the muscle car on more throttle, running wide in the bend's second half: off the throttle there
           // (0.2 over its last half) - fewer walls, little more slide (28°); more throttle wide of its line - worse. Its
           // own handbrake (DriftAssist.ai: pulled sooner, longer) caught it)
@@ -681,11 +777,13 @@ export class MountainDriver implements RivalDriver {
         const tight = this.sinceKick > D.pullAfter && (inRoom < D.innerRoom || (D.tightOn > 0 && pin.dir * (want - this.courseF) < -D.tightOn));
         easing = tight;
         // (about to hit the inside wall - danger - the wheel and the throttle as ever: tried on the arcade drift, the wheel
-        // straightened there hit the wall more (the jdm 1 -> 19 of 54 flat hairpins), off the gas near the inside (0.15)
-        // none on the flat but 1-2 s slower and 29 -> 36 race walls on the real roads, off it only at danger worse)
+        // straightened there hit the wall more (the jdm 1 -> 19 of 54 flat hairpins); off it only at danger worse)
+        // (too far in - tight: the wheel innerSteer, and off the throttle to innerGas (the arcade drift's throttle
+        // pushes it in): solo on 30 roads walls 25 / 15 / 13 -> 9 / 12 / 6, 1-2 s slower, 2-4° less slide - the
+        // supercar's and the jdm's own throttle up to 1 for it. Judged once on races (0.15: 29 -> 36 walls), unrepeatable)
         turn.steer = pin.dir * (tight ? D.innerSteer : Math.max(D.steerLeast, Math.min(D.steerMost, hold)));
       }
-      const c = { steer: turn.steer, throttle: D.userCtl >= 3 ? this.gasT : D.holdGas >= 0 ? (brakeIt > 0 ? 0 : gasNow) : brakeIt > 0 ? 0 : gasIt };
+      const c = { steer: turn.steer, throttle: D.userCtl >= 3 ? (easing && D.innerGas >= 0 ? Math.min(this.gasT, D.innerGas) : this.gasT) :D.holdGas >= 0 ? (brakeIt > 0 ? 0 : gasNow) : brakeIt > 0 ? 0 : gasIt };
       // Its last exitTurn rad of the bend: the wheel eased straight (the spring straightens the slide) before it is handed
       // back to its line.
       const rampLen = D.exitTurn / Math.max(1e-3, Math.abs(road.curvature((pin.from + pin.to) / 2)));
@@ -700,7 +798,7 @@ export class MountainDriver implements RivalDriver {
       const outRoom = this.roomAt(self.s) + pin.dir * pullAhead.d;
       // (the player's: about to cross its line outward - pullLook s on, pullErr m past it - pulled before, not after)
       const crossing = D.pullErr >= 0 && pullAhead.off > D.pullErr;
-      const wideSoon = (D.pullRoom > 0 && outRoom < D.pullRoom) || crossing;
+      const wideSoon = (aimSlide > 0 && aimShort > D.aimPull) ||(D.pullRoom > 0 && outRoom < D.pullRoom) || crossing;
       const tooLittle = (D.hbOn > 0 && short > D.hbOn && (D.pullSlide <= 0 || slide < D.pullSlide)) ||
         (D.pullAngle > 0 && this.sinceKick > D.pullAfter && (D.userCtl ? this.slideT : D.slideTarget) - -pin.dir * slideSigned > D.pullAngle);
       // (a short pull, a gap after it - held on, it slowed to a crawl and spun round past its line - and not past pullMost of slide)

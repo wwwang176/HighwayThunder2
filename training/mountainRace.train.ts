@@ -3,6 +3,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { selfStateOf } from '../src/ai/driver';
 import { hairpinRuns, MOUNTAIN_DRIVER, MountainDriver } from '../src/ai/mountainDriver';
 import { MountainPlannerDriver } from '../src/ai/mountainPlannerDriver';
+import { aimDump } from './aimDump';
 import { mulberry32 } from '../src/ai/rng';
 import { KMH, PHYSICS_DT } from '../src/config';
 import { FINISHED_SPEED, type RaceView, Rivals } from '../src/game/rivals';
@@ -267,7 +268,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         const mode = (drv as { mode?: string }).mode ?? 'line';
         const slide = (Math.atan2(car.vLat, Math.max(Math.abs(car.vLong), 1)) * 180) / Math.PI;
         const tr = tracks[k] as unknown as { wallFlag?: number } & (number | string)[][];
-        tr.push([+time.toFixed(1), +at.x.toFixed(2), +at.z.toFixed(2), +f.x.toFixed(3), +f.z.toFixed(3), mode, +slide.toFixed(1), +(car as unknown as { steer: number }).steer.toFixed(2), +(car.speed * 3.6).toFixed(0), mode === 'kick' || mode === 'pull' ? 1 : 0, tr.wallFlag ? 'W' : '', +(car as unknown as { throttle: number }).throttle.toFixed(2), +car.s.toFixed(1)]);
+        tr.push([+time.toFixed(1), +at.x.toFixed(2), +at.z.toFixed(2), +f.x.toFixed(3), +f.z.toFixed(3), mode, +slide.toFixed(1), +(car as unknown as { steer: number }).steer.toFixed(2), +(car.speed * 3.6).toFixed(0), mode === 'kick' || mode === 'pull' ? 1 : 0, tr.wallFlag ? 'W' : '', +(car as unknown as { throttle: number }).throttle.toFixed(2), +car.s.toFixed(1), aimDump(coreOf(drv), road)] as (number | string)[]);
         tr.wallFlag = 0;
       });
       hitNow.fill(false);
