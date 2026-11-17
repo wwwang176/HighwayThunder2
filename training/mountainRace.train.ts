@@ -129,12 +129,25 @@ const SEGS = ['straight', 'bend', 'approach', 'hairpin', 'exit'] as const;
 type Seg = (typeof SEGS)[number];
 type SegSums = Record<Seg, { t: number; v: number; thr: number; full: number; brk: number }>;
 const SEG_NEAR = 60;
+/**
+ * How hard each wall contact was (SOLO, the car racing): its speed into the wall as it touched (m/s, across the
+ * contact's normal, from before the step), and what it lost over the WALL_WATCH s after (its least speed then against
+ * its speed before) - a brush or a crash, and stopped (under WALL_STOP m/s).
+ */
+interface Hit { vn: number; v0: number; least: number; t: number }
+const WALL_WATCH = 1;
+const WALL_STOP = 5 / 3.6;
+const VN_EDGES = [1, 3, 6];
+const LOSS_EDGES = [0.1, 0.3, 0.7];
+const bucket = (x: number, edges: number[]) => edges.filter((e) => x >= e).length;
 const SEG_BEND = 150;
 const segSums = (): SegSums => Object.fromEntries(SEGS.map((k) => [k, { t: 0, v: 0, thr: 0, full: 0, brk: 0 }])) as SegSums;
 
-function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number; runs: { from: number; to: number; dir: number; r: number }[]; meet: Meet; seg: SegSums } {
+function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number; runs: { from: number; to: number; dir: number; r: number }[]; meet: Meet; seg: SegSums; hits: Hit[] } {
   const meet: Meet = { contacts: 0, startContacts: 0, passes: 0, dev: [] };
   const seg = segSums();
+  const hits: Hit[] = [];
+  const pv = { x: 0, z: 0, speed: 0 }; // (the player's going before the step)
   const lastTouch = new Map<number, number>();
   /** Per pair (i < j): who is ahead (+1: i), and a pass waiting to hold (by whom, since when). */
   const order = new Map<number, number>();
@@ -193,6 +206,10 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     const cap = stats[0].time === null ? player.params.maxSpeed : FINISHED_SPEED;
     const own = playerAi.drive(selfStateOf(player, cap), rivals.boxes(), player.params);
     player.prePhysics(STALL && time < STALL_S ? { throttle: 0, brake: 1, steer: 0 } : own, PHYSICS_DT);
+    const lv = player.body.linvel();
+    pv.x = lv.x;
+    pv.z = lv.z;
+    pv.speed = player.speed;
     physics.step((a, b, normal) => {
       if (!normal) return; // (the ground)
       for (const e of [a, b]) {
@@ -215,6 +232,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         }
         if (other.type !== 'static') continue;
         stats[k].walls++;
+        if (k === 0 && alone && stats[0].time === null) hits.push({ vn: Math.abs(pv.x * normal.x + pv.z * normal.z), v0: pv.speed, least: pv.speed, t: time });
         if (!coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).inDrift()) stats[k].lineWalls++;
         hitNow[k] = true;
         const car = k === 0 ? player : rivals.list[k - 1].car;
@@ -227,6 +245,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     const poseBefore = rivals.list.map((r) => `yaw ${r.car.yaw.toFixed(2)} up ${upY(r.car).toFixed(2)} ${(r.car.speed / KMH).toFixed(0)} km/h stuck ${r.stuckFor.toFixed(1)} d ${r.car.d.toFixed(2)}`);
     player.postPhysics();
     time += PHYSICS_DT;
+    for (const h of hits) if (time - h.t <= WALL_WATCH) h.least = Math.min(h.least, player.speed);
     if (alone && stats[0].time === null && player.s >= 0) {
       const g = seg[segOf(player.s)];
       g.t += PHYSICS_DT;
@@ -366,7 +385,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     };
   }
   physics.free();
-  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet, seg };
+  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet, seg, hits };
 }
 
 /** The q quantile of xs (sorted copy). */
@@ -392,8 +411,16 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
     let done = 0;
     const pinT = { n: 0, twice: 0, none: 0, most: 0, through: 0, into: 0 };
     const segAll = segSums();
+    const vnN = [0, 0, 0, 0];
+    const lossN = [0, 0, 0, 0];
+    let stops = 0;
     for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
       const r = race(seed, spec, true);
+      for (const h of r.hits) {
+        vnN[bucket(h.vn, VN_EDGES)]++;
+        lossN[bucket(h.v0 > 0.5 ? 1 - h.least / h.v0 : 0, LOSS_EDGES)]++;
+        if (h.least < WALL_STOP) stops++;
+      }
       for (const k of SEGS) for (const f of ['t', 'v', 'thr', 'full', 'brk'] as const) segAll[k][f] += r.seg[k][f];
       runs++;
       const c = r.cars[0];
@@ -424,6 +451,9 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
     );
     // (summed over its races, to be added up across runs: seconds, then speed/throttle/full/brake times the seconds)
     out.push(`${spec.id} segs races ${SEEDS}: ` + SEGS.map((k) => `${k} ${['t', 'v', 'thr', 'full', 'brk'].map((f) => segAll[k][f as 't'].toFixed(2)).join(' ')}`).join(' | '));
+    // (its wall contacts by how hard: into the wall under 1, 1-3, 3-6, over 6 m/s; speed lost under 10, 10-30, 30-70,
+    // over 70 %; stopped)
+    out.push(`${spec.id} hits: vn ${vnN.join(' ')} | loss ${lossN.join(' ')} | stopped ${stops}`);
   }
   process.stdout.write(out.join('\n') + '\n');
   expect(nans).toBe(0);
