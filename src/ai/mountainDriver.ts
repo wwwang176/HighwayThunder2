@@ -670,7 +670,10 @@ export class MountainDriver implements RivalDriver {
         if (D.userCtl >= 3) {
           // (a big slide, all but steady; the line kept by the throttle - wide of it more, the push turning it in)
           this.slideT = Math.max(D.bigSlideMin, Math.min(D.bigSlideMax, D.bigSlide + D.bigSlideErr * err));
-          this.gasT = Math.max(D.gasLow, Math.min(1, (p.drift?.aiGas ?? D.gasMid) + D.gasErr * err));
+          this.gasT = Math.max(D.gasLow, Math.min(1, (p.drift?.ai?.gas ?? D.gasMid) + D.gasErr * err));
+          // (tried for the muscle car on more throttle, running wide in the bend's second half: off the throttle there
+          // (0.2 over its last half) - fewer walls, little more slide (28°); more throttle wide of its line - worse. Its
+          // own handbrake (DriftAssist.ai: pulled sooner, longer) caught it)
         }
         const hold = Math.sqrt(this.slideT / D.springLimit) + D.slideGain * (this.slideT - inSlide);
         const inRoom = this.roomAt(self.s) - pin.dir * forecast(D.innerLook).d;
@@ -693,7 +696,7 @@ export class MountainDriver implements RivalDriver {
       const exiting = rem < rampLen;
       // (thrown wide: pullLook s on within pullRoom m of the outside's edge; or its slide still under pullSlide and
       // turning too little)
-      const pullAhead = forecast(D.pullLook);
+      const pullAhead = forecast(p.drift?.ai?.pullLook ?? D.pullLook); // (the car's own: DriftAssist.ai)
       const outRoom = this.roomAt(self.s) + pin.dir * pullAhead.d;
       // (the player's: about to cross its line outward - pullLook s on, pullErr m past it - pulled before, not after)
       const crossing = D.pullErr >= 0 && pullAhead.off > D.pullErr;
@@ -701,7 +704,7 @@ export class MountainDriver implements RivalDriver {
       const tooLittle = (D.hbOn > 0 && short > D.hbOn && (D.pullSlide <= 0 || slide < D.pullSlide)) ||
         (D.pullAngle > 0 && this.sinceKick > D.pullAfter && (D.userCtl ? this.slideT : D.slideTarget) - -pin.dir * slideSigned > D.pullAngle);
       // (a short pull, a gap after it - held on, it slowed to a crawl and spun round past its line - and not past pullMost of slide)
-      if (!danger && (!exiting ? wideSoon || tooLittle : D.hbExit === 1 ? wideSoon || tooLittle : D.hbExit === 2 ? wideSoon : false) && this.pullLeft <= 0 && this.pullSince >= D.pullGap && slide < D.pullMost) this.pullLeft = D.hbPulse;
+      if (!danger && (!exiting ? wideSoon || tooLittle : D.hbExit === 1 ? wideSoon || tooLittle : D.hbExit === 2 ? wideSoon : false) && this.pullLeft <= 0 && this.pullSince >= D.pullGap && slide < D.pullMost) this.pullLeft = p.drift?.ai?.hbPulse ?? D.hbPulse;
       // (its slide gone - a tap does not break it loose again: held on till it slides pullLow rad, pullLong s at most)
       if (D.pullLong > 0 && this.pullLeft > 0 && this.pullLeft <= PHYSICS_DT * 1.5 && -pin.dir * slideSigned < D.pullLow && this.pullHeld < D.pullLong) this.pullLeft += PHYSICS_DT;
       this.pullHeld = this.pullLeft > 0 ? this.pullHeld + PHYSICS_DT : 0;
@@ -727,6 +730,8 @@ export class MountainDriver implements RivalDriver {
       // out to the middle)
       this.mode = 'settle';
       const nose = road.heading(self.s) + self.yaw;
+      // (tried: its nose held further in by its course out across the road - walls 8 -> 5 for the muscle car on more
+      // throttle, not enough: it was at the outside's edge already as its drift ended)
       const a = D.alignHead * Math.atan2(Math.sin(this.alignTo - nose), Math.cos(this.alignTo - nose)) - D.alignRate * self.yawRate;
       const s = Math.max(-D.alignSteer, Math.min(D.alignSteer, a / steerRange(v, p)));
       return { throttle: Math.min(pedals.throttle, D.alignGas), brake: 0, steer: s };

@@ -1,4 +1,4 @@
-import type { CarParams, DriftAssist } from './handling';
+import type { AiDrift, CarParams, DriftAssist } from './handling';
 import type { AccelTable } from '../ai/planner';
 
 /**
@@ -49,8 +49,8 @@ export interface MountainSetup {
    * straightened every slide on the throttle) and the stability control let it be till the slide is over.
    */
   drift: DriftAssist;
-  /** Its AI's throttle holding a drift (DriftAssist.aiGas; none: the driver's own). */
-  aiGas?: number;
+  /** Its AI's drift (DriftAssist.ai; none: the driver's own). */
+  ai?: AiDrift;
 }
 
 export const MOUNTAIN_SETUP: MountainSetup = {
@@ -166,14 +166,17 @@ export const MOUNTAIN_SETUP: MountainSetup = {
 /**
  * Each car's own (by its id) over MOUNTAIN_SETUP. The muscle car: its tail is loose already (its power, its light
  * stability control) - with the rear bar stiffer, the brakes rearward and less stability control it slid wide and
- * spun; those as built. Their AI's throttle in a drift (aiGas, solo on 10 roads, 0.6-0.85 tried): the muscle car's
- * power slid it furthest - on 0.75 it hit the wall 10 times coming out of its drifts, on 0.62 3 (as many as before
- * the arcade drift); the others on 0.62 slid 19-23°, hardly drifting.
+ * spun; those as built. Their AI's drift (ai): the throttle (solo on 10 roads, 0.6-0.85 tried) - the others on 0.62
+ * slid 19-23°, hardly drifting. The muscle car's power slid it furthest: on 0.62 its handbrake as the others' it slid
+ * 25°, looking all but on its grip; on more throttle it ran wide in the bend's second half (at the outside's edge as
+ * its drift ended) and hit the wall - eased off the throttle there, held nose-in out of it, more throttle on it wide
+ * of its line: 28° at most, or the walls. Its handbrake pulled sooner (looked for 1 s on, 0.6) and longer (0.15 s,
+ * 0.1) caught it: on 0.9 35°, 2.6 s faster, 18 walls on 30 roads (15); the others on it more walls, less slide.
  */
 export const MOUNTAIN_SETUP_BY_CAR: Record<string, Partial<MountainSetup>> = {
-  'street-racer': { aiGas: 0.85 },
-  'muscle-car': { arbRear: 1, brakeBias: 0, esc: 1, aiGas: 0.62 },
-  jdm: { aiGas: 0.8 },
+  'street-racer': { ai: { gas: 0.85 } },
+  'muscle-car': { arbRear: 1, brakeBias: 0, esc: 1, ai: { gas: 0.9, pullLook: 1, hbPulse: 0.15 } },
+  jdm: { ai: { gas: 0.8 } },
 };
 
 /** A car's mountain setup (by its id: MOUNTAIN_SETUP_BY_CAR over MOUNTAIN_SETUP). */
@@ -205,6 +208,6 @@ export function mountainSetup(p: CarParams, s: MountainSetup = MOUNTAIN_SETUP): 
     muSlide: p.muSlide * s.frontGrip,
     rearGrip: (p.rearGrip * s.rearGrip) / s.frontGrip,
     tractionSlip: s.tractionSlip,
-    drift: s.aiGas === undefined ? s.drift : { ...s.drift, aiGas: s.aiGas },
+    drift: s.ai === undefined ? s.drift : { ...s.drift, ai: s.ai },
   };
 }

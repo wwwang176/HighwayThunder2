@@ -472,11 +472,21 @@ export interface DriftAssist {
   spin: number;
   /** The keyboard racers' drift (PlayerCar.arcadeDrift: any car set up with it): by its turning force, not a ceiling. */
   arcade?: ArcadeDrift;
+  /** The AI's drift, this car's own (none: MOUNTAIN_DRIVER.drift's). */
+  ai?: AiDrift;
+}
+
+/** A car's own AI drift (over MOUNTAIN_DRIVER.drift). */
+export interface AiDrift {
   /**
-   * The AI's throttle holding its drift (this car's: in an arcade drift the slide is the throttle's - the same throttle
-   * slid a stronger car further; else MOUNTAIN_DRIVER.drift.gasMid).
+   * Its throttle holding the drift (in an arcade drift the slide is the throttle's - the same throttle slid a stronger
+   * car further; MOUNTAIN_DRIVER.drift.gasMid).
    */
-  aiGas?: number;
+  gas: number;
+  /** Its handbrake mid-drift: pulled when it will run wide this far on (s; drift.pullLook)... */
+  pullLook?: number;
+  /** ...for this long (s; drift.hbPulse). */
+  hbPulse?: number;
 }
 
 /**
