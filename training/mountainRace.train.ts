@@ -76,6 +76,21 @@ if (process.env.DRIFT) Object.assign(MOUNTAIN_DRIVER.drift, JSON.parse(process.e
 // (PACE='{"gasRamp":3}': MOUNTAIN_DRIVER's own knobs, the same way)
 if (process.env.PACE) Object.assign(MOUNTAIN_DRIVER, JSON.parse(process.env.PACE));
 const log: string[] = [];
+/** TRACE=1 (with DEBUG): the player's last 3 s before each wall it meets just out of a hairpin on its inside, every 0.1 s. */
+const TRACE = !!process.env.TRACE;
+type TraceRow = { off: number; t: number; s: number; d: number; plan: number; yaw: number; rate: number; vLat: number; kmh: number; mode: string; base: number; steer: number; thr: number; brk: number };
+// (the driver's input before and after its driving network - the bench's own hook on it)
+const netSeen = { base: NaN, out: NaN };
+if (TRACE) {
+  const proto = MountainPlannerDriver.prototype as unknown as { withNet: (self: unknown, input: { steer: number }) => { steer: number } };
+  const withNet = proto.withNet;
+  proto.withNet = function (this: unknown, self: unknown, input: { steer: number }) {
+    const out = withNet.call(this, self, input);
+    netSeen.base = input.steer;
+    netSeen.out = out.steer;
+    return out;
+  };
+}
 const RIVAL_CARS =[STREET_RACER, CARS['muscle-car'] ?? STREET_RACER, CARS.jdm ?? STREET_RACER];
 
 /** How upright a car is (its roof's way up: 1 on its wheels, < 0 on its roof). */
@@ -199,12 +214,22 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   const tracks: (number | string)[][][] = [[], [], [], []];
   const hitNow = [false, false, false, false];
   let playerStuck = 0;
+  const trace: TraceRow[] = [];
+  let lastTrace = -9;
   while (time < LIMIT) {
     const view: RaceView = { player, traffic: [], speedCap: 300 * KMH, raceTime: time };
     rivals.drive(PHYSICS_DT, view);
     // (past the line, as the game's: rolling on at FINISHED_SPEED)
     const cap = stats[0].time === null ? player.params.maxSpeed : FINISHED_SPEED;
-    const own = playerAi.drive(selfStateOf(player, cap), rivals.boxes(), player.params);
+    netSeen.base = NaN;
+    const ownSelf = selfStateOf(player, cap);
+    const own = playerAi.drive(ownSelf, rivals.boxes(), player.params);
+    if (TRACE) {
+      const core = coreOf(playerAi);
+      const mp = playerAi instanceof MountainPlannerDriver ? playerAi.mplan : null;
+      trace.push({ off: (() => { const at = (core as unknown as { alignTo: number | null }).alignTo; if (at === null) return NaN; const n = road.heading(player.s) + player.yaw; return Math.atan2(Math.sin(n - at), Math.cos(n - at)); })(), t: time, s: player.s, d: player.d, plan: core.pathRefAt(player.s) + (mp ? mp.offsetAt(player.s) : 0), yaw: player.yaw, rate: ownSelf.yawRate, vLat: ownSelf.vLat, kmh: player.speed / KMH, mode: core.mode, base: netSeen.base, steer: own.steer, thr: own.throttle, brk: own.brake });
+      if (trace.length > 3 / PHYSICS_DT) trace.shift();
+    }
     player.prePhysics(STALL && time < STALL_S ? { throttle: 0, brake: 1, steer: 0 } : own, PHYSICS_DT);
     const lv = player.body.linvel();
     pv.x = lv.x;
@@ -240,6 +265,16 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         if (pi >= 0) stats[k].pins[pi].walls++;
         // (side: of the hairpin it is in or just out of - inside, its turn's way)
         const side = pi < 0 ? '-' : runs[pi].dir * car.d > 0 ? 'in' : 'out';
+        if (TRACE && k === 0 && side === 'in' && car.s - runs[pi].to > 0 && car.s - runs[pi].to < 80 && time - lastTrace > 2) {
+          lastTrace = time;
+          log.push(`  TRACE seed ${seed} pin ${pi} dir ${runs[pi].dir} (+: d of its inside) hit t ${time.toFixed(1)} past ${(car.s - runs[pi].to).toFixed(0)} m`);
+          log.push('    t      s      d   plan    yaw  noseOff  rate   vLat  km/h mode     base  steer   thr   brk');
+          trace.forEach((r, i) => {
+            if (i % 5 !== 0 && i !== trace.length - 1) return;
+            const f = (x: number, n = 2) => (Number.isFinite(x) ? x.toFixed(n) : '  -').padStart(6);
+            log.push(`  ${f(r.t, 1)} ${f(r.s, 0)} ${f(r.d)} ${f(r.plan)} ${f(r.yaw)} ${f(r.off)} ${f(r.rate)} ${f(r.vLat)} ${f(r.kmh, 0)} ${r.mode.padEnd(7)} ${f(r.base)} ${f(r.steer)} ${f(r.thr)} ${f(r.brk)}`);
+          });
+        }
         if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)} ${coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).mode} pin ${pi} side ${side}${pi >= 0 ? ` past ${(car.s - runs[pi].to).toFixed(0)} m` : ''}`);
       }
     });
