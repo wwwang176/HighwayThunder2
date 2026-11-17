@@ -49,6 +49,15 @@ const RESET_COST = 5;
 const FELL_COST = 20;
 const METRE_GAIN = Number(process.env.METRE_GAIN ?? 0.05);
 const LAG_GAIN = Number(process.env.LAG_GAIN ?? 1);
+/**
+ * HIT_GRADE=1: a wall contact costs WALL_COST x (HIT_BRUSH + HIT_LOSS x the share of its speed it lost over the
+ * HIT_WATCH s after) - a brush (5 % lost: 0.4) next to nothing, a knock (20 %: 1) as before, a crash (50 %: 2.2) more;
+ * else WALL_COST each. (Each the same, it lifted for brushes too: two thirds of its contacts lost under 10 %, none stopped.)
+ */
+const HIT_GRADE = process.env.HIT_GRADE === '1';
+const HIT_BRUSH = 0.2;
+const HIT_LOSS = 4;
+const HIT_WATCH = 1;
 const CONTACT_GAP = 0.5;
 const STUCK_S = 3;
 const LAG_AFTER = 0.75;
@@ -74,6 +83,8 @@ export interface RunResult {
   lag: number;
   walls: number;
   lineWalls: number;
+  /** Its wall contacts graded by the speed each cost it (HIT_BRUSH + HIT_LOSS x the share lost). */
+  hit: number;
   resets: number;
   metres: number;
   time: number | null;
@@ -127,7 +138,7 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
   }
   rivals.place();
 
-  const res: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
+  const res: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, hit: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
   const runs = hairpinRuns(road, 26);
   const most = runs.map(() => -1); // (each hairpin's most slide, deg; -1: not there yet)
   const through = runs.map(() => ({ sum: 0, n: 0, early: 0 })); // (in it: its slide summed a step, the steps, its most in its first ENTRY_SHARE)
@@ -137,10 +148,12 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
   let time = 0;
   let nextSample = 0;
   const steps = Math.round(seconds / PHYSICS_DT);
+  const hits: { v0: number; least: number; t: number }[] = [];
   for (let step = 0; step < steps; step++) {
     const view: RaceView = { player: car, traffic: [], speedCap: 300 * KMH, raceTime: time };
     rivals.drive(PHYSICS_DT, view);
     car.prePhysics(driver.drive(selfStateOf(car, car.params.maxSpeed), rivals.boxes(), car.params), PHYSICS_DT);
+    const v0 = car.speed;
     physics.step((a, b, normal) => {
       if (!normal) return;
       const mine = a.type === 'player' ? b : b.type === 'player' ? a : null;
@@ -148,11 +161,13 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
       if (time - lastWall > CONTACT_GAP) {
         res.walls++;
         if (!driver.inner.inDrift()) res.lineWalls++;
+        hits.push({ v0, least: v0, t: time });
       }
       lastWall = time;
     });
     car.postPhysics();
     time += PHYSICS_DT;
+    for (const h of hits) if (time - h.t <= HIT_WATCH) h.least = Math.min(h.least, car.speed);
     const pi = runs.findIndex((h) => car.s >= h.from && car.s <= h.to + 15);
     if (pi >= 0) {
       const h = runs[pi];
@@ -217,21 +232,23 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
     if (t.early >= ENTRY_SLIDE) res.entered++;
   });
   const fell = RESET_COST * res.resets + (res.nan ? FELL_COST : 0);
+  res.hit = hits.reduce((a, h) => a + HIT_BRUSH + HIT_LOSS * (h.v0 > 0.5 ? Math.max(0, 1 - h.least / h.v0) : 0), 0);
   res.cost = mode === 'drift'
     ? DRIFT_WALL_COST * res.walls + fell - ANGLE_GAIN * (res.mean + ENTRY_BONUS * res.entered) - DRIFT_METRE_GAIN * res.metres
-    : LAG_GAIN * res.lag + WALL_COST * res.walls + fell - METRE_GAIN * res.metres;
+    : LAG_GAIN * res.lag + WALL_COST * (HIT_GRADE ? res.hit : res.walls) + fell - METRE_GAIN * res.metres;
   return res;
 }
 
 /** Several runs summed (each brain's exam): `seeds` alone and `raceSeeds` from the grid with rivals. */
 export function examine(brain: Brain | null, spec: CarSpec, seeds: number[], soloS: number, raceSeeds: number[], raceS: number, mode: NetMode = 'line'): RunResult {
-  const sum: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
+  const sum: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, hit: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
   let notHome = false;
   const add = (r: RunResult) => {
     sum.cost += r.cost;
     sum.lag += r.lag;
     sum.walls += r.walls;
     sum.lineWalls += r.lineWalls;
+    sum.hit += r.hit;
     sum.resets += r.resets;
     sum.metres += r.metres;
     // (one run not home in time: the whole not - it summed the others and looked faster)

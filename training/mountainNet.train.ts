@@ -54,7 +54,7 @@ export function mountainNetFile(id: string, mode: NetMode = 'line'): { path: str
 }
 
 const line = (r: RunResult) =>
-  `cost ${r.cost.toFixed(2)} lag ${r.lag.toFixed(2)} walls ${r.walls} (line ${r.lineWalls}) resets ${r.resets} metres ${r.metres.toFixed(0)}${r.time !== null ? ` time ${r.time.toFixed(2)}` : ''} slide most ${(r.angle / Math.max(1, r.pins)).toFixed(1)}° through ${(r.mean / Math.max(1, r.pins)).toFixed(1)}° into ${r.entered}/${r.pins} score ${slideScore(r).toFixed(1)}${r.nan ? ' NaN' : ''}`;
+  `cost ${r.cost.toFixed(2)} lag ${r.lag.toFixed(2)} walls ${r.walls} (line ${r.lineWalls}, graded ${r.hit.toFixed(1)}) resets ${r.resets} metres ${r.metres.toFixed(0)}${r.time !== null ? ` time ${r.time.toFixed(2)}` : ''} slide most ${(r.angle / Math.max(1, r.pins)).toFixed(1)}° through ${(r.mean / Math.max(1, r.pins)).toFixed(1)}° into ${r.entered}/${r.pins} score ${slideScore(r).toFixed(1)}${r.nan ? ' NaN' : ''}`;
 
 it('mountain driving network', async () => {
   if (!SPEC) throw new Error(`no car ${CAR}`);
