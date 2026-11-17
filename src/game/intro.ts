@@ -703,17 +703,18 @@ export class Intro {
     const track = Math.abs(car.wheels[0].x);
     const smooth = THREE.MathUtils.smoothstep;
     // A car drifting through the hairpin (DRIFT_SPEED, through its middle halfway through the shot): in from the
-    // outside, the inside at its middle, out to the outside; its nose turned in up to DRIFT_SLIP, wavering.
+    // outside before it, then one line round it near its inside (as its middle's edge has it: a hairpin is widened on
+    // its inside, its middle line drawn between them), out to the outside after it; its nose turned in DRIFT_SLIP.
+    // (Swung out-in-out within the bend, the car's line ran near straight at the middle: its body turned back the
+    // other way for a moment, -31 deg/s against a round's +40. On one line it turns round evenly.)
+    const lineIn = dir * (edges.at(mid, dir as 1 | -1) - 2.2);
+    const lineOut = -dir * (edges.at(from, -dir as 1 | -1) - 1.6);
     const drift = (seconds: number): Pass => ({
       at: (t) => {
         const s = mid + DRIFT_SPEED * (t - seconds / 2);
-        const u = THREE.MathUtils.clamp((s - from) / (to - from), 0, 1);
-        const slip = DRIFT_SLIP * smooth(s, from - 8, from + 4) * (1 - smooth(s, to - 6, to + 10)) + 0.05 * Math.sin(t * 6);
-        // (by the road's own edges: a hairpin is widened on its inside, its middle line drawn between them - a line
-        // by the centre had it on the outside of that line at the middle)
-        const outside = -dir * (edges.at(s, -dir as 1 | -1) - 1.6);
-        const inside = dir * (edges.at(s, dir as 1 | -1) - 1.9);
-        return { s, d: THREE.MathUtils.lerp(outside, inside, (1 - Math.cos(2 * Math.PI * u)) / 2), slip };
+        const slip = DRIFT_SLIP * smooth(s, from - 12, from + 2) * (1 - smooth(s, to - 2, to + 12));
+        const into = smooth(s, from - 20, from) * (1 - smooth(s, to, to + 20));
+        return { s, d: THREE.MathUtils.lerp(lineOut, lineIn, into), slip };
       },
       inside: dir,
       smoke: true,
@@ -745,8 +746,9 @@ export class Intro {
           pass: drift(TOP_SECONDS),
         },
         {
+          // (from 40 m up the road, not 80: over the 1.2 s it has now, ~60 m/s was a blur)
           seconds: 1.2,
-          from: { pos: [0, 30, s0 + 80], look: [0, 0, s0 + 25], fov: 44, road: true },
+          from: { pos: [0, 22, s0 + 40], look: [0, 0, s0 + 8], fov: 44, road: true },
           to: { pos: [d0 / 2, 14, s0 + 6], look: [d0 / 2, 0, s0 - 6], fov: 44, road: true },
           ease: linear, // (still moving at the cut)
         },
