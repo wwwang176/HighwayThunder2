@@ -238,7 +238,9 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         const car = k === 0 ? player : rivals.list[k - 1].car;
         const pi = pinOf(car.s);
         if (pi >= 0) stats[k].pins[pi].walls++;
-        if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)} ${coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).mode} pin ${pi}`);
+        // (side: of the hairpin it is in or just out of - inside, its turn's way)
+        const side = pi < 0 ? '-' : runs[pi].dir * car.d > 0 ? 'in' : 'out';
+        if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)} ${coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).mode} pin ${pi} side ${side}${pi >= 0 ? ` past ${(car.s - runs[pi].to).toFixed(0)} m` : ''}`);
       }
     });
     const resetsBefore = rivals.list.map((r) => r.resets);
