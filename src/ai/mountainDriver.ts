@@ -10,7 +10,9 @@ import type { DriftView } from './mountainDriftNet';
 /** The mountain driver's settings (mutable: tuning). */
 export const MOUNTAIN_DRIVER = {
   /** Room either side of the centre line its line may use: the road's edge less half a car and a margin (m). */
-  margin: 0.55,
+  // (0.55: at 130-146 km/h in the long bends its line ran within half a metre of the wall, the car 0.8-1 m off it -
+  // with its driving network's bolder pedals, two to three times main's brushes; 1.05: as few, ~0.3 s a race)
+  margin: 1.05,
   halfWidth: 1.0,
   /** Where it is headed across the road (aimD: passing): this far ahead (m), plus this many seconds of its speed. */
   lookBase: 4,
@@ -162,6 +164,10 @@ export const MOUNTAIN_DRIVER = {
     alignGasFrom: 0.05,
     alignGasSpan: 0.25,
     alignGasLeast: 0.3,
+    // (its nose held parallel, its body still sliding: on full throttle the slide held on and carried it across into
+    // the outside wall 20-60 m out - 17 of 18 such walls; past alignSlideFrom rad of slide, less, the same way)
+    alignSlideFrom: 0.15,
+    alignSlideSpan: 0.5,
     slideTarget: 0.45,
     slideGain: 1.5,
     springLimit: Math.PI / 4,
@@ -210,11 +216,19 @@ export interface HairpinRun {
 }
 
 /** The road's hairpins: its runs bent tighter than R `tight` one way (m). */
-/** Its throttle out of a drift, its nose `off` rad from parallel to the straight (either way): alignGas, less past alignGasFrom. */
-export function alignThrottle(off: number, D: { alignGas: number; alignGasFrom: number; alignGasSpan: number; alignGasLeast: number }): number {
-  if (D.alignGasSpan <= 0) return D.alignGas;
-  const k = Math.min(1, Math.max(0, Math.abs(off) - D.alignGasFrom) / D.alignGasSpan);
-  return D.alignGas + (Math.min(D.alignGas, D.alignGasLeast) - D.alignGas) * k;
+/**
+ * Its throttle out of a drift, its nose `off` rad from parallel to the straight and its body sliding `slide` rad
+ * (either way): alignGas, less past alignGasFrom of the one or alignSlideFrom of the other - the less of the two.
+ */
+export function alignThrottle(
+  off: number,
+  D: { alignGas: number; alignGasFrom: number; alignGasSpan: number; alignGasLeast: number; alignSlideFrom?: number; alignSlideSpan?: number },
+  slide = 0,
+): number {
+  const least = Math.min(D.alignGas, D.alignGasLeast);
+  const k = (x: number, from: number, span: number) => (span > 0 ? Math.min(1, Math.max(0, Math.abs(x) - from) / span) : 0);
+  const most = Math.max(k(off, D.alignGasFrom, D.alignGasSpan), k(slide, D.alignSlideFrom ?? 0, D.alignSlideSpan ?? 0));
+  return D.alignGas + (least - D.alignGas) * most;
 }
 
 export function hairpinRuns(road: Centerline, tight: number): HairpinRun[] {
@@ -579,6 +593,12 @@ export class MountainDriver implements RivalDriver {
         pin = undefined;
       }
     }
+    // (into the next hairpin still settling out of the last: done with that - its straight, held to out of this one too,
+    // swung it 2.4 rad round into the outside wall on two hairpins close together)
+    if (pin) {
+      this.settling = false;
+      this.alignTo = null;
+    }
     // Out of a drift: its path from where the car is, easing back to its line (the passing offset: handed straight back
     // to its line from the inside of the bend, it counter-steered on full lock and swung from wall to wall), and for a
     // while steered by where it is going, not where its nose points (still sliding).
@@ -867,7 +887,7 @@ export class MountainDriver implements RivalDriver {
       const off = Math.atan2(Math.sin(this.alignTo - nose), Math.cos(this.alignTo - nose));
       const a = D.alignHead * off - D.alignRate * self.yawRate;
       const s = Math.max(-D.alignSteer, Math.min(D.alignSteer, a / steerRange(v, p)));
-      return { throttle: Math.min(pedals.throttle, alignThrottle(off, D)), brake: 0, steer: s };
+      return { throttle: Math.min(pedals.throttle, alignThrottle(off, D, slide)), brake: 0, steer: s };
     }
     if (this.settling) {
       this.mode = 'settle';

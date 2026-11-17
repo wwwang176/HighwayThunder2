@@ -78,6 +78,8 @@ if (process.env.PACE) Object.assign(MOUNTAIN_DRIVER, JSON.parse(process.env.PACE
 const log: string[] = [];
 /** TRACE=1 (with DEBUG): the player's last 3 s before each wall it meets just out of a hairpin on its inside, every 0.1 s. */
 const TRACE = !!process.env.TRACE;
+/** TRACE=all: before every wall it meets. */
+const TRACE_ALL = process.env.TRACE === 'all';
 type TraceRow = { off: number; t: number; s: number; d: number; plan: number; yaw: number; rate: number; vLat: number; kmh: number; mode: string; base: number; steer: number; thr: number; brk: number };
 // (the driver's input before and after its driving network - the bench's own hook on it)
 const netSeen = { base: NaN, out: NaN };
@@ -265,9 +267,9 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         if (pi >= 0) stats[k].pins[pi].walls++;
         // (side: of the hairpin it is in or just out of - inside, its turn's way)
         const side = pi < 0 ? '-' : runs[pi].dir * car.d > 0 ? 'in' : 'out';
-        if (TRACE && k === 0 && side === 'in' && car.s - runs[pi].to > 0 && car.s - runs[pi].to < 80 && time - lastTrace > 2) {
+        if (TRACE && k === 0 && (TRACE_ALL || (pi >= 0 && side === 'in' && car.s - runs[pi].to > 0 && car.s - runs[pi].to < 80)) && time - lastTrace > 2) {
           lastTrace = time;
-          log.push(`  TRACE seed ${seed} pin ${pi} dir ${runs[pi].dir} (+: d of its inside) hit t ${time.toFixed(1)} past ${(car.s - runs[pi].to).toFixed(0)} m`);
+          log.push(`  TRACE seed ${seed} pin ${pi} dir ${pi >= 0 ? runs[pi].dir : 0} (+: d of its inside) hit t ${time.toFixed(1)} past ${pi >= 0 ? (car.s - runs[pi].to).toFixed(0) : '-'} m k ${road.curvature(car.s).toFixed(3)} side ${side}`);
           log.push('    t      s      d   plan    yaw  noseOff  rate   vLat  km/h mode     base  steer   thr   brk');
           trace.forEach((r, i) => {
             if (i % 5 !== 0 && i !== trace.length - 1) return;

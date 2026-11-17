@@ -192,6 +192,19 @@ describe('drifting round the hairpins (MOUNTAIN_DRIVER.drift)', () => {
     slow.setRoad(PIN, STREET_RACER.ai);
     expect(slow.drive(at(from - 1, 5), [], P).handbrake).toBeFalsy();
   });
+
+  it('kicked into the next hairpin still settling out of the last: done with the last (its straight not held to after this one)', () => {
+    const m = new MountainDriver();
+    m.setRoad(PIN, STREET_RACER.ai);
+    const at = (s: number, v: number): SelfState => ({ s, d: lineAt(m.line!, s).d, yaw: 0, vLong: v, vLat: 0, yawRate: 0, speedCap: 300 * KMH });
+    const from = hairpinRuns(PIN, D.tight)[0].from;
+    const inner = m as unknown as { settling: boolean; alignTo: number | null };
+    inner.settling = true;
+    inner.alignTo = PIN.heading(from) + 2.4; // (the last hairpin's straight)
+    m.drive(at(from - 15 * D.kickEarly + 1, 15), [], P);
+    expect(inner.alignTo).toBeNull();
+    expect(inner.settling).toBe(false);
+  });
 });
 
 describe('alignThrottle', () => {
@@ -207,5 +220,17 @@ describe('alignThrottle', () => {
   });
   it('alignGasSpan 0: alignGas throughout (as before)', () => {
     expect(alignThrottle(0.6, { ...D, alignGasSpan: 0 })).toBe(1);
+  });
+});
+
+describe('alignThrottle, its slide', () => {
+  const D = { alignGas: 1, alignGasFrom: 0.05, alignGasSpan: 0.25, alignGasLeast: 0.3, alignSlideFrom: 0.15, alignSlideSpan: 0.3 };
+  it('its nose parallel, still sliding: less, to alignGasLeast at alignSlideFrom + alignSlideSpan', () => {
+    expect(alignThrottle(0, D, 0.1)).toBe(1);
+    expect(alignThrottle(0, D, -0.3)).toBeCloseTo(0.65, 5);
+    expect(alignThrottle(0, D, 0.8)).toBeCloseTo(0.3, 5);
+  });
+  it('the less of its nose and its slide', () => {
+    expect(alignThrottle(0.3, D, 0.3)).toBeCloseTo(0.3, 5);
   });
 });
