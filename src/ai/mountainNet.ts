@@ -17,12 +17,14 @@ const AHEAD = [0, 0.15, 0.3, 0.5];
 export const MOUNTAIN_NET_INPUTS = AHEAD.length * 3 + 3 + 2 + 5 + 3 + 2;
 export const MOUNTAIN_NET_LAYERS = [MOUNTAIN_NET_INPUTS, 12, 12, 3];
 /**
- * Its throttle output under -LIFT_AT: off the throttle altogether (over it: as the driver's, or more); its brake output
- * over BRAKE_AT: the brake full on. (Scaling the throttle by 1 + out, it took a little off everywhere - full throttle
- * 1 % of the straights, not 53-66 % - and was as slow as before: either it lifts, or it does not.)
+ * Of its throttle and brake outputs this much either way is nothing (a slightly-off weight takes nothing away), the
+ * rest its own - any throttle from none up, any brake. (Lifting right off or not, braking full or not, it could not
+ * ease out of a drift on a part throttle and brushed the inside; its cost is what keeps it from taking a little off
+ * everywhere - scaled freely on a cost that paid little for time it had, full throttle on 1 % of the straights.)
  */
-const LIFT_AT = 0.3;
-const BRAKE_AT = 0.3;
+const DEAD = 0.1;
+/** An output past DEAD, on to ±1. */
+const past = (o: number) => (Math.abs(o) <= DEAD ? 0 : (o - Math.sign(o) * DEAD) / (1 - DEAD));
 
 const clamp3 = (x: number) => (Number.isFinite(x) ? Math.max(-3, Math.min(3, x)) : 0);
 
@@ -81,10 +83,10 @@ export function mountainNetFrom(weights: number[] | undefined): Brain | null {
 const OUT = new Float32Array(3);
 
 /**
- * The driver's input with the network's correction, its own throttle and brake as the highway's - boldly: its steer
- * added; off the throttle altogether (LIFT_AT) or the driver's, scaled up by 1 + out; the brake full on (BRAKE_AT) or
- * the driver's. (Up only, it once was: let take the throttle away it learned to drive 1-5 % slower; its cost is what
- * weighs speed now, mountainNetEval.ts.)
+ * The driver's input with the network's correction, its own throttle and brake as the highway's: its steer added; the
+ * driver's throttle scaled by 1 + out (past DEAD: down to none, or up); its brake past DEAD, or the driver's if more.
+ * (Up only, it once was: let take the throttle away it learned to drive 1-5 % slower; its cost is what weighs speed
+ * now, mountainNetEval.ts.)
  */
 export function applyMountainNet(brain: Brain | null, inputs: Float32Array, base: HandlingInput): HandlingInput {
   if (!brain) return base;
@@ -92,7 +94,7 @@ export function applyMountainNet(brain: Brain | null, inputs: Float32Array, base
   return {
     ...base,
     steer: Math.max(-1, Math.min(1, base.steer + o[0])),
-    throttle: o[1] < -LIFT_AT ? 0 : Math.min(1, base.throttle * (1 + Math.max(0, o[1]))),
-    brake: o[2] > BRAKE_AT ? 1 : base.brake,
+    throttle: Math.max(0, Math.min(1, base.throttle * (1 + past(o[1])))),
+    brake: Math.max(base.brake, past(Math.max(0, o[2]))),
   };
 }
