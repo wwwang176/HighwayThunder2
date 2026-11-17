@@ -1305,7 +1305,8 @@ export class Game {
       if (!f) this.flashers.set(r, (f = new BeamFlasher()));
       const me = road[i + 1];
       const flashing = f.update(play, racing && wantsToFlash(me, road.filter((o) => o !== me)));
-      return { mesh: r.car.mesh, width: r.car.width, length: r.car.length, high: flashing };
+      // (a car drawn through a bend in an intro: its high beam on - lighting the bend up, the dark night round it)
+      return { mesh: r.car.mesh, width: r.car.width, length: r.car.length, high: flashing || !!r.car.showPose };
     });
     const { painted, shadows } = this.rivalLights.assign(cars, this.camera);
     this.rivalShadows = shadows;
@@ -1578,6 +1579,11 @@ export class Game {
     // shot, the chase camera after it.
     if (this.introOn) {
       const over = this.intro!.step(play);
+      // (a car drawn drifting through a bend: its rear tyres' smoke - keys 60 on, clear of the cars' own)
+      this.intro!.puffs().forEach((f, i) => {
+        const kick = smokeKick(f.dirX, f.dirZ, f.omega, f.r, f.vx, f.vz);
+        this.smoke.emit(60 + i, f.x, f.z, f.slip, f.vx, f.vz, play, kick.x, kick.z, f.y);
+      });
       if (this.flow.phase === 'intro' && this.intro!.countdownDue) this.startCountdown();
       if (over) this.finishIntro();
     }

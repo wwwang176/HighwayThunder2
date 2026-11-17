@@ -161,6 +161,11 @@ export class PlayerCar {
    * own).
    */
   showOffset = 0;
+  /**
+   * For show (the mountain road's intros: a car through its first hairpin): drawn here instead (a world pose), its
+   * wheels rolled `rolled` m, its front ones turned `steer` rad (left +); null: where it is.
+   */
+  showPose: { pos: THREE.Vector3; quat: THREE.Quaternion; rolled: number; steer: number } | null = null;
   showRev: { rpm: number; throttle: number } | null = null;
   showBrake: boolean | null = null;
   readonly chassis: TyreChassis;
@@ -826,7 +831,12 @@ export class PlayerCar {
       SHOW_FWD.set(0, 0, -1).applyQuaternion(this.mesh.quaternion).setY(0).normalize();
       this.mesh.position.addScaledVector(SHOW_FWD, this.showOffset);
     }
-    const roll = this.showOffset / this.params.wheelRadius;
+    const pose = this.showPose;
+    if (pose) {
+      this.mesh.position.copy(pose.pos);
+      this.mesh.quaternion.copy(pose.quat);
+    }
+    const roll = (pose ? pose.rolled : this.showOffset) / this.params.wheelRadius;
     if (flares) {
       this.mesh.updateMatrix();
       emitFlares(this.mesh, this.lights, flares);
@@ -834,7 +844,7 @@ export class PlayerCar {
     this.wheels.forEach((w, i) => {
       const v = this.visuals[i];
       v.steer.position.set(w.x, CONNECTION_Y - w.susp, w.z);
-      v.steer.rotation.y = -w.steer;
+      v.steer.rotation.y = pose && i < 2 ? pose.steer : -w.steer;
       v.spin.rotation.x = w.spin + roll;
     });
   }

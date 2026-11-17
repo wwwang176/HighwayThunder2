@@ -73,6 +73,34 @@ interface Shot {
   ride?: Ride;
   lookRide?: Ride;
   shake?: number;
+  pass?: Pass;
+}
+
+/**
+ * A car through a bend in a shot (the mountain road's: its headlights lighting the bend up - without one, it was
+ * near black): one of the rivals drawn there (its body held on the grid; back on it at the cut). `at`: where it is
+ * `t` s into the shot - along the road, across it, and how far its nose is turned in from the way it goes (rad: a
+ * drift's). `inside`: the bend's inside (d's sign). `brake`: its brake lights on; `smoke`: its rear tyres smoking.
+ */
+interface Pass {
+  at: (t: number) => { s: number; d: number; slip: number };
+  inside: number;
+  brake?: boolean;
+  smoke?: boolean;
+}
+
+/** A puff of tyre smoke at a wheel drawn sliding (Intro.puffs: the game's TireSmoke from them). */
+export interface Puff {
+  x: number;
+  y: number;
+  z: number;
+  slip: number;
+  vx: number;
+  vz: number;
+  dirX: number;
+  dirZ: number;
+  omega: number;
+  r: number;
 }
 
 
@@ -126,6 +154,14 @@ function arriving(speed: number, stop: number, t: number): number {
   const left = Math.max(0, stop - t);
   return -(left > ARRIVE_BRAKE ? speed * (ARRIVE_BRAKE / 2 + left - ARRIVE_BRAKE) : (speed * left * left) / (2 * ARRIVE_BRAKE));
 }
+/** The car drifting through the first hairpin (the mountain road's 'skyline'): its speed (m/s), its nose turned in (rad). */
+const DRIFT_SPEED = 15;
+const DRIFT_SLIP = 0.65;
+/** The car driven round it ('hairpin'): from this far before it (m), at this speed (m/s), braking (m/s²). */
+const CRUISE_BACK = 11;
+const CRUISE_SPEED = 14;
+const CRUISE_BRAKE = 3.5;
+const UP = new THREE.Vector3(0, 1, 0);
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
 
@@ -171,6 +207,10 @@ export class Intro {
   private readonly arrivals: { speed: number; stop: number }[];
   private readonly playerArrival: { speed: number; stop: number };
   private elapsed = 0;
+  /** The car drawn through a bend (a shot's Pass), its body's height over the road; its rear tyres' smoke now. */
+  private readonly passCar: PlayerCar | null;
+  private readonly passRide: number = 0;
+  private passPuffs: Puff[] = [];
 
   constructor(
     readonly kind: IntroKind,
@@ -211,6 +251,15 @@ export class Intro {
     for (const [g, i] of back) {
       const ahead = stops.get(lane(g[0])) ?? (tracking ? playerStop + TRACK_FRONT_LATER[1] : ARRIVE_FRONT_STOP[1]);
       this.arrivals[i] = { speed: speedOf(g[0]), stop: ahead + within(tracking ? TRACK_BACK_LATER : ARRIVE_BACK_LATER) };
+    }
+    // (the back row's car on the left: in none of the grid's shots up close)
+    const road = scene.road;
+    const pick = this.rivalsAt.findIndex((g) => g[0] < -1 && g[2] < -1);
+    const i = pick >= 0 ? pick : 0;
+    this.passCar = road && scene.rivals.length ? scene.rivals[i] : null;
+    if (road && this.passCar) {
+      const [x, y, z] = this.rivalsAt[i];
+      this.passRide = y - road.surfaceHeight(scene.player.s + z, scene.player.d + x);
     }
     this.shots = this.script(kind, car.y);
   }
@@ -255,8 +304,67 @@ export class Intro {
     if (!done && s.blip !== undefined && this.t >= s.blip && this.blipAt === null) this.blipAt = 0;
     else if (this.blipAt !== null) this.blipAt += dt;
     car.showRev = this.blipAt === null ? null : this.rev(this.blipAt);
+    this.passPuffs = [];
+    if (this.passCar) {
+      if (!done && s.pass) this.drawPass(this.passCar, s.pass, this.t);
+      else {
+        this.passCar.showPose = null;
+        this.passCar.showBrake = null;
+      }
+    }
     if (done) this.end();
     return done;
+  }
+
+  /** The tyre smoke of the car drawn through a bend, this frame (none: no such car, or it is not sliding). */
+  puffs(): Puff[] {
+    return this.passPuffs;
+  }
+
+  /** `car` drawn where `pass` has it `t` s into its shot: on the road, its nose turned in by the slip, steering. */
+  private drawPass(car: PlayerCar, pass: Pass, t: number): void {
+    const road = this.scene.road!;
+    const point = (s: number, d: number) => {
+      const w = road.toWorld(s, d);
+      return new THREE.Vector3(w.x, road.surfaceHeight(s, d), w.z);
+    };
+    const now = pass.at(t);
+    const before = pass.at(t - 0.02);
+    const after = pass.at(t + 0.02);
+    const go = point(after.s, after.d).sub(point(before.s, before.d)); // (the way it goes, uphill or down)
+    const speed = go.length() / 0.04;
+    go.normalize();
+    const at = point(now.s, now.d);
+    const inward = point(now.s, now.d + pass.inside).sub(at).setY(0).normalize();
+    const fwd = go.clone().multiplyScalar(Math.cos(now.slip)).addScaledVector(inward, Math.sin(now.slip)).normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, UP).normalize();
+    const up = new THREE.Vector3().crossVectors(right, fwd);
+    const quat = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, fwd.clone().negate()));
+    at.y += this.passRide;
+    // Steering into the bend (as far as it turns), less a drift's countersteer (its wheels on round toward the way
+    // it goes). (+: left)
+    const p = car.params;
+    const into = Math.atan(p.wheelbase * Math.abs(road.curvature(now.s))) - 0.8 * now.slip;
+    const steer = (inward.dot(right) < 0 ? 1 : -1) * THREE.MathUtils.clamp(into, -0.55, 0.6);
+    car.showPose = { pos: at, quat, rolled: now.s, steer };
+    car.showBrake = pass.brake ?? null;
+    if (!pass.smoke || now.slip < 0.15) return;
+    // Its rear tyres (the last two) sliding sideways: as fast as it goes across them; spinning on (driven).
+    for (const w of car.wheels.slice(2)) {
+      const c = new THREE.Vector3(w.x, -this.passRide, w.z).applyQuaternion(quat).add(at);
+      this.passPuffs.push({
+        x: c.x,
+        y: c.y,
+        z: c.z,
+        slip: speed * Math.sin(now.slip) + 3,
+        vx: go.x * speed,
+        vz: go.z * speed,
+        dirX: fwd.x,
+        dirZ: fwd.z,
+        omega: (speed * 1.4) / p.wheelRadius,
+        r: p.wheelRadius,
+      });
+    }
   }
 
   /**
@@ -328,7 +436,9 @@ export class Intro {
     for (const r of this.scene.rivals) {
       r.showOffset = 0;
       r.showBrake = null;
+      r.showPose = null;
     }
+    this.passPuffs = [];
   }
 
   /** The blip `t` s in: the rpm up fast and the throttle held, then let go and the rpm falling back. */
@@ -587,17 +697,32 @@ export class Intro {
     const r = p.wheelRadius;
     const half = p.wheelbase / 2;
     const track = Math.abs(car.wheels[0].x);
+    const smooth = THREE.MathUtils.smoothstep;
+    // A car drifting through the hairpin (DRIFT_SPEED, through its middle halfway through the shot): in from the
+    // outside, the inside at its middle, out to the outside; its nose turned in up to DRIFT_SLIP, wavering.
+    const drift = (seconds: number): Pass => ({
+      at: (t) => {
+        const s = mid + DRIFT_SPEED * (t - seconds / 2);
+        const u = THREE.MathUtils.clamp((s - from) / (to - from), 0, 1);
+        const slip = DRIFT_SLIP * smooth(s, from - 8, from + 4) * (1 - smooth(s, to - 6, to + 10)) + 0.05 * Math.sin(t * 6);
+        return { s, d: -dir * 0.55 * LANE_WIDTH * Math.cos(2 * Math.PI * u), slip };
+      },
+      inside: dir,
+      smoke: true,
+    });
 
     if (kind === 'skyline') {
-      // From high over the first hairpin (its chevron boards' lamps blinking round it, the zigzag below) diving down
+      // From high over the first hairpin, looking on round it as a car drifts through (its headlights lighting it up:
+      // without one, near black; from its way out looking back, the car came at the camera, its lights at it) diving down
       // the road to over the grid, looking down on it; then low behind the cars, their tail lights in a row.
       const behind: Pose = { pos: [middle + 0.2, 1.4, -20], look: [middle, 0.8, 0], fov: 40 };
       return [
         {
           seconds: 2.0,
-          from: { pos: [0, 75, mid + 50], look: [0, 0, mid - 10], fov: 42, road: true },
-          to: { pos: [0, 66, mid + 30], look: [0, 0, mid - 25], fov: 40, road: true },
+          from: { pos: [0, 24, mid - 40], look: [0, 0, mid - 11], fov: 44, road: true },
+          to: { pos: [0, 20, mid - 6], look: [0, 0, mid + 19], fov: 42, road: true },
           ease: linear, // (still moving at the cut)
+          pass: drift(2.0),
         },
         {
           seconds: 1.7,
@@ -656,6 +781,12 @@ export class Intro {
         from: { pos: [out * (edgeOut - 0.7), 1.3, from - 7], look: [out * (edgeOut + 0.5), 1.5, from + 0.35 * (to - from)], fov: 42, road: true },
         to: { pos: [out * (edgeOut - 0.7), 1.3, from - 4], look: [out * (edgeOut + 0.5), 1.5, from + 0.35 * (to - from)], fov: 40, road: true },
         ease: linear, // (still moving at the cut)
+        // A car coming up its lane from behind the camera, braking into the hairpin, by it and on round it.
+        pass: {
+          at: (t) => ({ s: from - CRUISE_BACK + CRUISE_SPEED * t - (CRUISE_BRAKE * t * t) / 2, d: d0, slip: 0 }),
+          inside: dir,
+          brake: true,
+        },
       },
       {
         seconds: 1.2,
