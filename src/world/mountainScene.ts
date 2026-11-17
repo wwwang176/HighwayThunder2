@@ -115,17 +115,20 @@ const PLANTS = {
   block: 50,
   show: 110,
   /**
-   * Weeds at the road's edge (the player's: blurring where the road ends and the grass begins - under the rail, in a
-   * cut's ditch, on a tight bend's inside): every `edgeStep` m of each side at `edgeOdds` odds a clump of `edgeTufts`
-   * tufts, `edgeSpread` m along, `edgeTo` m off the edge at most, `edgeScale` the grass's size - in the grass's blocks,
-   * no draws more (the player's: not to cost frames).
+   * Weeds along the road's edge (the player's: grass on the seam where the asphalt meets the ground - under the rail,
+   * in a cut's ditch, on a tight bend's inside - blurring it): every `edgeStep` m of each side at `edgeOdds` odds a clump
+   * of `edgeTufts` tufts, `edgeSpread` m along, from `edgeFrom` (on the asphalt: their blades over its edge) to `edgeTo`
+   * m off the edge, most near it (its square), `edgeScale` the grass's size - in the grass's blocks, no draws more
+   * (the player's: not to cost frames). (Every 8 m at 0.4 odds, up to 1.2 m out evenly, few were on the seam itself;
+   * every 3 m at 0.6, 2-5 tufts, 0.45-0.85 the size: there, but too few and too small to be seen.)
    */
-  edgeStep: 8,
-  edgeOdds: 0.4,
-  edgeTufts: [2, 6],
+  edgeStep: 2,
+  edgeOdds: 0.75,
+  edgeTufts: [3, 6],
   edgeSpread: 1.5,
-  edgeTo: 1.2,
-  edgeScale: [0.45, 0.85],
+  edgeFrom: -0.1,
+  edgeTo: 1,
+  edgeScale: [0.55, 1],
 };
 const BEACON = { color: new THREE.Color(1, 0.68, 0.06), bright: 6, dim: 0.06, period: 1, on: 0.45, radius: 0.09 };
 
@@ -433,9 +436,11 @@ export class MountainScene implements Scenery {
         for (let k = 0; k < n; k++) {
           const s = at + (rnd() * 2 - 1) * PLANTS.edgeSpread;
           const E = edges.at(s, side);
-          const past = Math.min(rnd() * PLANTS.edgeTo, Math.max(0, reach(s, side) - E));
+          const u = rnd();
+          const past = Math.min(PLANTS.edgeFrom + u * u * (PLANTS.edgeTo - PLANTS.edgeFrom), Math.max(0, reach(s, side) - E));
           const w = road.toWorld(s, side * (E + past));
-          const y = ground.earthwork(ground.natural(w.x, w.z), edgeHeight(road, s, side * E), past);
+          // (on the asphalt: its surface; off it, the earthwork's ground)
+          const y = past <= 0 ? edgeHeight(road, s, side * (E + past)) : ground.earthwork(ground.natural(w.x, w.z), edgeHeight(road, s, side * E), past);
           const size = PLANTS.edgeScale[0] + rnd() * (PLANTS.edgeScale[1] - PLANTS.edgeScale[0]);
           q.setFromAxisAngle(up, rnd() * Math.PI * 2);
           weeds.push(new THREE.Matrix4().compose(new THREE.Vector3(w.x, y - 0.03, w.z), q, sc.set(size, size * (0.8 + rnd() * 0.5), size)));
