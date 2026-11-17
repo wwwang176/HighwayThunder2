@@ -170,6 +170,22 @@ const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
 
 /**
+ * One move from `from` to `to` (grid poses), easing out, over a shot `first` s long and the last shot (LAST_SHOT):
+ * the cut between them only where the countdown has to come (no change of speed or way at it - a shot moving on
+ * evenly into the last one easing out from fast had a kink in it at the cut).
+ */
+function pullBack(from: Pose, to: Pose, first: number): Shot[] {
+  const total = first + LAST_SHOT;
+  const split = easeOut(first / total);
+  const lerp = (a: number[], b: number[]) => a.map((v, i) => THREE.MathUtils.lerp(v, b[i], split)) as [number, number, number];
+  const at: Pose = { pos: lerp(from.pos, to.pos), look: lerp(from.look, to.look), fov: THREE.MathUtils.lerp(from.fov, to.fov, split) };
+  return [
+    { seconds: first, from, to: at, ease: (u) => easeOut((u * first) / total) / split },
+    { seconds: LAST_SHOT, from: at, to, ease: (u) => (easeOut((first + u * LAST_SHOT) / total) - split) / (1 - split) },
+  ];
+}
+
+/**
  * Every intro's last shot (round into the chase camera's place) is this long (s); the countdown starts this far
  * into it, the camera still settling (the intros' shots before it 4.5 s: the countdown at 5 s each).
  */
@@ -719,9 +735,11 @@ export class Intro {
 
     if (kind === 'skyline') {
       // Straight down on the first hairpin's middle (its outside up the picture: an arch), sliding along it as a car
-      // drifts through under it (its headlights lighting the bend up: without one, near black); diving down the road
-      // to over the grid, looking down on it; then low behind the cars, their tail lights in a row.
-      const behind: Pose = { pos: [middle + 0.2, 1.4, -20], look: [middle, 0.8, 0], fov: 40 };
+      // drifts through under it (its headlights lighting the bend up: without one, near black); the pack from up the
+      // road ahead of it, drawing slowly nearer, all of it in the picture; then from just behind the player's car on
+      // the grid pulling back to the chase camera's place, in one move round the countdown (pullBack).
+      // (2.2 m back: at 1 m its tail light filled the picture)
+      const waiting: Pose = { pos: [0, carY + 0.55, -p.length / 2 - 2.2], look: [0, carY + 0.35, 8], fov: 40 };
       // (the middle between its edges: a hairpin is widened on its inside)
       const dMid = (dir * (edges.at(mid, dir as 1 | -1) - edges.at(mid, -dir as 1 | -1))) / 2;
       const apex = this.roadWorld([dMid, 0, mid]);
@@ -743,21 +761,15 @@ export class Intro {
           pass: drift(TOP_SECONDS),
         },
         {
-          // Over the road a little ahead of the cars' noses, looking down and back on them, sliding back over them
-          // (~8 m/s; diving down from 40-80 m up the road in 1.2 s was a blur; on past the front row, only the back
-          // row's - unlit - in the picture at the cut).
+          // Up over the road ahead of the pack, looking back down on it, drawing nearer (~11 m/s; diving down from
+          // 40-80 m up the road in 1.2 s was a blur; sliding on back over the cars, at the cut only the back row - unlit
+          // - was left in the picture).
           seconds: 1.2,
-          from: { pos: [middle, 11, 12], look: [middle, 0, -2], fov: 44 },
-          to: { pos: [middle, 10, 3], look: [middle, 0, -10], fov: 44 },
+          from: { pos: [middle, 12, 32], look: [middle, 0, -5], fov: 40 },
+          to: { pos: [middle, 9, 19], look: [middle, 0, -5], fov: 40 },
           ease: linear, // (still moving at the cut)
         },
-        {
-          seconds: 0.6,
-          from: { pos: [middle, 1.6, -24], look: [middle, 0.8, 0], fov: 40 },
-          to: behind,
-          ease: linear, // (still moving at the cut)
-        },
-        { seconds: LAST_SHOT, from: behind, to: chase, ease: easeOut },
+        ...pullBack(waiting, chase, 0.6),
       ];
     }
     if (kind === 'climb') {
