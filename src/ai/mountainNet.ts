@@ -7,7 +7,7 @@ import type { Centerline } from '../road/centerline';
 /**
  * The mountain road's driving network (docs/superpowers/specs/2026-11-16-mountain-planner-net-design.md §6.4): residual,
  * as the highway's (netTracker.ts) - its steer added to the mountain driver's own (its Stanley on the plan), its
- * throttle scaled by 1 + its second output; the brake the driver's. Its inputs all along the road (no highway
+ * throttle scaled by 1 + its second output (up or down to none), its brake its third's (applyMountainNet). Its inputs all along the road (no highway
  * constants): the plan a moment ahead, the road's bend and slopes, the room either side, how the car moves.
  * Trained by training/mountainNet.train.ts; a car's weights in CarSpec.ai.mountainTracker.
  */
@@ -15,7 +15,9 @@ import type { Centerline } from '../road/centerline';
 /** Plan look-aheads (s). */
 const AHEAD = [0, 0.15, 0.3, 0.5];
 export const MOUNTAIN_NET_INPUTS = AHEAD.length * 3 + 3 + 2 + 5 + 3 + 2;
-export const MOUNTAIN_NET_LAYERS = [MOUNTAIN_NET_INPUTS, 12, 12, 2];
+export const MOUNTAIN_NET_LAYERS = [MOUNTAIN_NET_INPUTS, 12, 12, 3];
+/** Of its brake output, this much is nothing (a slightly-off weight does not drag the brakes: the highway's REVERSE_DEAD). */
+const BRAKE_DEAD = 0.1;
 
 const clamp3 = (x: number) => (Number.isFinite(x) ? Math.max(-3, Math.min(3, x)) : 0);
 
@@ -71,19 +73,22 @@ export function mountainNetFrom(weights: number[] | undefined): Brain | null {
   return { layers: MOUNTAIN_NET_LAYERS.slice(), weights: Float32Array.from(weights) };
 }
 
-const OUT = new Float32Array(2);
+const OUT = new Float32Array(3);
 
 /**
- * The driver's input with the network's correction: its steer added, its throttle scaled up (1 + out, out > 0 only),
- * the brake as it was. Never less throttle: the planner sets its speed - let take it away, it learned to drive 1-5 %
- * slower to keep on its line and off the walls.
+ * The driver's input with the network's correction, as the highway's: its steer added, its throttle scaled by 1 + out
+ * (up, or down to none), its brake its own past BRAKE_DEAD (the driver's, if more). (Up only, it once was: let take the
+ * throttle away it learned to drive 1-5 % slower to keep on its line and off the walls - its cost then had a wall worth
+ * ~3 s and paid little for time; the cost is what weighs speed now, mountainNetEval.ts.)
  */
 export function applyMountainNet(brain: Brain | null, inputs: Float32Array, base: HandlingInput): HandlingInput {
   if (!brain) return base;
   const o = forward(brain, inputs, OUT);
+  const brake = Math.max(base.brake, Math.max(0, (o[2] - BRAKE_DEAD) / (1 - BRAKE_DEAD)));
   return {
     ...base,
     steer: Math.max(-1, Math.min(1, base.steer + o[0])),
-    throttle: Math.min(1, base.throttle * (1 + Math.max(0, o[1]))),
+    throttle: Math.max(0, Math.min(1, base.throttle * (1 + o[1]))),
+    brake,
   };
 }

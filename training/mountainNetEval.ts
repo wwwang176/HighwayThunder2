@@ -39,10 +39,14 @@ const ENTRY_SLIDE = 20;
 const ENTRY_SHARE = 1 / 3;
 const DRIFT_WALL_COST = 10;
 const DRIFT_METRE_GAIN = 0.005;
-const WALL_COST = 5;
+// (the driving network's: WALL_COST, METRE_GAIN and LAG_GAIN - its lag's weight - from the environment, to weigh a wall
+// against time: at ~33 m/s a wall is worth WALL_COST / METRE_GAIN / 33 s - 5 / 0.05: ~3 s, and its lag's tens against
+// little for time, it learned to slow down)
+const WALL_COST = Number(process.env.WALL_COST ?? 5);
 const RESET_COST = 5;
 const FELL_COST = 20;
-const METRE_GAIN = 0.05;
+const METRE_GAIN = Number(process.env.METRE_GAIN ?? 0.05);
+const LAG_GAIN = Number(process.env.LAG_GAIN ?? 1);
 const CONTACT_GAP = 0.5;
 const STUCK_S = 3;
 const LAG_AFTER = 0.75;
@@ -213,7 +217,7 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
   const fell = RESET_COST * res.resets + (res.nan ? FELL_COST : 0);
   res.cost = mode === 'drift'
     ? DRIFT_WALL_COST * res.walls + fell - ANGLE_GAIN * (res.mean + ENTRY_BONUS * res.entered) - DRIFT_METRE_GAIN * res.metres
-    : res.lag + WALL_COST * res.walls + fell - METRE_GAIN * res.metres;
+    : LAG_GAIN * res.lag + WALL_COST * res.walls + fell - METRE_GAIN * res.metres;
   return res;
 }
 

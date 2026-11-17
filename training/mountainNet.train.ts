@@ -18,8 +18,8 @@ import { chunks, ExamPool } from './trackerPool';
  * brain (CONTINUE=1: the car's own weights; else a quiet one - its output layer 0: the driver's own control) runs the
  * same roads; a brain worse than it pays GUARD times the difference. Every VALID_EVERY generations the best is
  * examined on VALID_SEEDS whole roads alone; it is archived (training/out/mountainNet/), and kept (SAVE=1 writes the
- * car's weights file) only if, against the start's, it touched the walls no more, lagged its plan no more, was put
- * back no more and was no more than 1 % slower.
+ * car's weights file) only if, against the start's, its cost was no more (WALL_COST, METRE_GAIN, LAG_GAIN:
+ * mountainNetEval.ts), it was put back no more and it got home.
  * NET=drift: its drift network instead (src/ai/mountainDriftNet.ts; the car's own driving network on its line), scored
  * by its slide (mountainNetEval.ts), kept only if it touched the walls no more, was put back no more, slid more (its
  * slideScore: through its hairpins, and into them) and was no more than DRIFT_SLOWER slower; its weights file
@@ -100,7 +100,9 @@ it('mountain driving network', async () => {
         const ok =
           MODE === 'drift'
             ? v.walls <= startValid.walls && v.resets <= startValid.resets && !v.nan && slideScore(v) > slideScore(startValid) && (v.time ?? Infinity) <= (startValid.time ?? Infinity) * (1 + DRIFT_SLOWER)
-            : v.walls <= startValid.walls && v.lag <= startValid.lag && v.resets <= startValid.resets && !v.nan && (v.time ?? Infinity) <= (startValid.time ?? Infinity) * 1.01;
+            : // (its cost - walls against time as weighed there - no more than the start's: the driver alone now on full
+              // throttle out of drifts, a good one trades a little time for many walls; on time within 1 % none was)
+              v.cost <= startValid.cost && v.resets <= startValid.resets && !v.nan && v.time !== null;
         log(`  validation: ${line(v)}${ok ? '  KEPT' : ''}`);
         writeFileSync(file, JSON.stringify({ gen: g, exam: res[order[0]], valid: v, start: startValid, weights: Array.from(best.weights) }));
         if (ok) kept = best;

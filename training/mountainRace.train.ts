@@ -73,6 +73,8 @@ const GRID: [number, number][] = [
 const DEBUG = !!process.env.DEBUG;
 // (DRIFT='{"steer":0.6}': the AI's hairpin drift tuned over MOUNTAIN_DRIVER.drift)
 if (process.env.DRIFT) Object.assign(MOUNTAIN_DRIVER.drift, JSON.parse(process.env.DRIFT));
+// (PACE='{"gasRamp":3}': MOUNTAIN_DRIVER's own knobs, the same way)
+if (process.env.PACE) Object.assign(MOUNTAIN_DRIVER, JSON.parse(process.env.PACE));
 const log: string[] = [];
 const RIVAL_CARS =[STREET_RACER, CARS['muscle-car'] ?? STREET_RACER, CARS.jdm ?? STREET_RACER];
 

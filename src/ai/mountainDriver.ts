@@ -44,6 +44,12 @@ export const MOUNTAIN_DRIVER = {
   /** The top speed its line is planned to (m/s: past any car's; the car's own limit caps it). */
   vMax: 100,
   /**
+   * Full throttle this far (m/s) under the speed it aims at (speedPedals). (The highway's 3: its aim the line's speed a
+   * moment ahead - the line itself as fast as the engine speeds it up - it ran ~3 m/s under its line down every straight,
+   * on part throttle out of every bend.)
+   */
+  gasRamp: 1,
+  /**
    * Drifting round every hairpin (the player's: for show, slower or not; pulling the handbrake, sliding hard on the
    * inside) - its tight run (tighter than R `tight`): the handbrake pulled `kickEarly` s before it for `kickTime` s, the
    * wheel `kickSteer` in (0.4 s on full lock flung it in at 6 m/s across: caught, drifted again), then driftControl: the slide held by the wheel (`angle` rad), the line kept by the throttle and a little
@@ -89,12 +95,17 @@ export const MOUNTAIN_DRIVER = {
     holdGas: 0.5,
     speedLook: 0.5,
     kickLoss: 2.5,
-    brake: 5,
+    // (its braking down to a hairpin's speed, m/s² - into it as fast either way, only later: at 5, ~0.5 g, it was off
+    // the throttle 100-200 m out)
+    brake: 7.5,
     brakeGain: 0.3,
     wide: 1.5,
     lineShare: 0,
     settleSlide: 0.1,
-    settleGas: 0.3,
+    // (out of the drift on full throttle - and alignGas: the driving network takes it down as it needs to, its own
+    // throttle and brake as the highway's. The driver alone on it hit the walls 3-12 times as often; at 0.3/0.4, the
+    // first part of every straight was crawled.)
+    settleGas: 1,
     settleSteer: 0.5,
     settleHead: 2,
     settleRate: 0.5,
@@ -138,7 +149,7 @@ export const MOUNTAIN_DRIVER = {
     alignHead: 2,
     alignRate: 0.4,
     alignSteer: 1,
-    alignGas: 0.4,
+    alignGas: 1, // (settleGas)
     slideTarget: 0.45,
     slideGain: 1.5,
     springLimit: Math.PI / 4,
@@ -256,7 +267,11 @@ export class MountainDriver implements RivalDriver {
    * `offsetAt`, its speed no more than `vAt` a moment ahead; its own passing left out. Null: it passes by itself.
    */
   external: { offsetAt(s: number): number; vAt(s: number): number } | null = null;
-  /** Its last step's input if that step followed its line (null: drifting, settling - not the line's). */
+  /**
+   * Its last step's input if that step followed its line or settled out of a drift - the driving network's to correct
+   * (MountainPlannerDriver.withNet: out of a drift on full throttle, it takes the throttle down as it needs to); null:
+   * kicking, drifting, catching - the drift network's.
+   */
   lastLine: HandlingInput | null = null;
   /** Where it steers for, across the road (m): the line's there plus the offset. */
   aimD = 0;
@@ -461,7 +476,7 @@ export class MountainDriver implements RivalDriver {
       input.steer = Math.max(this.lastSteer - step, Math.min(this.lastSteer + step, input.steer));
     }
     this.lastSteer = input.steer;
-    this.lastLine = this.mode === 'line' ? input : null;
+    this.lastLine = this.mode === 'line' || this.mode === 'settle' ? input : null;
     return input;
   }
 
@@ -576,7 +591,7 @@ export class MountainDriver implements RivalDriver {
     target = Math.min(target, this.hairpinCap(self.s, v));
     // (a planner's cap: following a car it cannot get by, a tighter path than its line's)
     if (this.external) target = Math.min(target, this.external.vAt(self.s + Math.max(T.leadMin, T.lead * v)));
-    const pedals = speedPedals(target, self.vLong);
+    const pedals = speedPedals(target, self.vLong, T.gasRamp);
     if (pin) {
       if (this.kicked !== pin) {
         this.kicked = pin;
