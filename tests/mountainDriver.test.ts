@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { driftTurnWant, hairpinRuns, MOUNTAIN_DRIVER, MountainDriver } from '../src/ai/mountainDriver';
+import { alignThrottle, driftTurnWant, hairpinRuns, MOUNTAIN_DRIVER, MountainDriver } from '../src/ai/mountainDriver';
 import { lineAt } from '../src/ai/mountainLine';
 import type { SelfState, TrafficBox } from '../src/ai/sensors';
 import { STREET_RACER } from '../src/vehicles/cars';
@@ -191,5 +191,21 @@ describe('drifting round the hairpins (MOUNTAIN_DRIVER.drift)', () => {
     const slow = new MountainDriver();
     slow.setRoad(PIN, STREET_RACER.ai);
     expect(slow.drive(at(from - 1, 5), [], P).handbrake).toBeFalsy();
+  });
+});
+
+describe('alignThrottle', () => {
+  const D = { alignGas: 1, alignGasFrom: 0.05, alignGasSpan: 0.25, alignGasLeast: 0.3 };
+  it('its nose parallel to the straight: full', () => {
+    expect(alignThrottle(0, D)).toBe(1);
+    expect(alignThrottle(-0.05, D)).toBe(1);
+  });
+  it('its nose swung past it either way: less, to alignGasLeast at alignGasFrom + alignGasSpan', () => {
+    expect(alignThrottle(0.175, D)).toBeCloseTo(0.65, 5);
+    expect(alignThrottle(-0.3, D)).toBeCloseTo(0.3, 5);
+    expect(alignThrottle(0.6, D)).toBeCloseTo(0.3, 5);
+  });
+  it('alignGasSpan 0: alignGas throughout (as before)', () => {
+    expect(alignThrottle(0.6, { ...D, alignGasSpan: 0 })).toBe(1);
   });
 });

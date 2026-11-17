@@ -155,6 +155,13 @@ export const MOUNTAIN_DRIVER = {
     alignRate: 0.4,
     alignSteer: 1,
     alignGas: 1, // (settleGas)
+    // (its nose swung on past the straight - the wheel still coming off its lock as it was handed over - on alignGas
+    // the throttle's push held it there, counter-steered on full lock, and it drove across into the inside wall 15-45 m
+    // out, 28 of the street racer's 56 walls: under alignGasFrom rad off, alignGas; past it, less, alignGasLeast
+    // alignGasSpan on - alignThrottle)
+    alignGasFrom: 0.05,
+    alignGasSpan: 0.25,
+    alignGasLeast: 0.3,
     slideTarget: 0.45,
     slideGain: 1.5,
     springLimit: Math.PI / 4,
@@ -203,6 +210,13 @@ export interface HairpinRun {
 }
 
 /** The road's hairpins: its runs bent tighter than R `tight` one way (m). */
+/** Its throttle out of a drift, its nose `off` rad from parallel to the straight (either way): alignGas, less past alignGasFrom. */
+export function alignThrottle(off: number, D: { alignGas: number; alignGasFrom: number; alignGasSpan: number; alignGasLeast: number }): number {
+  if (D.alignGasSpan <= 0) return D.alignGas;
+  const k = Math.min(1, Math.max(0, Math.abs(off) - D.alignGasFrom) / D.alignGasSpan);
+  return D.alignGas + (Math.min(D.alignGas, D.alignGasLeast) - D.alignGas) * k;
+}
+
 export function hairpinRuns(road: Centerline, tight: number): HairpinRun[] {
   const out: HairpinRun[] = [];
   let open: HairpinRun | null = null;
@@ -850,9 +864,10 @@ export class MountainDriver implements RivalDriver {
       const nose = road.heading(self.s) + self.yaw;
       // (tried: its nose held further in by its course out across the road - walls 8 -> 5 for the muscle car on more
       // throttle, not enough: it was at the outside's edge already as its drift ended)
-      const a = D.alignHead * Math.atan2(Math.sin(this.alignTo - nose), Math.cos(this.alignTo - nose)) - D.alignRate * self.yawRate;
+      const off = Math.atan2(Math.sin(this.alignTo - nose), Math.cos(this.alignTo - nose));
+      const a = D.alignHead * off - D.alignRate * self.yawRate;
       const s = Math.max(-D.alignSteer, Math.min(D.alignSteer, a / steerRange(v, p)));
-      return { throttle: Math.min(pedals.throttle, D.alignGas), brake: 0, steer: s };
+      return { throttle: Math.min(pedals.throttle, alignThrottle(off, D)), brake: 0, steer: s };
     }
     if (this.settling) {
       this.mode = 'settle';
