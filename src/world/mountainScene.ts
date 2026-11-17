@@ -114,6 +114,18 @@ const PLANTS = {
   /** Grass drawn in blocks `block` m square, only those within `show` m of the player (the player's: far off it is not seen). */
   block: 50,
   show: 110,
+  /**
+   * Weeds at the road's edge (the player's: blurring where the road ends and the grass begins - under the rail, in a
+   * cut's ditch, on a tight bend's inside): every `edgeStep` m of each side at `edgeOdds` odds a clump of `edgeTufts`
+   * tufts, `edgeSpread` m along, `edgeTo` m off the edge at most, `edgeScale` the grass's size - in the grass's blocks,
+   * no draws more (the player's: not to cost frames).
+   */
+  edgeStep: 8,
+  edgeOdds: 0.4,
+  edgeTufts: [2, 6],
+  edgeSpread: 1.5,
+  edgeTo: 1.2,
+  edgeScale: [0.45, 0.85],
 };
 const BEACON = { color: new THREE.Color(1, 0.68, 0.06), bright: 6, dim: 0.06, period: 1, on: 0.45, radius: 0.09 };
 
@@ -405,7 +417,31 @@ export class MountainScene implements Scenery {
       this.addPosts(road, runs, side);
     }
     this.addChevrons(road, rows, cutAt);
-    this.addPlants(ground, Math.round(road.length * 13) % 997);
+    const seed = Math.round(road.length * 13) % 997;
+    // Weeds at the road's edge (PLANTS.edge*): set on the earthwork's ground there as the seam is (not the grid's), on a
+    // tight bend's inside no further than its ground reaches.
+    const rnd = seeded(seed + 211);
+    const weeds: THREE.Matrix4[] = [];
+    const q = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const sc = new THREE.Vector3();
+    for (const side of [-1, 1] as const)
+      for (let s0 = RUN_FROM; s0 < RUN_TO(); s0 += PLANTS.edgeStep) {
+        if (rnd() > PLANTS.edgeOdds) continue;
+        const n = PLANTS.edgeTufts[0] + Math.floor(rnd() * (PLANTS.edgeTufts[1] - PLANTS.edgeTufts[0] + 1));
+        const at = s0 + rnd() * PLANTS.edgeStep;
+        for (let k = 0; k < n; k++) {
+          const s = at + (rnd() * 2 - 1) * PLANTS.edgeSpread;
+          const E = edges.at(s, side);
+          const past = Math.min(rnd() * PLANTS.edgeTo, Math.max(0, reach(s, side) - E));
+          const w = road.toWorld(s, side * (E + past));
+          const y = ground.earthwork(ground.natural(w.x, w.z), edgeHeight(road, s, side * E), past);
+          const size = PLANTS.edgeScale[0] + rnd() * (PLANTS.edgeScale[1] - PLANTS.edgeScale[0]);
+          q.setFromAxisAngle(up, rnd() * Math.PI * 2);
+          weeds.push(new THREE.Matrix4().compose(new THREE.Vector3(w.x, y - 0.03, w.z), q, sc.set(size, size * (0.8 + rnd() * 0.5), size)));
+        }
+      }
+    this.addPlants(ground, seed, weeds);
   }
 
   update(playerS: number, play = 0): void {
@@ -587,8 +623,11 @@ export class MountainScene implements Scenery {
     }
   }
 
-  /** The forest and the grass (PLANTS) on the ground, by how far each spot is from the road's edge and how steep it is. */
-  private addPlants(t: Terrain, seed: number): void {
+  /**
+   * The forest and the grass (PLANTS) on the ground, by how far each spot is from the road's edge and how steep it is;
+   * `weeds` tufts more with the grass (the road edge's: set where they stand).
+   */
+  private addPlants(t: Terrain, seed: number, weeds: THREE.Matrix4[] = []): void {
     const rnd = seeded(seed + 101);
     const pastAt = (x: number, z: number) => {
       const i = Math.round((x - t.x0) / t.step), j = Math.round((z - t.z0) / t.step);
@@ -677,6 +716,7 @@ export class MountainScene implements Scenery {
         if (t.normal(wx, wz)[1] < G.grassSteep) continue;
         tuft(wx, wz, 0.6 + rnd() * 0.6);
       }
+    tufts.push(...weeds);
     if (tufts.length) {
       // (a tuft: `blades` thin blades from a point, leaning out, dark at the root, yellower at the tip; lit as the ground
       // is - their normals up - not as flat cards)
