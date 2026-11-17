@@ -50,6 +50,11 @@ export const MOUNTAIN_DRIVER = {
    */
   gasRamp: 1,
   /**
+   * Full brake this far (m/s) past a metre a second over its aim (speedPedals). (The highway's 5: coming to a hairpin it
+   * was on the brakes half the time, lightly - over its aim by up to 6 m/s before they were full on.)
+   */
+  brakeRamp: 5,
+  /**
    * Drifting round every hairpin (the player's: for show, slower or not; pulling the handbrake, sliding hard on the
    * inside) - its tight run (tighter than R `tight`): the handbrake pulled `kickEarly` s before it for `kickTime` s, the
    * wheel `kickSteer` in (0.4 s on full lock flung it in at 6 m/s across: caught, drifted again), then driftControl: the slide held by the wheel (`angle` rad), the line kept by the throttle and a little
@@ -591,7 +596,7 @@ export class MountainDriver implements RivalDriver {
     target = Math.min(target, this.hairpinCap(self.s, v));
     // (a planner's cap: following a car it cannot get by, a tighter path than its line's)
     if (this.external) target = Math.min(target, this.external.vAt(self.s + Math.max(T.leadMin, T.lead * v)));
-    const pedals = speedPedals(target, self.vLong, T.gasRamp);
+    const pedals = speedPedals(target, self.vLong, T.gasRamp, T.brakeRamp);
     if (pin) {
       if (this.kicked !== pin) {
         this.kicked = pin;

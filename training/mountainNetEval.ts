@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Brain } from '../src/ai/brain';
 import { selfStateOf } from '../src/ai/driver';
-import { hairpinRuns } from '../src/ai/mountainDriver';
+import { hairpinRuns, MOUNTAIN_DRIVER } from '../src/ai/mountainDriver';
 import { MountainPlannerDriver } from '../src/ai/mountainPlannerDriver';
 import { mulberry32 } from '../src/ai/rng';
 import { KMH, PHYSICS_DT } from '../src/config';
@@ -43,6 +43,8 @@ const DRIFT_METRE_GAIN = 0.005;
 // against time: at ~33 m/s a wall is worth WALL_COST / METRE_GAIN / 33 s - 5 / 0.05: ~3 s, and its lag's tens against
 // little for time, it learned to slow down)
 const WALL_COST = Number(process.env.WALL_COST ?? 5);
+// (PACE='{"brakeRamp":1}': the driver's own knobs, as the bench's - set in every worker)
+if (process.env.PACE) Object.assign(MOUNTAIN_DRIVER, JSON.parse(process.env.PACE));
 const RESET_COST = 5;
 const FELL_COST = 20;
 const METRE_GAIN = Number(process.env.METRE_GAIN ?? 0.05);

@@ -16,8 +16,13 @@ import type { Centerline } from '../road/centerline';
 const AHEAD = [0, 0.15, 0.3, 0.5];
 export const MOUNTAIN_NET_INPUTS = AHEAD.length * 3 + 3 + 2 + 5 + 3 + 2;
 export const MOUNTAIN_NET_LAYERS = [MOUNTAIN_NET_INPUTS, 12, 12, 3];
-/** Of its brake output, this much is nothing (a slightly-off weight does not drag the brakes: the highway's REVERSE_DEAD). */
-const BRAKE_DEAD = 0.1;
+/**
+ * Its throttle output under -LIFT_AT: off the throttle altogether (over it: as the driver's, or more); its brake output
+ * over BRAKE_AT: the brake full on. (Scaling the throttle by 1 + out, it took a little off everywhere - full throttle
+ * 1 % of the straights, not 53-66 % - and was as slow as before: either it lifts, or it does not.)
+ */
+const LIFT_AT = 0.3;
+const BRAKE_AT = 0.3;
 
 const clamp3 = (x: number) => (Number.isFinite(x) ? Math.max(-3, Math.min(3, x)) : 0);
 
@@ -76,19 +81,18 @@ export function mountainNetFrom(weights: number[] | undefined): Brain | null {
 const OUT = new Float32Array(3);
 
 /**
- * The driver's input with the network's correction, as the highway's: its steer added, its throttle scaled by 1 + out
- * (up, or down to none), its brake its own past BRAKE_DEAD (the driver's, if more). (Up only, it once was: let take the
- * throttle away it learned to drive 1-5 % slower to keep on its line and off the walls - its cost then had a wall worth
- * ~3 s and paid little for time; the cost is what weighs speed now, mountainNetEval.ts.)
+ * The driver's input with the network's correction, its own throttle and brake as the highway's - boldly: its steer
+ * added; off the throttle altogether (LIFT_AT) or the driver's, scaled up by 1 + out; the brake full on (BRAKE_AT) or
+ * the driver's. (Up only, it once was: let take the throttle away it learned to drive 1-5 % slower; its cost is what
+ * weighs speed now, mountainNetEval.ts.)
  */
 export function applyMountainNet(brain: Brain | null, inputs: Float32Array, base: HandlingInput): HandlingInput {
   if (!brain) return base;
   const o = forward(brain, inputs, OUT);
-  const brake = Math.max(base.brake, Math.max(0, (o[2] - BRAKE_DEAD) / (1 - BRAKE_DEAD)));
   return {
     ...base,
     steer: Math.max(-1, Math.min(1, base.steer + o[0])),
-    throttle: Math.max(0, Math.min(1, base.throttle * (1 + o[1]))),
-    brake,
+    throttle: o[1] < -LIFT_AT ? 0 : Math.min(1, base.throttle * (1 + Math.max(0, o[1]))),
+    brake: o[2] > BRAKE_AT ? 1 : base.brake,
   };
 }

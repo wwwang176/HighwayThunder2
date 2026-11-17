@@ -109,7 +109,7 @@ describe('MountainPlannerDriver', () => {
     expect(neu.mplan).toBeNull();
   });
 
-  it('the network steers, takes the throttle up or down, and brakes on its own (as the highway\'s); quiet, it changes nothing', () => {
+  it('the network steers, lifts right off or adds throttle, brakes hard - never a little less throttle, never a light brake; quiet, it changes nothing', () => {
     const b = quietMountainNet(mulberry32(5));
     const hidden = MOUNTAIN_NET_LAYERS[MOUNTAIN_NET_LAYERS.length - 2];
     const brakeBias = b.weights.length - 1; // (each output its weights then its bias: the third's last)
@@ -117,15 +117,17 @@ describe('MountainPlannerDriver', () => {
     const base = { throttle: 0.6, brake: 0, steer: 0.1 };
     const run = () => applyMountainNet(b, new Float32Array(MOUNTAIN_NET_INPUTS), base);
     expect(run()).toEqual(base);
-    b.weights[throttleBias] = -5; // (its throttle all the way off)
-    expect(run().throttle).toBeLessThan(0.01);
+    b.weights[throttleBias] = -0.2; // (a little less asked: none taken)
+    expect(run().throttle).toBe(0.6);
+    b.weights[throttleBias] = -5; // (off: right off)
+    expect(run().throttle).toBe(0);
     b.weights[throttleBias] = 5;
     expect(run().throttle).toBeGreaterThan(0.6);
     b.weights[throttleBias] = 0;
-    b.weights[brakeBias] = 5; // (its brake on)
-    expect(run().brake).toBeGreaterThan(0.9);
-    b.weights[brakeBias] = -5;
+    b.weights[brakeBias] = 0.2; // (a little brake asked: none)
     expect(run().brake).toBe(0);
+    b.weights[brakeBias] = 5; // (on: full)
+    expect(run().brake).toBe(1);
   });
 
   it('mountainNetInputs: finite and the right length at s = -11 (the grid), standing', () => {
