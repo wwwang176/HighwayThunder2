@@ -53,6 +53,10 @@ export const MOUNTAIN_DRIVER = {
    * walls no longer where the bends turned the other way fast, the bounce's.)
    */
   budget: 1,
+  /** Its line over a crest planned on its tyres' load there (1; 0: as on the flat) - speedProfile's `crest`. */
+  crest: 1,
+  /** Its line's sideways acceleration changing no faster than this (m/s³; 0: no limit) - speedProfile's `jerk`. */
+  jerk: 0,
   /**
    * Full throttle this far (m/s) under the speed it aims at (speedPedals). (The highway's 3: its aim the line's speed a
    * moment ahead - the line itself as fast as the engine speeds it up - it ran ~3 m/s under its line down every straight,
@@ -394,8 +398,9 @@ export class MountainDriver implements RivalDriver {
   private layLine(): void {
     if (!this.road || !this.car) return;
     const d = racingLine(this.road, this.room, undefined, roadEdges(this.road).widen);
-    this.line = speedProfile(this.road, d, this.car, this.budgetNow, MOUNTAIN_DRIVER.vMax);
-    this.full = speedProfile(this.road, d, this.car, 1, MOUNTAIN_DRIVER.vMax);
+    const opts = { crest: MOUNTAIN_DRIVER.crest > 0, jerk: MOUNTAIN_DRIVER.jerk };
+    this.line = speedProfile(this.road, d, this.car, this.budgetNow, MOUNTAIN_DRIVER.vMax, undefined, opts);
+    this.full = speedProfile(this.road, d, this.car, 1, MOUNTAIN_DRIVER.vMax, undefined, opts);
   }
 
   /** The speed it aims at at s (m/s): the line's, pushed toward the grip's whole. */
