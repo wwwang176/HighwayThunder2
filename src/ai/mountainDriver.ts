@@ -126,6 +126,14 @@ export const MOUNTAIN_DRIVER = {
     brakeGain: 0.3,
     wide: 1.5,
     lineShare: 0,
+    /**
+     * 1: out of a drift it settles first (the settle mode: its nose held parallel to the straight out of the bend, its
+     * turning stopped - not steering by the road; done once its slide is under settleSlide and its turning the road's
+     * within settleYaw - on a bending road out of a hairpin, never: it drove on straight into the wall). 0: straight
+     * back onto its line (drift.recover: the wheel eased back in, steered by its course) - its planner and driving
+     * network from there.
+     */
+    settle: 0,
     settleSlide: 0.1,
     // (out of the drift on full throttle - and alignGas: the driving network takes it down as it needs to, its own
     // throttle and brake as the highway's. The driver alone on it hit the walls 3-12 times as often; at 0.3/0.4, the
@@ -501,6 +509,11 @@ export class MountainDriver implements RivalDriver {
     return this.mode !== 'line';
   }
 
+  /** Just out of a drift: settling, or on its line its first drift.recover s after it (training's EXIT_GAIN walls). */
+  outOfDrift(): boolean {
+    return this.mode === 'settle' || (this.mode === 'line' && this.recover > 0);
+  }
+
   reset(): void {
     this.offset = 0;
     this.kicked = null;
@@ -626,7 +639,7 @@ export class MountainDriver implements RivalDriver {
 
       this.offset = Math.max(-2 * room, Math.min(2 * room, self.d - lineAt(line, self.s).d));
       this.recover = D.recover;
-      if (this.mode !== 'settle') this.settling = true;
+      if (D.settle > 0 && this.mode !== 'settle') this.settling = true; // (settle 0: straight back onto its line)
     }
     this.recover = Math.max(0, this.recover - PHYSICS_DT);
 
