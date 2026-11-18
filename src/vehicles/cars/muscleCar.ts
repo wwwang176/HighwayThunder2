@@ -126,6 +126,11 @@ export const MUSCLE_CAR: CarSpec = {
       [250, 14.6],
       [300, 16.7],
     ],
+    // Measured 2026-11-18 as set up for the mountain road (training/mountainGrip.train.ts).
+    mountain: {
+      latAccel: [[0, 12.4], [50, 12.4], [75, 14.4], [100, 15.9], [125, 17.5], [150, 19.3], [175, 20.8], [200, 22.2], [250, 23.8]],
+      brake: [[0, 13], [50, 13], [75, 12.9], [100, 13.6], [125, 15.4], [150, 16.2], [175, 17.4], [200, 17.9], [250, 18.6]],
+    },
     tracker: MUSCLE_CAR_TRACKER,
     recovery: MUSCLE_CAR_RECOVERY,
     mountainTracker: MUSCLE_CAR_MOUNTAIN_NET,

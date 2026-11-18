@@ -70,6 +70,31 @@ function pad(params: CarParams, kmh: number, side: 1 | -1) {
   return { held, most, steerAt };
 }
 
+/** Full brake from 15 km/h over `kmh` (from cruising, as the AI brakes), straight on: the mean over the 30 km/h it takes to lose (m/s²). */
+function stopAt(params: CarParams, kmh: number) {
+  const physics = openGround();
+  physics.timestep = PHYSICS_DT;
+  const car = new PlayerCar(physics, null, { entity: { type: 'rival', id: 0 } });
+  Object.assign(car.params, params);
+  car.applyMass();
+  car.resetTo(0, 1, (kmh + 15) * KMH);
+  const step = (throttle: number, brake: number) => {
+    const steer = Math.max(-1, Math.min(1, -(car.d - 1) * 0.05 - car.yaw));
+    car.prePhysics({ throttle, brake, steer }, PHYSICS_DT);
+    physics.step(() => {});
+    car.postPhysics();
+  };
+  for (let i = 0; i < 0.3 / PHYSICS_DT; i++) step(0.3, 0);
+  const v0 = car.speed;
+  let t = 0;
+  while (v0 - car.speed < 30 * KMH && t < 10) {
+    step(0, 1);
+    t += PHYSICS_DT;
+  }
+  physics.free();
+  return (v0 - car.speed) / t;
+}
+
 it('mountain grip', async () => {
   await RAPIER.init();
   const out: string[] = [`(sideways m/s²: held = most before ${SLIDE}° of slide, at its speed; the wheel 0 -> 1 over ${RAMP} s)`];
@@ -77,23 +102,27 @@ it('mountain grip', async () => {
     const spec = CARS[id];
     const setup = mountainSetupOf(id);
     const p = mountainSetup(spec.params, setup);
-    const plan = mountainAi(spec.ai, setup).latAccel;
-    out.push(`${id} (aiLat ${setup.aiLat}):`);
-    const ratios: number[] = [];
+    const plan = mountainAi(spec.ai, setup);
+    out.push(`${id} (its plan's tables: ${spec.ai.mountain ? 'measured, CarSpec.ai.mountain' : `the highway's x aiLat ${setup.aiLat}, brakes x longGrip ${setup.longGrip}`}):`);
+    const lat: [number, number][] = [];
+    const brake: [number, number][] = [];
     for (const kmh of MARKS) {
       if (kmh * KMH > p.maxSpeed * 0.97) continue;
       const r = [pad(p, kmh, 1), pad(p, kmh, -1)];
       const held = Math.min(r[0].held, r[1].held);
       const most = Math.min(r[0].most, r[1].most);
-      const planned = tableAt(plan, kmh);
-      const table = tableAt(spec.ai.latAccel, kmh);
-      ratios.push(held / table);
+      const b = stopAt(p, kmh);
+      lat.push([kmh, Math.round(held * 10) / 10]);
+      brake.push([kmh, Math.round(b * 10) / 10]);
       out.push(
         `  ${String(kmh).padStart(3)} km/h  held ${held.toFixed(1)} (wheel ${Math.max(r[0].steerAt, r[1].steerAt).toFixed(2)})  most ${most.toFixed(1)}  ` +
-          `plan ${planned.toFixed(1)} (table ${table.toFixed(1)})  held/table x${(held / table).toFixed(2)}`,
+          `plan ${tableAt(plan.latAccel, kmh).toFixed(1)} (x${(held / tableAt(plan.latAccel, kmh)).toFixed(2)})  ` +
+          `brake ${b.toFixed(1)} plan ${tableAt(plan.brake, kmh).toFixed(1)} (x${(b / tableAt(plan.brake, kmh)).toFixed(2)})`,
       );
     }
-    out.push(`  held/table: ${ratios.map((x) => x.toFixed(2)).join(' ')}  mean x${(ratios.reduce((s, x) => s + x, 0) / ratios.length).toFixed(2)}`);
+    // (paste-ready: the slowest's below it too)
+    const rows = (t: [number, number][]) => [[0, t[0][1]], ...t].map(([k, a]) => `[${k}, ${a}]`).join(', ');
+    out.push(`  mountain: { latAccel: [${rows(lat)}], brake: [${rows(brake)}] },`);
   }
   process.stdout.write(out.join('\n') + '\n');
 });

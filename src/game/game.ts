@@ -661,7 +661,7 @@ export class Game {
       this.applyCars(cars);
       this.rivalTopShare = applyDifficulty(cars.difficulty);
     }
-    if (this.mountain) this.mountainBudget();
+    // (the mountain drivers' grip their own: MOUNTAIN_DRIVER.budget - the difficulty their top speed only, as here)
     // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
     const spec = specOf(this.cars.player);
     Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
@@ -963,12 +963,6 @@ export class Game {
     rivals.length = this.courseLength;
     if (this.mountain) rivals.setRoad(this.roadLine);
     return rivals;
-  }
-
-  /** The mountain drivers' line at the race's difficulty: its share of the rivals' top speed taken as their share of the grip. */
-  private mountainBudget(): void {
-    const budget = Math.min(0.97, Math.max(0.8, this.rivalTopShare - 0.03));
-    for (const r of this.rivals.list) if (r.driver instanceof MountainDriver || r.driver instanceof MountainPlannerDriver) r.driver.budget = budget;
   }
 
   /**

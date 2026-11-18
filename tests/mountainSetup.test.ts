@@ -48,12 +48,20 @@ describe('mountainSetup', () => {
     }
   });
 
-  it('its AI tables as set up: braking as much harder (the long grip), cornering times its own aiLat, speeding up as it was', () => {
+  it('its AI tables as set up, unmeasured: braking as much harder (the long grip), cornering times its own aiLat, speeding up as it was', () => {
     const s = mountainSetupOf(STREET_RACER.id);
-    const ai = mountainAi(STREET_RACER.ai, s);
+    const { mountain: _, ...highway } = STREET_RACER.ai;
+    const ai = mountainAi(highway, s);
     STREET_RACER.ai.brake.forEach(([kmh, a], i) => expect(ai.brake[i]).toEqual([kmh, a * MOUNTAIN_SETUP.longGrip]));
     STREET_RACER.ai.latAccel.forEach(([, a], i) => expect(ai.latAccel[i][1]).toBeCloseTo(a * s.aiLat, 9));
     expect(s.aiLat).toBeGreaterThan(1);
+    expect(ai.accel).toEqual(STREET_RACER.ai.accel);
+  });
+
+  it('its AI tables as set up, measured so (CarSpec.ai.mountain): those, speeding up as it was', () => {
+    const ai = mountainAi(STREET_RACER.ai, mountainSetupOf(STREET_RACER.id));
+    expect(ai.latAccel).toEqual(STREET_RACER.ai.mountain!.latAccel);
+    expect(ai.brake).toEqual(STREET_RACER.ai.mountain!.brake);
     expect(ai.accel).toEqual(STREET_RACER.ai.accel);
   });
 

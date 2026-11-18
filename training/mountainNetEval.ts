@@ -81,7 +81,8 @@ const LAG_AFTER = 0.75;
 const SAMPLE = 0.25;
 /** A plan's path sampled this far ahead (m), every metre. */
 const SNAP_AHEAD = 60;
-const BUDGET = 0.9;
+/** (BUDGET: its line's share of the grip, MOUNTAIN_DRIVER.budget - the game's at every difficulty) */
+const BUDGET = Number(process.env.BUDGET ?? MOUNTAIN_DRIVER.budget);
 const LANE = MOUNTAIN.halfWidth / 2;
 const GRID: [number, number][] = [
   [-LANE, -3],

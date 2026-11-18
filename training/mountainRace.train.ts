@@ -59,12 +59,12 @@ interface PinStat { slides: number; on: boolean; most: number; walls: number; in
  * driven by the mountain driver too, three rivals with theirs, on SEEDS random roads (as the game's: its mesh, its
  * walls, its grid). Per race: each car's time (or how far it got), its wall contacts, its put-backs, how far below the
  * road it ever got, NaN. Asserts: none fell through or went NaN, nine in ten races every car home.
- *   SEEDS=30 BUDGET=0.9 npx vitest run --config training/vitest.config.ts training/mountainRace.train.ts
+ *   SEEDS=30 npx vitest run --config training/vitest.config.ts training/mountainRace.train.ts
  */
 const SEEDS = Number(process.env.SEEDS ?? 30);
 /** FIRST (1): the first seed. */
 const FIRST = Number(process.env.FIRST ?? 1);
-const BUDGET = Number(process.env.BUDGET ?? 0.9);
+const BUDGET = Number(process.env.BUDGET ?? MOUNTAIN_DRIVER.budget);
 const LIMIT = 300; // s
 const LANE = MOUNTAIN.halfWidth / 2;
 const GRID: [number, number][] = [

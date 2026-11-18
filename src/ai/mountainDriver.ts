@@ -46,6 +46,12 @@ export const MOUNTAIN_DRIVER = {
   /** The top speed its line is planned to (m/s: past any car's; the car's own limit caps it). */
   vMax: 100,
   /**
+   * The share of its car's grip and brakes its line is planned to (CarSpec.ai.mountain: as measured, at the limit
+   * before it slides): its own margin, at every difficulty - the difficulty is its top speed only, as the highway's.
+   * (Once 0.82-0.97 by the difficulty, on tables 13-19 % under the car's grip.)
+   */
+  budget: 0.95,
+  /**
    * Full throttle this far (m/s) under the speed it aims at (speedPedals). (The highway's 3: its aim the line's speed a
    * moment ahead - the line itself as fast as the engine speeds it up - it ran ~3 m/s under its line down every straight,
    * on part throttle out of every bend.)
@@ -292,7 +298,7 @@ export class MountainDriver implements RivalDriver {
   private full: RaceLine | null = null;
   private road: Centerline | null = null;
   private car: LineCar | null = null;
-  private budgetNow = 0.9;
+  private budgetNow = MOUNTAIN_DRIVER.budget;
   /** Its passing offset from the line now (m, + right). */
   private offset = 0;
   /**
@@ -362,7 +368,7 @@ export class MountainDriver implements RivalDriver {
     return this.road ? this.room + roadEdges(this.road).widen(s) : this.room;
   }
 
-  /** Share of its car's grip and brakes its line is planned to (the race's difficulty). */
+  /** Share of its car's grip and brakes its line is planned to (MOUNTAIN_DRIVER.budget). */
   get budget(): number {
     return this.budgetNow;
   }
