@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type { Brain } from '../src/ai/brain';
 import { selfStateOf } from '../src/ai/driver';
-import { hairpinRuns } from '../src/ai/mountainDriver';
+import { hairpinRuns, MOUNTAIN_DRIVER } from '../src/ai/mountainDriver';
 import { MountainPlannerDriver } from '../src/ai/mountainPlannerDriver';
 import { mulberry32 } from '../src/ai/rng';
 import { KMH, PHYSICS_DT } from '../src/config';
@@ -39,17 +39,50 @@ const ENTRY_SLIDE = 20;
 const ENTRY_SHARE = 1 / 3;
 const DRIFT_WALL_COST = 10;
 const DRIFT_METRE_GAIN = 0.005;
-const WALL_COST = 5;
+// (the driving network's: WALL_COST, METRE_GAIN and LAG_GAIN - its lag's weight - from the environment, to weigh a wall
+// against time: at ~33 m/s a wall is worth WALL_COST / METRE_GAIN / 33 s - 5 / 0.05: ~3 s, and its lag's tens against
+// little for time, it learned to slow down)
+const WALL_COST = Number(process.env.WALL_COST ?? 5);
+// (PACE='{"brakeRamp":1}': the driver's own knobs, as the bench's - set in every worker)
+if (process.env.PACE) Object.assign(MOUNTAIN_DRIVER, JSON.parse(process.env.PACE));
 const RESET_COST = 5;
 const FELL_COST = 20;
-const METRE_GAIN = 0.05;
+const METRE_GAIN = Number(process.env.METRE_GAIN ?? 0.05);
+const LAG_GAIN = Number(process.env.LAG_GAIN ?? 1);
+/**
+ * HIT_GRADE=1: a wall contact costs WALL_COST x (HIT_BRUSH + HIT_LOSS x the share of its speed it lost over the
+ * HIT_WATCH s after) - a brush (5 % lost: 0.4) next to nothing, a knock (20 %: 1) as before, a crash (50 %: 2.2) more;
+ * else WALL_COST each. (Each the same, it lifted for brushes too: two thirds of its contacts lost under 10 %, none stopped.)
+ */
+const HIT_GRADE = process.env.HIT_GRADE === '1';
+const HIT_BRUSH = 0.2;
+const HIT_LOSS = 4;
+const HIT_WATCH = 1;
+/** A wall contact settling out of a drift (its mode then: the straight after a hairpin - turned in on the throttle) costs
+ * EXIT_GAIN times as much (EXIT_GAIN; 1: as any). The driving network on full throttle there brushed the inside
+ * 20 times in 27 - each a brush, next to nothing graded: it did not mind them. */
+const EXIT_GAIN = Number(process.env.EXIT_GAIN ?? 1);
+/**
+ * RUN_M (m; the driving network's exams): each run to a distance, not for a time - RUN_M for a 60 s one (in
+ * proportion for another; one of WHOLE_S or more: the whole road), at most twice its time - and its speed as its time
+ * out of the hairpins (their tight runs: the drift network's) plus PIN_W of its time in them, TIME_GAIN a second (and
+ * a metre short of its distance as 0.2 s). (Run for a time, the way it got: a hairpin a second slower took a second
+ * off the straights' running, its gain there lost in it; its time in them all left out, it might hurl itself into them
+ * - PIN_W of it kept.) 0: for a time, METRE_GAIN a metre.
+ */
+const RUN_M = Number(process.env.RUN_M ?? 0);
+const TIME_GAIN = Number(process.env.TIME_GAIN ?? 5);
+const PIN_W = Number(process.env.PIN_W ?? 0.2);
+const WHOLE_S = 120;
+const SHORT_S_PER_M = 0.2;
 const CONTACT_GAP = 0.5;
 const STUCK_S = 3;
 const LAG_AFTER = 0.75;
 const SAMPLE = 0.25;
 /** A plan's path sampled this far ahead (m), every metre. */
 const SNAP_AHEAD = 60;
-const BUDGET = 0.9;
+/** (BUDGET: its line's share of the grip, MOUNTAIN_DRIVER.budget - the game's at every difficulty) */
+const BUDGET = Number(process.env.BUDGET ?? MOUNTAIN_DRIVER.budget);
 const LANE = MOUNTAIN.halfWidth / 2;
 const GRID: [number, number][] = [
   [-LANE, -3],
@@ -68,6 +101,13 @@ export interface RunResult {
   lag: number;
   walls: number;
   lineWalls: number;
+  /** Its wall contacts graded by the speed each cost it (HIT_BRUSH + HIT_LOSS x the share lost). */
+  hit: number;
+  /** Of its wall contacts, those settling out of a drift. */
+  exitWalls: number;
+  /** Its seconds out of the hairpins and in them (RUN_M: to its distance; else in its time). */
+  lineTime: number;
+  pinTime: number;
   resets: number;
   metres: number;
   time: number | null;
@@ -121,7 +161,7 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
   }
   rivals.place();
 
-  const res: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
+  const res: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, hit: 0, exitWalls: 0, lineTime: 0, pinTime: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
   const runs = hairpinRuns(road, 26);
   const most = runs.map(() => -1); // (each hairpin's most slide, deg; -1: not there yet)
   const through = runs.map(() => ({ sum: 0, n: 0, early: 0 })); // (in it: its slide summed a step, the steps, its most in its first ENTRY_SHARE)
@@ -130,11 +170,17 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
   let stuck = 0;
   let time = 0;
   let nextSample = 0;
-  const steps = Math.round(seconds / PHYSICS_DT);
+  const byDistance = mode === 'line' && RUN_M > 0;
+  const whole = seconds >= WHOLE_S;
+  const target = byDistance ? (whole ? MOUNTAIN.length : (RUN_M * seconds) / 60) : Infinity;
+  const steps = Math.round((byDistance && !whole ? 2 * seconds : seconds) / PHYSICS_DT);
+  const inPin = (s: number) => runs.some((h) => s >= h.from && s <= h.to);
+  const hits: { v0: number; least: number; t: number; exit: boolean }[] = [];
   for (let step = 0; step < steps; step++) {
     const view: RaceView = { player: car, traffic: [], speedCap: 300 * KMH, raceTime: time };
     rivals.drive(PHYSICS_DT, view);
     car.prePhysics(driver.drive(selfStateOf(car, car.params.maxSpeed), rivals.boxes(), car.params), PHYSICS_DT);
+    const v0 = car.speed;
     physics.step((a, b, normal) => {
       if (!normal) return;
       const mine = a.type === 'player' ? b : b.type === 'player' ? a : null;
@@ -142,11 +188,19 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
       if (time - lastWall > CONTACT_GAP) {
         res.walls++;
         if (!driver.inner.inDrift()) res.lineWalls++;
+        const exit = driver.inner.mode === 'settle';
+        if (exit) res.exitWalls++;
+        hits.push({ v0, least: v0, t: time, exit });
       }
       lastWall = time;
     });
     car.postPhysics();
     time += PHYSICS_DT;
+    for (const h of hits) if (time - h.t <= HIT_WATCH) h.least = Math.min(h.least, car.speed);
+    if (car.s >= 0 && car.s < target) {
+      if (inPin(car.s)) res.pinTime += PHYSICS_DT;
+      else res.lineTime += PHYSICS_DT;
+    }
     const pi = runs.findIndex((h) => car.s >= h.from && car.s <= h.to + 15);
     if (pi >= 0) {
       const h = runs[pi];
@@ -178,6 +232,7 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
       res.time = time;
       break;
     }
+    if (car.s >= target) break; // (its distance run)
     if (time < nextSample) continue;
     nextSample += SAMPLE;
     if (driver.inner.inDrift()) {
@@ -211,21 +266,29 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
     if (t.early >= ENTRY_SLIDE) res.entered++;
   });
   const fell = RESET_COST * res.resets + (res.nan ? FELL_COST : 0);
+  res.hit = hits.reduce((a, h) => a + (h.exit ? EXIT_GAIN : 1) * (HIT_BRUSH + HIT_LOSS * (h.v0 > 0.5 ? Math.max(0, 1 - h.least / h.v0) : 0)), 0);
+  const speed = byDistance
+    ? TIME_GAIN * (res.lineTime + PIN_W * res.pinTime + SHORT_S_PER_M * Math.max(0, target - Math.max(0, car.s)))
+    : -METRE_GAIN * res.metres;
   res.cost = mode === 'drift'
     ? DRIFT_WALL_COST * res.walls + fell - ANGLE_GAIN * (res.mean + ENTRY_BONUS * res.entered) - DRIFT_METRE_GAIN * res.metres
-    : res.lag + WALL_COST * res.walls + fell - METRE_GAIN * res.metres;
+    : LAG_GAIN * res.lag + WALL_COST * (HIT_GRADE ? res.hit : res.walls) + fell + speed;
   return res;
 }
 
 /** Several runs summed (each brain's exam): `seeds` alone and `raceSeeds` from the grid with rivals. */
 export function examine(brain: Brain | null, spec: CarSpec, seeds: number[], soloS: number, raceSeeds: number[], raceS: number, mode: NetMode = 'line'): RunResult {
-  const sum: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
+  const sum: RunResult = { cost: 0, lag: 0, walls: 0, lineWalls: 0, hit: 0, exitWalls: 0, lineTime: 0, pinTime: 0, resets: 0, metres: 0, time: null, nan: false, angle: 0, pins: 0, mean: 0, entered: 0 };
   let notHome = false;
   const add = (r: RunResult) => {
     sum.cost += r.cost;
     sum.lag += r.lag;
     sum.walls += r.walls;
     sum.lineWalls += r.lineWalls;
+    sum.hit += r.hit;
+    sum.exitWalls += r.exitWalls;
+    sum.lineTime += r.lineTime;
+    sum.pinTime += r.pinTime;
     sum.resets += r.resets;
     sum.metres += r.metres;
     // (one run not home in time: the whole not - it summed the others and looked faster)

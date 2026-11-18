@@ -64,9 +64,12 @@ export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-/** Pedals that bring the car from `v` to `target` (m/s). */
-export function speedPedals(target: number, v: number): { throttle: number; brake: number } {
-  return { throttle: clamp01((target - v) / THROTTLE_RAMP), brake: clamp01((v - target - COAST_BAND) / BRAKE_RAMP) };
+/**
+ * Pedals that bring the car from `v` to `target` (m/s): full throttle `ramp` m/s under it, full brake `brakeRamp` m/s
+ * past COAST_BAND over it (THROTTLE_RAMP, BRAKE_RAMP: the highway's).
+ */
+export function speedPedals(target: number, v: number, ramp = THROTTLE_RAMP, brakeRamp = BRAKE_RAMP): { throttle: number; brake: number } {
+  return { throttle: clamp01((target - v) / ramp), brake: clamp01((v - target - COAST_BAND) / brakeRamp) };
 }
 
 /**

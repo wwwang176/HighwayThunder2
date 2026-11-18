@@ -262,6 +262,12 @@ export function gridRevStep(g: GridRev, dt: number, toGo: number, rng: () => num
   return g.on;
 }
 
+/** A road's own setup of the cars (vehicles/mountainSetup): their params as built or tuned, their AI tables (for their tuning). */
+export interface RoadSetup {
+  params: (p: CarParams, spec: CarSpec) => CarParams;
+  ai: (ai: CarSpec['ai'], spec: CarSpec, tuning: Tuning) => CarSpec['ai'];
+}
+
 export interface Rival<D extends RivalDriver = PlannerDriver> {
   index: number;
   /** Its car type: its AI tables. */
@@ -318,7 +324,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
    * no teleports either (far behind or ahead it races on: the rubber band alone keeps it near).
    */
   private readonly ownLanes: number[] | null;
-  private readonly setup: { params: (p: CarParams, spec: CarSpec) => CarParams; ai: (ai: CarSpec['ai'], spec: CarSpec) => CarSpec['ai'] } | null;
+  private readonly setup: RoadSetup | null;
 
   /**
    * `specs`: each rival's car type, one rival each (up to the start grid's size). `opts`: another road's - each
@@ -336,8 +342,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
       gripBoost?: number;
       edge?: RoadEdge;
       lanes?: number[];
-      /** The road's own setup of the cars (vehicles/mountainSetup): their params as built or tuned, their AI tables. */
-      setup?: { params: (p: CarParams, spec: CarSpec) => CarParams; ai: (ai: CarSpec['ai'], spec: CarSpec) => CarSpec['ai'] };
+      setup?: RoadSetup;
     } = {},
   ) {
     this.setup = opts.setup ?? null;
@@ -382,14 +387,23 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
   /** The race's length (m): past it, a rival has finished. */
   length = ROAD_LENGTH;
 
+  /** The road they drive on (setRoad's). */
+  private roadLine: Centerline | null = null;
+
   /** The road they drive on (their s, d and yaw along it). */
   setRoad(line: Centerline): void {
+    this.roadLine = line;
     for (const r of this.list) {
       r.car.road = line;
-      // (a driver with a line of its own: worked out for the road, by its car's tables as set up)
-      const ai = this.setup ? this.setup.ai(r.spec.ai, r.spec) : r.spec.ai;
-      (r.driver as { setRoad?: (l: Centerline, ai: CarSpec['ai']) => void }).setRoad?.(line, ai);
+      this.layLine(r);
     }
+  }
+
+  /** A driver with a line of its own: worked out for the road, by its car's tables as set up (and as tuned). */
+  private layLine(r: Rival<D>): void {
+    if (!this.roadLine) return;
+    const ai = this.setup ? this.setup.ai(r.spec.ai, r.spec, r.tuning) : r.spec.ai;
+    (r.driver as { setRoad?: (l: Centerline, ai: CarSpec['ai']) => void }).setRoad?.(this.roadLine, ai);
   }
 
   /** Line them up on the start grid (each tuned anew: tuneAtRandom). */
@@ -401,6 +415,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
         if (this.setup) r.base = this.setup.params(r.base, r.spec);
         Object.assign(r.car.params, r.base);
         if (this.setup) r.car.applyMass();
+        this.layLine(r); // (its line on its grip as tuned)
       }
       const [d, s] = this.grid[r.index];
       r.car.resetAt(s, d, 0);

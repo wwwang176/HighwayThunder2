@@ -109,15 +109,31 @@ describe('MountainPlannerDriver', () => {
     expect(neu.mplan).toBeNull();
   });
 
-  it('the network steers and may add throttle, never take it away (the planner sets its speed: it learned to slow down to stay on its line)', () => {
+  it('the network steers, takes the throttle anywhere from none to more, brakes as hard as it likes; a whisper of an output, or quiet, changes nothing', () => {
     const b = quietMountainNet(mulberry32(5));
-    const biasOut1 = b.weights.length - 1; // (the last weight: the second output's bias)
-    b.weights[biasOut1] = -5; // (its throttle output all the way down)
+    const hidden = MOUNTAIN_NET_LAYERS[MOUNTAIN_NET_LAYERS.length - 2];
+    const brakeBias = b.weights.length - 1; // (each output its weights then its bias: the third's last)
+    const throttleBias = brakeBias - (hidden + 1);
     const base = { throttle: 0.6, brake: 0, steer: 0.1 };
-    const out = applyMountainNet(b, new Float32Array(MOUNTAIN_NET_INPUTS), base);
-    expect(out.throttle).toBe(0.6);
-    b.weights[biasOut1] = 5;
-    expect(applyMountainNet(b, new Float32Array(MOUNTAIN_NET_INPUTS), base).throttle).toBeGreaterThan(0.6);
+    const run = () => applyMountainNet(b, new Float32Array(MOUNTAIN_NET_INPUTS), base);
+    expect(run()).toEqual(base);
+    b.weights[throttleBias] = -0.05; // (a whisper: nothing)
+    expect(run().throttle).toBe(0.6);
+    b.weights[throttleBias] = -0.6; // (some off: some)
+    expect(run().throttle).toBeGreaterThan(0.05);
+    expect(run().throttle).toBeLessThan(0.55);
+    b.weights[throttleBias] = -5; // (all off)
+    expect(run().throttle).toBeLessThan(0.01);
+    b.weights[throttleBias] = 5;
+    expect(run().throttle).toBeGreaterThan(0.6);
+    b.weights[throttleBias] = 0;
+    b.weights[brakeBias] = 0.05;
+    expect(run().brake).toBe(0);
+    b.weights[brakeBias] = 0.6; // (some brake)
+    expect(run().brake).toBeGreaterThan(0.05);
+    expect(run().brake).toBeLessThan(0.95);
+    b.weights[brakeBias] = 5;
+    expect(run().brake).toBeGreaterThan(0.99);
   });
 
   it('mountainNetInputs: finite and the right length at s = -11 (the grid), standing', () => {

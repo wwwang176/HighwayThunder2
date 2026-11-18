@@ -105,6 +105,11 @@ const SUPERCAR: CarSpec = {
       [250, 21.8],
       [300, 23.6],
     ],
+    // Measured 2026-11-18 as set up for the mountain road (training/mountainGrip.train.ts).
+    mountain: {
+      latAccel: [[0, 14.5], [50, 14.5], [75, 16.8], [100, 19.5], [125, 22.5], [150, 25.8], [175, 29.2], [200, 32], [250, 33.7]],
+      brake: [[0, 13.6], [50, 13.6], [75, 13.7], [100, 14.8], [125, 18.5], [150, 19.9], [175, 20.1], [200, 20.3], [250, 20.9]],
+    },
     tracker: STREET_RACER_TRACKER,
     recovery: STREET_RACER_RECOVERY,
     mountainTracker: STREET_RACER_MOUNTAIN_NET,

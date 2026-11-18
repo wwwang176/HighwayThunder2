@@ -14,6 +14,9 @@ import { CARS, STREET_RACER } from '../src/vehicles/cars';
 import type { CarSpec } from '../src/vehicles/cars/types';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
+import { tunedMountainAi } from '../src/vehicles/mountainTuneGrip';
+import { randomPerfTuning, tuned } from '../src/vehicles/tuning';
+import { TUNE_CAL } from '../src/vehicles/tuneCalibration';
 
 /** SETUP=0: the cars as set up for the highway (else the mountain road's, as the game's). */
 const SETUP = process.env.SETUP !== '0';
@@ -23,6 +26,12 @@ type Driver = MountainDriver | MountainPlannerDriver;
 const makeDriver = (): Driver => (DRIVER === 'new' ? new MountainPlannerDriver() : new MountainDriver());
 /** The mountain driver inside either (its reference, whether it is drifting). */
 const coreOf = (d: Driver): MountainDriver => (d instanceof MountainPlannerDriver ? d.inner : d);
+/** Its tyres' load: all four's over its weight, the least wheel's over a quarter of it, how many off the ground. */
+const wheelLoads = (car: PlayerCar) => {
+  const w = car.wheels, mg = car.body.mass() * 9.81;
+  const loads = w.map((x) => (x.inContact ? x.load : 0));
+  return { load: loads.reduce((a, b) => a + b, 0) / mg, least: Math.min(...loads) / (mg / 4), air: w.filter((x) => !x.inContact).length };
+};
 /**
  * SOLO=1: each car alone on every seed (no rivals) - its time, its walls, its drifts, and how far off the computed
  * no-traffic path (its reference, refAt) it drove: median and p95 every 0.1 s, drifting left out, and out of a drift
@@ -44,7 +53,10 @@ const PASS_NEAR = 10;
 const PASS_HOLD = 2;
 /** HAIRPINS=1: each car's every hairpin - its slides (past 15°, off under 8°), most, wall contacts, least room either side. */
 const HAIRPINS = !!process.env.HAIRPINS;
-/** JSON=path (JSON_SEEDS=n, the first n seeds): the road's edges and each car's track every 0.1 s, for a top-down view. */
+/**
+ * JSON=path (JSON_SEEDS=n, the first n seeds): the road's edges and each car's track every 0.1 s, for a top-down view;
+ * a track's row ends with its d, its no-traffic path's d, its brake (the player's; -1 a rival's), its inner driver's mode.
+ */
 const JSON_OUT = process.env.JSON;
 const JSON_SEEDS = Number(process.env.JSON_SEEDS ?? 5);
 const dump: Record<string, unknown> = {};
@@ -56,12 +68,15 @@ interface PinStat { slides: number; on: boolean; most: number; walls: number; in
  * driven by the mountain driver too, three rivals with theirs, on SEEDS random roads (as the game's: its mesh, its
  * walls, its grid). Per race: each car's time (or how far it got), its wall contacts, its put-backs, how far below the
  * road it ever got, NaN. Asserts: none fell through or went NaN, nine in ten races every car home.
- *   SEEDS=30 BUDGET=0.9 npx vitest run --config training/vitest.config.ts training/mountainRace.train.ts
+ *   SEEDS=30 npx vitest run --config training/vitest.config.ts training/mountainRace.train.ts
  */
 const SEEDS = Number(process.env.SEEDS ?? 30);
 /** FIRST (1): the first seed. */
 const FIRST = Number(process.env.FIRST ?? 1);
-const BUDGET = Number(process.env.BUDGET ?? 0.9);
+const BUDGET = Number(process.env.BUDGET ?? MOUNTAIN_DRIVER.budget);
+/** TUNE=random: the player's car tuned at random each road (its perf knobs, as a rival's in the game); TUNE_AI=0: its line on its tables as built. */
+const TUNE_RANDOM = process.env.TUNE === 'random';
+const TUNE_AI = process.env.TUNE_AI !== '0';
 const LIMIT = 300; // s
 const LANE = MOUNTAIN.halfWidth / 2;
 const GRID: [number, number][] = [
@@ -73,7 +88,26 @@ const GRID: [number, number][] = [
 const DEBUG = !!process.env.DEBUG;
 // (DRIFT='{"steer":0.6}': the AI's hairpin drift tuned over MOUNTAIN_DRIVER.drift)
 if (process.env.DRIFT) Object.assign(MOUNTAIN_DRIVER.drift, JSON.parse(process.env.DRIFT));
+// (PACE='{"gasRamp":3}': MOUNTAIN_DRIVER's own knobs, the same way)
+if (process.env.PACE) Object.assign(MOUNTAIN_DRIVER, JSON.parse(process.env.PACE));
 const log: string[] = [];
+/** TRACE=1 (with DEBUG): the player's last 3 s before each wall it meets just out of a hairpin on its inside, every 0.1 s. */
+const TRACE = !!process.env.TRACE;
+/** TRACE=all: before every wall it meets. */
+const TRACE_ALL = process.env.TRACE === 'all';
+type TraceRow = { off: number; t: number; s: number; d: number; plan: number; yaw: number; rate: number; vLat: number; kmh: number; mode: string; base: number; steer: number; thr: number; brk: number; load: number; least: number; air: number };
+// (the driver's input before and after its driving network - the bench's own hook on it)
+const netSeen = { base: NaN, out: NaN };
+if (TRACE) {
+  const proto = MountainPlannerDriver.prototype as unknown as { withNet: (self: unknown, input: { steer: number }) => { steer: number } };
+  const withNet = proto.withNet;
+  proto.withNet = function (this: unknown, self: unknown, input: { steer: number }) {
+    const out = withNet.call(this, self, input);
+    netSeen.base = input.steer;
+    netSeen.out = out.steer;
+    return out;
+  };
+}
 const RIVAL_CARS =[STREET_RACER, CARS['muscle-car'] ?? STREET_RACER, CARS.jdm ?? STREET_RACER];
 
 /** How upright a car is (its roof's way up: 1 on its wheels, < 0 on its roof). */
@@ -117,8 +151,35 @@ function hairpinsOf(road: { length: number; curvature(s: number): number }): num
 /** A race's counts of the cars' meeting: contact events, those at the start, passes; and (SOLO) the player's off-path samples. */
 interface Meet { contacts: number; startContacts: number; passes: number; dev: number[] }
 
-function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number; runs: { from: number; to: number; dir: number; r: number }[]; meet: Meet } {
+/**
+ * Where the time goes (SOLO, the car racing): the road by part - a hairpin (its tight run), SEG_NEAR m before one
+ * (coming to it), SEG_NEAR m after one (out of it), a bend (tighter than R SEG_BEND), a straight - and in each its
+ * seconds, and summed over them its speed (m/s), its throttle, full throttle (>= 0.95: 1) and its brake on (1), each
+ * times the step (to be added up over many roads, then divided by the seconds).
+ */
+const SEGS = ['straight', 'bend', 'approach', 'hairpin', 'exit'] as const;
+type Seg = (typeof SEGS)[number];
+type SegSums = Record<Seg, { t: number; v: number; thr: number; full: number; brk: number }>;
+const SEG_NEAR = 60;
+/**
+ * How hard each wall contact was (SOLO, the car racing): its speed into the wall as it touched (m/s, across the
+ * contact's normal, from before the step), and what it lost over the WALL_WATCH s after (its least speed then against
+ * its speed before) - a brush or a crash, and stopped (under WALL_STOP m/s).
+ */
+interface Hit { vn: number; v0: number; least: number; t: number }
+const WALL_WATCH = 1;
+const WALL_STOP = 5 / 3.6;
+const VN_EDGES = [1, 3, 6];
+const LOSS_EDGES = [0.1, 0.3, 0.7];
+const bucket = (x: number, edges: number[]) => edges.filter((e) => x >= e).length;
+const SEG_BEND = 150;
+const segSums = (): SegSums => Object.fromEntries(SEGS.map((k) => [k, { t: 0, v: 0, thr: 0, full: 0, brk: 0 }])) as SegSums;
+
+function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): { cars: CarStats[]; nan: boolean; lineMs: number; hairpins: number; runs: { from: number; to: number; dir: number; r: number }[]; meet: Meet; seg: SegSums; hits: Hit[] } {
   const meet: Meet = { contacts: 0, startContacts: 0, passes: 0, dev: [] };
+  const seg = segSums();
+  const hits: Hit[] = [];
+  const pv = { x: 0, z: 0, speed: 0 }; // (the player's going before the step)
   const lastTouch = new Map<number, number>();
   /** Per pair (i < j): who is ahead (+1: i), and a pass waiting to hold (by whom, since when). */
   const order = new Map<number, number>();
@@ -127,6 +188,12 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   const road = mountainRoad(mulberry32(seed));
   const runs = hairpinRuns(road, 26).map((h) => ({ ...h, r: Math.abs(1 / road.curvature((h.from + h.to) / 2)) }));
   const pinOf = (s: number) => runs.findIndex((h) => s >= h.from - 10 && s <= h.to + 60);
+  const segOf = (s: number): Seg => {
+    if (runs.some((h) => s >= h.from && s <= h.to)) return 'hairpin';
+    if (runs.some((h) => s >= h.from - SEG_NEAR && s < h.from)) return 'approach';
+    if (runs.some((h) => s > h.to && s <= h.to + SEG_NEAR)) return 'exit';
+    return Math.abs(road.curvature(s)) > 1 / SEG_BEND ? 'bend' : 'straight';
+  };
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   // (as the game's: its edges along it, a shoulder on a tight bend's outside; SHOULDER=0: none)
@@ -134,12 +201,16 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   physics.setRoad(road, { rails: { left: (s) => -e.at(s, -1), right: (s) => e.at(s, 1) }, ground: surfaceMesh(road, -MOUNTAIN.before, MOUNTAIN.length + MOUNTAIN.after, (s) => [-e.at(s, -1) - 1.5, e.at(s, 1) + 1.5]) });
   const player = new PlayerCar(physics, null, { spec: playerSpec, entity: { type: 'player' } });
   player.road = road;
+  // (TUNE=random: the player's perf knobs at random, a road's own - as a rival's in the game)
+  const tuning = TUNE_RANDOM ? randomPerfTuning(mulberry32(seed + 7777)) : {};
+  if (TUNE_RANDOM) Object.assign(player.params, tuned(player.params, tuning, TUNE_CAL[playerSpec.id]));
   if (SETUP) Object.assign(player.params, mountainSetup(player.params, mountainSetupOf(playerSpec.id))); // (as the game's)
   player.resetAt(-3, LANE, 0);
   const t0 = performance.now();
   const playerAi = makeDriver();
   playerAi.budget = BUDGET;
-  playerAi.setRoad(road, SETUP ? mountainAi(playerSpec.ai, mountainSetupOf(playerSpec.id)) : playerSpec.ai);
+  const setupAi = mountainAi(playerSpec.ai, mountainSetupOf(playerSpec.id));
+  playerAi.setRoad(road, SETUP ? (TUNE_AI ? tunedMountainAi(setupAi, playerSpec.id, tuning) : setupAi) : playerSpec.ai);
   if (NO_NET && playerAi instanceof MountainPlannerDriver) playerAi.net = null;
   const lineMs = performance.now() - t0;
   const rivals = new Rivals<Driver>(physics, null, () => null, alone ? [] : RIVAL_CARS, {
@@ -164,13 +235,29 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   const tracks: (number | string)[][][] = [[], [], [], []];
   const hitNow = [false, false, false, false];
   let playerStuck = 0;
+  /** (alone, over 100 km/h: its tyres' load each step - summed, squared, a wheel off the ground, the least under 0.3) */
+  const bounce = { n: 0, sum: 0, sq: 0, air: 0, light: 0 };
+  const trace: TraceRow[] = [];
+  let lastTrace = -9;
   while (time < LIMIT) {
     const view: RaceView = { player, traffic: [], speedCap: 300 * KMH, raceTime: time };
     rivals.drive(PHYSICS_DT, view);
     // (past the line, as the game's: rolling on at FINISHED_SPEED)
     const cap = stats[0].time === null ? player.params.maxSpeed : FINISHED_SPEED;
-    const own = playerAi.drive(selfStateOf(player, cap), rivals.boxes(), player.params);
+    netSeen.base = NaN;
+    const ownSelf = selfStateOf(player, cap);
+    const own = playerAi.drive(ownSelf, rivals.boxes(), player.params);
+    if (TRACE) {
+      const core = coreOf(playerAi);
+      const mp = playerAi instanceof MountainPlannerDriver ? playerAi.mplan : null;
+      trace.push({ off: (() => { const at = (core as unknown as { alignTo: number | null }).alignTo; if (at === null) return NaN; const n = road.heading(player.s) + player.yaw; return Math.atan2(Math.sin(n - at), Math.cos(n - at)); })(), t: time, s: player.s, d: player.d, plan: core.pathRefAt(player.s) + (mp ? mp.offsetAt(player.s) : 0), yaw: player.yaw, rate: ownSelf.yawRate, vLat: ownSelf.vLat, kmh: player.speed / KMH, mode: core.mode, base: netSeen.base, steer: own.steer, thr: own.throttle, brk: own.brake, ...wheelLoads(player) });
+      if (trace.length > 3 / PHYSICS_DT) trace.shift();
+    }
     player.prePhysics(STALL && time < STALL_S ? { throttle: 0, brake: 1, steer: 0 } : own, PHYSICS_DT);
+    const lv = player.body.linvel();
+    pv.x = lv.x;
+    pv.z = lv.z;
+    pv.speed = player.speed;
     physics.step((a, b, normal) => {
       if (!normal) return; // (the ground)
       for (const e of [a, b]) {
@@ -193,18 +280,40 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         }
         if (other.type !== 'static') continue;
         stats[k].walls++;
+        if (k === 0 && alone && stats[0].time === null) hits.push({ vn: Math.abs(pv.x * normal.x + pv.z * normal.z), v0: pv.speed, least: pv.speed, t: time });
         if (!coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).inDrift()) stats[k].lineWalls++;
         hitNow[k] = true;
         const car = k === 0 ? player : rivals.list[k - 1].car;
         const pi = pinOf(car.s);
         if (pi >= 0) stats[k].pins[pi].walls++;
-        if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)} ${coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).mode} pin ${pi}`);
+        // (side: of the hairpin it is in or just out of - inside, its turn's way)
+        const side = pi < 0 ? '-' : runs[pi].dir * car.d > 0 ? 'in' : 'out';
+        if (TRACE && k === 0 && (TRACE_ALL || (pi >= 0 && side === 'in' && car.s - runs[pi].to > 0 && car.s - runs[pi].to < 80)) && time - lastTrace > 2) {
+          lastTrace = time;
+          log.push(`  TRACE seed ${seed} pin ${pi} dir ${pi >= 0 ? runs[pi].dir : 0} (+: d of its inside) hit t ${time.toFixed(1)} past ${pi >= 0 ? (car.s - runs[pi].to).toFixed(0) : '-'} m k ${road.curvature(car.s).toFixed(3)} side ${side}`);
+          log.push('    t      s      d   plan    yaw  noseOff  rate   vLat  km/h mode     base  steer   thr   brk   load  least   air');
+          trace.forEach((r, i) => {
+            if (i % 5 !== 0 && i !== trace.length - 1) return;
+            const f = (x: number, n = 2) => (Number.isFinite(x) ? x.toFixed(n) : '  -').padStart(6);
+            log.push(`  ${f(r.t, 1)} ${f(r.s, 0)} ${f(r.d)} ${f(r.plan)} ${f(r.yaw)} ${f(r.off)} ${f(r.rate)} ${f(r.vLat)} ${f(r.kmh, 0)} ${r.mode.padEnd(7)} ${f(r.base)} ${f(r.steer)} ${f(r.thr)} ${f(r.brk)} ${f(r.load)} ${f(r.least)} ${f(r.air, 0)}`);
+          });
+        }
+        if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)} ${coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).mode} pin ${pi} side ${side}${pi >= 0 ? ` past ${(car.s - runs[pi].to).toFixed(0)} m` : ''}`);
       }
     });
     const resetsBefore = rivals.list.map((r) => r.resets);
     const poseBefore = rivals.list.map((r) => `yaw ${r.car.yaw.toFixed(2)} up ${upY(r.car).toFixed(2)} ${(r.car.speed / KMH).toFixed(0)} km/h stuck ${r.stuckFor.toFixed(1)} d ${r.car.d.toFixed(2)}`);
     player.postPhysics();
     time += PHYSICS_DT;
+    for (const h of hits) if (time - h.t <= WALL_WATCH) h.least = Math.min(h.least, player.speed);
+    if (alone && stats[0].time === null && player.s >= 0) {
+      const g = seg[segOf(player.s)];
+      g.t += PHYSICS_DT;
+      g.v += player.speed * PHYSICS_DT;
+      g.thr += own.throttle * PHYSICS_DT;
+      if (own.throttle >= 0.95) g.full += PHYSICS_DT;
+      if (own.brake > 0) g.brk += PHYSICS_DT;
+    }
     rivals.after(PHYSICS_DT, view, []);
     if (DEBUG) rivals.list.forEach((r, i) => {
       if (r.resets > resetsBefore[i] && r.resets <= 4) log.push(`  reset R${i + 1} t ${time.toFixed(1)} s ${r.car.s.toFixed(0)} player s ${player.s.toFixed(0)} (was ${poseBefore[i]})`);
@@ -258,6 +367,14 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
       else if (!back && off < SOLO_BACK) back = true;
       if (back && !core.inDrift()) meet.dev.push(off);
     }
+    if (alone && stats[0].time === null && player.speed > 100 * KMH) {
+      const w = wheelLoads(player);
+      bounce.n++;
+      bounce.sum += w.load;
+      bounce.sq += w.load * w.load;
+      if (w.air) bounce.air++;
+      if (w.least < 0.3) bounce.light++;
+    }
     if (dumpIt) {
       const step = Math.round(time / PHYSICS_DT);
       [player, ...rivals.list.map((r) => r.car)].forEach((car, k) => {
@@ -270,7 +387,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         const mode = (drv as { mode?: string }).mode ?? 'line';
         const slide = (Math.atan2(car.vLat, Math.max(Math.abs(car.vLong), 1)) * 180) / Math.PI;
         const tr = tracks[k] as unknown as { wallFlag?: number } & (number | string)[][];
-        tr.push([+time.toFixed(1), +at.x.toFixed(2), +at.z.toFixed(2), +f.x.toFixed(3), +f.z.toFixed(3), mode, +slide.toFixed(1), +(car as unknown as { steer: number }).steer.toFixed(2), +(car.speed * 3.6).toFixed(0), mode === 'kick' || mode === 'pull' ? 1 : 0, tr.wallFlag ? 'W' : '', +(car as unknown as { throttle: number }).throttle.toFixed(2), +car.s.toFixed(1), aimDump(coreOf(drv), road)] as (number | string)[]);
+        tr.push([+time.toFixed(1), +at.x.toFixed(2), +at.z.toFixed(2), +f.x.toFixed(3), +f.z.toFixed(3), mode, +slide.toFixed(1), +(car as unknown as { steer: number }).steer.toFixed(2), +(car.speed * 3.6).toFixed(0), mode === 'kick' || mode === 'pull' ? 1 : 0, tr.wallFlag ? 'W' : '', +(car as unknown as { throttle: number }).throttle.toFixed(2), +car.s.toFixed(1), aimDump(coreOf(drv), road), +car.d.toFixed(2), +coreOf(drv).refAt(car.s).toFixed(2), k === 0 ? +own.brake.toFixed(2) : -1, coreOf(drv).mode] as (number | string)[]);
         tr.wallFlag = 0;
       });
       hitNow.fill(false);
@@ -332,11 +449,13 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     dump[seed] = {
       left: line(-1), right: line(1), mid: line(0),
       pins: runs.map((h) => ({ from: +h.from.toFixed(1), to: +h.to.toFixed(1), dir: h.dir, r: +h.r.toFixed(0) })),
+      // (each metre: the road's curvature (1/m, + right), its edges' d either side)
+      road: Array.from({ length: Math.ceil(MOUNTAIN.length) }, (_, x) => [+road.curvature(x).toFixed(5), +e.at(x, 1).toFixed(2), +e.at(x, -1).toFixed(2)]),
       cars: stats.map((st, k) => ({ pins: st.pins.map((ps) => [ps.slides, +((ps.most * 180) / Math.PI).toFixed(0), ps.walls, +ps.inMin.toFixed(1), +ps.outMin.toFixed(1)]), track: tracks[k] })),
     };
   }
   physics.free();
-  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet };
+  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet, seg, hits, bounce };
 }
 
 /** The q quantile of xs (sorted copy). */
@@ -361,8 +480,20 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
     let time = 0;
     let done = 0;
     const pinT = { n: 0, twice: 0, none: 0, most: 0, through: 0, into: 0 };
+    const segAll = segSums();
+    const vnN = [0, 0, 0, 0];
+    const lossN = [0, 0, 0, 0];
+    let stops = 0;
+    const bounce = { n: 0, sum: 0, sq: 0, air: 0, light: 0 };
     for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
       const r = race(seed, spec, true);
+      for (const k of ['n', 'sum', 'sq', 'air', 'light'] as const) bounce[k] += r.bounce[k];
+      for (const h of r.hits) {
+        vnN[bucket(h.vn, VN_EDGES)]++;
+        lossN[bucket(h.v0 > 0.5 ? 1 - h.least / h.v0 : 0, LOSS_EDGES)]++;
+        if (h.least < WALL_STOP) stops++;
+      }
+      for (const k of SEGS) for (const f of ['t', 'v', 'thr', 'full', 'brk'] as const) segAll[k][f] += r.seg[k][f];
       runs++;
       const c = r.cars[0];
       if (r.nan) nans++;
@@ -390,8 +521,22 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
       `${spec.id}: home ${done}/${SEEDS}, time avg ${(time / Math.max(1, done)).toFixed(2)} s, walls ${walls} (following its line ${lineWalls}), off its path p50 ${quantile(dev, 0.5).toFixed(3)} p95 ${quantile(dev, 0.95).toFixed(3)} m (${dev.length} samples), ` +
         `hairpins ${pinT.n}: slid twice+ ${pinT.twice}, not past 15° ${pinT.none}, most avg ${((pinT.most / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°, through avg ${((pinT.through / Math.max(1, pinT.n)) * 180 / Math.PI).toFixed(1)}°, slid past 20° in its first third ${pinT.into}`,
     );
+    // (summed over its races, to be added up across runs: seconds, then speed/throttle/full/brake times the seconds)
+    out.push(`${spec.id} segs races ${SEEDS}: ` + SEGS.map((k) => `${k} ${['t', 'v', 'thr', 'full', 'brk'].map((f) => segAll[k][f as 't'].toFixed(2)).join(' ')}`).join(' | '));
+    // (its wall contacts by how hard: into the wall under 1, 1-3, 3-6, over 6 m/s; speed lost under 10, 10-30, 30-70,
+    // over 70 %; stopped)
+    out.push(`${spec.id} hits: vn ${vnN.join(' ')} | loss ${lossN.join(' ')} | stopped ${stops}`);
+    // (over 100 km/h: its tyres' load over its weight - mean, its spread; the share of the time a wheel is off the
+    // ground, its least-loaded wheel under 0.3 of its share)
+    const lm = bounce.sum / Math.max(1, bounce.n);
+    out.push(
+      `${spec.id} bounce: load mean ${lm.toFixed(3)} sd ${Math.sqrt(Math.max(0, bounce.sq / Math.max(1, bounce.n) - lm * lm)).toFixed(3)}, ` +
+        `a wheel off the ground ${((100 * bounce.air) / Math.max(1, bounce.n)).toFixed(2)} %, the least under 0.3 ${((100 * bounce.light) / Math.max(1, bounce.n)).toFixed(2)} %`,
+    );
   }
   process.stdout.write(out.join('\n') + '\n');
+  // (one car's: SOLO_CARS one car - each seed's dump the last car's run on it)
+  if (JSON_OUT) (await import('fs')).writeFileSync(JSON_OUT, JSON.stringify(dump));
   expect(nans).toBe(0);
   expect(fell).toBe(0);
   expect(home).toBeGreaterThanOrEqual(Math.ceil(runs * 0.9));

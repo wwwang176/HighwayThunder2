@@ -10,6 +10,8 @@ const EPS = 1e-6;
 const HELD = 1e8;
 /** The least share of its grip left for speeding up or braking at the cornering limit (the friction circle's floor). */
 const CIRCLE_FLOOR = 0.15;
+/** The least of its tyres' load over a crest the line plans with (share of its weight: past it airborne, all but). */
+const LOAD_LEAST = 0.3;
 
 /** The racing line round the road, sampled every `step` m along it from s = 0: its offset, speed and curvature there. */
 export interface RaceLine {
@@ -166,9 +168,20 @@ function solveBand(A: Float64Array[], rhs: Float64Array, held: Map<number, numbe
  * The speeds along the line `d` (racingLine's, every `step` m): each point's cornering limit (`budget` of the car's
  * sideways grip at that speed, never over `vMax`), then from a standstill at the start as fast as the engine allows
  * (less the climb), and back from every limit as the brakes allow (`budget` of them, helped by a climb, less on a
- * descent) - both cut by what the cornering leaves of the grip.
+ * descent) - both cut by what the cornering leaves of the grip. `opts.crest`: over a crest its grip and brakes by
+ * its tyres' load (1 + v² x the road's rise's curvature / g: lighter as it goes over; a dip no more than on the flat).
+ * `opts.jerk` (m/s³, 0: none): its sideways acceleration changing no faster than this (v³ x the line's curvature's
+ * change - a bend turning the other way soon after, at speed: the car turns over to it only so fast).
  */
-export function speedProfile(road: Centerline, d: Float64Array, car: LineCar, budget: number, vMax: number, step = 2): RaceLine {
+export function speedProfile(
+  road: Centerline,
+  d: Float64Array,
+  car: LineCar,
+  budget: number,
+  vMax: number,
+  step = 2,
+  opts: { crest?: boolean; jerk?: number } = {},
+): RaceLine {
   const n = d.length;
   const px = new Float64Array(n);
   const pz = new Float64Array(n);
@@ -187,22 +200,32 @@ export function speedProfile(road: Centerline, d: Float64Array, car: LineCar, bu
   }
   kappa[0] = kappa[1];
   kappa[n - 1] = kappa[n - 2];
-  const lat = (v: number) => budget * maxAccel(v, car.latAccel);
+  // (the road's rise's curvature, 1/m: < 0 over a crest)
+  const rise = new Float64Array(n);
+  if (opts.crest) for (let i = 0; i < n; i++) rise[i] = (road.grade(i * step + 1) - road.grade(i * step - 1)) / 2;
+  /** Its tyres' load at speed u at point i over its weight (a crest's; never over 1). */
+  const load = (u: number, i: number) => Math.max(LOAD_LEAST, Math.min(1, 1 + (u * u * rise[i]) / G));
+  const lat = (v: number, i = -1) => budget * maxAccel(v, car.latAccel) * (i >= 0 ? load(v, i) : 1);
   // The bank's share of the turn (m/s²): g x its slope down toward the inside of the line's turn there (a bend banked
   // against the line's own turn: less).
   const bank = new Float64Array(n);
   for (let i = 0; i < n; i++) bank[i] = -G * road.crossSlope(i * step) * Math.sign(kappa[i]);
   const v = new Float64Array(n);
   const cap = new Float64Array(n);
+  const jerk = opts.jerk ?? 0;
   for (let i = 0; i < n; i++) {
     const k = Math.abs(kappa[i]);
     let u = vMax;
-    if (k > 1e-9) for (let it = 0; it < 8; it++) u = Math.min(vMax, Math.sqrt(Math.max(0, lat(u) + bank[i]) / k));
+    if (k > 1e-9) for (let it = 0; it < 8; it++) u = Math.min(vMax, Math.sqrt(Math.max(0, lat(u, i) + bank[i]) / k));
+    if (jerk > 0 && i >= 2 && i + 2 < n) {
+      const dk = Math.abs(kappa[i + 2] - kappa[i - 2]) / (4 * step);
+      if (dk > 1e-9) u = Math.min(u, Math.cbrt(jerk / dk));
+    }
     cap[i] = u;
   }
   /** What the cornering at speed u leaves of the tyres' grip for speeding up or braking (share; the bank's part of the turn not theirs). */
   const circle = (u: number, i: number) => {
-    const used = Math.max(0, u * u * Math.abs(kappa[i]) - bank[i]) / Math.max(1e-6, lat(u));
+    const used = Math.max(0, u * u * Math.abs(kappa[i]) - bank[i]) / Math.max(1e-6, lat(u, i));
     return Math.max(CIRCLE_FLOOR, Math.sqrt(Math.max(0, 1 - used * used)));
   };
   const ds = (i: number) => Math.hypot(px[i + 1] - px[i], pz[i + 1] - pz[i]);
@@ -212,7 +235,7 @@ export function speedProfile(road: Centerline, d: Float64Array, car: LineCar, bu
     v[i + 1] = Math.min(cap[i + 1], Math.sqrt(v[i] * v[i] + 2 * ds(i) * a));
   }
   for (let i = n - 2; i >= 0; i--) {
-    const a = Math.max(0.5, budget * maxAccel(v[i + 1], car.brake) * circle(v[i + 1], i + 1) + G * road.grade(i * step));
+    const a = Math.max(0.5, budget * maxAccel(v[i + 1], car.brake) * load(v[i + 1], i + 1) * circle(v[i + 1], i + 1) + G * road.grade(i * step));
     v[i] = Math.min(v[i], Math.sqrt(v[i + 1] * v[i + 1] + 2 * ds(i) * a));
   }
   return { step, d, v, kappa };

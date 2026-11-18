@@ -37,6 +37,12 @@ export interface CarPerformance {
   brake: [kmh: number, decel: number][];
   /** Sideways acceleration (m/s²) it holds at full steering, at speeds (km/h), ascending. */
   latAccel: [kmh: number, accel: number][];
+  /**
+   * As set up for the mountain road (src/vehicles/mountainSetup, as built): the sideways acceleration it holds at
+   * each speed before it slides, its full brake (training/mountainGrip.train.ts) - its mountain AI's tables, in place
+   * of the highway's scaled (mountainAi). (The highway's x aiLat 1.25 and x longGrip 1.25 were 13-19 % under it.)
+   */
+  mountain?: { latAccel: [kmh: number, accel: number][]; brake: [kmh: number, decel: number][] };
   /** Weights of its trained steering network (src/ai/netTracker.ts, training/tracker.train.ts); none: the plain tracker. */
   tracker?: number[];
   /**

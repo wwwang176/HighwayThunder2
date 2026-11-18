@@ -84,6 +84,11 @@ export const JDM_CAR: CarSpec = {
       [250, 25.3],
       [300, 27.1],
     ],
+    // Measured 2026-11-18 as set up for the mountain road (training/mountainGrip.train.ts).
+    mountain: {
+      latAccel: [[0, 15.4], [50, 15.4], [75, 18.1], [100, 21], [125, 24.5], [150, 28.3], [175, 32.1], [200, 35.3]],
+      brake: [[0, 13.3], [50, 13.3], [75, 13.4], [100, 16.7], [125, 19.6], [150, 19.8], [175, 20.1], [200, 20.3]],
+    },
     tracker: JDM_TRACKER,
     recovery: JDM_RECOVERY,
     mountainTracker: JDM_MOUNTAIN_NET,

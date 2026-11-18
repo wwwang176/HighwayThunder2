@@ -10,7 +10,9 @@ import type { DriftView } from './mountainDriftNet';
 /** The mountain driver's settings (mutable: tuning). */
 export const MOUNTAIN_DRIVER = {
   /** Room either side of the centre line its line may use: the road's edge less half a car and a margin (m). */
-  margin: 0.55,
+  // (0.55: at 130-146 km/h in the long bends its line ran within half a metre of the wall, the car 0.8-1 m off it -
+  // with its driving network's bolder pedals, two to three times main's brushes; 1.05: as few, ~0.3 s a race)
+  margin: 1.05,
   halfWidth: 1.0,
   /** Where it is headed across the road (aimD: passing): this far ahead (m), plus this many seconds of its speed. */
   lookBase: 4,
@@ -43,6 +45,29 @@ export const MOUNTAIN_DRIVER = {
   followGain: 0.5,
   /** The top speed its line is planned to (m/s: past any car's; the car's own limit caps it). */
   vMax: 100,
+  /**
+   * The share of its car's grip and brakes its line is planned to (CarSpec.ai.mountain: as measured, at the limit
+   * before it slides), at every difficulty - the difficulty is its top speed only, as the highway's. (Once 0.82-0.97
+   * by the difficulty, on tables 13-19 % under the car's grip. All of it: on the ground's rows half a metre apart -
+   * no longer bouncing - 30 roads at 1 against 0.95 0.15-1 s faster, a wall a race either way, none stopping it; its
+   * walls no longer where the bends turned the other way fast, the bounce's.)
+   */
+  budget: 1,
+  /** Its line over a crest planned on its tyres' load there (1; 0: as on the flat) - speedProfile's `crest`. */
+  crest: 1,
+  /** Its line's sideways acceleration changing no faster than this (m/s³; 0: no limit) - speedProfile's `jerk`. */
+  jerk: 0,
+  /**
+   * Full throttle this far (m/s) under the speed it aims at (speedPedals). (The highway's 3: its aim the line's speed a
+   * moment ahead - the line itself as fast as the engine speeds it up - it ran ~3 m/s under its line down every straight,
+   * on part throttle out of every bend.)
+   */
+  gasRamp: 1,
+  /**
+   * Full brake this far (m/s) past a metre a second over its aim (speedPedals). (The highway's 5: coming to a hairpin it
+   * was on the brakes half the time, lightly - over its aim by up to 6 m/s before they were full on.)
+   */
+  brakeRamp: 5,
   /**
    * Drifting round every hairpin (the player's: for show, slower or not; pulling the handbrake, sliding hard on the
    * inside) - its tight run (tighter than R `tight`): the handbrake pulled `kickEarly` s before it for `kickTime` s, the
@@ -89,12 +114,17 @@ export const MOUNTAIN_DRIVER = {
     holdGas: 0.5,
     speedLook: 0.5,
     kickLoss: 2.5,
-    brake: 5,
+    // (its braking down to a hairpin's speed, m/s² - into it as fast either way, only later: at 5, ~0.5 g, it was off
+    // the throttle 100-200 m out)
+    brake: 7.5,
     brakeGain: 0.3,
     wide: 1.5,
     lineShare: 0,
     settleSlide: 0.1,
-    settleGas: 0.3,
+    // (out of the drift on full throttle - and alignGas: the driving network takes it down as it needs to, its own
+    // throttle and brake as the highway's. The driver alone on it hit the walls 3-12 times as often; at 0.3/0.4, the
+    // first part of every straight was crawled.)
+    settleGas: 1,
     settleSteer: 0.5,
     settleHead: 2,
     settleRate: 0.5,
@@ -138,7 +168,18 @@ export const MOUNTAIN_DRIVER = {
     alignHead: 2,
     alignRate: 0.4,
     alignSteer: 1,
-    alignGas: 0.4,
+    alignGas: 1, // (settleGas)
+    // (its nose swung on past the straight - the wheel still coming off its lock as it was handed over - on alignGas
+    // the throttle's push held it there, counter-steered on full lock, and it drove across into the inside wall 15-45 m
+    // out, 28 of the street racer's 56 walls: under alignGasFrom rad off, alignGas; past it, less, alignGasLeast
+    // alignGasSpan on - alignThrottle)
+    alignGasFrom: 0.05,
+    alignGasSpan: 0.25,
+    alignGasLeast: 0.3,
+    // (its nose held parallel, its body still sliding: on full throttle the slide held on and carried it across into
+    // the outside wall 20-60 m out - 17 of 18 such walls; past alignSlideFrom rad of slide, less, the same way)
+    alignSlideFrom: 0.15,
+    alignSlideSpan: 0.5,
     slideTarget: 0.45,
     slideGain: 1.5,
     springLimit: Math.PI / 4,
@@ -187,6 +228,21 @@ export interface HairpinRun {
 }
 
 /** The road's hairpins: its runs bent tighter than R `tight` one way (m). */
+/**
+ * Its throttle out of a drift, its nose `off` rad from parallel to the straight and its body sliding `slide` rad
+ * (either way): alignGas, less past alignGasFrom of the one or alignSlideFrom of the other - the less of the two.
+ */
+export function alignThrottle(
+  off: number,
+  D: { alignGas: number; alignGasFrom: number; alignGasSpan: number; alignGasLeast: number; alignSlideFrom?: number; alignSlideSpan?: number },
+  slide = 0,
+): number {
+  const least = Math.min(D.alignGas, D.alignGasLeast);
+  const k = (x: number, from: number, span: number) => (span > 0 ? Math.min(1, Math.max(0, Math.abs(x) - from) / span) : 0);
+  const most = Math.max(k(off, D.alignGasFrom, D.alignGasSpan), k(slide, D.alignSlideFrom ?? 0, D.alignSlideSpan ?? 0));
+  return D.alignGas + (least - D.alignGas) * most;
+}
+
 export function hairpinRuns(road: Centerline, tight: number): HairpinRun[] {
   const out: HairpinRun[] = [];
   let open: HairpinRun | null = null;
@@ -248,7 +304,7 @@ export class MountainDriver implements RivalDriver {
   private full: RaceLine | null = null;
   private road: Centerline | null = null;
   private car: LineCar | null = null;
-  private budgetNow = 0.9;
+  private budgetNow = MOUNTAIN_DRIVER.budget;
   /** Its passing offset from the line now (m, + right). */
   private offset = 0;
   /**
@@ -256,7 +312,11 @@ export class MountainDriver implements RivalDriver {
    * `offsetAt`, its speed no more than `vAt` a moment ahead; its own passing left out. Null: it passes by itself.
    */
   external: { offsetAt(s: number): number; vAt(s: number): number } | null = null;
-  /** Its last step's input if that step followed its line (null: drifting, settling - not the line's). */
+  /**
+   * Its last step's input if that step followed its line or settled out of a drift - the driving network's to correct
+   * (MountainPlannerDriver.withNet: out of a drift on full throttle, it takes the throttle down as it needs to); null:
+   * kicking, drifting, catching - the drift network's.
+   */
   lastLine: HandlingInput | null = null;
   /** Where it steers for, across the road (m): the line's there plus the offset. */
   aimD = 0;
@@ -314,7 +374,7 @@ export class MountainDriver implements RivalDriver {
     return this.road ? this.room + roadEdges(this.road).widen(s) : this.room;
   }
 
-  /** Share of its car's grip and brakes its line is planned to (the race's difficulty). */
+  /** Share of its car's grip and brakes its line is planned to (MOUNTAIN_DRIVER.budget). */
   get budget(): number {
     return this.budgetNow;
   }
@@ -338,8 +398,9 @@ export class MountainDriver implements RivalDriver {
   private layLine(): void {
     if (!this.road || !this.car) return;
     const d = racingLine(this.road, this.room, undefined, roadEdges(this.road).widen);
-    this.line = speedProfile(this.road, d, this.car, this.budgetNow, MOUNTAIN_DRIVER.vMax);
-    this.full = speedProfile(this.road, d, this.car, 1, MOUNTAIN_DRIVER.vMax);
+    const opts = { crest: MOUNTAIN_DRIVER.crest > 0, jerk: MOUNTAIN_DRIVER.jerk };
+    this.line = speedProfile(this.road, d, this.car, this.budgetNow, MOUNTAIN_DRIVER.vMax, undefined, opts);
+    this.full = speedProfile(this.road, d, this.car, 1, MOUNTAIN_DRIVER.vMax, undefined, opts);
   }
 
   /** The speed it aims at at s (m/s): the line's, pushed toward the grip's whole. */
@@ -461,7 +522,7 @@ export class MountainDriver implements RivalDriver {
       input.steer = Math.max(this.lastSteer - step, Math.min(this.lastSteer + step, input.steer));
     }
     this.lastSteer = input.steer;
-    this.lastLine = this.mode === 'line' ? input : null;
+    this.lastLine = this.mode === 'line' || this.mode === 'settle' ? input : null;
     return input;
   }
 
@@ -545,6 +606,12 @@ export class MountainDriver implements RivalDriver {
         pin = undefined;
       }
     }
+    // (into the next hairpin still settling out of the last: done with that - its straight, held to out of this one too,
+    // swung it 2.4 rad round into the outside wall on two hairpins close together)
+    if (pin) {
+      this.settling = false;
+      this.alignTo = null;
+    }
     // Out of a drift: its path from where the car is, easing back to its line (the passing offset: handed straight back
     // to its line from the inside of the bend, it counter-steered on full lock and swung from wall to wall), and for a
     // while steered by where it is going, not where its nose points (still sliding).
@@ -576,7 +643,7 @@ export class MountainDriver implements RivalDriver {
     target = Math.min(target, this.hairpinCap(self.s, v));
     // (a planner's cap: following a car it cannot get by, a tighter path than its line's)
     if (this.external) target = Math.min(target, this.external.vAt(self.s + Math.max(T.leadMin, T.lead * v)));
-    const pedals = speedPedals(target, self.vLong);
+    const pedals = speedPedals(target, self.vLong, T.gasRamp, T.brakeRamp);
     if (pin) {
       if (this.kicked !== pin) {
         this.kicked = pin;
@@ -830,9 +897,10 @@ export class MountainDriver implements RivalDriver {
       const nose = road.heading(self.s) + self.yaw;
       // (tried: its nose held further in by its course out across the road - walls 8 -> 5 for the muscle car on more
       // throttle, not enough: it was at the outside's edge already as its drift ended)
-      const a = D.alignHead * Math.atan2(Math.sin(this.alignTo - nose), Math.cos(this.alignTo - nose)) - D.alignRate * self.yawRate;
+      const off = Math.atan2(Math.sin(this.alignTo - nose), Math.cos(this.alignTo - nose));
+      const a = D.alignHead * off - D.alignRate * self.yawRate;
       const s = Math.max(-D.alignSteer, Math.min(D.alignSteer, a / steerRange(v, p)));
-      return { throttle: Math.min(pedals.throttle, D.alignGas), brake: 0, steer: s };
+      return { throttle: Math.min(pedals.throttle, alignThrottle(off, D, slide)), brake: 0, steer: s };
     }
     if (this.settling) {
       this.mode = 'settle';

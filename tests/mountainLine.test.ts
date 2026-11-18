@@ -102,3 +102,41 @@ describe('speedProfile', () => {
     for (const v of line.v) expect(v).toBeLessThanOrEqual(200 * KMH + 1e-9);
   });
 });
+
+describe('speedProfile, over a crest and through an S (opts)', () => {
+  const budget = 1;
+  // (a long right bend, over a crest at its middle: up 8 %, down 8 % - or a dip, the other way round)
+  const plan = [...straight(300), ...bend(120, 90, 20), ...straight(300)];
+  const mid = 300 + (120 * Math.PI) / 2 / 2 + 10;
+  const over = (g: number) => new Centerline(plan, { turnBack: true, grades: [{ len: 1, g }, { len: mid - 60, g }, { len: 120, g: -g }, { len: 400, g: -g }] });
+  const at = (line: ReturnType<typeof speedProfile>, s: number) => line.v[Math.round(s / line.step)];
+
+  it("over a crest slower by its tyres' load (1 + v² x its rise's curvature / g), as fast as on the flat in a dip", () => {
+    const crest = over(0.08);
+    const without = speedProfile(crest, racingLine(crest, ROOM), AI, budget, 300 * KMH);
+    const with_ = speedProfile(crest, racingLine(crest, ROOM), AI, budget, 300 * KMH, 2, { crest: true });
+    const v = at(with_, mid), v0 = at(without, mid);
+    expect(v).toBeLessThan(v0 * 0.97);
+    const rise = (crest.grade(mid + 1) - crest.grade(mid - 1)) / 2;
+    const k = Math.abs(with_.kappa[Math.round(mid / 2)]);
+    const bank = 0; // (no bank on this road)
+    expect(v * v * k).toBeCloseTo(budget * maxAccel(v, AI.latAccel) * (1 + (v * v * rise) / 9.81) + bank, 0);
+    const dip = over(-0.08);
+    expect(at(speedProfile(dip, racingLine(dip, ROOM), AI, budget, 300 * KMH, 2, { crest: true }), mid)).toBeCloseTo(at(speedProfile(dip, racingLine(dip, ROOM), AI, budget, 300 * KMH), mid), 6);
+  });
+
+  it("its sideways acceleration changing no faster than `jerk` (v³ x its curvature's change), where it would", () => {
+    const s = new Centerline([...straight(200), ...bend(80, 60, 15), ...bend(80, -60, 15), ...straight(300)], { turnBack: true });
+    const d = racingLine(s, ROOM);
+    const free = speedProfile(s, d, AI, budget, 300 * KMH);
+    const held = speedProfile(s, d, AI, budget, 300 * KMH, 2, { jerk: 15 });
+    let worst = 0, slower = 0;
+    for (let i = 2; i + 2 < held.v.length; i++) {
+      const dk = Math.abs(held.kappa[i + 2] - held.kappa[i - 2]) / (4 * held.step);
+      worst = Math.max(worst, held.v[i] ** 3 * dk);
+      if (held.v[i] < free.v[i] - 1e-6) slower++;
+    }
+    expect(worst).toBeLessThanOrEqual(15 * 1.001);
+    expect(slower).toBeGreaterThan(0);
+  });
+});

@@ -202,6 +202,23 @@ export class Centerline {
     return this.height(s) + this.crossSlope(s) * d;
   }
 
+  /**
+   * The road's surface's up normal at (s, d) (world, unit): surfaceHeight's gradient - along the road its grade and
+   * its bank's change times d, over (1 - κd) (a bend's inside shorter); across it its bank.
+   */
+  surfaceNormal(s: number, d: number): { x: number; y: number; z: number } {
+    if (!this.hilly && !this.banks) return { x: 0, y: 1, z: 0 };
+    const th = this.heading(s);
+    const fx = Math.sin(th), fz = -Math.cos(th); // (along)
+    const rx = Math.cos(th), rz = Math.sin(th); // (across, + d)
+    const e = 0.25;
+    const along = (this.grade(s) + ((this.crossSlope(s + e) - this.crossSlope(s - e)) / (2 * e)) * d) / Math.max(0.2, 1 - this.curvature(s) * d);
+    const across = this.crossSlope(s);
+    const gx = fx * along + rx * across, gz = fz * along + rz * across;
+    const len = Math.hypot(gx, 1, gz);
+    return { x: -gx / len, y: 1 / len, z: -gz / len };
+  }
+
   /** Its grade at s (rise over run; > 0 climbing along +s). */
   grade(s: number): number {
     if (!this.hilly || s < 0 || s > this.gradesEnd) return 0;
