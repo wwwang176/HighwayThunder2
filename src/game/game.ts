@@ -1599,7 +1599,9 @@ export class Game {
     this.flares.end();
     this.npcBeams.end();
     const planned = this.aiDriver as { plan?: Plan | null; planAge?: number } | null;
-    if (this.showPlan && this.aiActive && this.flow.phase === 'racing' && planned?.plan) this.planPath.show(planned.plan, planned.planAge ?? 0);
+    if (this.showPlan && this.aiActive && this.flow.phase === 'racing' && planned?.plan) {
+      this.planPath.show(planned.plan, planned.planAge ?? 0, this.mountain ? (s, d) => this.roadLine.surfaceHeight(s, d) : undefined);
+    }
     else this.planPath.hide();
     const p = this.player.mesh.position;
     this.road.update(this.roadLine.project(p.x, p.z, this.player.s).s, play);

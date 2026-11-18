@@ -17,6 +17,10 @@ const RIBBONS: { opacity: number; halfWidth: number; lift: number }[] = [
   { opacity: 0.2, halfWidth: HALF_WIDTH * 0.7, lift: LIFT - 0.015 },
 ];
 
+/** The road surface's height (m) at road (s, d). */
+type Height = (s: number, d: number) => number;
+const FLAT: Height = () => 0;
+
 /** Speed colour: green at 100 km/h and below, through yellow, to red at 250 and above. */
 function speedColor(v: number, out: THREE.Color): THREE.Color {
   const u = Math.min(1, Math.max(0, (v / KMH - 100) / 150));
@@ -45,8 +49,8 @@ class Ribbon {
     this.mesh.renderOrder = renderOrder;
   }
 
-  /** Along `plan` from `age` s into it (the part already driven left out). */
-  show(plan: Plan, age: number): void {
+  /** Along `plan` from `age` s into it (the part already driven left out), on the road's surface (`height`). */
+  show(plan: Plan, age: number, height: Height): void {
     const end = plan.points[plan.points.length - 1].t;
     const n = Math.max(2, Math.min(MAX_SAMPLES, Math.floor((end - age) / SAMPLE) + 1));
     const pos = this.positions;
@@ -63,7 +67,7 @@ class Ribbon {
       const nd = (ds / len) * hw;
       const l = roadToWorld(a.s + ns, a.d - nd);
       const r = roadToWorld(a.s - ns, a.d + nd);
-      pos.set([l.x, lift, l.z, r.x, lift, r.z], i * 6);
+      pos.set([l.x, height(a.s + ns, a.d - nd) + lift, l.z, r.x, height(a.s - ns, a.d + nd) + lift, r.z], i * 6);
     }
     const g = this.mesh.geometry;
     g.setDrawRange(0, (n - 1) * 6);
@@ -98,12 +102,16 @@ export class PlanPath {
     this.dots.visible = false;
   }
 
-  /** Draw `plan` (and its other ways), made `age` s ago (the part already driven is left out). */
-  show(plan: Plan, age: number): void {
-    this.ribbons[0].show(plan, age);
+  /**
+   * Draw `plan` (and its other ways), made `age` s ago (the part already driven is left out), on the road's surface
+   * at (s, d) (`height`: the mountain road's rises and banks; flat by default, the highway).
+   */
+  show(plan: Plan, age: number, height: Height = FLAT): void {
+    if (plan.points.length < 2) return this.hide(); // (no path: planAt needs two points)
+    this.ribbons[0].show(plan, age, height);
     for (let i = 1; i < this.ribbons.length; i++) {
       const alt = plan.alts?.[i - 1];
-      if (alt && alt.length > 1) this.ribbons[i].show({ points: alt }, age);
+      if (alt && alt.length > 1) this.ribbons[i].show({ points: alt }, age, height);
       else this.ribbons[i].mesh.visible = false;
     }
 
@@ -111,7 +119,7 @@ export class PlanPath {
     for (const p of plan.points) {
       if (p.t < age || k >= MAX_DOTS) continue;
       const w = roadToWorld(p.s, p.d);
-      this.m.makeTranslation(w.x, LIFT + 0.01, w.z);
+      this.m.makeTranslation(w.x, height(p.s, p.d) + LIFT + 0.01, w.z);
       this.dots.setMatrixAt(k, this.m);
       this.dots.setColorAt(k, speedColor(p.v, this.c));
       k++;

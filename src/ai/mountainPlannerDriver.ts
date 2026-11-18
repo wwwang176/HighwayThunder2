@@ -8,6 +8,7 @@ import { MountainDriver } from './mountainDriver';
 import { applyMountainNet, MOUNTAIN_NET_INPUTS, mountainNetFrom, mountainNetInputs } from './mountainNet';
 import { applyDriftNet, DRIFT_NET_INPUTS, driftNetFrom, driftNetInputs } from './mountainDriftNet';
 import { MOUNTAIN_PLAN, type MountainPlan, type PlanOther, planMountain } from './mountainPlanner';
+import type { Plan, PlanPoint } from './planner';
 import type { SelfState, TrafficBox } from './sensors';
 
 /** How often it plans anew (s). */
@@ -23,6 +24,11 @@ const LAUNCH_ACCEL = 0.5;
 const KEEP_START = 1;
 /** Others' speeding up, smoothed over this long (s). */
 const ACCEL_LAG = 0.2;
+
+/** Its plan drawn (MountainPlannerDriver.plan): a point every this many s, at least this fast (m/s: from a standstill). */
+const PLAN_DRAW_STEP = 0.1;
+const PLAN_DRAW_CREEP = 3;
+const PLAN_DRAW_MAX = 128;
 
 /** Its reference with no offset and no cap (before its first plan: its own passing left out from the start). */
 const NO_OFFSET = { offsetAt: () => 0, vAt: () => Infinity };
@@ -73,6 +79,38 @@ export class MountainPlannerDriver implements RivalDriver {
   get mode(): string {
     return this.inner.mode;
   }
+
+  /**
+   * Its plan for the game to draw on the road (the I key), as the highway's are: by time, every PLAN_DRAW_STEP s
+   * from where it planned - across, its reference plus the plan's offset; its speed, its line's capped by the plan's.
+   * Made once a plan (a getter: the game reads `plan` - a method of that name it took for a path, and froze).
+   */
+  get plan(): Plan | null {
+    const m = this.mplan;
+    // (drifting it plans nothing: the drift is the driver's own; a plan of one station - a kick point right there - is
+    // no path to draw: one point, and drawing it threw and froze the game)
+    if (!m || m.offsets.length < 2 || this.inner.inDrift()) return null;
+    if (this.drawnFrom === m) return this.drawn;
+    const inner = this.inner;
+    const end = m.s0 + (m.offsets.length - 1) * m.step;
+    const points: PlanPoint[] = [];
+    let s = m.s0;
+    for (let k = 0; k < PLAN_DRAW_MAX && (points.length < 2 || s < end); k++) {
+      const v = Math.min(inner.speedAt(s), m.vAt(s));
+      points.push({ t: k * PLAN_DRAW_STEP, s, d: inner.pathRefAt(s) + m.offsetAt(s), v });
+      if (s >= end) break;
+      s = Math.min(end, s + Math.max(PLAN_DRAW_CREEP, v) * PLAN_DRAW_STEP);
+    }
+    this.drawnFrom = m;
+    this.drawn = { points };
+    return this.drawn;
+  }
+  /** How long ago its plan was made (s). */
+  get planAge(): number {
+    return Number.isFinite(this.since) ? this.since : 0;
+  }
+  private drawnFrom: MountainPlan | null = null;
+  private drawn: Plan | null = null;
   get aimD(): number {
     return this.inner.aimD;
   }
