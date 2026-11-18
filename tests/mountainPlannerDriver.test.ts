@@ -118,6 +118,25 @@ describe('MountainPlannerDriver', () => {
     expect(neu.plan).toBeNull();
   });
 
+  it('drifting, its `plan` is the drift\'s path (where it is going, the arc it wants beside it), worked out only while drawn', () => {
+    const { neu } = pair();
+    expect(neu.planShown).toBe(false);
+    neu.planShown = true;
+    expect(neu.inner.record).toBe(true);
+    neu.drive(onLine(neu.inner, 100), [], P);
+    (neu.inner as unknown as { mode: string }).mode = 'drift'; // (as if it kicked into a hairpin)
+    expect(neu.plan).toBeNull(); // (no drift's path this step: nothing drawn)
+    const pred: [number, number][] = [[400, 1], [402, 1.5], [404, 2.2]];
+    const need: [number, number][] = [[400, 1], [402, 1.2], [404, 1.6]];
+    neu.inner.aimPath = { pred, need, at: [404, 1.6] };
+    const plan = neu.plan!;
+    expect(plan.points.map((p) => [p.t, p.s, p.d])).toEqual([[0, 400, 1], [0.1, 402, 1.5], [0.2, 404, 2.2]]);
+    expect(plan.alts![0].map((p) => p.d)).toEqual([1, 1.2, 1.6]);
+    expect(neu.planAge).toBe(0); // (this step's: none of it driven yet)
+    neu.planShown = false;
+    expect(neu.inner.record).toBe(false);
+  });
+
   it('reset drops the plan (put back elsewhere: not followed from the old place)', () => {
     const { neu } = pair();
     neu.drive(onLine(neu.inner, 100), [], P);

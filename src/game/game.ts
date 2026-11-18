@@ -1598,11 +1598,12 @@ export class Game {
     for (const car of this.lightRivals(play)) this.npcBeams.add(car.mesh, pp.x, pp.z); // (the rivals without a real lamp: their beams painted)
     this.flares.end();
     this.npcBeams.end();
-    const planned = this.aiDriver as { plan?: Plan | null; planAge?: number } | null;
-    if (this.showPlan && this.aiActive && this.flow.phase === 'racing' && planned?.plan) {
+    const planned = this.aiDriver as { plan?: Plan | null; planAge?: number; planShown?: boolean } | null;
+    const drawPlan = this.showPlan && this.aiActive && this.flow.phase === 'racing';
+    if (planned && 'planShown' in planned) planned.planShown = drawPlan; // (the mountain AI: its drift's path worked out only then)
+    if (drawPlan && planned?.plan) {
       this.planPath.show(planned.plan, planned.planAge ?? 0, this.mountain ? (s, d) => this.roadLine.surfaceHeight(s, d) : undefined);
-    }
-    else this.planPath.hide();
+    } else this.planPath.hide();
     const p = this.player.mesh.position;
     this.road.update(this.roadLine.project(p.x, p.z, this.player.s).s, play);
     // After the road has placed this frame's street lights.

@@ -84,12 +84,14 @@ export class MountainPlannerDriver implements RivalDriver {
    * Its plan for the game to draw on the road (the I key), as the highway's are: by time, every PLAN_DRAW_STEP s
    * from where it planned - across, its reference plus the plan's offset; its speed, its line's capped by the plan's.
    * Made once a plan (a getter: the game reads `plan` - a method of that name it took for a path, and froze).
+   * Drifting (it plans nothing then: the drift is the driver's own), with `planShown` on, the drift's: where it is
+   * going turning on as it turns now (its aimPath's pred, every 0.1 s), and fainter beside it the arc it wants (need).
    */
   get plan(): Plan | null {
+    if (this.inner.inDrift()) return this.driftPlan();
     const m = this.mplan;
-    // (drifting it plans nothing: the drift is the driver's own; a plan of one station - a kick point right there - is
-    // no path to draw: one point, and drawing it threw and froze the game)
-    if (!m || m.offsets.length < 2 || this.inner.inDrift()) return null;
+    // (a plan of one station - a kick point right there - is no path to draw: one point, drawing it threw and froze the game)
+    if (!m || m.offsets.length < 2) return null;
     if (this.drawnFrom === m) return this.drawn;
     const inner = this.inner;
     const end = m.s0 + (m.offsets.length - 1) * m.step;
@@ -105,12 +107,33 @@ export class MountainPlannerDriver implements RivalDriver {
     this.drawn = { points };
     return this.drawn;
   }
-  /** How long ago its plan was made (s). */
+  /** How long ago its plan was made (s; drifting, the drift's path is this step's). */
   get planAge(): number {
-    return Number.isFinite(this.since) ? this.since : 0;
+    return this.inner.inDrift() || !Number.isFinite(this.since) ? 0 : this.since;
   }
-  private drawnFrom: MountainPlan | null = null;
+  /** The game drawing its plan (the I key): the drift's path worked out too (MountainDriver.record) - off, it is not. */
+  get planShown(): boolean {
+    return this.inner.record;
+  }
+  set planShown(on: boolean) {
+    this.inner.record = on;
+  }
+  private drawnFrom: object | null = null; // (the plan or the aimPath it was made from)
   private drawn: Plan | null = null;
+  /** Its speed last step (m/s): the drift's path drawn at it. */
+  private lastV = 0;
+
+  /** The drift's path, to draw (plan): none without its aimPath this step (planShown off, before the kick, or out). */
+  private driftPlan(): Plan | null {
+    const a = this.inner.aimPath;
+    if (!a || a.pred.length < 2) return null;
+    if (this.drawnFrom === a) return this.drawn;
+    const v = this.lastV;
+    const at = (path: [number, number][]) => path.map(([s, d], i) => ({ t: i * PLAN_DRAW_STEP, s, d, v }));
+    this.drawnFrom = a;
+    this.drawn = { points: at(a.pred), ...(a.need && a.need.length > 1 ? { alts: [at(a.need)] } : {}) };
+    return this.drawn;
+  }
   get aimD(): number {
     return this.inner.aimD;
   }
@@ -153,6 +176,7 @@ export class MountainPlannerDriver implements RivalDriver {
   drive(self: SelfState, others: TrafficBox[], p?: CarParams): HandlingInput {
     this.watch(others);
     this.launch(self.vLong);
+    this.lastV = Math.hypot(self.vLong, self.vLat);
     this.since += PHYSICS_DT;
     const drifting = this.inner.inDrift();
     // (drifting, no plan of before: its speed cap - a car followed into the hairpin - held it through the drift)
