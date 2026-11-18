@@ -189,15 +189,15 @@ export function mountainSetupOf(id: string): MountainSetup {
 }
 
 /**
- * A car's AI tables (CarSpec.ai) for its mountain setup: its cornering and braking as measured so set up (ai.mountain,
- * training/mountainGrip.train.ts - for the setup as built: re-measure it when the setup changes), else the highway's
- * scaled - its braking times `longGrip`, its cornering times `aiLat`; speeding up as it was (the engine's, mostly).
+ * A car's AI tables (CarSpec.ai) for its mountain setup: its cornering, braking and speeding up as measured so set up
+ * (ai.mountain, training/mountainGrip.train.ts - for the setup as built: re-measure it when the setup changes; its
+ * speeding up the highway's if not measured), else the highway's scaled - its braking times `longGrip`, its cornering
+ * times `aiLat`; speeding up as it was.
  */
-export function mountainAi<T extends { brake: AccelTable; latAccel: AccelTable; mountain?: { brake: AccelTable; latAccel: AccelTable } }>(
-  ai: T,
-  s: MountainSetup = MOUNTAIN_SETUP,
-): T {
-  if (ai.mountain) return { ...ai, brake: ai.mountain.brake, latAccel: ai.mountain.latAccel };
+export function mountainAi<
+  T extends { accel: AccelTable; brake: AccelTable; latAccel: AccelTable; mountain?: { brake: AccelTable; latAccel: AccelTable; accel?: AccelTable } },
+>(ai: T, s: MountainSetup = MOUNTAIN_SETUP): T {
+  if (ai.mountain) return { ...ai, brake: ai.mountain.brake, latAccel: ai.mountain.latAccel, accel: ai.mountain.accel ?? ai.accel };
   return {
     ...ai,
     brake: ai.brake.map(([kmh, a]) => [kmh, a * s.longGrip] as [number, number]),
