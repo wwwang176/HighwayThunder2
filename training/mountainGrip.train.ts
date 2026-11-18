@@ -24,6 +24,8 @@ const CAR_IDS = (process.env.CARS ?? 'street-racer,muscle-car,jdm').split(',');
 const RAMP = Number(process.env.RAMP ?? 8);
 const SLIDE = Number(process.env.SLIDE ?? 5);
 const MARKS = [50, 75, 100, 125, 150, 175, 200, 250];
+/** Its full-throttle table's spacing (km/h): fine enough to hold each gear change's dip where it is. */
+const ACCEL_STEP = 10;
 
 const tableAt = (t: AccelTable, kmh: number) => {
   if (kmh <= t[0][0]) return t[0][1];
@@ -97,6 +99,37 @@ function stopAt(params: CarParams, kmh: number) {
   }
   physics.free();
   return (v0 - car.speed) / t;
+}
+
+/**
+ * Full throttle from a standstill, straight on: its acceleration at every ACCEL_STEP km/h (m/s²) - the mean across
+ * the band either side of it (a shift's pause in its band as the car pays it), to the last it reaches.
+ */
+function launch(params: CarParams): [number, number][] {
+  const physics = openGround();
+  physics.timestep = PHYSICS_DT;
+  const car = new PlayerCar(physics, null, { entity: { type: 'rival', id: 0 } });
+  Object.assign(car.params, params);
+  car.applyMass();
+  car.resetTo(0, 1, 0);
+  const half = ACCEL_STEP / 2;
+  // (the time it passes each band's edge: 0, then half, half + step, ...)
+  const edges: number[] = [0];
+  let t = 0;
+  while (t < 90) {
+    const steer = Math.max(-1, Math.min(1, -(car.d - 1) * 0.05 - car.yaw));
+    car.prePhysics({ throttle: 1, brake: 0, steer }, PHYSICS_DT);
+    physics.step(() => {});
+    car.postPhysics();
+    t += PHYSICS_DT;
+    const next = half + (edges.length - 1) * ACCEL_STEP;
+    if (car.speed >= next * KMH) edges.push(t);
+    else if (t - edges[edges.length - 1] > 8) break; // (no faster: its top)
+  }
+  physics.free();
+  const out: [number, number][] = [[0, Math.round(((half * KMH) / edges[1]) * 10) / 10]];
+  for (let i = 1; i + 1 < edges.length; i++) out.push([i * ACCEL_STEP, Math.round(((ACCEL_STEP * KMH) / (edges[i + 1] - edges[i])) * 10) / 10]);
+  return out;
 }
 
 /** Its cornering held (m/s², the less of either way) and its full brake at each of `marks` (the last measured on past its top). */
@@ -188,9 +221,12 @@ it.runIf(!process.env.TUNE)('mountain grip', async () => {
           `brake ${b.toFixed(1)} plan ${tableAt(plan.brake, kmh).toFixed(1)} (x${(b / tableAt(plan.brake, kmh)).toFixed(2)})`,
       );
     }
+    const accel = launch(p);
+    out.push(`  full throttle: ` + accel.map(([k, a]) => `${k} ${a} (plan ${tableAt(plan.accel, k).toFixed(1)})`).join(', '));
     // (paste-ready: the slowest's below it too)
     const rows = (t: [number, number][]) => [[0, t[0][1]], ...t].map(([k, a]) => `[${k}, ${a}]`).join(', ');
-    out.push(`  mountain: { latAccel: [${rows(lat)}], brake: [${rows(brake)}] },`);
+    const list = (t: [number, number][]) => t.map(([k, a]) => `[${k}, ${a}]`).join(', ');
+    out.push(`  mountain: { latAccel: [${rows(lat)}], brake: [${rows(brake)}], accel: [${list(accel)}] },`);
   }
   process.stdout.write(out.join('\n') + '\n');
 });

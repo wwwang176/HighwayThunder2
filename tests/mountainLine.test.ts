@@ -139,4 +139,20 @@ describe('speedProfile, over a crest and through an S (opts)', () => {
     expect(worst).toBeLessThanOrEqual(15 * 1.001);
     expect(slower).toBeGreaterThan(0);
   });
+
+  it("tyreDrive: speeding up as its tyres allow (its brake table's grip, less the cornering's share), not its engine's", () => {
+    const road = new Centerline([...straight(100), ...bend(20, 180, 15), ...straight(400)], { turnBack: true });
+    const d = racingLine(road, ROOM);
+    const weak = { ...AI, accel: [[0, 2], [300, 2]] as [number, number][] };
+    const engine = speedProfile(road, d, weak, budget, 300 * KMH);
+    const tyres = speedProfile(road, d, weak, budget, 300 * KMH, 2, { tyreDrive: true });
+    // (out of the hairpin, 100 m on: far faster than the engine's 2 m/s² lets it be)
+    const out = Math.round((100 + (20 * Math.PI) + 100) / 2);
+    expect(tyres.v[out]).toBeGreaterThan(engine.v[out] * 1.3);
+    // (and its speeding up no faster than its tyres' full grip; the hairpin's own limit as it was)
+    const most = Math.max(...AI.brake.map(([, a]) => a));
+    for (let i = 0; i + 1 < tyres.v.length; i++) expect(tyres.v[i + 1] ** 2 - tyres.v[i] ** 2).toBeLessThanOrEqual(2 * tyres.step * 1.05 * most + 1e-6);
+    const apex = Math.round((100 + 10 * Math.PI) / 2);
+    expect(tyres.v[apex]).toBeCloseTo(engine.v[apex], 6);
+  });
 });

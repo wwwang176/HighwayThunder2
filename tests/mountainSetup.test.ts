@@ -58,11 +58,24 @@ describe('mountainSetup', () => {
     expect(ai.accel).toEqual(STREET_RACER.ai.accel);
   });
 
-  it('its AI tables as set up, measured so (CarSpec.ai.mountain): those, speeding up as it was', () => {
+  it('its AI tables as set up, measured so (CarSpec.ai.mountain): those, its speeding up too', () => {
     const ai = mountainAi(STREET_RACER.ai, mountainSetupOf(STREET_RACER.id));
     expect(ai.latAccel).toEqual(STREET_RACER.ai.mountain!.latAccel);
     expect(ai.brake).toEqual(STREET_RACER.ai.mountain!.brake);
+    expect(ai.accel).toEqual(STREET_RACER.ai.mountain!.accel);
+  });
+
+  it('measured without its speeding up: that as it was (the highway table)', () => {
+    const { accel: _, ...mountain } = STREET_RACER.ai.mountain!;
+    const ai = mountainAi({ ...STREET_RACER.ai, mountain }, mountainSetupOf(STREET_RACER.id));
     expect(ai.accel).toEqual(STREET_RACER.ai.accel);
+  });
+
+  it('every car on the mountain has its speeding up measured: its gear changes where they are (every 10 km/h)', () => {
+    for (const spec of [STREET_RACER, MUSCLE_CAR, JDM_CAR]) {
+      const t = spec.ai.mountain!.accel!;
+      t.slice(1).forEach(([kmh], i) => expect(kmh - t[i][0]).toBe(10));
+    }
   });
 
   it('the muscle car (its tail loose already, its stability control light): its rear, brakes and stability control as built', () => {

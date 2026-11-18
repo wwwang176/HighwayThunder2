@@ -39,10 +39,12 @@ export interface CarPerformance {
   latAccel: [kmh: number, accel: number][];
   /**
    * As set up for the mountain road (src/vehicles/mountainSetup, as built): the sideways acceleration it holds at
-   * each speed before it slides, its full brake (training/mountainGrip.train.ts) - its mountain AI's tables, in place
-   * of the highway's scaled (mountainAi). (The highway's x aiLat 1.25 and x longGrip 1.25 were 13-19 % under it.)
+   * each speed before it slides, its full brake, its full throttle every 10 km/h from a standstill (its gear changes'
+   * dips where they are) (training/mountainGrip.train.ts) - its mountain AI's tables, in place of the highway's scaled
+   * (mountainAi). (The highway's x aiLat 1.25 and x longGrip 1.25 were 13-19 % under it; its accel table, every
+   * 50 km/h, spread the muscle car's 1-2 shift over 50-150 km/h - a third under what it pulls out of a hairpin.)
    */
-  mountain?: { latAccel: [kmh: number, accel: number][]; brake: [kmh: number, decel: number][] };
+  mountain?: { latAccel: [kmh: number, accel: number][]; brake: [kmh: number, decel: number][]; accel?: [kmh: number, accel: number][] };
   /** Weights of its trained steering network (src/ai/netTracker.ts, training/tracker.train.ts); none: the plain tracker. */
   tracker?: number[];
   /**

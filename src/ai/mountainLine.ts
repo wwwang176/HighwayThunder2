@@ -172,6 +172,10 @@ function solveBand(A: Float64Array[], rhs: Float64Array, held: Map<number, numbe
  * its tyres' load (1 + v² x the road's rise's curvature / g: lighter as it goes over; a dip no more than on the flat).
  * `opts.jerk` (m/s³, 0: none): its sideways acceleration changing no faster than this (v³ x the line's curvature's
  * change - a bend turning the other way soon after, at speed: the car turns over to it only so fast).
+ * `opts.tyreDrive`: speeding up as its tyres allow (its brake table's grip, by the crest's load, less what the
+ * cornering takes), not as its engine does - a speed it may go, not one it will have: its engine limits itself, and a
+ * driver aiming at its engine's speeds lifts off whenever the car pulls better than the table (the muscle car out of
+ * every hairpin); what the cornering leaves still holds its throttle in coming out of a bend.
  */
 export function speedProfile(
   road: Centerline,
@@ -180,7 +184,7 @@ export function speedProfile(
   budget: number,
   vMax: number,
   step = 2,
-  opts: { crest?: boolean; jerk?: number } = {},
+  opts: { crest?: boolean; jerk?: number; tyreDrive?: boolean } = {},
 ): RaceLine {
   const n = d.length;
   const px = new Float64Array(n);
@@ -231,7 +235,8 @@ export function speedProfile(
   const ds = (i: number) => Math.hypot(px[i + 1] - px[i], pz[i + 1] - pz[i]);
   v[0] = 0;
   for (let i = 0; i + 1 < n; i++) {
-    const a = Math.max(0.3, maxAccel(v[i], car.accel) * circle(v[i], i) - G * road.grade(i * step));
+    const drive = opts.tyreDrive ? maxAccel(v[i], car.brake) * load(v[i], i) : maxAccel(v[i], car.accel);
+    const a = Math.max(0.3, drive * circle(v[i], i) - G * road.grade(i * step));
     v[i + 1] = Math.min(cap[i + 1], Math.sqrt(v[i] * v[i] + 2 * ds(i) * a));
   }
   for (let i = n - 2; i >= 0; i--) {
