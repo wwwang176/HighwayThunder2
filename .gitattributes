@@ -1,0 +1,6 @@
+# Every text file is kept with LF line endings in the repository and on checkout,
+# whichever editor or OS saved it.
+* text=auto eol=lf
+
+# A crash dump, left as it is
+*.stackdump -text
