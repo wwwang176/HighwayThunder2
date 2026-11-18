@@ -187,6 +187,26 @@ export class PhysicsWorld {
   private groundMesh: RAPIER.Collider | null = null;
   /** The ground is the road's surface mesh (slopes): tyres then work along it (tyreChassis). */
   sloped = false;
+
+  /** Whether `c` is the ground (the flat half-space, or the road's surface mesh) - not a rail, not a car. */
+  isGround(c: RAPIER.Collider): boolean {
+    return (!!this.ground && c.handle === this.ground.handle) || (!!this.groundMesh && c.handle === this.groundMesh.handle);
+  }
+
+  /**
+   * The ground's own surface at world (x, z): the road's (Centerline.surfaceHeight / surfaceNormal) - what the tyres
+   * stand on. The mesh is its rows' flat facets (a kink a row: on the slopes and banked bends each set the springs
+   * bouncing, a wheel off the ground 11 % of the time over 100 km/h), there for the bodies; the tyres read the road's
+   * own smooth surface. `hint`: an s near (the wheel's last). Null: flat ground (the half-space, as it is).
+   */
+  groundSurface(x: number, z: number, hint?: number): { s: number; y: number; nx: number; ny: number; nz: number } | null {
+    if (!this.sloped) return null;
+    let p = this.road.project(x, z, hint);
+    // (a hint gone stale - the car put back elsewhere: the foot on another leg, or far off - found afresh)
+    if (hint !== undefined && (Math.abs(p.s - hint) > 20 || Math.abs(p.d) > 40)) p = this.road.project(x, z);
+    const n = this.road.surfaceNormal(p.s, p.d);
+    return { s: p.s, y: this.road.surfaceHeight(p.s, p.d), nx: n.x, ny: n.y, nz: n.z };
+  }
   /** A curved road's rail planes, one per slot, and the body holding each (its handle; -1 free). */
   private readonly slotRails: RAPIER.Collider[] = [];
   private readonly slotBody: number[] = [];

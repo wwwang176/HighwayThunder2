@@ -4,6 +4,8 @@ import { G_PLAYER, G_STATIC, groups, PhysicsWorld } from '../physics/physicsWorl
 import { solveWheel, TireParams } from './tireModel';
 
 const WHEEL_RAY_GROUPS = groups(G_PLAYER, G_STATIC); // wheels only stand on the road
+/** How far past its reach a wheel's ray looks for the ground's mesh (m: the road's own surface over it, on a slope). */
+const GROUND_SEEK = 0.15;
 
 /** One wheel: fixed geometry/setup plus the state the simulation updates every step. */
 export interface ChassisWheel {
@@ -127,6 +129,8 @@ export class TyreChassis {
   private readonly ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
   /** The ground's normal under each wheel (x, y, z a wheel; on a sloped ground only: physics.sloped). */
   private readonly normals = new Float64Array(12).fill(0).map((_, k) => (k % 3 === 1 ? 1 : 0));
+  /** Each wheel's last s on the road (physics.groundSurface's hint; NaN: none yet). */
+  private readonly sAt = new Float64Array(4).fill(NaN);
 
   constructor(
     private physics: PhysicsWorld,
@@ -160,10 +164,25 @@ export class TyreChassis {
       this.ray.dir = { x: -UP.x, y: -UP.y, z: -UP.z };
       let hit: { timeOfImpact: number } | null;
       if (sloped) {
-        const h = this.physics.world.castRayAndGetNormal(this.ray, s.rest + w.r, true, undefined, WHEEL_RAY_GROUPS, undefined, this.body);
-        // (a normal facing down: the mesh's underside, a car got under it - taken as up, the car pushed back up)
-        if (h) this.normals.set(h.normal.y >= 0 ? [h.normal.x, h.normal.y, h.normal.z] : [-h.normal.x, -h.normal.y, -h.normal.z], 3 * i);
-        hit = h;
+        const reach = s.rest + w.r;
+        // (cast past its reach: the road's surface over its mesh by up to a few cm - a wheel on it reaching the mesh
+        // only beyond, the ground still under it)
+        const h = this.physics.world.castRayAndGetNormal(this.ray, reach + GROUND_SEEK, true, undefined, WHEEL_RAY_GROUPS, undefined, this.body);
+        hit = h && h.timeOfImpact <= reach ? h : null;
+        if (h) {
+          // (a normal facing down: the mesh's underside, a car got under it - taken as up, the car pushed back up)
+          this.normals.set(h.normal.y >= 0 ? [h.normal.x, h.normal.y, h.normal.z] : [-h.normal.x, -h.normal.y, -h.normal.z], 3 * i);
+          // On the ground: the road's own surface there (physics.groundSurface: the mesh's facets set it bouncing) -
+          // the ray's point on its plane through the surface under the mesh's hit, and its normal.
+          const g = this.physics.isGround(h.collider) ? this.physics.groundSurface(HARD.x - UP.x * h.timeOfImpact, HARD.z - UP.z * h.timeOfImpact, Number.isFinite(this.sAt[i]) ? this.sAt[i] : undefined) : null;
+          if (g) {
+            this.sAt[i] = g.s;
+            const dn = -(UP.x * g.nx + UP.y * g.ny + UP.z * g.nz); // (the ray's along the normal: down, < 0)
+            const toi = dn < -0.2 ? h.timeOfImpact + ((g.y - (HARD.y - UP.y * h.timeOfImpact)) * g.ny) / dn : h.timeOfImpact;
+            this.normals.set([g.nx, g.ny, g.nz], 3 * i);
+            hit = toi >= 0 && toi <= reach ? { timeOfImpact: toi } : null;
+          }
+        }
       } else hit = this.physics.world.castRay(this.ray, s.rest + w.r, true, undefined, WHEEL_RAY_GROUPS, undefined, this.body);
       const prev = w.susp;
       let x = 0; // compression, past full travel too (the bump stop's)

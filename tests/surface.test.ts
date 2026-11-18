@@ -22,13 +22,15 @@ describe('surfaceMesh', () => {
     }
   });
 
-  it('runs from `from` to `to`, its rows half a metre apart at most (a slope or a bank in the springs: no kink a row)', () => {
+  it('runs from `from` to `to`, rows close together where it bends hard', () => {
     expect(mesh.s[0]).toBeCloseTo(from, 6);
     expect(mesh.s[mesh.s.length - 1]).toBeCloseTo(to, 6);
     for (let i = 2; i < mesh.s.length; i += 2) {
       const ds = mesh.s[i] - mesh.s[i - 2];
       expect(ds).toBeGreaterThan(0);
-      expect(ds).toBeLessThanOrEqual(0.5 + 1e-3); // (float32 rows: ~2e-4 apart some 4 km on)
+      const k = Math.abs(road.curvature(mesh.s[i - 2] + ds / 2));
+      if (k > 1 / 25) expect(ds).toBeLessThanOrEqual(1.5 + 1e-3); // (float32 rows: ~2e-4 apart some 4 km on)
+      expect(ds).toBeLessThanOrEqual(3 + 1e-3);
     }
   });
 

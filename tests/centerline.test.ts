@@ -202,3 +202,33 @@ describe('centerline banking', () => {
     expect(road.surfaceHeight(50, 4)).toBe(road.height(50));
   });
 });
+
+describe('centerline surfaceNormal', () => {
+  it("the surface's gradient: across and along a banked, climbing hairpin (its inside and outside), as the height's own", async () => {
+    const { mountainRoad } = await import('../src/road/mountain');
+    const road = mountainRoad(mulberry32(5));
+    const h = (x: number, z: number) => {
+      const p = road.project(x, z);
+      return road.surfaceHeight(p.s, p.d);
+    };
+    const e = 0.01;
+    let n = 0;
+    for (let s = 200; s < 3200; s += 37)
+      for (const d of [-6, -2, 0, 3, 6]) {
+        const w = road.toWorld(s, d);
+        const gx = (h(w.x + e, w.z) - h(w.x - e, w.z)) / (2 * e);
+        const gz = (h(w.x, w.z + e) - h(w.x, w.z - e)) / (2 * e);
+        const len = Math.hypot(gx, 1, gz);
+        const nm = road.surfaceNormal(s, d);
+        expect(nm.x).toBeCloseTo(-gx / len, 3);
+        expect(nm.y).toBeCloseTo(1 / len, 3);
+        expect(nm.z).toBeCloseTo(-gz / len, 3);
+        n++;
+      }
+    expect(n).toBeGreaterThan(300);
+  });
+
+  it('a flat road: straight up', () => {
+    expect(RIGHT.surfaceNormal(500, 3)).toEqual({ x: 0, y: 1, z: 0 });
+  });
+});
