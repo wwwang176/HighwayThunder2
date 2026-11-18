@@ -47,10 +47,12 @@ export const MOUNTAIN_DRIVER = {
   vMax: 100,
   /**
    * The share of its car's grip and brakes its line is planned to (CarSpec.ai.mountain: as measured, at the limit
-   * before it slides): its own margin, at every difficulty - the difficulty is its top speed only, as the highway's.
-   * (Once 0.82-0.97 by the difficulty, on tables 13-19 % under the car's grip.)
+   * before it slides), at every difficulty - the difficulty is its top speed only, as the highway's. (Once 0.82-0.97
+   * by the difficulty, on tables 13-19 % under the car's grip. All of it: on the ground's rows half a metre apart -
+   * no longer bouncing - 30 roads at 1 against 0.95 0.15-1 s faster, a wall a race either way, none stopping it; its
+   * walls no longer where the bends turned the other way fast, the bounce's.)
    */
-  budget: 0.95,
+  budget: 1,
   /**
    * Full throttle this far (m/s) under the speed it aims at (speedPedals). (The highway's 3: its aim the line's speed a
    * moment ahead - the line itself as fast as the engine speeds it up - it ran ~3 m/s under its line down every straight,

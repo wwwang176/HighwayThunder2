@@ -26,6 +26,12 @@ type Driver = MountainDriver | MountainPlannerDriver;
 const makeDriver = (): Driver => (DRIVER === 'new' ? new MountainPlannerDriver() : new MountainDriver());
 /** The mountain driver inside either (its reference, whether it is drifting). */
 const coreOf = (d: Driver): MountainDriver => (d instanceof MountainPlannerDriver ? d.inner : d);
+/** Its tyres' load: all four's over its weight, the least wheel's over a quarter of it, how many off the ground. */
+const wheelLoads = (car: PlayerCar) => {
+  const w = car.wheels, mg = car.body.mass() * 9.81;
+  const loads = w.map((x) => (x.inContact ? x.load : 0));
+  return { load: loads.reduce((a, b) => a + b, 0) / mg, least: Math.min(...loads) / (mg / 4), air: w.filter((x) => !x.inContact).length };
+};
 /**
  * SOLO=1: each car alone on every seed (no rivals) - its time, its walls, its drifts, and how far off the computed
  * no-traffic path (its reference, refAt) it drove: median and p95 every 0.1 s, drifting left out, and out of a drift
@@ -89,7 +95,7 @@ const log: string[] = [];
 const TRACE = !!process.env.TRACE;
 /** TRACE=all: before every wall it meets. */
 const TRACE_ALL = process.env.TRACE === 'all';
-type TraceRow = { off: number; t: number; s: number; d: number; plan: number; yaw: number; rate: number; vLat: number; kmh: number; mode: string; base: number; steer: number; thr: number; brk: number };
+type TraceRow = { off: number; t: number; s: number; d: number; plan: number; yaw: number; rate: number; vLat: number; kmh: number; mode: string; base: number; steer: number; thr: number; brk: number; load: number; least: number; air: number };
 // (the driver's input before and after its driving network - the bench's own hook on it)
 const netSeen = { base: NaN, out: NaN };
 if (TRACE) {
@@ -229,6 +235,8 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   const tracks: (number | string)[][][] = [[], [], [], []];
   const hitNow = [false, false, false, false];
   let playerStuck = 0;
+  /** (alone, over 100 km/h: its tyres' load each step - summed, squared, a wheel off the ground, the least under 0.3) */
+  const bounce = { n: 0, sum: 0, sq: 0, air: 0, light: 0 };
   const trace: TraceRow[] = [];
   let lastTrace = -9;
   while (time < LIMIT) {
@@ -242,7 +250,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     if (TRACE) {
       const core = coreOf(playerAi);
       const mp = playerAi instanceof MountainPlannerDriver ? playerAi.mplan : null;
-      trace.push({ off: (() => { const at = (core as unknown as { alignTo: number | null }).alignTo; if (at === null) return NaN; const n = road.heading(player.s) + player.yaw; return Math.atan2(Math.sin(n - at), Math.cos(n - at)); })(), t: time, s: player.s, d: player.d, plan: core.pathRefAt(player.s) + (mp ? mp.offsetAt(player.s) : 0), yaw: player.yaw, rate: ownSelf.yawRate, vLat: ownSelf.vLat, kmh: player.speed / KMH, mode: core.mode, base: netSeen.base, steer: own.steer, thr: own.throttle, brk: own.brake });
+      trace.push({ off: (() => { const at = (core as unknown as { alignTo: number | null }).alignTo; if (at === null) return NaN; const n = road.heading(player.s) + player.yaw; return Math.atan2(Math.sin(n - at), Math.cos(n - at)); })(), t: time, s: player.s, d: player.d, plan: core.pathRefAt(player.s) + (mp ? mp.offsetAt(player.s) : 0), yaw: player.yaw, rate: ownSelf.yawRate, vLat: ownSelf.vLat, kmh: player.speed / KMH, mode: core.mode, base: netSeen.base, steer: own.steer, thr: own.throttle, brk: own.brake, ...wheelLoads(player) });
       if (trace.length > 3 / PHYSICS_DT) trace.shift();
     }
     player.prePhysics(STALL && time < STALL_S ? { throttle: 0, brake: 1, steer: 0 } : own, PHYSICS_DT);
@@ -283,11 +291,11 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         if (TRACE && k === 0 && (TRACE_ALL || (pi >= 0 && side === 'in' && car.s - runs[pi].to > 0 && car.s - runs[pi].to < 80)) && time - lastTrace > 2) {
           lastTrace = time;
           log.push(`  TRACE seed ${seed} pin ${pi} dir ${pi >= 0 ? runs[pi].dir : 0} (+: d of its inside) hit t ${time.toFixed(1)} past ${pi >= 0 ? (car.s - runs[pi].to).toFixed(0) : '-'} m k ${road.curvature(car.s).toFixed(3)} side ${side}`);
-          log.push('    t      s      d   plan    yaw  noseOff  rate   vLat  km/h mode     base  steer   thr   brk');
+          log.push('    t      s      d   plan    yaw  noseOff  rate   vLat  km/h mode     base  steer   thr   brk   load  least   air');
           trace.forEach((r, i) => {
             if (i % 5 !== 0 && i !== trace.length - 1) return;
             const f = (x: number, n = 2) => (Number.isFinite(x) ? x.toFixed(n) : '  -').padStart(6);
-            log.push(`  ${f(r.t, 1)} ${f(r.s, 0)} ${f(r.d)} ${f(r.plan)} ${f(r.yaw)} ${f(r.off)} ${f(r.rate)} ${f(r.vLat)} ${f(r.kmh, 0)} ${r.mode.padEnd(7)} ${f(r.base)} ${f(r.steer)} ${f(r.thr)} ${f(r.brk)}`);
+            log.push(`  ${f(r.t, 1)} ${f(r.s, 0)} ${f(r.d)} ${f(r.plan)} ${f(r.yaw)} ${f(r.off)} ${f(r.rate)} ${f(r.vLat)} ${f(r.kmh, 0)} ${r.mode.padEnd(7)} ${f(r.base)} ${f(r.steer)} ${f(r.thr)} ${f(r.brk)} ${f(r.load)} ${f(r.least)} ${f(r.air, 0)}`);
           });
         }
         if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)} ${coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).mode} pin ${pi} side ${side}${pi >= 0 ? ` past ${(car.s - runs[pi].to).toFixed(0)} m` : ''}`);
@@ -358,6 +366,14 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
       if (core.inDrift()) back = false;
       else if (!back && off < SOLO_BACK) back = true;
       if (back && !core.inDrift()) meet.dev.push(off);
+    }
+    if (alone && stats[0].time === null && player.speed > 100 * KMH) {
+      const w = wheelLoads(player);
+      bounce.n++;
+      bounce.sum += w.load;
+      bounce.sq += w.load * w.load;
+      if (w.air) bounce.air++;
+      if (w.least < 0.3) bounce.light++;
     }
     if (dumpIt) {
       const step = Math.round(time / PHYSICS_DT);
@@ -439,7 +455,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     };
   }
   physics.free();
-  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet, seg, hits };
+  return { cars: alone ? stats.slice(0, 1) : stats, nan, lineMs, hairpins: hairpinsOf(road), runs, meet, seg, hits, bounce };
 }
 
 /** The q quantile of xs (sorted copy). */
@@ -468,8 +484,10 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
     const vnN = [0, 0, 0, 0];
     const lossN = [0, 0, 0, 0];
     let stops = 0;
+    const bounce = { n: 0, sum: 0, sq: 0, air: 0, light: 0 };
     for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
       const r = race(seed, spec, true);
+      for (const k of ['n', 'sum', 'sq', 'air', 'light'] as const) bounce[k] += r.bounce[k];
       for (const h of r.hits) {
         vnN[bucket(h.vn, VN_EDGES)]++;
         lossN[bucket(h.v0 > 0.5 ? 1 - h.least / h.v0 : 0, LOSS_EDGES)]++;
@@ -508,6 +526,13 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
     // (its wall contacts by how hard: into the wall under 1, 1-3, 3-6, over 6 m/s; speed lost under 10, 10-30, 30-70,
     // over 70 %; stopped)
     out.push(`${spec.id} hits: vn ${vnN.join(' ')} | loss ${lossN.join(' ')} | stopped ${stops}`);
+    // (over 100 km/h: its tyres' load over its weight - mean, its spread; the share of the time a wheel is off the
+    // ground, its least-loaded wheel under 0.3 of its share)
+    const lm = bounce.sum / Math.max(1, bounce.n);
+    out.push(
+      `${spec.id} bounce: load mean ${lm.toFixed(3)} sd ${Math.sqrt(Math.max(0, bounce.sq / Math.max(1, bounce.n) - lm * lm)).toFixed(3)}, ` +
+        `a wheel off the ground ${((100 * bounce.air) / Math.max(1, bounce.n)).toFixed(2)} %, the least under 0.3 ${((100 * bounce.light) / Math.max(1, bounce.n)).toFixed(2)} %`,
+    );
   }
   process.stdout.write(out.join('\n') + '\n');
   // (one car's: SOLO_CARS one car - each seed's dump the last car's run on it)

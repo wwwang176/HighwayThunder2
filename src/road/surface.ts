@@ -4,6 +4,13 @@ import type { Centerline } from './centerline';
 const ROW_SAG = 0.06;
 const ROW_MIN = 0.5;
 const ROW_MAX = 3;
+/**
+ * The ground's (the physics' surfaceMesh) rows no further apart than this. (3 m as the scenery's: on the mountain
+ * road's slopes and banked bends each row's kink, 18 a second at 190 km/h, set the springs bouncing - over 100 km/h a
+ * wheel off the ground 11 % of the time, the least loaded under 0.3 of its share 39 %, the cars' grip spent bouncing;
+ * 0.5 m: 2.4 % / 18 %, 0.25: 1.9 % / 10 %. The scenery's own rows as they were: a few mm from it.)
+ */
+const GROUND_ROW_MAX = 0.5;
 
 /** The road's surface as a triangle strip: rows across it, each at its height. */
 export interface SurfaceMesh {
@@ -16,15 +23,16 @@ export interface SurfaceMesh {
   d: Float32Array;
 }
 
-/** Where the rows across the road go (s), from `from` to `to`: closer where it bends hard (ROW_SAG). */
-export function roadRows(road: Centerline, from: number, to: number): number[] {
+/** Where the rows across the road go (s), from `from` to `to`: closer where it bends hard (ROW_SAG), `most` m apart at most. */
+export function roadRows(road: Centerline, from: number, to: number, most = ROW_MAX): number[] {
   const rows: number[] = [];
   let s = from;
+  const least = Math.min(ROW_MIN, most);
   for (;;) {
     rows.push(s);
     if (s >= to) break;
-    const k = Math.max(Math.abs(road.curvature(s)), Math.abs(road.curvature(s + ROW_MIN)), Math.abs(road.curvature(s + ROW_MAX)));
-    const step = k > 0 ? Math.min(ROW_MAX, Math.max(ROW_MIN, ROW_SAG / k)) : ROW_MAX;
+    const k = Math.max(Math.abs(road.curvature(s)), Math.abs(road.curvature(s + least)), Math.abs(road.curvature(s + most)));
+    const step = k > 0 ? Math.min(most, Math.max(least, ROW_SAG / k)) : most;
     s = Math.min(to, s + step);
   }
   return rows;
@@ -35,7 +43,7 @@ export function roadRows(road: Centerline, from: number, to: number): number[] {
  * left edge to its right (`halfWidth(s)`: their d) - each edge at its surfaceHeight (its bends banked).
  */
 export function surfaceMesh(road: Centerline, from: number, to: number, halfWidth: number | ((s: number) => [number, number])): SurfaceMesh {
-  const rows = roadRows(road, from, to);
+  const rows = roadRows(road, from, to, GROUND_ROW_MAX);
   const n = rows.length;
   const positions = new Float32Array(n * 6);
   const ss = new Float32Array(n * 2);
