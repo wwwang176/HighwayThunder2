@@ -44,7 +44,10 @@ const PASS_NEAR = 10;
 const PASS_HOLD = 2;
 /** HAIRPINS=1: each car's every hairpin - its slides (past 15°, off under 8°), most, wall contacts, least room either side. */
 const HAIRPINS = !!process.env.HAIRPINS;
-/** JSON=path (JSON_SEEDS=n, the first n seeds): the road's edges and each car's track every 0.1 s, for a top-down view. */
+/**
+ * JSON=path (JSON_SEEDS=n, the first n seeds): the road's edges and each car's track every 0.1 s, for a top-down view;
+ * a track's row ends with its d, its no-traffic path's d, its brake (the player's; -1 a rival's), its inner driver's mode.
+ */
 const JSON_OUT = process.env.JSON;
 const JSON_SEEDS = Number(process.env.JSON_SEEDS ?? 5);
 const dump: Record<string, unknown> = {};
@@ -358,7 +361,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
         const mode = (drv as { mode?: string }).mode ?? 'line';
         const slide = (Math.atan2(car.vLat, Math.max(Math.abs(car.vLong), 1)) * 180) / Math.PI;
         const tr = tracks[k] as unknown as { wallFlag?: number } & (number | string)[][];
-        tr.push([+time.toFixed(1), +at.x.toFixed(2), +at.z.toFixed(2), +f.x.toFixed(3), +f.z.toFixed(3), mode, +slide.toFixed(1), +(car as unknown as { steer: number }).steer.toFixed(2), +(car.speed * 3.6).toFixed(0), mode === 'kick' || mode === 'pull' ? 1 : 0, tr.wallFlag ? 'W' : '', +(car as unknown as { throttle: number }).throttle.toFixed(2), +car.s.toFixed(1), aimDump(coreOf(drv), road)] as (number | string)[]);
+        tr.push([+time.toFixed(1), +at.x.toFixed(2), +at.z.toFixed(2), +f.x.toFixed(3), +f.z.toFixed(3), mode, +slide.toFixed(1), +(car as unknown as { steer: number }).steer.toFixed(2), +(car.speed * 3.6).toFixed(0), mode === 'kick' || mode === 'pull' ? 1 : 0, tr.wallFlag ? 'W' : '', +(car as unknown as { throttle: number }).throttle.toFixed(2), +car.s.toFixed(1), aimDump(coreOf(drv), road), +car.d.toFixed(2), +coreOf(drv).refAt(car.s).toFixed(2), k === 0 ? +own.brake.toFixed(2) : -1, coreOf(drv).mode] as (number | string)[]);
         tr.wallFlag = 0;
       });
       hitNow.fill(false);
@@ -420,6 +423,8 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     dump[seed] = {
       left: line(-1), right: line(1), mid: line(0),
       pins: runs.map((h) => ({ from: +h.from.toFixed(1), to: +h.to.toFixed(1), dir: h.dir, r: +h.r.toFixed(0) })),
+      // (each metre: the road's curvature (1/m, + right), its edges' d either side)
+      road: Array.from({ length: Math.ceil(MOUNTAIN.length) }, (_, x) => [+road.curvature(x).toFixed(5), +e.at(x, 1).toFixed(2), +e.at(x, -1).toFixed(2)]),
       cars: stats.map((st, k) => ({ pins: st.pins.map((ps) => [ps.slides, +((ps.most * 180) / Math.PI).toFixed(0), ps.walls, +ps.inMin.toFixed(1), +ps.outMin.toFixed(1)]), track: tracks[k] })),
     };
   }
@@ -495,6 +500,8 @@ it.runIf(SOLO)('mountain solo runs: each car alone, off its path, walls, time', 
     out.push(`${spec.id} hits: vn ${vnN.join(' ')} | loss ${lossN.join(' ')} | stopped ${stops}`);
   }
   process.stdout.write(out.join('\n') + '\n');
+  // (one car's: SOLO_CARS one car - each seed's dump the last car's run on it)
+  if (JSON_OUT) (await import('fs')).writeFileSync(JSON_OUT, JSON.stringify(dump));
   expect(nans).toBe(0);
   expect(fell).toBe(0);
   expect(home).toBeGreaterThanOrEqual(Math.ceil(runs * 0.9));
