@@ -76,6 +76,7 @@ import { Minimap } from '../ui/minimap';
 import { MountainDriver } from '../ai/mountainDriver';
 import { MountainPlannerDriver } from '../ai/mountainPlannerDriver';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../vehicles/mountainSetup';
+import { tunedMountainAi } from '../vehicles/mountainTuneGrip';
 import type { RivalDriver } from '../ai/driver';
 import { MOUNTAIN, mountainRoad, roadEdges } from '../road/mountain';
 import { armFollow, armPlace, armReach, CAMERA_ARM, CAMERA_SHOT } from '../render/cameraArm';
@@ -892,7 +893,10 @@ export class Game {
       this.gate.setRoad(this.roadLine);
       this.minimap?.setRoad(this.roadLine, this.courseLength);
       // (the player's AI - the I key, past the finish - on the mountain road: its line worked out for this road)
-      if (this.aiDriver instanceof MountainDriver || this.aiDriver instanceof MountainPlannerDriver) this.aiDriver.setRoad(this.roadLine, mountainAi(specOf(this.cars.player).ai, mountainSetupOf(this.cars.player)));
+      if (this.aiDriver instanceof MountainDriver || this.aiDriver instanceof MountainPlannerDriver) {
+        const id = this.cars.player;
+        this.aiDriver.setRoad(this.roadLine, tunedMountainAi(mountainAi(specOf(id).ai, mountainSetupOf(id)), id, this.cars.tuning?.[id]));
+      }
     }
     if (this.skidpad) this.player.resetAt(SKIDPAD.start, 0, 0);
     else if (this.mountain) this.player.resetAt(-3, MOUNTAIN_LANE, 0);
@@ -956,7 +960,7 @@ export class Game {
           gripBoost: 0,
           edge: (s, side) => roadEdges(this.roadLine).at(s, side), // (a shoulder's too)
           lanes: [MOUNTAIN_LANE, -MOUNTAIN_LANE],
-          setup: { params: (p, spec) => mountainSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec) => mountainAi(ai, mountainSetupOf(spec.id)) },
+          setup: { params: (p, spec) => mountainSetup(p, mountainSetupOf(spec.id)), ai: (ai, spec, tuning) => tunedMountainAi(mountainAi(ai, mountainSetupOf(spec.id)), spec.id, tuning) },
         })
       : new Rivals<RivalDriver>(this.physics, this.scene, () => new WorkerPlanSource(), specs);
     rivals.tuneAtRandom = true;

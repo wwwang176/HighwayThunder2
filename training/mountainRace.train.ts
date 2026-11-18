@@ -14,6 +14,9 @@ import { CARS, STREET_RACER } from '../src/vehicles/cars';
 import type { CarSpec } from '../src/vehicles/cars/types';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
+import { tunedMountainAi } from '../src/vehicles/mountainTuneGrip';
+import { randomPerfTuning, tuned } from '../src/vehicles/tuning';
+import { TUNE_CAL } from '../src/vehicles/tuneCalibration';
 
 /** SETUP=0: the cars as set up for the highway (else the mountain road's, as the game's). */
 const SETUP = process.env.SETUP !== '0';
@@ -65,6 +68,9 @@ const SEEDS = Number(process.env.SEEDS ?? 30);
 /** FIRST (1): the first seed. */
 const FIRST = Number(process.env.FIRST ?? 1);
 const BUDGET = Number(process.env.BUDGET ?? MOUNTAIN_DRIVER.budget);
+/** TUNE=random: the player's car tuned at random each road (its perf knobs, as a rival's in the game); TUNE_AI=0: its line on its tables as built. */
+const TUNE_RANDOM = process.env.TUNE === 'random';
+const TUNE_AI = process.env.TUNE_AI !== '0';
 const LIMIT = 300; // s
 const LANE = MOUNTAIN.halfWidth / 2;
 const GRID: [number, number][] = [
@@ -189,12 +195,16 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
   physics.setRoad(road, { rails: { left: (s) => -e.at(s, -1), right: (s) => e.at(s, 1) }, ground: surfaceMesh(road, -MOUNTAIN.before, MOUNTAIN.length + MOUNTAIN.after, (s) => [-e.at(s, -1) - 1.5, e.at(s, 1) + 1.5]) });
   const player = new PlayerCar(physics, null, { spec: playerSpec, entity: { type: 'player' } });
   player.road = road;
+  // (TUNE=random: the player's perf knobs at random, a road's own - as a rival's in the game)
+  const tuning = TUNE_RANDOM ? randomPerfTuning(mulberry32(seed + 7777)) : {};
+  if (TUNE_RANDOM) Object.assign(player.params, tuned(player.params, tuning, TUNE_CAL[playerSpec.id]));
   if (SETUP) Object.assign(player.params, mountainSetup(player.params, mountainSetupOf(playerSpec.id))); // (as the game's)
   player.resetAt(-3, LANE, 0);
   const t0 = performance.now();
   const playerAi = makeDriver();
   playerAi.budget = BUDGET;
-  playerAi.setRoad(road, SETUP ? mountainAi(playerSpec.ai, mountainSetupOf(playerSpec.id)) : playerSpec.ai);
+  const setupAi = mountainAi(playerSpec.ai, mountainSetupOf(playerSpec.id));
+  playerAi.setRoad(road, SETUP ? (TUNE_AI ? tunedMountainAi(setupAi, playerSpec.id, tuning) : setupAi) : playerSpec.ai);
   if (NO_NET && playerAi instanceof MountainPlannerDriver) playerAi.net = null;
   const lineMs = performance.now() - t0;
   const rivals = new Rivals<Driver>(physics, null, () => null, alone ? [] : RIVAL_CARS, {
