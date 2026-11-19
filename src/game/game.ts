@@ -1292,8 +1292,8 @@ export class Game {
    * the one brightness (HEADLIGHTS: the tuning panel's). The rivals left without one: their beams painted on the road.
    */
   private lightRivals(play: number): LitCar[] {
-    // The high beam while X is held (in the race: not in the garage).
-    const high = !this.garage.isOpen && this.keyboard.isDown('KeyX');
+    // The high beam while X is held (in the race: not in the garage); drawn through a bend in an intro, as the rivals'.
+    const high = (!this.garage.isOpen && this.keyboard.isDown('KeyX')) || !!this.player.showPose;
     if (high !== this.player.highBeam) this.player.setHighBeam(high);
     for (const l of this.player.headlights) l.intensity = (HEADLIGHTS.pair / 2) * (high ? HEADLIGHTS.high : 1);
     const racing = this.flow.phase === 'racing';
@@ -1578,10 +1578,10 @@ export class Game {
     // shot, the chase camera after it.
     if (this.introOn) {
       const over = this.intro!.step(play);
-      // (a car drawn drifting through a bend: its rear tyres' smoke - keys 60 on, clear of the cars' own)
-      this.intro!.puffs().forEach((f, i) => {
+      // (the cars drawn drifting through a bend: their rear tyres' smoke - keys 60 on, clear of the cars' own)
+      this.intro!.puffs().forEach((f) => {
         const kick = smokeKick(f.dirX, f.dirZ, f.omega, f.r, f.vx, f.vz);
-        this.smoke.emit(60 + i, f.x, f.z, f.slip, f.vx, f.vz, play, kick.x, kick.z, f.y);
+        this.smoke.emit(60 + f.key, f.x, f.z, f.slip, f.vx, f.vz, play, kick.x, kick.z, f.y);
       });
       if (this.flow.phase === 'intro' && this.intro!.countdownDue) this.startCountdown();
       if (over) this.finishIntro();
