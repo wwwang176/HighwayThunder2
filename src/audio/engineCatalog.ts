@@ -23,13 +23,15 @@ export interface EngineClip {
 /**
  * A vehicle's engine: its clips in rising rpm; its rev limiter (its top rev with the fuel cut
  * stuttering it about 12 times a second - heard at the redline in its place); its start-up (played once, as the
- * race is started); how much higher than recorded it's all played (1: as recorded).
+ * race is started); how much higher than recorded it's all played (1: as recorded); how much louder than its clips'
+ * common loudness it's played (dB; 0: as they are).
  */
 export interface EngineSet {
   clips: string[];
   limiter: string;
   startup: string;
   pitch: number;
+  gainDb: number;
 }
 
 export type EngineKind = 'super' | 'muscle' | 'jdm' | 'sedan' | 'truck' | 'container';
@@ -99,12 +101,17 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
 /** An engine's steady revs (its rev limiter and its start-up apart). */
 const revsOf = (tag: string): string[] =>
   Object.keys(ENGINE_CLIPS).filter((id) => id.startsWith(tag + '-') && id !== `${tag}-limiter` && id !== `${tag}-startup`);
-const setOf = (tag: string, pitch = 1): EngineSet =>
-  ({ clips: revsOf(tag), limiter: `${tag}-limiter`, startup: `${tag}-startup`, pitch });
+const setOf = (tag: string, pitch = 1, gainDb = 0): EngineSet =>
+  ({ clips: revsOf(tag), limiter: `${tag}-limiter`, startup: `${tag}-startup`, pitch, gainDb });
 
-/** Each vehicle's engine. The truck: the tractor unit's engine, played higher (lighter, revvier). */
+/**
+ * Each vehicle's engine. The truck: the tractor unit's engine, played higher (lighter, revvier). The supercar's V10
+ * a little louder: at one loudness with the others it sounded the smaller - a smooth, mid-range note (peaks ~8 dB
+ * under the V8's at the same level, its lows 5-10 dB under: what the loudness measure counts least), and the wind
+ * and the tyres at its speeds on top of it.
+ */
 export const ENGINE_SETS: Record<EngineKind, EngineSet> = {
-  super: setOf('g10'),
+  super: setOf('g10', 1, 3),
   muscle: setOf('v8c'),
   jdm: setOf('i4j'),
   sedan: setOf('i4g'),

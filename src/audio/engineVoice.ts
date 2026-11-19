@@ -32,6 +32,8 @@ export class EngineVoice {
   private readonly rpms: number[];
   private readonly bands: [number, number][];
   private readonly pitch: number;
+  /** Its set's own loudness on top (EngineSet.gainDb, as a factor). */
+  private readonly level: number;
   /** The limiter clip's rpm (it's the last of `layers`, after the revs). */
   private readonly limiterRpm: number;
   private readonly gains: number[] = [];
@@ -44,6 +46,7 @@ export class EngineVoice {
     this.kind = kind;
     const set = ENGINE_SETS[kind];
     this.pitch = set.pitch;
+    this.level = 10 ** (set.gainDb / 20);
     this.rpms = set.clips.map((id) => ENGINE_CLIPS[id].rpm);
     this.bands = handovers(this.rpms);
     this.output = ctx.createGain();
@@ -80,7 +83,7 @@ export class EngineVoice {
     if (limiting) for (let i = 0; i < n; i++) this.gains[i] = 0;
     this.gains[n] = limiting ? 1 : 0;
     this.rates[n] = (s / this.limiterRpm) * this.pitch;
-    this.output.gain.setTargetAtTime(volume * (OFF_THROTTLE_GAIN + (1 - OFF_THROTTLE_GAIN) * throttle), t, follow);
+    this.output.gain.setTargetAtTime(volume * this.level * (OFF_THROTTLE_GAIN + (1 - OFF_THROTTLE_GAIN) * throttle), t, follow);
     // Silenced: its clips carry on under the fade (`follow`), and stop once it's been silent a while.
     if (volume > 0) this.quietSince = t;
     const stopped = t - this.quietSince > IDLE_STOP;
