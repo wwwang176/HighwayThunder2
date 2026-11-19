@@ -149,11 +149,11 @@ const TRACK_X = -LANE_WIDTH / 2;
  * the player's at CREEP_PLAYER_STOP (still by the shots that look close at it: skyline's from behind it, hairpin's
  * exhaust).
  */
-const CREEP_SPEED = [1.5, 2.5] as const;
-const CREEP_BRAKE = 1.0;
+const CREEP_SPEED = [4, 5.5] as const; // (1.5-2.5 over 1 s: too little to be seen)
+const CREEP_BRAKE = 0.7; // (0.6-0.8 g: pulled up sharply, as the arrival's at most)
 const CREEP_FRONT_STOP = { skyline: [0.6, 1.2], hairpin: [0.4, 0.8] } as const;
 const CREEP_BACK_LATER = [0.1, 0.4] as const;
-const CREEP_PLAYER_STOP = { skyline: 1.6, hairpin: 0.85 } as const;
+const CREEP_PLAYER_STOP = { skyline: 1.4, hairpin: 0.85 } as const;
 
 /** An arriving car: at `speed` (m/s) till it brakes, over `brake` s, to a stop at its place `stop` s in. */
 interface Arrival {
