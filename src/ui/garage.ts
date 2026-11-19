@@ -69,11 +69,7 @@ const STAT_DIGITS = [2, 0, 2];
 /** A car type's name, in the language now. */
 const carName = (id: string) => t(`car.${id}` as Key);
 /** How the rivals' cars are picked (the setup's second level: their cars listed only for the custom one). */
-const MODES: [RivalMode, string][] = [
-  ['random', 'icon-random'],
-  ['same', 'icon-same'],
-  ['custom', 'icon-rivals'],
-];
+const MODES: RivalMode[] = ['random', 'same', 'custom'];
 const WEATHERS: [Weather, string][] = [
   ['clear', 'icon-night-clear'],
   ['rain', 'icon-night-rain'],
@@ -539,8 +535,8 @@ export class Garage {
       this.change({ ...s, weather: open[Math.max(0, Math.min(open.length - 1, k + d))] });
     } else if (key === 'count') this.change(setRivalCount(s, s.rivals.length + d));
     else if (key === 'mode') {
-      const k = MODES.findIndex(([m]) => m === s.rivalMode);
-      this.change({ ...s, rivalMode: MODES[Math.max(0, Math.min(MODES.length - 1, k + d))][0] });
+      const k = MODES.indexOf(s.rivalMode);
+      this.change({ ...s, rivalMode: MODES[Math.max(0, Math.min(MODES.length - 1, k + d))] });
     } else if (key === 'difficulty') this.change({ ...s, difficulty: Math.max(0, Math.min(DIFFICULTIES.length - 1, s.difficulty + d)) });
     else {
       const i = Number(key.slice(5));
@@ -794,7 +790,7 @@ export class Garage {
             ? `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`
             : `<button class="s-btn soon" aria-disabled="true" data-tip="${t('setup.count.max', { course: t(`course.${s.course}`), n: COURSE_RIVALS[s.course] })}"><span>${n}</span></button>`,
         ).join('')}</div></div>
-        <div class="s-sub ${focus('mode')}"><span class="lbl">${t('setup.mode')}</span><div class="s-modes">${MODES.map(([m, ic]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${t(`mode.${m}`)}</span></button>`).join('')}</div>${rowHelp('mode', ...MODES.map(([m]) => t(`mode.help.${m}`)))}</div>
+        <div class="s-sub ${focus('mode')}"><span class="lbl">${t('setup.mode')}</span><div class="s-modes">${MODES.map((m) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}"><span>${t(`mode.${m}`)}</span></button>`).join('')}</div>${rowHelp('mode', ...MODES.map((m) => t(`mode.help.${m}`)))}</div>
         ${custom ? `<div class="mx-head"><span></span>${PICKABLE.map((id) => `<div><span>${carName(id)}</span></div>`).join('')}<span></span></div>` : ''}
         ${(custom ? s.rivals : [])
           .map(
@@ -811,10 +807,10 @@ export class Garage {
       </div>
       <div class="s-sec">
         ${head('setup.weather.kicker', 'setup.weather')}
-        <div class="s-weather ${focus('weather')}">${WEATHERS.map(([k, ic]) =>
+        <div class="s-weather ${focus('weather')}">${WEATHERS.map(([k]) =>
           OPEN_WEATHERS.includes(k)
-            ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}" data-w="${k}">${icon(ic)}<span>${t(`weather.${k}`)}</span></button>`
-            : `<button class="s-btn soon" aria-disabled="true" data-tip="${t('weather.soon')}">${icon(ic)}<span>${t(`weather.${k}`)}</span></button>`,
+            ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}" data-w="${k}"><span>${t(`weather.${k}`)}</span></button>`
+            : `<button class="s-btn soon" aria-disabled="true" data-tip="${t('weather.soon')}"><span>${t(`weather.${k}`)}</span></button>`,
         ).join('')}</div>
       </div>`;
     const all = (sel: string) => this.el.querySelectorAll<HTMLElement>(`.s-body ${sel}`);
