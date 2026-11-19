@@ -65,8 +65,8 @@ export const STRINGS = {
   'setup.course': { zh: '路線', en: 'Course' },
   'course.highway': { zh: '高速公路', en: 'Highway' },
   'course.mountain': { zh: '山路', en: 'Mountain road' },
-  'course.hint': { zh: '山路　彎多、有上下坡，最多 3 台對手', en: 'Mountain road: winding, up and down hill, up to 3 rivals' },
-  'course.hint.reload': { zh: '換路線會重新載入', en: 'Changing the course reloads the game' },
+  'course.hint.highway': { zh: '高速公路　四線道、有車流，最多 5 台對手', en: 'Highway: four lanes, traffic, up to 5 rivals' },
+  'course.hint.mountain': { zh: '山路　彎多、有上下坡，最多 3 台對手', en: 'Mountain road: winding, up and down hill, up to 3 rivals' },
   // The controls pop-up.
   'keys.throttle': { zh: '油門', en: 'Throttle' },
   'keys.brake': { zh: '煞車 / 倒車', en: 'Brake / reverse' },

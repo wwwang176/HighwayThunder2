@@ -782,7 +782,7 @@ export class Garage {
     const scrolled = body.scrollTop; // (redrawn on every change: kept where it was)
     body.innerHTML = html`
       <div class="s-sec">
-        ${head('setup.course.kicker', 'setup.course', rowHelp('course', t('course.hint'), t('course.hint.reload')))}
+        ${head('setup.course.kicker', 'setup.course', rowHelp('course', ...COURSES.map((c) => t(`course.hint.${c}`))))}
         <div class="s-weather ${focus('course')}">${COURSES.map((c) => `<button class="s-btn ${c === s.course ? 'sel' : ''}" data-course="${c}">${icon(COURSE_ICONS[c])}<span>${t(`course.${c}`)}</span></button>`).join('')}</div>
       </div>
       <div class="s-sec">
