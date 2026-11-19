@@ -75,10 +75,11 @@ export const BODY_FRICTION = { upright: 0.02, rolled: 0.4, fromDeg: 45 };
 /**
  * What holds a car back besides its tyres and the air (mutable: training/railGrassDrag measures them on and off).
  * `rail`: scraping a guardrail, as metal sliding on metal - this times how hard it presses on the rail, at its centre
- * of mass (not the rail's own friction: the body's above - at its side, it tipped the car over). `grass`: its tyres
+ * of mass (not the rail's own friction: the body's above - at its side, it tipped the car over); `railLow` sliding
+ * along it slowly, easing up to `rail` at `railFullKmh` and over (slow, a scrape stopped it dead). `grass`: its tyres
  * in grass - this times the weight on them (rolling in soft ground; asphalt's ~0.015).
  */
-export const SURFACE_DRAG = { rail: 1.2, grass: 0.3 };
+export const SURFACE_DRAG = { rail: 1.2, railLow: 0.2, railFullKmh: 150, grass: 0.3 };
 
 /** The body's friction with its up pointing `upY` (its roof's way, world y: 1 upright, 0 on its side, -1 on its roof). */
 export function bodyFriction(upY: number): number {
@@ -678,7 +679,9 @@ export class PlayerCar {
         const ax = lv.x - into * rail.nx;
         const az = lv.z - into * rail.nz;
         const along = Math.hypot(ax, az);
-        const back = Math.min(SURFACE_DRAG.rail * rail.impulse, this.body.mass() * along);
+        const u = Math.min(1, (along * 3.6) / SURFACE_DRAG.railFullKmh);
+        const mu = SURFACE_DRAG.railLow + (SURFACE_DRAG.rail - SURFACE_DRAG.railLow) * u * u * (3 - 2 * u);
+        const back = Math.min(mu * rail.impulse, this.body.mass() * along);
         if (along > 0.1 && back > 0) this.body.applyImpulse({ x: (-ax / along) * back, y: 0, z: (-az / along) * back }, true);
       }
       let grass = 0;
