@@ -58,7 +58,7 @@ const HIT_GRADE = process.env.HIT_GRADE === '1';
 const HIT_BRUSH = 0.2;
 const HIT_LOSS = 4;
 const HIT_WATCH = 1;
-/** A wall contact settling out of a drift (its mode then: the straight after a hairpin - turned in on the throttle) costs
+/** A wall contact just out of a drift (MountainDriver.outOfDrift: the straight after a hairpin - turned in on the throttle) costs
  * EXIT_GAIN times as much (EXIT_GAIN; 1: as any). The driving network on full throttle there brushed the inside
  * 20 times in 27 - each a brush, next to nothing graded: it did not mind them. */
 const EXIT_GAIN = Number(process.env.EXIT_GAIN ?? 1);
@@ -188,7 +188,7 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
       if (time - lastWall > CONTACT_GAP) {
         res.walls++;
         if (!driver.inner.inDrift()) res.lineWalls++;
-        const exit = driver.inner.mode === 'settle';
+        const exit = driver.inner.outOfDrift(); // (settling, or - drift.settle 0 - back on its line its first recover s)
         if (exit) res.exitWalls++;
         hits.push({ v0, least: v0, t: time, exit });
       }

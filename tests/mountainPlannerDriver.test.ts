@@ -96,9 +96,45 @@ describe('MountainPlannerDriver', () => {
     expect(neu.inner.external!.vAt(200)).toBe(Infinity);
   });
 
-  it('has no `plan` (the game draws a driver\'s `plan` - the highway planner\'s path - on the road: a method of that name froze the I key)', () => {
+  it('its `plan` (the game draws it on the road, the I key) is a path by time, as the highway\'s: its path across, its speed, none before it plans', () => {
     const { neu } = pair();
-    expect((neu as unknown as { plan?: unknown }).plan).toBeUndefined();
+    expect(neu.plan).toBeNull();
+    const self = onLine(neu.inner, 100);
+    const ahead: TrafficBox = { id: 7, s: 140, dMin: self.d - 1, dMax: self.d + 1, v: 0, length: 4.4 };
+    neu.drive(self, [ahead], P);
+    const m = neu.mplan!, plan = neu.plan!;
+    expect(plan.points.length).toBeGreaterThan(10);
+    expect(plan.points[0].s).toBe(m.s0);
+    plan.points.forEach((p, i) => {
+      expect(p.t).toBeCloseTo(i * 0.1, 9); // (evenly in time: planAt's way)
+      if (i > 0) expect(p.s).toBeGreaterThan(plan.points[i - 1].s);
+      expect(p.d).toBeCloseTo(neu.inner.pathRefAt(p.s) + m.offsetAt(p.s), 9);
+      expect(p.v).toBeLessThanOrEqual(neu.inner.speedAt(p.s) + 1e-9);
+    });
+    expect(plan.points[plan.points.length - 1].s).toBeGreaterThan(140); // (past the car it goes round)
+    expect(neu.plan).toBe(plan); // (made once a plan)
+    // (a plan of one station - a kick point right where it is - draws nothing: one point, the drawing threw and froze)
+    neu.mplan = { ...m, offsets: new Float64Array(1), vCap: new Float64Array(1) };
+    expect(neu.plan).toBeNull();
+  });
+
+  it('drifting, its `plan` is the drift\'s path (where it is going, the arc it wants beside it), worked out only while drawn', () => {
+    const { neu } = pair();
+    expect(neu.planShown).toBe(false);
+    neu.planShown = true;
+    expect(neu.inner.record).toBe(true);
+    neu.drive(onLine(neu.inner, 100), [], P);
+    (neu.inner as unknown as { mode: string }).mode = 'drift'; // (as if it kicked into a hairpin)
+    expect(neu.plan).toBeNull(); // (no drift's path this step: nothing drawn)
+    const pred: [number, number][] = [[400, 1], [402, 1.5], [404, 2.2]];
+    const need: [number, number][] = [[400, 1], [402, 1.2], [404, 1.6]];
+    neu.inner.aimPath = { pred, need, at: [404, 1.6] };
+    const plan = neu.plan!;
+    expect(plan.points.map((p) => [p.t, p.s, p.d])).toEqual([[0, 400, 1], [0.1, 402, 1.5], [0.2, 404, 2.2]]);
+    expect(plan.alts![0].map((p) => p.d)).toEqual([1, 1.2, 1.6]);
+    expect(neu.planAge).toBe(0); // (this step's: none of it driven yet)
+    neu.planShown = false;
+    expect(neu.inner.record).toBe(false);
   });
 
   it('reset drops the plan (put back elsewhere: not followed from the old place)', () => {
