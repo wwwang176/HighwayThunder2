@@ -165,6 +165,8 @@ const TRAFFIC_ROLL: Record<VehicleKind, { gain: number; pitch: number }> = {
 };
 const TRAILER_ROLL = { gain: 0.8, pitch: 0.75 };
 const ROLL_AT = new THREE.Vector3();
+/** The player's engine heard placed (drawn through a bend in an intro): its key among the others' (rivals -1, -2, ...). */
+const PLAYER_DRAWN_KEY = -1000;
 /** The traffic's engines: each kind's sound, its gearing (for its rpm by its speed), how loud against a rival's. */
 const TRAFFIC_ENGINE: Record<VehicleKind, { kind: EngineKind; gearing: TrafficGearing; gain: number }> = {
   car: { kind: 'sedan', gearing: { gears: 5, top: 55 }, gain: 0.6 },
@@ -301,6 +303,8 @@ export class Game {
   /** The race's intro, whether it is on; a race starting (the fade). */
   private intro: Intro | null = null;
   private introOn = false;
+  /** The skid trails the intro's drifting cars drew on last frame (their keys). */
+  private introMarks = new Set<number>();
   /** The hood camera instead of the chase camera (V). */
   private hoodCam = false;
   /** The mountain road's camera arm: how far out it is now (0..1 of where the camera would be; cameraArm). */
@@ -727,6 +731,8 @@ export class Game {
     if (!this.introOn) return;
     this.introOn = false;
     this.intro?.end();
+    for (const k of this.introMarks) this.skids.add(k, 0, 0, 0, 0, 0); // (its drifting cars' trails ended)
+    this.introMarks.clear();
     this.rig.snap();
     this.camYaw = null; // (the camera's jump no turn for the speed blur)
   }
@@ -1292,8 +1298,8 @@ export class Game {
    * the one brightness (HEADLIGHTS: the tuning panel's). The rivals left without one: their beams painted on the road.
    */
   private lightRivals(play: number): LitCar[] {
-    // The high beam while X is held (in the race: not in the garage).
-    const high = !this.garage.isOpen && this.keyboard.isDown('KeyX');
+    // The high beam while X is held (in the race: not in the garage); drawn through a bend in an intro, as the rivals'.
+    const high = (!this.garage.isOpen && this.keyboard.isDown('KeyX')) || !!this.player.showPose;
     if (high !== this.player.highBeam) this.player.setHighBeam(high);
     for (const l of this.player.headlights) l.intensity = (HEADLIGHTS.pair / 2) * (high ? HEADLIGHTS.high : 1);
     const racing = this.flow.phase === 'racing';
@@ -1487,6 +1493,20 @@ export class Game {
       s.throttle = c.shownThrottle;
       s.gain = 1;
     }
+    // The player's car drawn through a bend in an intro: heard there, as the rivals' (its own engine silent meanwhile).
+    const pc = this.player, pose = pc.showPose;
+    if (pose) {
+      const s = next(), p = pc.mesh.position, v = pose.vel;
+      s.key = PLAYER_DRAWN_KEY;
+      s.kind = pc.style;
+      s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.rpm = pc.shownRpm;
+      s.idle = pc.params.idleRpm;
+      s.redline = pc.params.redline;
+      s.throttle = pc.shownThrottle;
+      s.gain = 1;
+    }
     for (const npc of this.npcs.values()) {
       if (npc.wrecked) continue; // (its engine dead)
       const agent = this.trafficWorld.sideOf(npc.id)?.sim.agents.get(npc.id);
@@ -1549,7 +1569,10 @@ export class Game {
     return n;
   }
 
-  /** The rivals' tyres this frame, into `this.skidSources` (where each is drawn, its strongest slide). */
+  /**
+   * The rivals' tyres this frame, into `this.skidSources` (where each is drawn, its strongest slide); the player's
+   * too while it is drawn through a bend in an intro (heard there, its own squeal silent meanwhile).
+   */
   private heardSkids(): SkidSource[] {
     const list = this.rivals.list, out = this.skidSources;
     for (let i = 0; i < list.length; i++) {
@@ -1557,7 +1580,14 @@ export class Game {
       s.pos.x = p.x; s.pos.y = p.y; s.pos.z = p.z;
       s.slip = list[i].car.showPose?.slip ?? list[i].car.maxSlip; // (drawn drifting in an intro: squealing as drawn)
     }
-    out.length = list.length;
+    let n = list.length;
+    const pose = this.player.showPose;
+    if (pose) {
+      const s = (out[n++] ??= { pos: { x: 0, y: 0, z: 0 }, slip: 0 }), p = this.player.mesh.position;
+      s.pos.x = p.x; s.pos.y = p.y; s.pos.z = p.z;
+      s.slip = pose.slip;
+    }
+    out.length = n;
     return out;
   }
 
@@ -1578,11 +1608,18 @@ export class Game {
     // shot, the chase camera after it.
     if (this.introOn) {
       const over = this.intro!.step(play);
-      // (a car drawn drifting through a bend: its rear tyres' smoke - keys 60 on, clear of the cars' own)
-      this.intro!.puffs().forEach((f, i) => {
+      // (the cars drawn drifting through a bend: their rear tyres' smoke and marks - keys 60 on, clear of the cars'
+      // own; a trail not drawn on this frame ended, as a tyre stopping sliding)
+      const marked = this.introMarks;
+      const now = new Set<number>();
+      this.intro!.puffs().forEach((f) => {
         const kick = smokeKick(f.dirX, f.dirZ, f.omega, f.r, f.vx, f.vz);
-        this.smoke.emit(60 + i, f.x, f.z, f.slip, f.vx, f.vz, play, kick.x, kick.z, f.y);
+        this.smoke.emit(60 + f.key, f.x, f.z, f.slip, f.vx, f.vz, play, kick.x, kick.z, f.y);
+        if (play > 0) this.skids.add(60 + f.key, f.x, f.z, f.dirX, f.dirZ, f.slip > 1.5 ? Math.min(1, (f.slip - 1.5) / 8) : 0, f.y);
+        now.add(60 + f.key);
       });
+      for (const k of marked) if (!now.has(k)) this.skids.add(k, 0, 0, 0, 0, 0);
+      this.introMarks = now;
       if (this.flow.phase === 'intro' && this.intro!.countdownDue) this.startCountdown();
       if (over) this.finishIntro();
     }
@@ -1681,10 +1718,12 @@ export class Game {
     // (Mid-upshift the engine is let go of: it sounds off the throttle. The intro's blip, as it is put on.)
     const rev = this.player.showRev;
     const car = this.player.params;
+    // (drawn through a bend in an intro: heard there instead - heardEngines, heardSkids)
+    const drawn = !!this.player.showPose;
     this.sound.setEngine(this.player.style, this.player.shownRpm, car.idleRpm, car.redline,
-      rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title');
+      rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title' && !drawn);
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
-    this.sound.setSkid(this.flow.phase === 'title' ? 0 : this.player.maxSlip);
+    this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);
     const pv = this.player.body.linvel();
