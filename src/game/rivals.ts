@@ -399,9 +399,14 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
     }
   }
 
+  /** A driver with a line of its own: the share of its car's grip its line is planned to (the difficulty's; none: its own). */
+  budget: ((spec: CarSpec) => number) | null = null;
+
   /** A driver with a line of its own: worked out for the road, by its car's tables as set up (and as tuned). */
   private layLine(r: Rival<D>): void {
     if (!this.roadLine) return;
+    const driver = r.driver as { budget?: number };
+    if (this.budget && driver.budget !== undefined) driver.budget = this.budget(r.spec);
     const ai = this.setup ? this.setup.ai(r.spec.ai, r.spec, r.tuning) : r.spec.ai;
     (r.driver as { setRoad?: (l: Centerline, ai: CarSpec['ai']) => void }).setRoad?.(this.roadLine, ai);
   }

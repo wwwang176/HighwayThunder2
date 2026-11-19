@@ -43,7 +43,7 @@ import { PlannerDriver } from '../ai/plannerDriver';
 import { trackerFrom } from '../ai/netTracker';
 import { aiTopSpeed } from '../ai/aiTopSpeed';
 import { CAR_CARDS, CarSelection, COURSE_RIVALS, defaultSelection, loadSelection, MAX_RIVALS, raceRivals, saveSelection } from './carSelection';
-import { applyDifficulty } from './difficulty';
+import { applyDifficulty, DIFFICULTIES, mountainBudget } from './difficulty';
 import { Garage } from '../ui/garage';
 import { SettingsPopup } from '../ui/settings';
 import { IntroOverlay } from '../ui/introOverlay';
@@ -259,6 +259,8 @@ export class Game {
   readonly aiSettings = { speedCapKmh: 300 };
   /** The rivals' top speed at the race's difficulty: this share of their car's own (the tuning panel's AI top speed when that is lower). */
   private rivalTopShare = 1;
+  /** The race's difficulty (DIFFICULTIES' index): the mountain rivals' grip their lines are planned to (mountainBudget). */
+  private rivalLevel = DIFFICULTIES.length - 1;
   private humanMaxSpeed = 0;
   /** Draw the AI's planned path on the road (P). */
   showPlan = true;
@@ -669,8 +671,9 @@ export class Game {
     if (cars) {
       this.applyCars(cars);
       this.rivalTopShare = applyDifficulty(cars.difficulty);
+      this.rivalLevel = cars.difficulty;
     }
-    // (the mountain drivers' grip their own: MOUNTAIN_DRIVER.budget - the difficulty their top speed only, as here)
+    // (the mountain rivals' grip by the difficulty too: their lines laid anew as they are placed - Rivals.budget)
     // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
     const spec = specOf(this.cars.player);
     Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
@@ -974,6 +977,7 @@ export class Game {
         })
       : new Rivals<RivalDriver>(this.physics, this.scene, () => new WorkerPlanSource(), specs);
     rivals.tuneAtRandom = true;
+    if (this.mountain) rivals.budget = (spec) => mountainBudget(this.rivalLevel, spec.id);
     rivals.length = this.courseLength;
     if (this.mountain) rivals.setRoad(this.roadLine);
     return rivals;
