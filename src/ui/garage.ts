@@ -789,7 +789,7 @@ export class Garage {
         ${head('setup.rivals.kicker', 'setup.rivals', this.lineUp())}
         <div class="s-sub ${focus('count')}"><span class="lbl">${t('setup.count')}</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) => `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`).join('')}</div></div>
         <div class="s-sub ${focus('mode')}"><span class="lbl">${t('setup.mode')}</span><div class="s-modes">${MODES.map(([m, ic]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${t(`mode.${m}`)}</span></button>`).join('')}</div>${rowHelp('mode', ...MODES.map(([m]) => t(`mode.help.${m}`)))}</div>
-        ${custom ? `<div class="mx-head"><span></span>${PICKABLE.map((id) => `<div>${id === s.player ? '<span class="you cut">YOU</span>' : ''}<span>${carName(id)}</span></div>`).join('')}<span></span></div>` : ''}
+        ${custom ? `<div class="mx-head"><span></span>${PICKABLE.map((id) => `<div><span>${carName(id)}</span></div>`).join('')}<span></span></div>` : ''}
         ${(custom ? s.rivals : [])
           .map(
             (id, i) =>
