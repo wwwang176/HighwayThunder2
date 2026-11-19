@@ -782,7 +782,7 @@ export class Garage {
     const scrolled = body.scrollTop; // (redrawn on every change: kept where it was)
     body.innerHTML = html`
       <div class="s-sec">
-        ${head('setup.course.kicker', 'setup.course', rowHelp('course', t('course.hint')))}
+        ${head('setup.course.kicker', 'setup.course', rowHelp('course', t('course.hint'), t('course.hint.reload')))}
         <div class="s-weather ${focus('course')}">${COURSES.map((c) => `<button class="s-btn ${c === s.course ? 'sel' : ''}" data-course="${c}">${icon(COURSE_ICONS[c])}<span>${t(`course.${c}`)}</span></button>`).join('')}</div>
       </div>
       <div class="s-sec">
@@ -800,7 +800,7 @@ export class Garage {
           .join('')}
       </div>
       <div class="s-sec">
-        ${head('setup.difficulty.kicker', 'setup.difficulty', rowHelp('difficulty', ...DIFFICULTIES.map((d, i) => `${t(`diff.${i}` as Key)}：${t(`diff.hint.${i}` as Key, { pct: Math.round(d.topShare * 100) })}`), t('diff.hint.band')))}
+        ${head('setup.difficulty.kicker', 'setup.difficulty', rowHelp('difficulty', ...DIFFICULTIES.map((_, i) => t(`diff.hint.${i}` as Key))))}
         <div class="s-diff-row ${focus('difficulty')}">${DIFFICULTIES.map((_, i) => `<button class="s-btn ${i === s.difficulty ? 'sel' : ''}" data-d="${i}"><span>${t(`diff.${i}` as Key)}</span></button>`).join('')}</div>
       </div>
       <div class="s-sec">
