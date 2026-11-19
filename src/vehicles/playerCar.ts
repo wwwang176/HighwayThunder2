@@ -668,12 +668,22 @@ export class PlayerCar {
       this.body.applyImpulse({ x: -lv.x * drag, y: -down, z: -lv.z * drag }, true);
     }
     // 4) Scraping a guardrail and the tyres in grass: held back, at its centre of mass (no roll from it - a rail's own
-    // friction at the body's side tipped it over), against the way it goes - by how hard it presses on the rail (its
-    // contacts' last step), by the weight on its tyres in grass. Never past a stop.
+    // friction at the body's side tipped it over). The rail: against its sliding along the rail only (straight into it,
+    // none - the hit itself stops that), by how hard it presses on it (its contacts' last step); never past a stop
+    // along it. The grass: against the way it goes, by the weight on its tyres in it; never past a stop.
     if (sp > 0.1) {
+      const rail = this.physics.railPush(this.body.handle);
+      if (rail) {
+        const into = lv.x * rail.nx + lv.z * rail.nz;
+        const ax = lv.x - into * rail.nx;
+        const az = lv.z - into * rail.nz;
+        const along = Math.hypot(ax, az);
+        const back = Math.min(SURFACE_DRAG.rail * rail.impulse, this.body.mass() * along);
+        if (along > 0.1 && back > 0) this.body.applyImpulse({ x: (-ax / along) * back, y: 0, z: (-az / along) * back }, true);
+      }
       let grass = 0;
       for (const w of this.wheels) if (w.inContact && w.surface < 1) grass += w.load;
-      const back = Math.min(SURFACE_DRAG.rail * this.physics.railPush(this.body.handle) + SURFACE_DRAG.grass * grass * dt, this.body.mass() * sp);
+      const back = Math.min(SURFACE_DRAG.grass * grass * dt, this.body.mass() * sp);
       if (back > 0) this.body.applyImpulse({ x: (-lv.x / sp) * back, y: 0, z: (-lv.z / sp) * back }, true);
     }
 

@@ -55,6 +55,13 @@ interface RailBody {
   seen: number;
 }
 
+/** A body against the guardrails in a step: its contacts' normal impulses (N·s), and their line across the road (level, unit; either sign). */
+export interface RailPush {
+  impulse: number;
+  nx: number;
+  nz: number;
+}
+
 /** Two colliders touching: see PhysicsWorld.touches. */
 export interface Touch {
   a: EntityRef;
@@ -212,8 +219,8 @@ export class PhysicsWorld {
   private readonly slotBody: number[] = [];
   private readonly railBodies = new Map<number, RailBody>();
   private railStep = 0;
-  /** How hard each body pressed on the rails in the last step (its rail contacts' normal impulses, N·s; by body handle). */
-  private readonly railPushes = new Map<number, number>();
+  /** How hard each body pressed on the rails in the last step (railPush; by body handle). */
+  private readonly railPushes = new Map<number, RailPush>();
   private readonly eventQueue: RAPIER.EventQueue;
   private readonly owners = new Map<number, EntityRef>();
   /** Pairs of (registered) colliders touching, by their handles. */
@@ -509,11 +516,11 @@ export class PhysicsWorld {
   }
 
   /**
-   * How hard the body `handle` pressed on the guardrails in the last step: their contacts' normal impulses (N·s; 0 not
-   * touching one) - a scrape's drag on it is by this (PlayerCar: RAIL_DRAG).
+   * How hard the body `handle` pressed on the guardrails in the last step, and which way they pushed it (null: not
+   * touching one) - a scrape's friction on it is by this, along the rail (PlayerCar: SURFACE_DRAG.rail).
    */
-  railPush(handle: number): number {
-    return this.railPushes.get(handle) ?? 0;
+  railPush(handle: number): RailPush | null {
+    return this.railPushes.get(handle) ?? null;
   }
 
   /** railPush's, after a step: each rail plane's contacts (the straight road's two, a curved road's slots). */
@@ -524,10 +531,27 @@ export class PhysicsWorld {
         const body = other.parent();
         if (!body) return;
         let j = 0;
+        let nx = 0;
+        let nz = 0;
         this.world.contactPair(rail, other, (m) => {
-          for (let i = 0; i < m.numContacts(); i++) j += m.contactImpulse(i);
+          let jm = 0;
+          for (let i = 0; i < m.numContacts(); i++) jm += m.contactImpulse(i);
+          const n = m.normal();
+          j += jm;
+          nx += n.x * jm;
+          nz += n.z * jm;
         });
-        if (j > 0) this.railPushes.set(body.handle, (this.railPushes.get(body.handle) ?? 0) + j);
+        if (j <= 0) return;
+        // (the rails' normals added up by their impulses - their signs alike or not, only the line matters - its level part)
+        const was = this.railPushes.get(body.handle);
+        if (was) {
+          const same = was.nx * nx + was.nz * nz >= 0 ? 1 : -1;
+          nx = was.nx * was.impulse + same * nx;
+          nz = was.nz * was.impulse + same * nz;
+          j += was.impulse;
+        }
+        const len = Math.hypot(nx, nz);
+        if (len > 1e-9) this.railPushes.set(body.handle, { impulse: j, nx: nx / len, nz: nz / len });
       });
     };
     for (const r of this.rails) measure(r);
