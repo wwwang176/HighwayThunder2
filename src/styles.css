@@ -348,6 +348,9 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-head .icon.mini { width: 2vw; height: 1vw; }
 :is(#garage, #settings) .s-sub { position: relative; display: flex; align-items: center; gap: 0.83vw; margin-bottom: 0.73vw; }
 :is(#garage, #settings) .s-sub > .lbl { min-width: 3.4vw; }
+/* (the race setup's: as the tuning's knob names, .t-name - white on the keys' row) */
+#garage .s-sub > .lbl { font: 700 1vw/1.2 var(--f-title); letter-spacing: 0; text-transform: none; color: var(--text-2); }
+#garage .s-sub.focus > .lbl { color: #fff; }
 /* The small parallelogram button; picked: filled. */
 :is(#garage, #settings) .s-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.52vw; height: 2.6vw; padding: 0 0.83vw; box-sizing: border-box;
   transform: skewX(-12deg); background: rgba(255, 255, 255, 0.05); border-left: 0.21vw solid rgba(255, 255, 255, 0.18);
