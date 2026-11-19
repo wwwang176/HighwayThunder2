@@ -145,6 +145,57 @@ function seeded(seed: number): () => number {
   };
 }
 
+/**
+ * The far ridges (MountainScene.buildFar): skylines all the way round the player, `r` m off, their tops `low` to `high`
+ * m over the road where the player is - rolling, each the sum of `OCTAVES` (knots round the circle, each a share of the
+ * height) eased between their knots; `color` at the top, toward the fog `haze` of the way at their feet (`foot` m).
+ */
+const RIDGES = [
+  { r: 1550, low: 120, high: 430, color: 0x131c31 },
+  { r: 1200, low: 40, high: 270, color: 0x0e1526 },
+  { r: 900, low: -30, high: 150, color: 0x0a0f1b },
+];
+const OCTAVES: [number, number][] = [[5, 1], [11, 0.5], [23, 0.25], [53, 0.12], [127, 0.05]];
+const RIDGE = { segments: 480, foot: -220, haze: 0.7 };
+
+function ridgeGeometry(layer: (typeof RIDGES)[number], rnd: () => number): THREE.BufferGeometry {
+  const knots = OCTAVES.map(([k, share]) => ({ share, v: Array.from({ length: k }, () => rnd()) }));
+  const total = OCTAVES.reduce((sum, [, share]) => sum + share, 0);
+  // (eased between knots - cosine - round the circle: the last knot back to the first)
+  const at = (t: number) => {
+    let sum = 0;
+    for (const { share, v } of knots) {
+      const x = t * v.length, i = Math.floor(x), f = x - i;
+      const e = (1 - Math.cos(f * Math.PI)) / 2;
+      sum += share * (v[i % v.length] * (1 - e) + v[(i + 1) % v.length] * e);
+    }
+    // (spread out: a sum of many is mostly middling - its tops and dips from about 0.25 to 0.75)
+    return Math.min(1, Math.max(0, (sum / total - 0.25) / 0.5));
+  };
+  const N = RIDGE.segments;
+  const pos = new Float32Array((N + 1) * 2 * 3);
+  const col = new Float32Array((N + 1) * 2 * 3);
+  const top = new THREE.Color(layer.color);
+  const foot = top.clone().lerp(new THREE.Color(FOG), RIDGE.haze);
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, az = t * Math.PI * 2;
+    const x = Math.cos(az) * layer.r, z = Math.sin(az) * layer.r;
+    const y = layer.low + (layer.high - layer.low) * at(t % 1);
+    pos.set([x, y, z, x, RIDGE.foot, z], i * 6);
+    col.set([top.r, top.g, top.b, foot.r, foot.g, foot.b], i * 6);
+  }
+  const index: number[] = [];
+  for (let i = 0; i < N; i++) {
+    const a = i * 2;
+    index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(index);
+  return geo;
+}
+
 /** The markings over the asphalt: 2 x edge m across (shoulder to shoulder), 20 m along. */
 function markingsTexture(renderer: THREE.WebGLRenderer): THREE.CanvasTexture {
   const W = 512; // (the yellow lines a couple of px wide across the wider road)
@@ -813,17 +864,10 @@ export class MountainScene implements Scenery {
 
   private buildFar(): void {
     const rnd = seeded(17);
-    // Ridges round about, dark against the sky (beyond the fog: their own colour).
-    const mats = [0x0b0f18, 0x0d121c, 0x0a0d15].map((color) => new THREE.MeshBasicMaterial({ color, fog: false }));
-    for (let i = 0; i < 40; i++) {
-      const az = (i / 40) * Math.PI * 2 + rnd() * 0.15;
-      const r = 900 + rnd() * 700;
-      const h = 150 + rnd() * 350;
-      const mtn = new THREE.Mesh(new THREE.ConeGeometry(h * (1.2 + rnd()), h, 5), mats[i % 3]);
-      mtn.position.set(Math.cos(az) * r, h / 2 - 160, Math.sin(az) * r);
-      mtn.rotation.y = rnd() * Math.PI;
-      this.far.add(mtn);
-    }
+    // Ridges round about, dark against the sky (beyond the fog: their own colour) - rolling skylines all the way
+    // round (not cones: the player's), one behind another, the farther paler (the air between), hazed at their feet.
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide });
+    for (const layer of RIDGES) this.far.add(new THREE.Mesh(ridgeGeometry(layer, rnd), mat));
     // Stars, and the moon (where its light comes from).
     const n = 1400;
     const pos = new Float32Array(n * 3);
