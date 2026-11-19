@@ -307,7 +307,7 @@ export class Game {
   private introMarks = new Set<number>();
   /** The hood camera instead of the chase camera (V). */
   private hoodCam = false;
-  /** The player's high beam, on or off by X (each race starts with it off on the highway, on on the mountain road). */
+  /** The player's high beam, on or off by X (each race starts with it off). */
   private highBeamOn = false;
   /** The mountain road's camera arm: how far out it is now (0..1 of where the camera would be; cameraArm). */
   private armShare = 1;
@@ -649,7 +649,7 @@ export class Game {
    */
   private async setUpRace(cars?: CarSelection): Promise<void> {
     this.loadingRace = true;
-    this.highBeamOn = this.mountain; // (each race's start: off on the highway, on on the dark mountain road)
+    this.highBeamOn = false; // (each race starts with it off)
     const accent =CAR_CARDS.find((c) => c.id === (cars ?? this.cars).player)?.accent ?? '#ff3b30';
     this.loading.show(accent);
     await this.loading.hold();
