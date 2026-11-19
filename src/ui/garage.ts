@@ -807,10 +807,10 @@ export class Garage {
       </div>
       <div class="s-sec">
         ${head('setup.weather.kicker', 'setup.weather')}
-        <div class="s-weather ${focus('weather')}">${WEATHERS.map(([k, ic]) =>
+        <div class="s-weather ${focus('weather')}">${WEATHERS.map(([k]) =>
           OPEN_WEATHERS.includes(k)
-            ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}" data-w="${k}">${icon(ic)}<span>${t(`weather.${k}`)}</span></button>`
-            : `<button class="s-btn soon" aria-disabled="true" data-tip="${t('weather.soon')}">${icon(ic)}<span>${t(`weather.${k}`)}</span></button>`,
+            ? `<button class="s-btn ${k === s.weather ? 'sel' : ''}" data-w="${k}"><span>${t(`weather.${k}`)}</span></button>`
+            : `<button class="s-btn soon" aria-disabled="true" data-tip="${t('weather.soon')}"><span>${t(`weather.${k}`)}</span></button>`,
         ).join('')}</div>
       </div>`;
     const all = (sel: string) => this.el.querySelectorAll<HTMLElement>(`.s-body ${sel}`);
