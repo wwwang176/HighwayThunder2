@@ -78,7 +78,7 @@ export const BODY_FRICTION = { upright: 0.02, rolled: 0.4, fromDeg: 45 };
  * of mass (not the rail's own friction: the body's above - at its side, it tipped the car over). `grass`: its tyres
  * in grass - this times the weight on them (rolling in soft ground; asphalt's ~0.015).
  */
-export const SURFACE_DRAG = { rail: 0.4, grass: 0.1 };
+export const SURFACE_DRAG = { rail: 1.2, grass: 0.3 };
 
 /** The body's friction with its up pointing `upY` (its roof's way, world y: 1 upright, 0 on its side, -1 on its roof). */
 export function bodyFriction(upY: number): number {
