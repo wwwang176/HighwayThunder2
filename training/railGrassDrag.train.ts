@@ -12,7 +12,7 @@ import { bend, Centerline, straight, STRAIGHT_ROAD } from '../src/road/centerlin
  * whether it ended on the road upright.
  *   npx vitest run --config training/vitest.config.ts training/railGrassDrag.train.ts
  */
-const LEFT_BEND = new Centerline([...straight(200), ...bend(2000, -40, 200), ...straight(500)]);
+const LEFT_BEND =new Centerline([...straight(200), ...bend(2000, -40, 200), ...straight(500)]);
 
 interface Run {
   name: string;
@@ -26,12 +26,17 @@ interface Run {
   seconds: number;
   /** Put this far (m) above the ground to start: in the air till it lands (its speed as it lands, km/h, shown). */
   lift?: number;
+  /** Start already turned to `aim`, going that way (else: along the road, turning to it). */
+  turned?: boolean;
 }
 
 const RUNS: Run[] = [
   { name: 'rail, straight, glancing 3°, 200, throttle 0.6', road: STRAIGHT_ROAD, s: 400, d: 6, kmh: 200, aim: 0.05, throttle: 0.6, seconds: 3 },
   { name: 'rail, straight, 10°, 200, throttle 0.6', road: STRAIGHT_ROAD, s: 400, d: 4, kmh: 200, aim: 0.17, throttle: 0.6, seconds: 3 },
   { name: 'rail, straight, 25°, 150, coasting', road: STRAIGHT_ROAD, s: 400, d: 2, kmh: 150, aim: 0.45, throttle: 0, seconds: 3 },
+  { name: 'rail, straight, 45°, 150, coasting', road: STRAIGHT_ROAD, s: 400, d: 2, kmh: 150, aim: 0.785, throttle: 0, seconds: 3 },
+  { name: 'rail, straight, head-on 90° (sent straight at it), 100, coasting', road: STRAIGHT_ROAD, s: 400, d: 2, kmh: 100, aim: 1.571, throttle: 0, seconds: 3, turned: true },
+  { name: 'rail, straight, 60° (sent at it so), 100, coasting', road: STRAIGHT_ROAD, s: 400, d: 2, kmh: 100, aim: 1.047, throttle: 0, seconds: 3, turned: true },
   { name: 'rail, left bend (outside), glancing 3°, 200, throttle 0.6', road: LEFT_BEND, s: 400, d: 6, kmh: 200, aim: 0.05, throttle: 0.6, seconds: 3 },
   { name: 'grass, all four, coasting from 150', road: STRAIGHT_ROAD, s: 400, d: -15, kmh: 150, aim: 0, throttle: 0, seconds: 3 },
   { name: 'grass, all four, full throttle from 100', road: STRAIGHT_ROAD, s: 400, d: -15, kmh: 100, aim: 0, throttle: 1, seconds: 3 },
@@ -52,6 +57,15 @@ function drive(run: Run): { at: number[]; lean: number; ok: boolean; landed: num
   if (run.lift) {
     const t = car.body.translation();
     car.body.setTranslation({ x: t.x, y: t.y + run.lift, z: t.z }, true);
+  }
+  if (run.turned) {
+    // (turned about up by -aim: + aim toward +d, the body's yaw the other way round; its velocity with it)
+    const a = -run.aim;
+    const q = car.body.rotation();
+    const s = Math.sin(a / 2), c = Math.cos(a / 2);
+    car.body.setRotation({ x: c * q.x + s * q.z, y: c * q.y + s * q.w, z: c * q.z - s * q.x, w: c * q.w - s * q.y }, true);
+    const v = car.body.linvel();
+    car.body.setLinvel({ x: v.x * Math.cos(a) + v.z * Math.sin(a), y: v.y, z: -v.x * Math.sin(a) + v.z * Math.cos(a) }, true);
   }
   const at: number[] = [];
   let lean = 0;
