@@ -36,8 +36,17 @@ const SLIDE_SECONDS = 0.9;
 const MIRRORED = 1;
 /** The picture's shifts (x TITLE_SHIFT of the screen's width; slide()): the title's, the garage's, with the race setup's drawer open, the tuning's. */
 export const VIEW = { title: 1, garage: 0, setup: -0.7, tune: 0.15 };
-/** The tuning's close-up (closeUp()): round the car as ever, at `r` of the distance and `h` of the height, swinging over `period` s (slower); in and out over `secs` s. */
-const CLOSE = { r: 0.5, h: 0.5, period: 60, secs: 1.4 };
+/** A camera round the car as ever, at `r` of its distance and `h` of its height, swinging over `period` s. */
+export interface Shot {
+  r: number;
+  h: number;
+  period: number;
+}
+const AROUND: Shot = { r: 1, h: 1, period: CAM.period };
+/** The closer shots (shot()): the tuning's, low on the front wheel and slower; the race setup's, in a little and higher. */
+export const SHOTS = { tune: { r: 0.5, h: 0.5, period: 60 }, setup: { r: 0.75, h: 1.3, period: CAM.period } } satisfies Record<string, Shot>;
+/** From one shot to the next over this long (s), eased. */
+const SHOT_SECS = 1.4;
 
 /**
  * The garage's scene: the picked car parked on a wet lay-by at night, under a sodium lamp, the city's lights
@@ -66,9 +75,10 @@ export class GarageScene {
   private slideFrom = 0;
   private slideTo = 0;
   private slideT = 1;
-  /** The close-up (CLOSE): how far in (0 round the car .. 1 close), where it heads; the swing's phase (its pace the close-up's too). */
-  private close = 0;
-  private closeTo = 0;
+  /** The shot (SHOTS; AROUND: none): the one it comes from, the one it heads for, how far along (0..1); the swing's phase (its pace the shot's too). */
+  private shotFrom: Shot = AROUND;
+  private shotTo: Shot = AROUND;
+  private shotT = 1;
   private phase = 0;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -155,8 +165,8 @@ export class GarageScene {
         this.t += dt;
         last = now;
         this.slideOn(dt);
-        this.close += Math.max(-dt / CLOSE.secs, Math.min(dt / CLOSE.secs, this.closeTo - this.close));
-        this.phase += dt / (CAM.period + (CLOSE.period - CAM.period) * this.eased());
+        this.shotT = Math.min(1, this.shotT + dt / SHOT_SECS);
+        this.phase += dt / this.shotNow().period;
         this.frame();
         requestAnimationFrame(loop);
       };
@@ -166,7 +176,8 @@ export class GarageScene {
 
   stop(): void {
     this.running = false;
-    this.close = this.closeTo = 0; // (the next garage opens round the car)
+    this.shotFrom = this.shotTo = AROUND; // (the next garage opens round the car)
+    this.shotT = 1;
   }
 
   /**
@@ -193,21 +204,26 @@ export class GarageScene {
     this.placeView();
   }
 
-  /** The tuning's close-up (on: CLOSE), or back out; eased in or out over CLOSE.secs. */
-  closeUp(on: boolean): void {
-    this.closeTo = on ? 1 : 0;
+  /** To a closer shot (SHOTS), or (null) back round the car; from wherever it is, eased over SHOT_SECS. */
+  shot(to: Shot | null): void {
+    this.shotFrom = this.shotNow();
+    this.shotTo = to ?? AROUND;
+    this.shotT = 0;
   }
 
-  /** How far in the close-up is (smoothstep). */
-  private eased(): number {
-    return this.close * this.close * (3 - 2 * this.close);
+  /** Where the shot is now (smoothstep from the one it left). */
+  private shotNow(): Shot {
+    const k = this.shotT * this.shotT * (3 - 2 * this.shotT);
+    const f = this.shotFrom;
+    const t = this.shotTo;
+    return { r: f.r + (t.r - f.r) * k, h: f.h + (t.h - f.h) * k, period: f.period + (t.period - f.period) * k };
   }
 
   private frame(): void {
     const a = CAM.base + CAM.swing * Math.sin(this.phase * Math.PI * 2);
-    const k = this.eased();
-    const r = CAM.r * (1 - (1 - CLOSE.r) * k);
-    this.camera.position.set(r * Math.sin(a), CAM.h * (1 - (1 - CLOSE.h) * k), r * Math.cos(a));
+    const s = this.shotNow();
+    const r = CAM.r * s.r;
+    this.camera.position.set(r * Math.sin(a), CAM.h * s.h, r * Math.cos(a));
     this.camera.lookAt(0, CAM.look, 0);
     (this.bokeh.uniforms as { focus: { value: number } }).focus.value = this.camera.position.distanceTo(new THREE.Vector3(0, CAM.look, 0));
     this.composer.render();

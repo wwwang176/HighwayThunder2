@@ -348,6 +348,9 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .s-head .icon.mini { width: 2vw; height: 1vw; }
 :is(#garage, #settings) .s-sub { position: relative; display: flex; align-items: center; gap: 0.83vw; margin-bottom: 0.73vw; }
 :is(#garage, #settings) .s-sub > .lbl { min-width: 3.4vw; }
+/* (the race setup's: as the tuning's knob names, .t-name - white on the keys' row) */
+#garage .s-sub > .lbl { font: 700 1vw/1.2 var(--f-title); letter-spacing: 0; text-transform: none; color: var(--text-2); }
+#garage .s-sub.focus > .lbl { color: #fff; }
 /* The small parallelogram button; picked: filled. */
 :is(#garage, #settings) .s-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.52vw; height: 2.6vw; padding: 0 0.83vw; box-sizing: border-box;
   transform: skewX(-12deg); background: rgba(255, 255, 255, 0.05); border-left: 0.21vw solid rgba(255, 255, 255, 0.18);
@@ -366,11 +369,10 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .count .icon.dice { width: 1.1vw; height: 1.1vw; margin-right: 0.3vw; }
 #garage .s-head .count { display: inline-flex; align-items: center; gap: 0.15vw; font: 600 0.78vw/1 var(--f-num); }
 #garage .s-head .count + .count { margin-left: 0.4vw; }
-/* The rivals: one row each (its place's colour on its badge), one column per car type (named once on top; YOU over the player's). */
+/* The rivals: one row each (its place's colour on its badge), one column per car type (named once on top). */
 #garage .mx-head, #garage .s-rival { display: grid; grid-template-columns: 2.5vw repeat(3, 1fr) 3.6vw; gap: 0.52vw; align-items: center; }
-#garage .mx-head { padding: 1vw 0.42vw 0.42vw; align-items: end; }
-#garage .mx-head > div { position: relative; display: flex; justify-content: center; align-items: center; font: 700 0.83vw/1 var(--f-title); color: var(--text-2); white-space: nowrap; }
-#garage .mx-head .you { position: absolute; left: 50%; bottom: 100%; translate: -50% -0.3vw; --c: 0.21vw; padding: 0.21vw 0.36vw; background: var(--accent); color: #fff; font: 700 0.6vw/1 var(--f-num); letter-spacing: 0.1vw; } /* (over the name: a name of any length stays on one line) */
+#garage .mx-head { padding: 0.42vw; align-items: end; }
+#garage .mx-head > div { display: flex; justify-content: center; align-items: center; font: 700 0.83vw/1 var(--f-title); color: var(--text-2); white-space: nowrap; }
 #garage .s-rival { position: relative; padding: 0.21vw 0.42vw; }
 #garage .s-badge { height: 2.2vw; display: grid; place-items: center; --c: 0.42vw; background: var(--c-slot); color: #0a0e18; font: 700 1.04vw/1 var(--f-num); }
 #garage .s-chip { height: 2.2vw; }
