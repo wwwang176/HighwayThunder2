@@ -212,6 +212,8 @@ export class PhysicsWorld {
   private readonly slotBody: number[] = [];
   private readonly railBodies = new Map<number, RailBody>();
   private railStep = 0;
+  /** How hard each body pressed on the rails in the last step (its rail contacts' normal impulses, N·s; by body handle). */
+  private readonly railPushes = new Map<number, number>();
   private readonly eventQueue: RAPIER.EventQueue;
   private readonly owners = new Map<number, EntityRef>();
   /** Pairs of (registered) colliders touching, by their handles. */
@@ -490,6 +492,7 @@ export class PhysicsWorld {
   step(onContact: (a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null) => void): void {
     this.updateRails();
     this.world.step(this.eventQueue);
+    this.measureRailPushes();
     for (const p of this.touching.values()) p.fresh = false;
     this.eventQueue.drainCollisionEvents((h1, h2, started) => {
       const key = h1 < h2 ? `${h1},${h2}` : `${h2},${h1}`;
@@ -503,6 +506,32 @@ export class PhysicsWorld {
       this.touching.set(key, { h1, h2, fresh: true });
       onContact(a, b, this.contactNormal(h1, h2));
     });
+  }
+
+  /**
+   * How hard the body `handle` pressed on the guardrails in the last step: their contacts' normal impulses (N·s; 0 not
+   * touching one) - a scrape's drag on it is by this (PlayerCar: RAIL_DRAG).
+   */
+  railPush(handle: number): number {
+    return this.railPushes.get(handle) ?? 0;
+  }
+
+  /** railPush's, after a step: each rail plane's contacts (the straight road's two, a curved road's slots). */
+  private measureRailPushes(): void {
+    this.railPushes.clear();
+    const measure = (rail: RAPIER.Collider) => {
+      this.world.contactPairsWith(rail, (other) => {
+        const body = other.parent();
+        if (!body) return;
+        let j = 0;
+        this.world.contactPair(rail, other, (m) => {
+          for (let i = 0; i < m.numContacts(); i++) j += m.contactImpulse(i);
+        });
+        if (j > 0) this.railPushes.set(body.handle, (this.railPushes.get(body.handle) ?? 0) + j);
+      });
+    };
+    for (const r of this.rails) measure(r);
+    for (let i = 0; i < this.slotRails.length; i++) if (this.slotBody[i] >= 0) measure(this.slotRails[i]);
   }
 
   /**

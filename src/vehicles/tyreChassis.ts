@@ -31,6 +31,8 @@ export interface ChassisWheel {
   sliding: boolean;
   slip: number;
   load: number;
+  /** The ground's grip where it last touched (surfaceGrip: 1 the road, less e.g. grass). */
+  surface: number;
   fx: number;
   fy: number;
   alpha: number;
@@ -105,7 +107,7 @@ export function makeWheel(
 ): ChassisWheel {
   return {
     ...w,
-    omega: 0, spin: 0, susp, steer: 0, inContact: true, sliding: false, slip: 0, load: 0, longScale: 1, dragged: false,
+    omega: 0, spin: 0, susp, steer: 0, inContact: true, sliding: false, slip: 0, load: 0, surface: 1, longScale: 1, dragged: false,
     fx: 0, fy: 0, alpha: 0, contactX: 0, contactY: 0, contactZ: 0, dirX: 0, dirZ: -1,
   };
 }
@@ -239,6 +241,7 @@ export class TyreChassis {
       }
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 0.5));
       const trip = tripGripScale(alpha, s.sideTrip, s.tire.muPeak);
+      w.surface = s.surfaceGrip(CONTACT.x, CONTACT.z);
       const res = solveWheel({
         vx,
         vy,
@@ -251,7 +254,7 @@ export class TyreChassis {
         dt,
         mEff: w.mEff,
         tire: s.tire,
-        muScale: s.surfaceGrip(CONTACT.x, CONTACT.z) * w.gripScale * trip,
+        muScale: w.surface * w.gripScale * trip,
         brakeApart: w.front && s.frontBrakeApart,
         longScale: w.longScale,
         dragged: w.dragged,

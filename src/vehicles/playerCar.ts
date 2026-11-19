@@ -72,6 +72,13 @@ const LOAD_Q = new THREE.Quaternion();
  * over to 90, an S-curve.
  */
 export const BODY_FRICTION = { upright: 0.02, rolled: 0.4, fromDeg: 45 };
+/**
+ * What holds a car back besides its tyres and the air (mutable: training/railGrassDrag measures them on and off).
+ * `rail`: scraping a guardrail, as metal sliding on metal - this times how hard it presses on the rail, at its centre
+ * of mass (not the rail's own friction: the body's above - at its side, it tipped the car over). `grass`: its tyres
+ * in grass - this times the weight on them (rolling in soft ground; asphalt's ~0.015).
+ */
+export const SURFACE_DRAG = { rail: 0.4, grass: 0.1 };
 
 /** The body's friction with its up pointing `upY` (its roof's way, world y: 1 upright, 0 on its side, -1 on its roof). */
 export function bodyFriction(upY: number): number {
@@ -230,6 +237,8 @@ export class PlayerCar {
   driveMode: DriveMode = 'D';
   /** Optional grip multiplier by where across the road (d: e.g. the median's grass). */
   surfaceGrip: (d: number) => number = () => 1;
+  /** The world it is in (its rail scrapes: PhysicsWorld.railPush). */
+  private readonly physics: PhysicsWorld;
   /** The road it drives on (its s, d and road-relative yaw measured along it). */
   road: Centerline = STRAIGHT_ROAD;
 
@@ -259,6 +268,7 @@ export class PlayerCar {
    * physics, no visuals, and it only touches the road.
    */
   constructor(physics: PhysicsWorld, scene: THREE.Scene | null, opts: PlayerCarOptions = {}) {
+    this.physics = physics;
     const spec = opts.spec ?? STREET_RACER;
     this.style = spec.style;
     this.params = { ...spec.params };
@@ -656,6 +666,15 @@ export class PlayerCar {
       const drag = p.dragK * sp * dt;
       const down = p.downforceK * sp * sp * dt;
       this.body.applyImpulse({ x: -lv.x * drag, y: -down, z: -lv.z * drag }, true);
+    }
+    // 4) Scraping a guardrail and the tyres in grass: held back, at its centre of mass (no roll from it - a rail's own
+    // friction at the body's side tipped it over), against the way it goes - by how hard it presses on the rail (its
+    // contacts' last step), by the weight on its tyres in grass. Never past a stop.
+    if (sp > 0.1) {
+      let grass = 0;
+      for (const w of this.wheels) if (w.inContact && w.surface < 1) grass += w.load;
+      const back = Math.min(SURFACE_DRAG.rail * this.physics.railPush(this.body.handle) + SURFACE_DRAG.grass * grass * dt, this.body.mass() * sp);
+      if (back > 0) this.body.applyImpulse({ x: (-lv.x / sp) * back, y: 0, z: (-lv.z / sp) * back }, true);
     }
 
     this.prevPos.copy(this.currPos);
