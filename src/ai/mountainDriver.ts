@@ -107,7 +107,9 @@ export const MOUNTAIN_DRIVER = {
     dangerLook: 0.4,
     slid: 0.17,
     over: 0.09,
-    recover: 1.5,
+    // (out of a drift its wheel eased back in and steered by its course this long (s): 1.5 held the network off it -
+    // 30 roads, p15 nets: 0.05 0.4-0.5 s faster, more walls (its nets trained on 1.5); 0 divides by it - not allowed)
+    recover: 0.05,
     merge: 0.5,
     recoverSteer: 0.5,
     exitEarly: 0,
