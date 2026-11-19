@@ -159,26 +159,36 @@ function arriving(speed: number, stop: number, t: number): number {
 }
 /**
  * The cars drifting through the first hairpin (the mountain road's 'skyline'): their speed (m/s), their noses turned
- * in (rad); each this long (s) behind the one ahead (6.75 m: a train, the middle of it through the bend's middle
+ * in (rad); each this long (s) behind the one ahead (7.5 m: a train, the middle of it through the bend's middle
  * halfway through the shot).
  */
 const DRIFT_SPEED = 15;
 const DRIFT_SLIP = 0.65;
-const DRIFT_GAP = 0.45;
+const DRIFT_GAP = 0.5;
+/**
+ * No two cars through a bend alike (each its own, picked at random each intro): up to this much (s) early or late on
+ * its place in the train (two in a row at least GAP - 2x this apart: 5.7 m drifting, 5.3 m round at CRUISE_MIN); its
+ * line this far (m) to one side (drifting, swaying a little more either way along the bend); drifting, its nose
+ * turned in this much more or less (a share of DRIFT_SLIP), wavering this much (rad) as it goes.
+ */
+const VARY_TIME = 0.06;
+const VARY_SIDE = { drift: 0.6, sway: 0.3, cruise: 0.35 };
+const VARY_SLIP = 0.15;
+const VARY_WAVER = 0.06;
 /** Its shot: straight down from this high (m), sliding this far either side of the middle (m), this long (s). */
 const TOP_HEIGHT = 26;
 const TOP_SLIDE = 8;
 const TOP_SECONDS = 2.7;
 /**
  * The cars driven round it ('hairpin'): the first from this far before it (m), at this speed (m/s), braking (m/s²)
- * to CRUISE_MIN (round the bend at it); each the next CRUISE_GAP s behind (all on one braking: at CRUISE_MIN 6 m
+ * to CRUISE_MIN (round the bend at it); each the next CRUISE_GAP s behind (all on one braking: at CRUISE_MIN 6.5 m
  * apart - braking on, the ones behind closed up on the ones ahead).
  */
 const CRUISE_BACK = 11;
 const CRUISE_SPEED = 14;
 const CRUISE_BRAKE = 2.5;
 const CRUISE_MIN = 10;
-const CRUISE_GAP = 0.6;
+const CRUISE_GAP = 0.65;
 /** Their engines as heard (a share of the way from idle to the redline): the drift's on the throttle; the other's off it. */
 const DRIFT_REV = 0.72;
 const CRUISE_REV = 0.5;
@@ -247,6 +257,8 @@ export class Intro {
   /** The cars drawn through a bend (a shot's Pass: all of them, in the grid's order), each body's height over the
    * road; their rear tyres' smoke now. */
   private readonly passCars: { car: PlayerCar; ride: number }[] = [];
+  /** Each of them its own (VARY_*: -1..1 each, picked as the intro starts) - its time, its side, its slip, its sway's phase. */
+  private readonly passVary: { time: number; side: number; slip: number; phase: number }[] = [];
   private passPuffs: Puff[] = [];
 
   constructor(
@@ -295,7 +307,11 @@ export class Intro {
       const all: [PlayerCar, [number, number, number]][] = [[scene.player, [0, car.y, 0]], ...scene.rivals.map((r, i) => [r, this.rivalsAt[i]] as [PlayerCar, [number, number, number]])];
       const row = (g: [number, number, number]) => (g[2] >= -1 ? 0 : 1); // (as the arrivals': the front row, the back)
       all.sort(([, a], [, b]) => row(a) - row(b) || a[0] - b[0]);
-      for (const [c, [x, y, z]] of all) this.passCars.push({ car: c, ride: y - road.surfaceHeight(scene.player.s + z, scene.player.d + x) });
+      const any = () => 2 * Math.random() - 1;
+      for (const [c, [x, y, z]] of all) {
+        this.passCars.push({ car: c, ride: y - road.surfaceHeight(scene.player.s + z, scene.player.d + x) });
+        this.passVary.push({ time: any(), side: any(), slip: any(), phase: Math.PI * any() });
+      }
     }
     this.shots = this.script(kind, car.y);
   }
@@ -752,14 +768,19 @@ export class Intro {
     // line (as drawn: between its edges - a hairpin is widened on its inside); its nose turned in DRIFT_SLIP. (Swung
     // out-in-out within the bend, its line ran near straight at the middle: its body turned back the other way for a
     // moment, -31 deg/s against a round's +40. On one line it turns round evenly; near the inside, too close to it.)
-    // Every car so, one behind the other DRIFT_GAP s apart (the middle of the train through the middle).
+    // Every car so, one behind the other DRIFT_GAP s apart (the middle of the train through the middle) - each a
+    // little early or late, off to one side, swaying, its own angle (passVary).
     const middleLine = (s: number) => (dir * (edges.at(s, dir as 1 | -1) - edges.at(s, -dir as 1 | -1))) / 2;
     const train = (this.passCars.length - 1) / 2;
+    const vary = (k: number) => this.passVary[k] ?? { time: 0, side: 0, slip: 0, phase: 0 };
     const drift = (seconds: number): Pass => ({
       at: (t, k) => {
-        const s = mid + DRIFT_SPEED * (t - seconds / 2 + (train - k) * DRIFT_GAP);
-        const slip = DRIFT_SLIP * smooth(s, from - 12, from + 2) * (1 - smooth(s, to - 2, to + 12));
-        return { s, d: middleLine(s), slip };
+        const v = vary(k);
+        const s = mid + DRIFT_SPEED * (t - seconds / 2 + (train - k) * DRIFT_GAP - v.time * VARY_TIME);
+        const full = DRIFT_SLIP * (1 + v.slip * VARY_SLIP) + VARY_WAVER * Math.sin(2.5 * t + v.phase);
+        const slip = full * smooth(s, from - 12, from + 2) * (1 - smooth(s, to - 2, to + 12));
+        const side = v.side * VARY_SIDE.drift + VARY_SIDE.sway * Math.sin(s / 9 + v.phase);
+        return { s, d: middleLine(s) + side, slip };
       },
       inside: dir,
       smoke: true,
@@ -850,11 +871,12 @@ export class Intro {
         // by it and on round it.
         pass: {
           at: (t, k) => {
-            const u = t - k * CRUISE_GAP; // (its own time: < 0, still coming up at its speed behind)
+            const v = vary(k); // (each a little early or late, off to one side of the lane's middle)
+            const u = t - k * CRUISE_GAP + v.time * VARY_TIME; // (its own time: < 0, still coming up at its speed behind)
             const slow = (CRUISE_SPEED - CRUISE_MIN) / CRUISE_BRAKE; // (s braking)
             const braked = Math.min(Math.max(u, 0), slow);
             const s = CRUISE_SPEED * Math.min(u, 0) + CRUISE_SPEED * braked - (CRUISE_BRAKE * braked * braked) / 2 + CRUISE_MIN * Math.max(0, u - slow);
-            return { s: from - CRUISE_BACK + s, d: d0, slip: 0 };
+            return { s: from - CRUISE_BACK + s, d: d0 + v.side * VARY_SIDE.cruise, slip: 0 };
           },
           inside: dir,
           brake: true,
