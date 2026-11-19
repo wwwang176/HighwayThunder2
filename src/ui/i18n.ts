@@ -37,6 +37,7 @@ export const STRINGS = {
   'setup.rivals.kicker': { zh: 'Rivals', en: '' },
   'setup.rivals': { zh: '對手', en: 'Rivals' },
   'setup.count': { zh: '數量', en: 'Count' },
+  'setup.count.max': { zh: '{course}最多 {n} 台對手', en: '{course}: up to {n} rivals' },
   'setup.mode': { zh: '車種', en: 'Cars' },
   'mode.random': { zh: '全部隨機', en: 'All random' },
   'mode.same': { zh: '全部同我的車', en: 'All my car' },

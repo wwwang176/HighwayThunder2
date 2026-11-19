@@ -1,4 +1,4 @@
-import { CAR_CARDS, CarSelection, type Course, COURSES, MAX_RIVALS, PICKABLE, RivalMode, setRival, setRivalCount, Weather } from '../game/carSelection';
+import { CAR_CARDS, CarSelection, type Course, COURSE_RIVALS, COURSES, MAX_RIVALS, PICKABLE, RivalMode, setCourse, setRival, setRivalCount, Weather } from '../game/carSelection';
 import { DIFFICULTIES } from '../game/difficulty';
 import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
@@ -530,7 +530,7 @@ export class Garage {
     this.keyed = true;
     if (key === 'course') {
       const k = COURSES.indexOf(s.course);
-      this.change({ ...s, course: COURSES[Math.max(0, Math.min(COURSES.length - 1, k + d))] });
+      this.change(setCourse(s, COURSES[Math.max(0, Math.min(COURSES.length - 1, k + d))]));
     } else if (key === 'weather') {
       const open = WEATHERS.filter(([k]) => OPEN_WEATHERS.includes(k)).map(([k]) => k); // (the ones out so far)
       const k = open.indexOf(s.weather);
@@ -787,7 +787,11 @@ export class Garage {
       </div>
       <div class="s-sec">
         ${head('setup.rivals.kicker', 'setup.rivals', this.lineUp())}
-        <div class="s-sub ${focus('count')}"><span class="lbl">${t('setup.count')}</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) => `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`).join('')}</div></div>
+        <div class="s-sub ${focus('count')}"><span class="lbl">${t('setup.count')}</span><div class="s-count">${Array.from({ length: MAX_RIVALS + 1 }, (_, n) =>
+          n <= COURSE_RIVALS[s.course]
+            ? `<button class="s-btn ${n === s.rivals.length ? 'sel' : ''}" data-n="${n}"><span>${n}</span></button>`
+            : `<button class="s-btn soon" aria-disabled="true" data-tip="${t('setup.count.max', { course: t(`course.${s.course}`), n: COURSE_RIVALS[s.course] })}"><span>${n}</span></button>`,
+        ).join('')}</div></div>
         <div class="s-sub ${focus('mode')}"><span class="lbl">${t('setup.mode')}</span><div class="s-modes">${MODES.map(([m, ic]) => `<button class="s-btn ${m === s.rivalMode ? 'sel' : ''}" data-mode="${m}">${icon(ic)}<span>${t(`mode.${m}`)}</span></button>`).join('')}</div>${rowHelp('mode', ...MODES.map(([m]) => t(`mode.help.${m}`)))}</div>
         ${custom ? `<div class="mx-head"><span></span>${PICKABLE.map((id) => `<div><span>${carName(id)}</span></div>`).join('')}<span></span></div>` : ''}
         ${(custom ? s.rivals : [])
@@ -817,7 +821,7 @@ export class Garage {
     all('[data-car]').forEach((b) => (b.onclick = () => this.change(setRival(this.sel, Number(b.dataset.i), b.dataset.car!))));
     all('[data-d]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, difficulty: Number(b.dataset.d) })));
     all('[data-w]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, weather: b.dataset.w as Weather })));
-    all('[data-course]').forEach((b) => (b.onclick = () => this.change({ ...this.sel, course: b.dataset.course as Course })));
+    all('[data-course]').forEach((b) => (b.onclick = () => this.change(setCourse(this.sel, b.dataset.course as Course))));
     body.scrollTop = scrolled;
     // Worked by the keys: the row's "?" open (focused: its tip shows), any other let go.
     const rowTip = this.keyed ? body.querySelector<HTMLElement>(`.help[data-row="${rows[this.row]}"]`) : null;

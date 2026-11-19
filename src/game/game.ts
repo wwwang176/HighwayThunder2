@@ -42,7 +42,7 @@ import { CARS, CarSpec, STREET_RACER } from '../vehicles/cars';
 import { PlannerDriver } from '../ai/plannerDriver';
 import { trackerFrom } from '../ai/netTracker';
 import { aiTopSpeed } from '../ai/aiTopSpeed';
-import { CAR_CARDS, CarSelection, defaultSelection, loadSelection, MAX_RIVALS, raceRivals, saveSelection } from './carSelection';
+import { CAR_CARDS, CarSelection, COURSE_RIVALS, defaultSelection, loadSelection, MAX_RIVALS, raceRivals, saveSelection } from './carSelection';
 import { applyDifficulty } from './difficulty';
 import { Garage } from '../ui/garage';
 import { SettingsPopup } from '../ui/settings';
@@ -56,8 +56,8 @@ import { FinishShow } from './finishShow';
 const specOf = (id: string): CarSpec => CARS[id] ?? STREET_RACER;
 /** sessionStorage: the race to start as the game comes up (the course changed in the garage: reloaded on it). */
 export const AUTOSTART = 'ht2.autostart';
-/** Rivals on the mountain road (two lanes: fewer than the highway's). */
-const MOUNTAIN_RIVALS = 3;
+/** Rivals on the mountain road (the garage's cap too). */
+const MOUNTAIN_RIVALS = COURSE_RIVALS.mountain;
 /** The mountain road: the player's lane (d), where its grid is (s); below the road this far, a car has fallen off (put back). */
 const MOUNTAIN_LANE = MOUNTAIN.halfWidth / 2;
 /** The rivals' grid on the mountain road (d, s): beside the player, and a row behind. */
