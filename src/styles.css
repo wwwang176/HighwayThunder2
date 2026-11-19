@@ -366,11 +366,10 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #garage .count .icon.dice { width: 1.1vw; height: 1.1vw; margin-right: 0.3vw; }
 #garage .s-head .count { display: inline-flex; align-items: center; gap: 0.15vw; font: 600 0.78vw/1 var(--f-num); }
 #garage .s-head .count + .count { margin-left: 0.4vw; }
-/* The rivals: one row each (its place's colour on its badge), one column per car type (named once on top; YOU over the player's). */
+/* The rivals: one row each (its place's colour on its badge), one column per car type (named once on top). */
 #garage .mx-head, #garage .s-rival { display: grid; grid-template-columns: 2.5vw repeat(3, 1fr) 3.6vw; gap: 0.52vw; align-items: center; }
-#garage .mx-head { padding: 1vw 0.42vw 0.42vw; align-items: end; }
-#garage .mx-head > div { position: relative; display: flex; justify-content: center; align-items: center; font: 700 0.83vw/1 var(--f-title); color: var(--text-2); white-space: nowrap; }
-#garage .mx-head .you { position: absolute; left: 50%; bottom: 100%; translate: -50% -0.3vw; --c: 0.21vw; padding: 0.21vw 0.36vw; background: var(--accent); color: #fff; font: 700 0.6vw/1 var(--f-num); letter-spacing: 0.1vw; } /* (over the name: a name of any length stays on one line) */
+#garage .mx-head { padding: 0.42vw; align-items: end; }
+#garage .mx-head > div { display: flex; justify-content: center; align-items: center; font: 700 0.83vw/1 var(--f-title); color: var(--text-2); white-space: nowrap; }
 #garage .s-rival { position: relative; padding: 0.21vw 0.42vw; }
 #garage .s-badge { height: 2.2vw; display: grid; place-items: center; --c: 0.42vw; background: var(--c-slot); color: #0a0e18; font: 700 1.04vw/1 var(--f-num); }
 #garage .s-chip { height: 2.2vw; }

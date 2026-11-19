@@ -15,7 +15,7 @@ const RIVAL_MODES: RivalMode[] = ['random', 'same', 'custom'];
 
 /**
  * The race picked in the garage: the player's car, each rival's (car type ids,
- * src/vehicles/cars; 0 to MAX_RIVALS of them; their cars as listed only in the
+ * src/vehicles/cars; 0 to the course's most, COURSE_RIVALS; their cars as listed only in the
  * custom mode, raceRivals), the difficulty (DIFFICULTIES) and the weather; and
  * the paint job picked for each car type (its file's livery name; none picked:
  * the car's own).
@@ -34,6 +34,8 @@ export interface CarSelection {
 }
 
 export const MAX_RIVALS = 5;
+/** Each course's most rivals (the mountain road's two lanes: fewer than the highway's). */
+export const COURSE_RIVALS: Record<Course, number> = { highway: MAX_RIVALS, mountain: 3 };
 const KEY = 'ht2.cars';
 /** A first visit's difficulty (and a saved one that doesn't exist): hard. */
 const DEFAULT_DIFFICULTY = 2;
@@ -80,7 +82,7 @@ const pickable = (id: unknown): string => (typeof id === 'string' && PICKABLE.in
 
 /**
  * A selection made safe: unknown or unpickable cars become the supercar, at
- * most MAX_RIVALS rivals (none missing: the default five), a difficulty that
+ * most its course's rivals (COURSE_RIVALS; none missing: the default five), a difficulty that
  * exists, the clear night, paint jobs only for pickable cars (by name: one the
  * car's file doesn't have is its own when built), tunings only of known knobs. Old saves (cars only) keep
  * their cars.
@@ -90,7 +92,7 @@ export function sanitize(x: unknown): CarSelection {
   const o = x as { player?: unknown; rivals?: unknown; rivalMode?: unknown; difficulty?: unknown; course?: unknown; paint?: unknown; tuning?: unknown };
   const course = COURSES.find((c) => c === o.course) ?? 'highway';
   const rivalMode = RIVAL_MODES.find((m) => m === o.rivalMode) ?? 'custom';
-  const rivals = Array.isArray(o.rivals) ? o.rivals.slice(0, MAX_RIVALS).map(pickable) : defaultSelection().rivals;
+  const rivals = (Array.isArray(o.rivals) ? o.rivals.map(pickable) : defaultSelection().rivals).slice(0, COURSE_RIVALS[course]);
   const difficulty = typeof o.difficulty === 'number' && Number.isInteger(o.difficulty) && DIFFICULTIES[o.difficulty] ? o.difficulty : DEFAULT_DIFFICULTY;
   const paint: Record<string, string> = {};
   if (o.paint && typeof o.paint === 'object') {
@@ -129,9 +131,14 @@ export function saveSelection(storage: Pick<Storage, 'setItem'>, s: CarSelection
   }
 }
 
-/** One more rival at the end, on the player's car (none past MAX_RIVALS). */
+/** One more rival at the end, on the player's car (none past the course's most, COURSE_RIVALS). */
 export function addRival(s: CarSelection): CarSelection {
-  return s.rivals.length >= MAX_RIVALS ? s : { ...s, rivals: [...s.rivals, s.player] };
+  return s.rivals.length >= COURSE_RIVALS[s.course] ? s : { ...s, rivals: [...s.rivals, s.player] };
+}
+
+/** On `course`: the rivals past its most (COURSE_RIVALS) gone, the first ones kept as they are. */
+export function setCourse(s: CarSelection, course: Course): CarSelection {
+  return { ...s, course, rivals: s.rivals.slice(0, COURSE_RIVALS[course]) };
 }
 
 /** Rival `i` gone; the ones after it move up. */
@@ -139,9 +146,9 @@ export function removeRival(s: CarSelection, i: number): CarSelection {
   return { ...s, rivals: s.rivals.filter((_, k) => k !== i) };
 }
 
-/** `n` rivals (0..MAX_RIVALS): the first ones kept as they are, any new ones on the player's car. */
+/** `n` rivals (0..the course's most, COURSE_RIVALS): the first ones kept as they are, any new ones on the player's car. */
 export function setRivalCount(s: CarSelection, n: number): CarSelection {
-  const k = Math.max(0, Math.min(MAX_RIVALS, Math.round(n)));
+  const k = Math.max(0, Math.min(COURSE_RIVALS[s.course], Math.round(n)));
   return { ...s, rivals: Array.from({ length: k }, (_, i) => s.rivals[i] ?? s.player) };
 }
 
