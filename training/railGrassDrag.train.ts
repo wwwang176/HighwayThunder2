@@ -37,6 +37,10 @@ const RUNS: Run[] = [
   { name: 'rail, straight, 45°, 150, coasting', road: STRAIGHT_ROAD, s: 400, d: 2, kmh: 150, aim: 0.785, throttle: 0, seconds: 3 },
   { name: 'rail, straight, head-on 90° (sent straight at it), 100, coasting', road: STRAIGHT_ROAD, s: 400, d: 2, kmh: 100, aim: 1.571, throttle: 0, seconds: 3, turned: true },
   { name: 'rail, straight, 60° (sent at it so), 100, coasting', road: STRAIGHT_ROAD, s: 400, d: 2, kmh: 100, aim: 1.047, throttle: 0, seconds: 3, turned: true },
+  { name: 'rail, straight, glancing 3°, 60, throttle 0.6', road: STRAIGHT_ROAD, s: 400, d: 8, kmh: 60, aim: 0.05, throttle: 0.6, seconds: 3 },
+  { name: 'rail, straight, 10°, 60, throttle 0.6', road: STRAIGHT_ROAD, s: 400, d: 7, kmh: 60, aim: 0.17, throttle: 0.6, seconds: 3 },
+  { name: 'rail, straight, 10°, 90, throttle 0.6', road: STRAIGHT_ROAD, s: 400, d: 6, kmh: 90, aim: 0.17, throttle: 0.6, seconds: 3 },
+  { name: 'rail, straight, 25°, 80, coasting', road: STRAIGHT_ROAD, s: 400, d: 5, kmh: 80, aim: 0.45, throttle: 0, seconds: 3 },
   { name: 'rail, left bend (outside), glancing 3°, 200, throttle 0.6', road: LEFT_BEND, s: 400, d: 6, kmh: 200, aim: 0.05, throttle: 0.6, seconds: 3 },
   { name: 'grass, all four, coasting from 150', road: STRAIGHT_ROAD, s: 400, d: -15, kmh: 150, aim: 0, throttle: 0, seconds: 3 },
   { name: 'grass, all four, full throttle from 100', road: STRAIGHT_ROAD, s: 400, d: -15, kmh: 100, aim: 0, throttle: 1, seconds: 3 },
@@ -101,19 +105,27 @@ it('rail and grass drag', async () => {
   const on = { ...SURFACE_DRAG };
   const out: string[] = [];
   // (each run with the drag off, then at each scale of SURFACE_DRAG's own: x1 is the game's)
+  // (and RAIL_LOWS: each railLow tried in turn; ONLY: the runs whose names have it)
   const scales = (process.env.DRAG_SCALES ?? '1').split(',').map(Number);
-  for (const run of RUNS) {
+  const lows = process.env.RAIL_LOWS ? process.env.RAIL_LOWS.split(',').map(Number) : [on.railLow];
+  if (process.env.RAIL_FULL) on.railFullKmh = Number(process.env.RAIL_FULL);
+  SURFACE_DRAG.railFullKmh = on.railFullKmh;
+  for (const run of RUNS.filter((r) => !process.env.ONLY || r.name.includes(process.env.ONLY))) {
     SURFACE_DRAG.rail = 0;
+    SURFACE_DRAG.railLow = 0;
     SURFACE_DRAG.grass = 0;
     const before = drive(run);
     const fmt = (r: { at: number[]; lean: number; ok: boolean; landed: number | null }) =>
       `${r.landed !== null ? `landing at ${r.landed.toFixed(2)}, then ` : ''}${r.at.map((v) => v.toFixed(0)).join(' / ')} km/h, lean ${r.lean.toFixed(1)}°${r.ok ? '' : '  OFF / OVER'}`;
     const lines = [`${run.name}\n  off:  ${fmt(before)}`];
     for (const k of scales) {
-      SURFACE_DRAG.rail = on.rail * k;
-      SURFACE_DRAG.grass = on.grass * k;
-      const after = drive(run);
-      lines.push(`  x${k}: ${fmt(after)}   (3 s: ${(after.at[2] - before.at[2]).toFixed(1)} km/h)`);
+      for (const low of lows) {
+        SURFACE_DRAG.rail = on.rail * k;
+        SURFACE_DRAG.railLow = low * k;
+        SURFACE_DRAG.grass = on.grass * k;
+        const after = drive(run);
+        lines.push(`  x${k}${lows.length > 1 ? ` low ${low}` : ''}: ${fmt(after)}   (3 s: ${(after.at[2] - before.at[2]).toFixed(1)} km/h)`);
+      }
     }
     out.push(lines.join('\n'));
   }
