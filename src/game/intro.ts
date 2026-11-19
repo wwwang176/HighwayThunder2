@@ -143,19 +143,39 @@ const TRACK_PASS = 0.15;
 const TRACK_X = -LANE_WIDTH / 2;
 
 /**
- * The braking's load on an arriving car `t` s in (as m/s² of deceleration): its speed shed evenly over
- * ARRIVE_BRAKE s, the load building up over ARRIVE_LOAD_RISE s of it; then none (stopped: it comes back).
+ * The mountain road's bends' shots (skyline, hairpin), back on the grid: every car creeping the last bit up to its
+ * place and stopping, not standing there - each lane at its own crawl (m/s), braking over CREEP_BRAKE s; the
+ * front row's stops this long (s) into the grid's shots, the back row's this much after the one ahead in its lane,
+ * the player's at CREEP_PLAYER_STOP (still by the shots that look close at it: skyline's from behind it, hairpin's
+ * exhaust).
  */
-function arrivalBraking(speed: number, stop: number, t: number): number {
-  const left = stop - t;
-  if (left <= 0 || left > ARRIVE_BRAKE) return 0;
-  return (speed / ARRIVE_BRAKE) * THREE.MathUtils.smoothstep(ARRIVE_BRAKE - left, 0, ARRIVE_LOAD_RISE);
+const CREEP_SPEED = [4, 5.5] as const; // (1.5-2.5 over 1 s: too little to be seen)
+const CREEP_BRAKE = 0.7; // (0.6-0.8 g: pulled up sharply, as the arrival's at most)
+const CREEP_FRONT_STOP = { skyline: [0.6, 1.2], hairpin: [0.4, 0.8] } as const;
+const CREEP_BACK_LATER = [0.1, 0.4] as const;
+const CREEP_PLAYER_STOP = { skyline: 1.4, hairpin: 0.85 } as const;
+
+/** An arriving car: at `speed` (m/s) till it brakes, over `brake` s, to a stop at its place `stop` s in. */
+interface Arrival {
+  speed: number;
+  stop: number;
+  brake: number;
 }
 
-/** Where an arriving car is drawn (m ahead of its place: < 0) `t` s in, at `speed` till it brakes to a stop at `stop` s. */
-function arriving(speed: number, stop: number, t: number): number {
-  const left = Math.max(0, stop - t);
-  return -(left > ARRIVE_BRAKE ? speed * (ARRIVE_BRAKE / 2 + left - ARRIVE_BRAKE) : (speed * left * left) / (2 * ARRIVE_BRAKE));
+/**
+ * The braking's load on an arriving car `t` s in (as m/s² of deceleration): its speed shed evenly over its brake's
+ * s, the load building up over ARRIVE_LOAD_RISE s of it; then none (stopped: it comes back).
+ */
+function arrivalBraking(a: Arrival, t: number): number {
+  const left = a.stop - t;
+  if (left <= 0 || left > a.brake) return 0;
+  return (a.speed / a.brake) * THREE.MathUtils.smoothstep(a.brake - left, 0, Math.min(ARRIVE_LOAD_RISE, a.brake / 2));
+}
+
+/** Where an arriving car is drawn (m ahead of its place: < 0) `t` s in. */
+function arriving(a: Arrival, t: number): number {
+  const left = Math.max(0, a.stop - t);
+  return -(left > a.brake ? a.speed * (a.brake / 2 + left - a.brake) : (a.speed * left * left) / (2 * a.brake));
 }
 /**
  * The cars drifting through the first hairpin (the mountain road's 'skyline'): their speed (m/s), their noses turned
@@ -253,8 +273,8 @@ export class Intro {
   private readonly redline: number;
   /** Each rival's place (grid coordinates); its arrival (way back, time); the intro's time so far. */
   private readonly rivalsAt: [number, number, number][];
-  private readonly arrivals: { speed: number; stop: number }[];
-  private readonly playerArrival: { speed: number; stop: number };
+  private readonly arrivals: Arrival[];
+  private readonly playerArrival: Arrival;
   private elapsed = 0;
   /** The cars drawn through a bend (a shot's Pass: all of them, in the grid's order), each body's height over the
    * road; their rear tyres' smoke now. */
@@ -291,17 +311,17 @@ export class Intro {
     const playerStop = tracking ? TRACK_PLAYER_STOP : ARRIVE_PLAYER_STOP;
     const frontStop = () => (tracking ? playerStop + within(TRACK_FRONT_LATER) : within(ARRIVE_FRONT_STOP));
     const stops = new Map<number, number>([[0, playerStop]]); // the front row's, by lane
-    this.playerArrival = { speed: speedOf(0), stop: playerStop };
+    this.playerArrival = { speed: speedOf(0), stop: playerStop, brake: ARRIVE_BRAKE };
     const front = this.rivalsAt.map((g, i) => [g, i] as const).filter(([g]) => g[2] >= -1);
     const back = this.rivalsAt.map((g, i) => [g, i] as const).filter(([g]) => g[2] < -1);
     this.arrivals = [];
     for (const [g, i] of front) {
-      this.arrivals[i] = { speed: speedOf(g[0]), stop: frontStop() };
+      this.arrivals[i] = { speed: speedOf(g[0]), stop: frontStop(), brake: ARRIVE_BRAKE };
       stops.set(lane(g[0]), this.arrivals[i].stop);
     }
     for (const [g, i] of back) {
       const ahead = stops.get(lane(g[0])) ?? (tracking ? playerStop + TRACK_FRONT_LATER[1] : ARRIVE_FRONT_STOP[1]);
-      this.arrivals[i] = { speed: speedOf(g[0]), stop: ahead + within(tracking ? TRACK_BACK_LATER : ARRIVE_BACK_LATER) };
+      this.arrivals[i] = { speed: speedOf(g[0]), stop: ahead + within(tracking ? TRACK_BACK_LATER : ARRIVE_BACK_LATER), brake: ARRIVE_BRAKE };
     }
     // Every car through the bends' shots, the grid's front first (the left lane first on a row).
     const road = scene.road;
@@ -316,6 +336,22 @@ export class Intro {
       }
     }
     this.shots = this.script(kind, car.y);
+    // Back on the grid after a bend's shot (its first): creeping up to their places (CREEP_*), from its cut.
+    if (kind === 'skyline' || kind === 'hairpin') {
+      const cut = this.shots[0].seconds;
+      const crawls = new Map<number, number>();
+      const crawl = (x: number) => crawls.get(lane(x)) ?? crawls.set(lane(x), within(CREEP_SPEED)).get(lane(x))!;
+      const creep = (x: number, stop: number): Arrival => ({ speed: crawl(x), stop: cut + stop, brake: CREEP_BRAKE });
+      this.playerArrival = creep(0, CREEP_PLAYER_STOP[kind]);
+      const rowStops = new Map<number, number>([[0, CREEP_PLAYER_STOP[kind]]]);
+      for (const [g, i] of front) {
+        this.arrivals[i] = creep(g[0], within(CREEP_FRONT_STOP[kind]));
+        rowStops.set(lane(g[0]), this.arrivals[i].stop - cut);
+      }
+      for (const [g, i] of back) {
+        this.arrivals[i] = creep(g[0], (rowStops.get(lane(g[0])) ?? CREEP_FRONT_STOP[kind][1]) + within(CREEP_BACK_LATER));
+      }
+    }
   }
 
   /** Total length (s). */
@@ -345,16 +381,6 @@ export class Intro {
     const done = this.shot >= this.shots.length;
     const s = this.shots[Math.min(this.shot, this.shots.length - 1)];
     const car = this.scene.player;
-    if (this.drawnArriving) {
-      // Drawn arriving, their brake lights on while they brake.
-      const braking = (a: { stop: number }) => a.stop - this.elapsed > 0 && a.stop - this.elapsed <= ARRIVE_BRAKE;
-      car.showOffset = arriving(this.playerArrival.speed, this.playerArrival.stop, this.elapsed);
-      car.showBrake = braking(this.playerArrival);
-      this.scene.rivals.forEach((r, i) => {
-        r.showOffset = arriving(this.arrivals[i].speed, this.arrivals[i].stop, this.elapsed);
-        r.showBrake = braking(this.arrivals[i]);
-      });
-    }
     if (!done && s.blip !== undefined && this.t >= s.blip && this.blipAt === null) this.blipAt = 0;
     else if (this.blipAt !== null) this.blipAt += dt;
     // The cars through a bend (the player's among them), or back on the grid at the cut.
@@ -368,6 +394,16 @@ export class Intro {
         c.showRev = null;
       }
     });
+    if (this.drawnArriving) {
+      // Drawn arriving, their brake lights on while they brake (through a bend: drawn there, as it has them).
+      const braking = (a: Arrival) => a.stop - this.elapsed > 0 && a.stop - this.elapsed <= a.brake;
+      car.showOffset = arriving(this.playerArrival, this.elapsed);
+      if (!passing) car.showBrake = braking(this.playerArrival);
+      this.scene.rivals.forEach((r, i) => {
+        r.showOffset = arriving(this.arrivals[i], this.elapsed);
+        if (!passing) r.showBrake = braking(this.arrivals[i]);
+      });
+    }
     if (!passing) car.showRev = this.blipAt === null ? null : this.rev(this.blipAt);
     if (done) this.end();
     return done;
@@ -444,21 +480,21 @@ export class Intro {
     if (!this.drawnArriving) return [];
     const t = this.elapsed;
     return [
-      [this.scene.player, arrivalBraking(this.playerArrival.speed, this.playerArrival.stop, t)],
-      ...this.scene.rivals.map((r, i) => [r, arrivalBraking(this.arrivals[i].speed, this.arrivals[i].stop, t)] as [PlayerCar, number]),
+      [this.scene.player, arrivalBraking(this.playerArrival, t)],
+      ...this.scene.rivals.map((r, i) => [r, arrivalBraking(this.arrivals[i], t)] as [PlayerCar, number]),
     ];
   }
 
-  /** Whether the cars are drawn arriving (and braking to their places). */
+  /** Whether the cars are drawn arriving (and braking to their places; the bends' shots, creeping up to them). */
   private get drawnArriving(): boolean {
-    return this.kind === 'arrival' || this.kind === 'tracking' || this.kind === 'climb';
+    return this.kind === 'arrival' || this.kind === 'tracking' || this.kind === 'climb' || this.kind === 'skyline' || this.kind === 'hairpin';
   }
 
   /** How far a camera riding along with `ride` is from the grid now (m ahead: < 0 behind). */
   private along(ride: Ride | undefined): number {
     if (!ride) return 0;
-    const { speed, stop } = this.playerArrival;
-    return ride === 'car' ? arriving(speed, stop, this.elapsed) : -speed * (stop - ARRIVE_BRAKE / 2 - this.elapsed);
+    const a = this.playerArrival;
+    return ride === 'car' ? arriving(a, this.elapsed) : -a.speed * (a.stop - a.brake / 2 - this.elapsed);
   }
 
   /** The camera where this frame's shot has it. */
@@ -598,7 +634,7 @@ export class Intro {
       const right = front.filter((g) => g.x > 0).sort((a, b) => a.x - b.x);
       const passer = left[0] ?? right[0] ?? { x: 0, z: 0, ...this.playerArrival };
       const passAt = 1.3 + 0.8 + 0.7 + TRACK_PASS;
-      const passZ = passer.z + arriving(passer.speed, passer.stop, passAt);
+      const passZ = passer.z + arriving(passer, passAt);
       const passX = passer.x === 0 ? TRACK_X : passer.x / 2;
       const wheelStop: Pose = { pos: [-track - 1.2, 0.33, half - 1.1], look: [-track, r + 0.05, half], fov: 30 };
       return [
