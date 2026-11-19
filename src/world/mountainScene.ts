@@ -8,12 +8,13 @@ import { roadRows } from '../road/surface';
 import { repeating, type Scenery, withAsphalt } from './roadScene';
 
 /** Night on the mountain: no street lights - the cars' lamps, the moon and the stars. */
-const SKY = 0x04060d;
-const FOG = 0x06080f;
+// (the player's: a moonlit night, not a black one - 0x04060d and 0x06080f at first; the ridges dark against it)
+const SKY = 0x1c2a48;
+const FOG = 0x182236;
 const LIGHT = {
-  // (the player's: no street lights, a little more about - 0.5 and 0.35 at first)
-  hemi: 0.9,
-  moon: 0.5,
+  // (the player's: no street lights, a little more about - 0.5 and 0.35 at first, then 0.9 and 0.5)
+  hemi: 2.0,
+  moon: 1.1,
 };
 /** The road's markings: the centre's double yellow line (d, m). */
 const CENTRE_LINE = { off: 0.12, width: 0.1 };
