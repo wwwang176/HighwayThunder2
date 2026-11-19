@@ -175,6 +175,8 @@ const VARY_TIME = 0.06;
 const VARY_SIDE = { drift: 0.6, sway: 0.3, cruise: 0.35 };
 const VARY_SLIP = 0.15;
 const VARY_WAVER = 0.06;
+/** ... and its engine this much (a share of idle..redline) higher or lower. */
+const VARY_REV = 0.06;
 /** Its shot: straight down from this high (m), sliding this far either side of the middle (m), this long (s). */
 const TOP_HEIGHT = 26;
 const TOP_SLIDE = 8;
@@ -258,7 +260,7 @@ export class Intro {
    * road; their rear tyres' smoke now. */
   private readonly passCars: { car: PlayerCar; ride: number }[] = [];
   /** Each of them its own (VARY_*: -1..1 each, picked as the intro starts) - its time, its side, its slip, its sway's phase. */
-  private readonly passVary: { time: number; side: number; slip: number; phase: number }[] = [];
+  private readonly passVary: { time: number; side: number; slip: number; phase: number; rev: number }[] = [];
   private passPuffs: Puff[] = [];
 
   constructor(
@@ -310,7 +312,7 @@ export class Intro {
       const any = () => 2 * Math.random() - 1;
       for (const [c, [x, y, z]] of all) {
         this.passCars.push({ car: c, ride: y - road.surfaceHeight(scene.player.s + z, scene.player.d + x) });
-        this.passVary.push({ time: any(), side: any(), slip: any(), phase: Math.PI * any() });
+        this.passVary.push({ time: any(), side: any(), slip: any(), phase: Math.PI * any(), rev: any() });
       }
     }
     this.shots = this.script(kind, car.y);
@@ -407,7 +409,10 @@ export class Intro {
     // Heard as drawn: going its way at its speed; its tyres squealing as fast as it slides sideways (a drift's, full;
     // gripping, none); its engine held high on the throttle drifting (wavering), off it braking in (falling).
     const sliding = pass.smoke && now.slip >= 0.15;
-    const share = sliding ? DRIFT_REV + 0.04 * Math.sin(t * 5) : CRUISE_REV - 0.12 * Math.min(1, t / 2);
+    // (each its own rev and its own waver: four engines as one sounded as one)
+    const v = this.passVary[k];
+    const own = v ? VARY_REV * v.rev : 0;
+    const share = sliding ? DRIFT_REV + own + 0.04 * Math.sin(t * (4 + own * 20) + (v?.phase ?? 0)) : CRUISE_REV + own - 0.12 * Math.min(1, t / 2);
     car.showPose = { pos: at, quat, rolled: now.s, steer, vel: go.clone().multiplyScalar(speed), slip: sliding ? speed * Math.sin(now.slip) + 3 : 0 };
     car.showBrake = pass.brake ?? null;
     car.showRev = { rpm: p.idleRpm + share * (p.redline - p.idleRpm), throttle: sliding ? 1 : 0 };
@@ -772,7 +777,7 @@ export class Intro {
     // little early or late, off to one side, swaying, its own angle (passVary).
     const middleLine = (s: number) => (dir * (edges.at(s, dir as 1 | -1) - edges.at(s, -dir as 1 | -1))) / 2;
     const train = (this.passCars.length - 1) / 2;
-    const vary = (k: number) => this.passVary[k] ?? { time: 0, side: 0, slip: 0, phase: 0 };
+    const vary = (k: number) => this.passVary[k] ?? { time: 0, side: 0, slip: 0, phase: 0, rev: 0 };
     const drift = (seconds: number): Pass => ({
       at: (t, k) => {
         const v = vary(k);
