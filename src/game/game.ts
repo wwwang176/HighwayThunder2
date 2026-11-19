@@ -307,6 +307,8 @@ export class Game {
   private introMarks = new Set<number>();
   /** The hood camera instead of the chase camera (V). */
   private hoodCam = false;
+  /** The player's high beam, on or off by X (each race starts with it off on the highway, on on the mountain road). */
+  private highBeamOn = false;
   /** The mountain road's camera arm: how far out it is now (0..1 of where the camera would be; cameraArm). */
   private armShare = 1;
   /** The finish's show (past the line, till the next race), and the gate it is at. */
@@ -577,6 +579,7 @@ export class Game {
       this.hoodCam = !this.hoodCam;
       this.endIntroShot(); // (in the countdown: the view switched seen at once, not after the intro's last shot)
     });
+    k.onPress('KeyX', () => !g.isOpen && (this.highBeamOn = !this.highBeamOn));
     k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
     k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
@@ -646,7 +649,8 @@ export class Game {
    */
   private async setUpRace(cars?: CarSelection): Promise<void> {
     this.loadingRace = true;
-    const accent = CAR_CARDS.find((c) => c.id === (cars ?? this.cars).player)?.accent ?? '#ff3b30';
+    this.highBeamOn = this.mountain; // (each race's start: off on the highway, on on the dark mountain road)
+    const accent =CAR_CARDS.find((c) => c.id === (cars ?? this.cars).player)?.accent ?? '#ff3b30';
     this.loading.show(accent);
     await this.loading.hold();
     await this.loading.next('loading.grid', 0.1);
@@ -1298,8 +1302,8 @@ export class Game {
    * the one brightness (HEADLIGHTS: the tuning panel's). The rivals left without one: their beams painted on the road.
    */
   private lightRivals(play: number): LitCar[] {
-    // The high beam while X is held (in the race: not in the garage); drawn through a bend in an intro, as the rivals'.
-    const high = (!this.garage.isOpen && this.keyboard.isDown('KeyX')) || !!this.player.showPose;
+    // The high beam as X left it (in the race: not in the garage); drawn through a bend in an intro, as the rivals'.
+    const high = (!this.garage.isOpen && this.highBeamOn) || !!this.player.showPose;
     if (high !== this.player.highBeam) this.player.setHighBeam(high);
     for (const l of this.player.headlights) l.intensity = (HEADLIGHTS.pair / 2) * (high ? HEADLIGHTS.high : 1);
     const racing = this.flow.phase === 'racing';
