@@ -79,7 +79,7 @@ export const STRINGS = {
   'keys.view': { zh: '切換引擎蓋視角', en: 'Hood camera' },
   'keys.reset': { zh: '重置到車道上', en: 'Back on the road' },
   'keys.ai': { zh: 'AI 接手駕駛', en: 'AI takes the wheel' },
-  'keys.highBeam': { zh: '遠光燈（按住）', en: 'High beam (hold)' },
+  'keys.highBeam': { zh: '遠光燈（開／關）', en: 'High beam (on / off)' },
   'keys.pause': { zh: '暫停', en: 'Pause' },
   'keys.mute': { zh: '靜音', en: 'Mute' },
   'keys.nextSong': { zh: '下一首音樂', en: 'Next song' },
