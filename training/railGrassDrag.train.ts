@@ -86,15 +86,22 @@ it('rail and grass drag', async () => {
   await RAPIER.init();
   const on = { ...SURFACE_DRAG };
   const out: string[] = [];
+  // (each run with the drag off, then at each scale of SURFACE_DRAG's own: x1 is the game's)
+  const scales = (process.env.DRAG_SCALES ?? '1').split(',').map(Number);
   for (const run of RUNS) {
     SURFACE_DRAG.rail = 0;
     SURFACE_DRAG.grass = 0;
     const before = drive(run);
-    Object.assign(SURFACE_DRAG, on);
-    const after = drive(run);
     const fmt = (r: { at: number[]; lean: number; ok: boolean; landed: number | null }) =>
       `${r.landed !== null ? `landing at ${r.landed.toFixed(2)}, then ` : ''}${r.at.map((v) => v.toFixed(0)).join(' / ')} km/h, lean ${r.lean.toFixed(1)}°${r.ok ? '' : '  OFF / OVER'}`;
-    out.push(`${run.name}\n  off: ${fmt(before)}\n  on:  ${fmt(after)}   (3 s: ${(after.at[2] - before.at[2]).toFixed(1)} km/h)`);
+    const lines = [`${run.name}\n  off:  ${fmt(before)}`];
+    for (const k of scales) {
+      SURFACE_DRAG.rail = on.rail * k;
+      SURFACE_DRAG.grass = on.grass * k;
+      const after = drive(run);
+      lines.push(`  x${k}: ${fmt(after)}   (3 s: ${(after.at[2] - before.at[2]).toFixed(1)} km/h)`);
+    }
+    out.push(lines.join('\n'));
   }
   Object.assign(SURFACE_DRAG, on);
   process.stdout.write(out.join('\n') + '\n');
