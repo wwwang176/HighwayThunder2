@@ -24,6 +24,8 @@ interface Run {
   aim: number;
   throttle: number;
   seconds: number;
+  /** Put this far (m) above the ground to start: in the air till it lands (its speed as it lands, km/h, shown). */
+  lift?: number;
 }
 
 const RUNS: Run[] = [
@@ -35,9 +37,11 @@ const RUNS: Run[] = [
   { name: 'grass, all four, full throttle from 100', road: STRAIGHT_ROAD, s: 400, d: -15, kmh: 100, aim: 0, throttle: 1, seconds: 3 },
   { name: 'grass, left two (at the median edge), full throttle from 100', road: STRAIGHT_ROAD, s: 400, d: -10, kmh: 100, aim: 0, throttle: 1, seconds: 3 },
   { name: 'asphalt, coasting from 150 (for comparison)', road: STRAIGHT_ROAD, s: 400, d: 0, kmh: 150, aim: 0, throttle: 0, seconds: 3 },
+  { name: 'asphalt by the grass (its left wheels 0.2 m off it), coasting from 150', road: STRAIGHT_ROAD, s: 400, d: -9, kmh: 150, aim: 0, throttle: 0, seconds: 3 },
+  { name: 'over the grass in the air (dropped from 1.5 m), coasting from 150', road: STRAIGHT_ROAD, s: 400, d: -15, kmh: 150, aim: 0, throttle: 0, seconds: 3, lift: 1.5 },
 ];
 
-function drive(run: Run): { at: number[]; lean: number; ok: boolean } {
+function drive(run: Run): { at: number[]; lean: number; ok: boolean; landed: number | null } {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   physics.setRoad(run.road);
@@ -45,8 +49,14 @@ function drive(run: Run): { at: number[]; lean: number; ok: boolean } {
   car.road = run.road;
   car.surfaceGrip = surfaceGrip;
   car.resetAt(run.s, run.d, run.kmh * KMH);
+  if (run.lift) {
+    const t = car.body.translation();
+    car.body.setTranslation({ x: t.x, y: t.y + run.lift, z: t.z }, true);
+  }
   const at: number[] = [];
   let lean = 0;
+  let landed: number | null = null;
+  let air = run.kmh;
   const steps = Math.round(run.seconds / PHYSICS_DT);
   for (let i = 1; i <= steps; i++) {
     const ff = (run.road.curvature(car.s) * car.params.wheelbase) / 0.12;
@@ -54,6 +64,10 @@ function drive(run: Run): { at: number[]; lean: number; ok: boolean } {
     car.prePhysics({ throttle: run.throttle, brake: 0, steer }, PHYSICS_DT);
     physics.step(() => {});
     car.postPhysics();
+    // (its speed the step before a wheel first touched: all the way down in the air)
+    const v0 = car.body.linvel();
+    if (run.lift && landed === null && car.wheels.some((w) => w.inContact)) landed = air;
+    air = Math.hypot(v0.x, v0.z) / KMH;
     const r = car.body.rotation();
     const upY = 1 - 2 * (r.x * r.x + r.z * r.z);
     lean = Math.max(lean, (Math.acos(Math.min(1, upY)) * 180) / Math.PI);
@@ -65,7 +79,7 @@ function drive(run: Run): { at: number[]; lean: number; ok: boolean } {
   const r = car.body.rotation();
   const ok = car.d < RAIL_D && car.d > LEFT_RAIL_X && 1 - 2 * (r.x * r.x + r.z * r.z) > 0.9;
   physics.free();
-  return { at, lean, ok };
+  return { at, lean, ok, landed };
 }
 
 it('rail and grass drag', async () => {
@@ -78,8 +92,8 @@ it('rail and grass drag', async () => {
     const before = drive(run);
     Object.assign(SURFACE_DRAG, on);
     const after = drive(run);
-    const fmt = (r: { at: number[]; lean: number; ok: boolean }) =>
-      `${r.at.map((v) => v.toFixed(0)).join(' / ')} km/h, lean ${r.lean.toFixed(1)}°${r.ok ? '' : '  OFF / OVER'}`;
+    const fmt = (r: { at: number[]; lean: number; ok: boolean; landed: number | null }) =>
+      `${r.landed !== null ? `landing at ${r.landed.toFixed(2)}, then ` : ''}${r.at.map((v) => v.toFixed(0)).join(' / ')} km/h, lean ${r.lean.toFixed(1)}°${r.ok ? '' : '  OFF / OVER'}`;
     out.push(`${run.name}\n  off: ${fmt(before)}\n  on:  ${fmt(after)}   (3 s: ${(after.at[2] - before.at[2]).toFixed(1)} km/h)`);
   }
   Object.assign(SURFACE_DRAG, on);
