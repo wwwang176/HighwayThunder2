@@ -2,7 +2,7 @@ import { CAR_CARDS, CarSelection, type Course, COURSE_RIVALS, COURSES, MAX_RIVAL
 import { DIFFICULTIES } from '../game/difficulty';
 import { paintJobs, type PaintJob } from '../vehicles/carModels';
 import { CARS } from '../vehicles/cars';
-import { GarageScene, VIEW } from './garageScene';
+import { GarageScene, SHOTS, VIEW } from './garageScene';
 import { applyLang, getLang, onLangChange, t, tx, type Key } from './i18n';
 import type { SettingsPopup } from './settings';
 import { installTooltips } from './tooltip';
@@ -336,11 +336,12 @@ export class Garage {
       if (this.q('.g-setup').contains(document.activeElement)) (document.activeElement as HTMLElement).blur(); // (its tip with it)
       this.el.classList.remove('setup');
       this.preview.slide(VIEW.garage, true);
+      this.preview.shot(null);
     }
     if (this.tuneOpen) {
       this.el.classList.remove('tune');
       this.preview.slide(VIEW.garage, true);
-      this.preview.closeUp(false);
+      this.preview.shot(null);
     }
   }
 
@@ -352,7 +353,7 @@ export class Garage {
     this.tuneHover = null;
     this.el.classList.add('tune');
     this.preview.slide(VIEW.tune, true);
-    this.preview.closeUp(true);
+    this.preview.shot(SHOTS.tune);
     this.draw();
     this.fitTune();
     (document.activeElement as HTMLElement | null)?.blur();
@@ -453,13 +454,14 @@ export class Garage {
     this.draw();
   }
 
-  /** The race setup, from the right (its card, or E): the car slides left beside it, the garage's own type fades. */
+  /** The race setup, from the right (its card, or E): the car slides left beside it (the camera in a little, higher), the garage's own type fades. */
   openSetup(): void {
     if (this.titleOn || this.setupOpen) return;
     this.closePop();
     this.row = 0;
     this.el.classList.add('setup');
     this.preview.slide(VIEW.setup, true);
+    this.preview.shot(SHOTS.setup);
     this.draw();
     this.fitSetup();
     (document.activeElement as HTMLElement | null)?.blur();
