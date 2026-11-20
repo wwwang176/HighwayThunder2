@@ -125,6 +125,9 @@ function tachoSvg(): string {
   return s;
 }
 
+/** "Overtake" shown, not again for this long (s of race time). */
+const OVERTAKE_GAP = 1;
+
 const setAttrs = (e: Element, attrs: Record<string, string>) => Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
 
 /**
@@ -141,6 +144,8 @@ export class Hud {
   /** How long more the drift's total stays up after it ended (s; Infinity: a drift on). */
   private driftHold = 0;
   private lastPlace: number | null = null;
+  /** When "overtake" last showed (race time, s): not again within OVERTAKE_GAP. */
+  private overtakeAt = -Infinity;
   private dots: HTMLElement[] = [];
   private readonly blocks: SVGPolygonElement[];
   private readonly nitroBlocks: SVGPolygonElement[];
@@ -386,7 +391,10 @@ export class Hud {
       this.show('pause', phase === 'paused');
       this.show('finish', false); // (in after the finish's show: revealFinish)
       this.finishShown = false;
-      if (phase === 'countdown') this.lastPlace = null;
+      if (phase === 'countdown') {
+        this.lastPlace = null;
+        this.overtakeAt = -Infinity;
+      }
       if (phase === 'countdown' && from === 'intro') {
         // Coming in as the intro hands over (the class again: the animation from its start).
         this.el.hud.classList.remove('enter');
@@ -424,12 +432,16 @@ export class Hud {
 
     this.el.time.innerHTML = timeHtml(phase === 'finished' ? (flow.finishTime ?? 0) : flow.raceTime);
     this.el.remain.textContent = (Math.max(0, this.flow.length - f.playerS) / 1000).toFixed(2);
-    // Place, and an overtake (racing only: the grid shuffles at the start).
+    // Place, and an overtake (racing only: the grid shuffles at the start; not again within OVERTAKE_GAP - side by
+    // side, the place goes back and forth).
     this.el.placeBox.style.display = many ? '' : 'none';
     this.el.place.textContent = String(f.place);
     this.el.of.textContent = `/${f.racers.length}`;
     if (phase === 'racing' && many) {
-      if (overtook(this.lastPlace, f.place) && flow.raceTime > 1) this.message(t('toast.overtake'), 1.2);
+      if (overtook(this.lastPlace, f.place) && flow.raceTime > 1 && flow.raceTime - this.overtakeAt >= OVERTAKE_GAP) {
+        this.message(t('toast.overtake'), 1.2);
+        this.overtakeAt = flow.raceTime;
+      }
       this.lastPlace = f.place;
     }
     this.drawTrack(f);
