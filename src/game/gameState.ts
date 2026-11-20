@@ -1,4 +1,5 @@
 import { BEST_TIME_KEY, COUNTDOWN_SECONDS, RESET_COOLDOWN, ROAD_LENGTH } from '../config';
+import { crossFraction } from '../vehicles/outline';
 
 /** `intro`: the cars on the grid, the camera showing them round (game/intro), before the countdown. */
 export type Phase = 'title' | 'intro' | 'countdown' | 'racing' | 'paused' | 'finished';
@@ -17,6 +18,8 @@ export class GameFlow {
   best: number | null;
   isBest = false;
   private pausedFrom: Phase = 'racing';
+  /** The front of the player's body last step (update's `playerLead`; -Infinity: none yet). */
+  private lastLead = -Infinity;
 
   /** `bestKey`: where its best time is kept (the curved road's apart from the straight one's). */
   constructor(
@@ -40,6 +43,7 @@ export class GameFlow {
     this.topSpeed = 0;
     this.resetCooldown = 0;
     this.isBest = false;
+    this.lastLead = -Infinity;
   }
 
   /** The intro over (or skipped): the countdown starts. Only from the intro. */
@@ -53,7 +57,13 @@ export class GameFlow {
     this.phase = 'title';
   }
 
-  update(dt: number, playerS: number): void {
+  /**
+   * `dt` s on; `playerLead`: how far along the road the front of the player's body is now (PlayerCar.lead). It over
+   * the line: finished, its time where in the step it got there (between the last step's and this one's).
+   */
+  update(dt: number, playerLead: number): void {
+    const prev = this.lastLead;
+    this.lastLead = playerLead;
     if (this.phase === 'countdown') {
       this.countdown -= dt;
       if (this.countdown <= 0) {
@@ -66,16 +76,16 @@ export class GameFlow {
     if (this.phase !== 'racing') return;
     this.raceTime += dt;
     this.resetCooldown = Math.max(0, this.resetCooldown - dt);
-    if (playerS >= this.length) this.finish();
+    if (playerLead >= this.length) this.finish(this.raceTime - dt * (1 - crossFraction(prev, playerLead, this.length)));
   }
 
-  private finish(): void {
+  private finish(time: number): void {
     this.phase = 'finished';
-    this.finishTime = this.raceTime;
-    if (this.best === null || this.raceTime < this.best) {
-      this.best = this.raceTime;
+    this.raceTime = this.finishTime = time;
+    if (this.best === null || time < this.best) {
+      this.best = time;
       this.isBest = true;
-      this.storage.setItem(this.bestKey, String(this.raceTime));
+      this.storage.setItem(this.bestKey, String(time));
     }
   }
 

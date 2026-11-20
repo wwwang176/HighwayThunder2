@@ -7,6 +7,7 @@ import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics
 import { arcadeEnterFrom, arcadeShare, arcadeTurn, CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
+import { outlineOf, reachAhead } from './outline';
 import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLights } from './models';
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
 import { AIM_DOWN, createHeadlight, HEADLIGHT_DECAY, HEADLIGHTS, HIGH_BEAM_DECAY } from './headlight';
@@ -258,6 +259,9 @@ export class PlayerCar {
   private lastVx = NaN;
   private lastVz = 0;
 
+  /** Its body's outline from above (outlineOf): how far along the road it reaches (`lead`). */
+  private readonly outline: number[];
+
   private prevPos = new THREE.Vector3();
   private currPos = new THREE.Vector3();
   private prevQuat = new THREE.Quaternion();
@@ -274,6 +278,7 @@ export class PlayerCar {
     this.style = spec.style;
     this.params = { ...spec.params };
     const p = this.params;
+    this.outline = outlineOf(spec.collider, p.width, p.length);
     const ghost = !opts.entity && scene === null;
     const entity = opts.entity ?? { type: 'player' };
     // The mass is the body's own (COM at body y + comY, comFwd toward the nose), not its colliders' (they
@@ -379,6 +384,14 @@ export class PlayerCar {
 
   get length(): number {
     return this.params.length;
+  }
+
+  /**
+   * How far along the road (m, as `s`) the frontmost point of its body is, whichever way it faces (going backwards:
+   * its tail): the race's places and its finish go by it.
+   */
+  get lead(): number {
+    return this.s + reachAhead(this.outline, this.yaw);
   }
 
   /** Yaw rate (rad/s), positive turning toward +d like `yaw`: against the road's, as `yaw` (on a bend the road turns as it goes along it). */
