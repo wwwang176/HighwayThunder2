@@ -431,10 +431,10 @@ export class Game {
     this.music.onSong = (song) => this.nowPlaying.show(songTitle(song));
     this.gui = createTuningPanel(this.player.params, this.rig.params, this.trafficSettings, this.aiSettings);
     this.bindKeys();
-    // Any key or click skips the intro, and the finish's show (its panel in on the next frame: the same key not
-    // also picking from it).
-    addEventListener('keydown', () => this.skipShows());
-    addEventListener('pointerdown', () => this.skipShows());
+    // Esc or Space skips the intro, and the finish's show (its panel in on the next frame: the same key not also
+    // picking from it) - only those, pressed (a key held from before, repeating, not; nor the race's own keys).
+    // (After the keyboard's own handlers: Esc in the intro is not the countdown's pause as well.)
+    addEventListener('keydown', (e) => !e.repeat && (e.code === 'Escape' || e.code === 'Space') && this.skipShows());
     this.resize();
     addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
@@ -745,7 +745,7 @@ export class Game {
   }
 
   /**
-   * A key or a click in the intro: straight to the countdown, the chase camera. Only once it is playing: the race's
+   * Esc or Space in the intro: straight to the countdown, the chase camera. Only once it is playing: the race's
    * phase is the intro's already as the race is set up under the loading screen, and a key there would start the
    * countdown under the intro still to come.
    */
@@ -760,7 +760,7 @@ export class Game {
     if (this.flow.phase === 'countdown') this.finishIntro();
   }
 
-  /** A key or a click: the intro skipped, or the finish's show (to its end: the panel). */
+  /** Esc or Space: the intro skipped, or the finish's show (to its end: the panel). */
   private skipShows(): void {
     this.skipIntro();
     if (this.flow.phase === 'finished' && this.finishShow && !this.finishShow.done) this.finishShow.skip();

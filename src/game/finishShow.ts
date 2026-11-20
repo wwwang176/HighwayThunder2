@@ -54,7 +54,7 @@ const ORBIT = 0.12;
  * the roadside coming past the finish, slowing into slow motion, then low behind it as it brakes,
  * then from up ahead of it looking back at the finish - and then on round it, slowly,
  * behind the panel (`done`: the panel's time). Runs on real time (it is what slows the race down: finishTimeScale);
- * a key skips it to its end.
+ * Esc or Space skips it to its end.
  */
 export class FinishShow {
   private readonly shots: Shot[];

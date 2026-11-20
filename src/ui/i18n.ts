@@ -110,7 +110,7 @@ export const STRINGS = {
   'toast.driftTime': { zh: '{s} 秒', en: '{s}s' },
   'hud.slide': { zh: '側滑 {deg}°', en: 'Slide {deg}°' },
   'toast.noAi': { zh: '沒有可用的 AI 駕駛（請先在 lab/train.html 訓練並存檔）', en: 'No AI driver yet (train and save one in lab/train.html first)' },
-  'intro.skip': { zh: '按任意鍵跳過', en: 'Press any key to skip' },
+  'intro.skip': { zh: '按 Esc 或空白鍵跳過', en: 'Press Esc or Space to skip' },
   'pause.kicker': { zh: 'Paused', en: '' },
   'pause.title': { zh: '暫停', en: 'Paused' },
   'pause.resume': { zh: '繼續', en: 'Resume' },
