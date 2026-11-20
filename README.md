@@ -36,8 +36,8 @@ https://highwaythunder2.wwwang.tw/
     <td><img src="docs/screenshots/nitro-traffic.jpg" alt="噴氮氣衝進車流"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/drift.jpg" alt="甩尾的對手就在身旁"></td>
-    <td><img src="docs/screenshots/three-wide.jpg" alt="被兩台對手左右包夾"></td>
+    <td><img src="docs/screenshots/mountain-hairpin.jpg" alt="山路：四台車一路排進髮夾彎"></td>
+    <td><img src="docs/screenshots/mountain-drift.jpg" alt="山路：兩台車並排甩尾、前輪反打"></td>
   </tr>
 </table>
 
