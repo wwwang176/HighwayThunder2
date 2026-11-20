@@ -15,6 +15,7 @@ import { CarSpec, STREET_RACER } from '../vehicles/cars';
 import { randomLivery } from '../vehicles/carModels';
 import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
+import { crossFraction } from '../vehicles/outline';
 import { Blocker, clearResetSpot } from './reset';
 import { trackerFrom } from '../ai/netTracker';
 import type { CarParams } from '../vehicles/handling';
@@ -159,7 +160,7 @@ function setGhost(car: PlayerCar, ghost: boolean): void {
 
 /**
  * The player's place (1 = leading): rivals that finished before the player,
- * plus - while the player has not finished - those further down the road.
+ * plus - while the player has not finished - those further down the road (`s`: each one's front, PlayerCar.lead).
  */
 export function placeOf(playerS: number, playerFinish: number | null, rivals: { s: number; finishTime: number | null }[]): number {
   let ahead = 0;
@@ -288,6 +289,8 @@ export interface Rival<D extends RivalDriver = PlannerDriver> {
   /** When it uses its nitro (by rule: nitro.ts). */
   nitroAi: NitroAi;
   finishTime: number | null;
+  /** The front of its body last step (PlayerCar.lead; -Infinity: none yet): where in a step it got over the line. */
+  lastLead: number;
   resets: number;
   /** s left before it may be put back again (no clear spot last time: RESET_RETRY). */
   resetWait: number;
@@ -375,7 +378,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
         Object.assign(car.params, base);
         car.applyMass(); // (a setup may move its centre of mass)
       }
-      const r: Rival<D> = { index: i, spec, tuning: {}, base, car, driver, stuckFor: 0, push: 0, ghost: false, blind: false, nitroAi: new NitroAi(), finishTime: null, resets: 0, resetWait: 0, gridRev: gridRevStart() };
+      const r: Rival<D> = { index: i, spec, tuning: {}, base, car, driver, stuckFor: 0, push: 0, ghost: false, blind: false, nitroAi: new NitroAi(), finishTime: null, lastLead: -Infinity, resets: 0, resetWait: 0, gridRev: gridRevStart() };
       car.surfaceGrip = (x) => surfaceGrip(x) * (1 + gripBoost * r.push);
       this.list.push(r);
     }
@@ -432,6 +435,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
       r.ghost = r.blind = false;
       setGhost(r.car, false);
       r.finishTime = null;
+      r.lastLead = -Infinity;
       r.resets = 0;
       r.resetWait = 0;
       r.gridRev = gridRevStart();
@@ -493,7 +497,11 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
       r.car.postPhysics();
       if (!racing) continue;
       const c = r.car;
-      if (r.finishTime === null && c.s >= this.length) r.finishTime = view.raceTime;
+      // Over the line: the front of its body (PlayerCar.lead), its time where in the step it got there (the race's
+      // time as the step began: view's).
+      const lead = c.lead;
+      if (r.finishTime === null && lead >= this.length) r.finishTime = view.raceTime + dt * crossFraction(r.lastLead, lead, this.length);
+      r.lastLead = lead;
       r.stuckFor = c.speed < RIVAL_TUNING.stuckSpeed ? r.stuckFor + dt : 0;
       r.resetWait = Math.max(0, r.resetWait - dt);
       if (r.resetWait > 0) continue;
@@ -533,9 +541,9 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
     return out;
   }
 
-  /** The player's place in the race (1 = leading). */
-  rank(playerS: number, playerFinish: number | null): number {
-    return placeOf(playerS, playerFinish, this.list.map((r) => ({ s: r.car.s, finishTime: r.finishTime })));
+  /** The player's place in the race (1 = leading): `playerLead` and theirs, the fronts of the bodies (PlayerCar.lead). */
+  rank(playerLead: number, playerFinish: number | null): number {
+    return placeOf(playerLead, playerFinish, this.list.map((r) => ({ s: r.car.lead, finishTime: r.finishTime })));
   }
 
   render(alpha: number, flares?: LightFlares): void {

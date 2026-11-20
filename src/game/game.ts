@@ -1220,7 +1220,7 @@ export class Game {
 
     const wasFinished = this.flow.phase === 'finished';
     const counting = this.flow.phase === 'countdown', countdownWas = this.flow.countdown;
-    this.flow.update(dt, this.player.s);
+    this.flow.update(dt, this.player.lead);
     // The countdown's impact IMPACT_PEAK s ahead of each number (2, 1) and of the green: its loudest as it shows.
     if (counting) {
       const left = this.flow.phase === 'countdown' ? this.flow.countdown : 0;
@@ -1713,8 +1713,8 @@ export class Game {
       this.hud.revealFinish();
     }
     // The finish gate: a flare where each racer goes through it.
-    this.gate.pass(-1, this.player.s, this.player.d);
-    for (const r of this.rivals.list) this.gate.pass(r.index, r.car.s, r.car.d);
+    this.gate.pass(-1, this.player.lead, this.player.d); // (as it finishes: the front of its body through the curtain)
+    for (const r of this.rivals.list) this.gate.pass(r.index, r.car.lead, r.car.d);
     this.gate.update(play, this.camera.position);
     this.speedBlur(play, look);
     // The traffic's bodies, those in this frame's view (the camera placed).
@@ -1763,7 +1763,7 @@ export class Game {
       nitro: this.player.nitro.level,
       nitroOn: this.player.nitro.active,
       aiDriving: this.aiActive && this.flow.phase === 'racing',
-      place: this.rivals.rank(this.player.s, this.flow.finishTime),
+      place: this.rivals.rank(this.player.lead, this.flow.finishTime),
       shake: this.rig.shaken,
       racers: [
         { s: this.player.s, d: this.player.d, color: '#fff', me: true },
