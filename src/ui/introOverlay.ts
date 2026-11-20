@@ -2,7 +2,7 @@ import { t } from './i18n';
 
 /**
  * What goes over the picture around a race's intro: a fade to black and back (from the garage, the race set up
- * behind it), the letterbox bars, and a hint that a key skips it.
+ * behind it), the letterbox bars, and a hint that Esc or Space skips it.
  */
 export class IntroOverlay {
   private readonly fade: HTMLDivElement;
