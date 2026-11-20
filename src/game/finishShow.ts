@@ -4,7 +4,7 @@ import type { PlayerCar } from '../vehicles/playerCar';
 
 /**
  * Past the line, the race eased down from full speed to `scale` of it over `ease` s (the show's own, real time),
- * and held there through the shots; the panel in, eased to `panel` over `settle` s, and kept there.
+ * and held there; the panel in, eased to `panel` over `settle` s, and kept there.
  */
 export const FINISH_SLOW = { scale: 0.15, ease: 0.6, panel: 0.2, settle: 0.8 };
 
@@ -46,15 +46,17 @@ const linear = (t: number) => t;
 
 /** The first shot (s): from the roadside past the gate, the car seen coming through it, slowed (FINISH_SLOW). */
 const THROUGH = 1.7;
+/** The finish's panel in this long (s) into the show: over its shots, as they carry on (at the end of them it was slow to come). */
+export const PANEL_AT = 2.5;
 /** After the shots, the camera going on round the car (rad/s) behind the finish's panel. */
 const ORBIT = 0.12;
 
 /**
  * The finish's show (as the race's intro, game/intro): from the line, a few shots of the player's car - seen from
  * the roadside coming past the finish, slowing into slow motion, then low behind it as it brakes,
- * then from up ahead of it looking back at the finish - and then on round it, slowly,
- * behind the panel (`done`: the panel's time). Runs on real time (it is what slows the race down: finishTimeScale);
- * Esc or Space skips it to its end.
+ * then from up ahead of it looking back at the finish - and then on round it, slowly; the panel over it from
+ * PANEL_AT (`done`: the panel's time). Runs on real time (it is what slows the race down: finishTimeScale);
+ * Esc or Space skips it to its end (the panel in then).
  */
 export class FinishShow {
   private readonly shots: Shot[];
@@ -67,6 +69,8 @@ export class FinishShow {
   private elapsed = 0;
   /** Skipped: how fast the race ran then (the slow-down behind the panel from there). */
   private skippedAt: number | undefined;
+  /** When the panel comes in (s into the show): PANEL_AT, or where a skip put the show. */
+  private panelAt = PANEL_AT;
 
   /** `edges`: the road's sides (d, m) the first shot's camera stands by (the highway's: its rail and the median). */
   constructor(
@@ -113,19 +117,19 @@ export class FinishShow {
     return this.elapsed < THROUGH;
   }
 
-  /** Total length of the shots (s): then the panel. */
+  /** Total length of the shots (s): then on round the car. */
   get seconds(): number {
     return this.shots.reduce((a, s) => a + s.seconds, 0);
   }
 
-  /** The shots over (or skipped): the panel's time. */
+  /** The panel's time (PANEL_AT on, or skipped). */
   get done(): boolean {
-    return this.elapsed >= this.seconds;
+    return this.elapsed >= this.panelAt;
   }
 
   /** How fast the race runs now (finishTimeScale). */
   get timeScale(): number {
-    return finishTimeScale(this.elapsed, this.seconds, this.skippedAt);
+    return finishTimeScale(this.elapsed, this.panelAt, this.skippedAt);
   }
 
   /** `dt` s (real) on. */
@@ -137,7 +141,7 @@ export class FinishShow {
   skip(): void {
     if (this.done) return;
     this.skippedAt = this.timeScale;
-    this.elapsed = this.seconds;
+    this.elapsed = this.panelAt = this.seconds;
   }
 
   /** The camera where the show has it now. */
