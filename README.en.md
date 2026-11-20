@@ -36,8 +36,8 @@ https://highwaythunder2.wwwang.tw/
     <td><img src="docs/screenshots/nitro-traffic.jpg" alt="Into the traffic on nitro"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/drift.jpg" alt="A rival sliding right beside you"></td>
-    <td><img src="docs/screenshots/three-wide.jpg" alt="Boxed in between two rivals"></td>
+    <td><img src="docs/screenshots/mountain-hairpin.jpg" alt="Mountain road: four cars filing into a hairpin"></td>
+    <td><img src="docs/screenshots/mountain-drift.jpg" alt="Mountain road: two cars drifting side by side, countersteering"></td>
   </tr>
 </table>
 
