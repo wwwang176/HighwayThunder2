@@ -235,7 +235,7 @@ function withWindows(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMateria
 vec3 wallSize = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
 vWall = vec3(position.x * wallSize.x, (instanceMatrix * vec4(position, 1.0)).y, position.z * wallSize.z);
 vWallN = normal;
-vWallSeed = fract(sin(dot(instanceMatrix[3].xz * 0.0137, vec2(12.9898, 78.233))) * 43758.5453); // (by its place: the same building wherever its instance)`,
+vWallSeed = floor(fract(sin(dot(instanceMatrix[3].xz * 0.0137, vec2(12.9898, 78.233))) * 43758.5453) * 1000.0) / 1000.0; // (by its place: the same building wherever its instance)`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -252,12 +252,12 @@ float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.54
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
 if (abs(vWallN.y) < 0.5) {
-  float seed = vWallSeed;
+  float seed = floor(vWallSeed * 1000.0 + 0.5) / 1000.0; // (whole thousandths: interpolated, the same value came out a hair off pixel to pixel - each window's hash noise)
   float floorH = 3.1 + 0.7 * fract(seed * 13.7);
   float colW = 2.2 + 1.8 * fract(seed * 7.3);
   float across = abs(vWallN.x) > 0.5 ? vWall.z : vWall.x;
   vec2 cell = vec2(across / colW, vWall.y / floorH);
-  vec2 id = floor(cell) + vec2(vWallN.x * 31.0 + vWallN.z * 57.0, 0.0);
+  vec2 id = floor(cell) + vec2(floor(vWallN.x + 0.5) * 31.0 + floor(vWallN.z + 0.5) * 57.0, 0.0);
   vec2 f = fract(cell);
   float pane = step(0.16, f.x) * step(f.x, 0.84) * step(0.22, f.y) * step(f.y, 0.78);
   float share = clamp(windowLit * (0.4 + 1.2 * fract(seed * 5.1)), 0.0, 1.0);
