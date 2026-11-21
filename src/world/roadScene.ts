@@ -19,17 +19,24 @@ const MEDIAN_RAILS: [number, number][] = [[MEDIAN_NEAR_X, 1], [MEDIAN_FAR_X, -1]
 /** The strip's low shrubs (as real ones, planted against the oncoming headlights' glare): m apart along it, how tall, how wide. */
 const SHRUB = { spacing: 1.25, height: [0.85, 1.35] as const, width: [1.1, 1.7] as const, color: 0x1a2e17 };
 /**
- * The city round the deck: blocks of buildings either side, their pattern repeating every `period` m; rows of
- * them (their near faces from-to m off the deck's edge, their tops so high over the road: mostly the low end),
- * all standing from `base` (well under the deck: their feet never in view).
+ * The city round the deck, its pattern repeating every `period` m: either side `clusters` blocks of buildings, each
+ * on its own streets' grid (turned any way: the streets below don't follow the deck), some near the deck, most
+ * further off (their middles `dist` m off its edge, mostly the near end), apart from each other (`apart` m between
+ * their rims); each `radius` m across, its buildings (`size` m) on a grid of `cell`-m lots, some lots empty; its
+ * height (`top`: the tallest over the road) its own - low blocks and towers. No building nearer the deck than
+ * `clear` m. All standing from `base` (well under the deck: their feet never in view).
  */
 const CITY = {
   period: 800,
-  rows: [
-    { from: 14, to: 32, top: [3, 42] },
-    { from: 60, to: 105, top: [10, 75] },
-    { from: 140, to: 240, top: [25, 125] },
-  ],
+  clusters: 13,
+  dist: [12, 380] as const,
+  apart: 10,
+  radius: [22, 55] as const,
+  cell: 30,
+  size: [12, 26] as const,
+  empty: 0.3,
+  top: [6, 130] as const,
+  clear: 5,
   base: -45,
   color: 0x16181d,
 };
@@ -443,6 +450,7 @@ const AT = { cx: 0, cz: 0, nx: 1, nz: 0, q: new THREE.Quaternion() };
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const P3 = new THREE.Vector3();
 const S3 = new THREE.Vector3();
+const Q4 = new THREE.Quaternion();
 
 /** What the game asks of the scenery along the road (the highway's, the mountain road's). */
 export interface Scenery {
@@ -491,8 +499,11 @@ export class RoadScene implements Scenery {
   private shrubs!: THREE.InstancedMesh;
   private shrubBase: { s: number; d: number; h: number; w: number }[] = [];
   private buildings!: THREE.InstancedMesh;
-  /** The city's buildings in one period of it: their middle (s, d), size along and across the road, top over it. */
-  private cityBase: { s: number; d: number; len: number; depth: number; top: number }[] = [];
+  /**
+   * The city's buildings in one period of it: their block's middle (s, d) and turn against the road (its cos, sin,
+   * as a quaternion), their own place on the block (u, v: along its axes), size (w, l: along them), top over the road.
+   */
+  private cityBase: { s: number; d: number; u: number; v: number; w: number; l: number; top: number; cy: number; sy: number; q: THREE.Quaternion }[] = [];
 
   /** The street lights currently shining (for things lit by hand, like tyre smoke). */
   activeLights(): THREE.SpotLight[] {
@@ -772,22 +783,43 @@ export class RoadScene implements Scenery {
     for (const m of [this.posts, this.shrubs, this.poles, this.arms, this.heads]) m.instanceMatrix.needsUpdate = true;
   }
 
-  /** The city's buildings: one period of them either side, row by row (CITY), side by side along it with gaps between. */
+  /**
+   * The city's buildings: one period of it either side (CITY) - its blocks placed at random where they don't
+   * overlap one another (round the period's ends too), each block's lots on its own grid, turned its own way.
+   */
   private buildCity(): void {
     const rnd = seeded(42);
-    for (const side of [1, -1])
-      for (const row of CITY.rows) {
-        const edge = side > 0 ? RAIL_D + PARAPET.width : LEFT_RAIL_X - PARAPET.width;
-        for (let s = rnd() * 20; ; ) {
-          const len = 16 + rnd() * 30;
-          if (s + len > CITY.period) break;
-          const depth = 14 + rnd() * 24;
-          const near = row.from + rnd() * (row.to - row.from);
-          const top = row.top[0] + rnd() * rnd() * (row.top[1] - row.top[0]);
-          this.cityBase.push({ s: s + len / 2, d: edge + side * (near + depth / 2), len, depth, top });
-          s += len + 3 + rnd() * 14;
-        }
+    const lerp = (r: readonly [number, number], k = rnd()) => r[0] + k * (r[1] - r[0]);
+    for (const side of [1, -1]) {
+      const edge = side > 0 ? RAIL_D + PARAPET.width : LEFT_RAIL_X - PARAPET.width;
+      const blocks: { s: number; dist: number; r: number }[] = [];
+      for (let tries = 0; blocks.length < CITY.clusters && tries < 2000; tries++) {
+        const b = { s: rnd() * CITY.period, dist: lerp(CITY.dist, rnd() ** 1.5), r: lerp(CITY.radius) };
+        const clash = blocks.some((o) => {
+          const ds = Math.abs(o.s - b.s);
+          return Math.hypot(Math.min(ds, CITY.period - ds), o.dist - b.dist) < o.r + b.r + CITY.apart;
+        });
+        if (!clash) blocks.push(b);
       }
+      for (const b of blocks) {
+        const yaw = rnd() * (Math.PI / 2);
+        const cy = Math.cos(yaw), sy = Math.sin(yaw);
+        const q = new THREE.Quaternion().setFromAxisAngle(AXIS_Y, yaw);
+        const top = lerp(CITY.top, rnd() ** 1.6);
+        const dc = edge + side * b.dist;
+        const n = Math.ceil((2 * b.r) / CITY.cell);
+        for (let a = 0; a < n; a++)
+          for (let c = 0; c < n; c++) {
+            const u = (a - (n - 1) / 2) * CITY.cell, v = (c - (n - 1) / 2) * CITY.cell;
+            if (u * u + v * v > b.r * b.r || rnd() < CITY.empty) continue;
+            const w = Math.min(lerp(CITY.size), CITY.cell - 6), l = Math.min(lerp(CITY.size), CITY.cell - 6);
+            // (its middle across the road - the block's turn the same against it wherever the road goes - and its reach across)
+            const d = dc + u * cy + v * sy;
+            if (side * (d - edge) - ((w / 2) * cy + (l / 2) * sy) < CITY.clear) continue;
+            this.cityBase.push({ s: b.s, d: dc, u, v, w, l, top: top * (0.45 + 0.55 * rnd()), cy, sy, q });
+          }
+      }
+    }
     const reps = Math.ceil(STRIP_LEN / CITY.period) + 1;
     this.buildings = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
@@ -805,7 +837,11 @@ export class RoadScene implements Scenery {
     for (let r = 0; r < reps; r++)
       for (const b of this.cityBase) {
         this.at(cityS - STRIP_BEHIND + r * CITY.period + b.s);
-        this.put(this.buildings, i++, b.d, (b.top + CITY.base) / 2, b.depth, b.top - CITY.base, b.len);
+        // The block's axes in the world: the road's (across it: its normal) turned by the block's turn.
+        const ax = AT.nx * b.cy + AT.nz * b.sy, az = AT.nz * b.cy - AT.nx * b.sy;
+        const bx = b.sy * AT.nx - b.cy * AT.nz, bz = b.cy * AT.nx + b.sy * AT.nz;
+        P3.set(AT.cx + b.d * AT.nx + b.u * ax + b.v * bx, (b.top + CITY.base) / 2, AT.cz + b.d * AT.nz + b.u * az + b.v * bz);
+        this.buildings.setMatrixAt(i++, M4.compose(P3, Q4.copy(AT.q).multiply(b.q), S3.set(b.w, b.top - CITY.base, b.l)));
       }
     this.buildings.instanceMatrix.needsUpdate = true;
   }
