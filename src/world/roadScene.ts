@@ -4,7 +4,7 @@ import { LampPools, type PoolColumn } from '../render/lampPools';
 import { makeFlareMaterial } from '../render/lightFlares';
 import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
-import { planCity, type PlanLamp, type PlanRoad } from './cityPlan';
+import { CORNER_LAMP, planCity, type PlanCrossing, type PlanLamp, type PlanRoad } from './cityPlan';
 
 const STRIP_PERIOD = 100; // m; lane-dash (20), rail-post (4) and lamp (50) periods all divide it
 const STRIP_BEHIND = 300;
@@ -41,7 +41,11 @@ const STREETS = {
   major: { asphalt: 14, walk: 3, lampEvery: 36 },
   pool: 5,
   pole: { height: 8, reach: 1.8 },
-  poles: 550,
+  poles: 350,
+  /** A street never narrower on the screen than this (px): its light spread over it. */
+  minPx: 2.5,
+  /** A crossing's zebra stripes (m wide, as far apart), reaching this far past the pavement it crosses. */
+  zebra: { stripe: 0.5, past: 2 },
   ground: 0x0a0b0d,
   walk: 0x55565a,
 };
@@ -142,8 +146,10 @@ float paintLine(float d, float hw, float fw) {
   float w = max(hw, fw);
   return clamp((w - abs(d)) / max(fw, 1e-4) + 0.5, 0.0, 1.0) * hw / w;
 }
+float dashSum(float y, float on, float period) { return floor(y / period) * on + min(fract(y / period) * period, on); }
 float dashes(float y, float on, float period, float fw) {
-  return mix(step(fract(y / period), on / period), on / period, clamp(fw / on, 0.0, 1.0));
+  float h = max(fw, 1e-3) * 0.5;
+  return (dashSum(y + h, on, period) - dashSum(y - h, on, period)) / (2.0 * h);
 }`;
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
 const LAMP_HEIGHT = 9.8;
@@ -428,64 +434,100 @@ gl_FragColor.rgb += windowGlow + streetGlow;
   return mat;
 }
 
+/** The street lamps' light and the dark around it, on a street's or crossing's surface (`albedo`, its pools' light). */
+const STREET_LIGHT_GLSL = /* glsl */ `
+vec3 streetLit(vec3 albedo, float pools, bool led, float dim) {
+  vec3 col = mix(albedo * 0.12, fogColor, cityWallFog(vDepth));
+  return col + albedo * (led ? ${LED} : ${SODIUM}) * pools * 1.6 * strength * dim * cityLightFade(vDepth);
+}
+// (the asphalt's picture: sampled once, before any branching - in a branch its mip level came out wrong far off, sparkling)
+vec3 grainAt(vec2 world) { return texture2D(asphaltMap, world / ${ASPHALT.tile.toFixed(1)}).rgb / ${ASPHALT.mean.toFixed(4)}; }
+vec3 asphaltOf(vec3 grain) { return asphalt * mix(vec3(1.0), grain, ${ASPHALT.strength.toFixed(2)}); }
+vec3 walkOf(vec3 grain) { return walk * mix(vec3(1.0), grain, 0.4); }`;
+
+/** A street's (or crossing's) uniforms: `pxScale` the flares' (pixels a metre at 1 m off: the view's, each frame). */
+function streetUniforms(pxScale: { value: number }) {
+  return {
+    strength: STREET_STRENGTH,
+    pxScale,
+    fogColor: { value: new THREE.Color(FOG) },
+    asphaltMap: { value: repeating(ASPHALT.file) },
+    // (the highway's asphalt: its grey under its picture, the picture's mean taken out)
+    asphalt: { value: new THREE.Color(0x45474b) },
+    walk: { value: new THREE.Color(STREETS.walk) },
+  };
+}
+const STREET_UNIFORMS_GLSL = /* glsl */ `
+uniform float strength;
+uniform vec3 fogColor;
+uniform sampler2D asphaltMap;
+uniform vec3 asphalt;
+uniform vec3 walk;`;
+/** How many pixels across `len` m of a ground direction `dir` (world, unit) at `world` shows (foreshortened). */
+const SEEN_PX_GLSL = /* glsl */ `
+uniform float pxScale;
+float seenPx(vec3 world, vec3 dir, float len) {
+  vec3 view = normalize(world - cameraPosition);
+  float depth = -(viewMatrix * vec4(world, 1.0)).z;
+  return len * length(dir - dot(dir, view) * view) * pxScale / max(depth, 1.0);
+}`;
+
 /**
  * The city's streets on the ground (STREETS; a quad each, its instance's `road`: kind (1: 2+2, else 1+1; +2: white
  * lamps), length, where it starts along its district's axis, its across's sign there): the highway's asphalt, its
  * pavements, the markings (1+1: a dashed yellow line down the middle; 2+2: a double yellow, dashed white between its
  * lanes; white edge lines), lit by its lamps' pools (as they stand: cityPlan) - their light fading as the windows'
- * far off, the rest into the night with the walls. Drawn before everything but the sky and the ground (nothing
- * under them to hide).
+ * far off, the rest into the night with the walls. Far off, never narrower on the screen than STREETS.minPx (its
+ * light spread over the width: as bright on the whole) - thinner, it came and went from frame to frame. Drawn before
+ * everything but the sky and the ground (nothing under them to hide).
  */
-function streetMaterial(): THREE.ShaderMaterial {
+function streetMaterial(pxScale: { value: number }): THREE.ShaderMaterial {
   const { minor, major } = STREETS;
-  // (the highway's asphalt: its grey under its picture, the picture's mean taken out)
-  const asphalt = new THREE.Color(0x45474b);
   return new THREE.ShaderMaterial({
-    uniforms: {
-      strength: STREET_STRENGTH,
-      fogColor: { value: new THREE.Color(FOG) },
-      asphaltMap: { value: repeating(ASPHALT.file) },
-      asphalt: { value: asphalt },
-      walk: { value: new THREE.Color(STREETS.walk) },
-    },
+    uniforms: streetUniforms(pxScale),
     vertexShader: /* glsl */ `
 attribute vec4 road;
 varying vec2 vRoad;
 varying vec2 vWorld;
 varying float vKind;
 varying float vDepth;
+varying float vDim;
+${SEEN_PX_GLSL}
 void main() {
-  vRoad = vec2(position.x * length(instanceMatrix[0].xyz) * road.w, road.z + (position.z + 0.5) * road.y);
+  float width = length(instanceMatrix[0].xyz);
+  vRoad = vec2(position.x * width * road.w, road.z + (position.z + 0.5) * road.y);
   vKind = road.x;
   vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
+  vec3 across = normalize((modelMatrix * instanceMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz);
+  float grow = clamp(${STREETS.minPx.toFixed(1)} / max(seenPx(world.xyz, across, width), 1e-3), 1.0, 40.0);
+  world.xyz += across * position.x * width * (grow - 1.0);
+  vDim = 1.0 / grow;
   vWorld = world.xz;
   vec4 mv = viewMatrix * world;
   vDepth = -mv.z;
   gl_Position = projectionMatrix * mv;
 }`,
     fragmentShader: /* glsl */ `
-uniform float strength;
-uniform vec3 fogColor;
-uniform sampler2D asphaltMap;
-uniform vec3 asphalt;
-uniform vec3 walk;
+${STREET_UNIFORMS_GLSL}
 varying vec2 vRoad;
 varying vec2 vWorld;
 varying float vKind;
 varying float vDepth;
+varying float vDim;
 ${CITY_FOG_GLSL}
 ${STREETS_GLSL}
+${STREET_LIGHT_GLSL}
 void main() {
-  bool isMajor = mod(vKind, 2.0) > 0.5;
-  bool led = vKind > 1.5;
+  float kind = floor(vKind + 0.5); // (rounded: interpolated, a 2 came out 1.9999 on some pixels - read as 2+2)
+  bool isMajor = mod(kind, 2.0) > 0.5;
   float hw = isMajor ? ${(major.asphalt / 2).toFixed(2)} : ${(minor.asphalt / 2).toFixed(2)};
   float walkW = isMajor ? ${major.walk.toFixed(2)} : ${minor.walk.toFixed(2)};
   float every = isMajor ? ${major.lampEvery.toFixed(1)} : ${minor.lampEvery.toFixed(1)};
   float x = vRoad.x, y = vRoad.y;
   float fx = fwidth(x), fy = fwidth(y);
-  vec3 grain = texture2D(asphaltMap, vWorld / ${ASPHALT.tile.toFixed(1)}).rgb / ${ASPHALT.mean.toFixed(4)};
   float onWalk = smoothstep(-fx, fx, abs(x) - hw);
-  vec3 albedo = mix(asphalt * mix(vec3(1.0), grain, ${ASPHALT.strength.toFixed(2)}), walk * mix(vec3(1.0), grain, 0.4), onWalk);
+  vec3 grain = grainAt(vWorld);
+  vec3 albedo = mix(asphaltOf(grain), walkOf(grain), onWalk);
   float white = paintLine(abs(x) - (hw - 0.35), 0.075, fx);
   float yellow;
   if (isMajor) {
@@ -497,10 +539,115 @@ void main() {
   albedo = mix(albedo, vec3(0.7), clamp(white, 0.0, 1.0) * (1.0 - onWalk));
   albedo = mix(albedo, vec3(0.75, 0.55, 0.12), clamp(yellow, 0.0, 1.0) * (1.0 - onWalk));
   float pools = streetPools(x, y, hw + walkW * 0.6, every, max(fx, fy));
-  vec3 col = mix(albedo * 0.12, fogColor, cityWallFog(vDepth));
-  col += albedo * (led ? ${LED} : ${SODIUM}) * pools * 1.6 * strength * cityLightFade(vDepth);
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(streetLit(albedo, pools, kind > 1.5, vDim), 1.0);
 }`,
+    depthWrite: false,
+    depthTest: false,
+  });
+}
+
+/**
+ * The city's crossings (cityPlan; a quad each over its streets, in its district's axes, its instance's `cross`:
+ * its roads' kinds (1: the one along u 2+2, 2: the one along v), +4 white lamps; its arms; its corner lamps): plain
+ * asphalt where its roads meet (their markings stopped), a zebra crossing on each way on (over the other road's
+ * pavement and a little past), the pavement on round a T's top and its corners, lit by its corner lamps. Far off,
+ * where it is only a few pixels, gone (faded: blended over the streets) - the streets' own light there instead.
+ */
+function crossingMaterial(pxScale: { value: number }): THREE.ShaderMaterial {
+  const { minor, major } = STREETS;
+  const zebra = STREETS.zebra;
+  return new THREE.ShaderMaterial({
+    uniforms: streetUniforms(pxScale),
+    vertexShader: /* glsl */ `
+attribute vec4 crossing;
+varying vec2 vLocal;
+varying vec2 vWorld;
+varying vec4 vCross;
+varying float vDepth;
+varying float vSeen;
+${SEEN_PX_GLSL}
+void main() {
+  vec2 size = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[2].xyz));
+  vLocal = position.xz * size;
+  vCross = crossing;
+  vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
+  vec3 u = normalize((modelMatrix * instanceMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz);
+  vec3 v = normalize((modelMatrix * instanceMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+  vSeen = min(seenPx(world.xyz, u, size.x), seenPx(world.xyz, v, size.y));
+  vWorld = world.xz;
+  vec4 mv = viewMatrix * world;
+  vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`,
+    fragmentShader: /* glsl */ `
+${STREET_UNIFORMS_GLSL}
+varying vec2 vLocal;
+varying vec2 vWorld;
+varying vec4 vCross;
+varying float vDepth;
+varying float vSeen;
+${CITY_FOG_GLSL}
+${STREETS_GLSL}
+${STREET_LIGHT_GLSL}
+// (masks rounded first: interpolated, the instance's 15 came out 14.9999 on some rows of pixels - those rows' arms
+// read wrong: streaks across the crossing)
+bool bit(float mask, float b) { return mod(floor(floor(mask + 0.5) / b + 0.01), 2.0) > 0.5; }
+// A zebra crossing's paint at x across the road it crosses (its stripes along that road), box filtered over the
+// pixel (fx): hard edged, rows of stripes nearly level on the screen were smeared sideways by the FXAA.
+float zebraSum(float x) {
+  float p = ${(zebra.stripe * 2).toFixed(2)};
+  return floor(x / p) * 0.5 * p + min(fract(x / p) * p, 0.5 * p);
+}
+float zebraAt(float x, float fx) {
+  float h = max(fx, 1e-3) * 0.5;
+  return (zebraSum(x + h) - zebraSum(x - h)) / (2.0 * h);
+}
+// How much of x is past e (soft over the pixel fx).
+float past(float x, float e, float fx) { return smoothstep(e - fx, e + fx, x); }
+void main() {
+  float kinds = mod(floor(vCross.x + 0.5), 4.0);
+  bool majorU = bit(kinds, 1.0), majorV = bit(kinds, 2.0);
+  // (the road along u spans v: its half widths in v; the one along v spans u)
+  float aV = majorU ? ${(major.asphalt / 2).toFixed(2)} : ${(minor.asphalt / 2).toFixed(2)};
+  float wV = majorU ? ${major.walk.toFixed(2)} : ${minor.walk.toFixed(2)};
+  float aU = majorV ? ${(major.asphalt / 2).toFixed(2)} : ${(minor.asphalt / 2).toFixed(2)};
+  float wU = majorV ? ${major.walk.toFixed(2)} : ${minor.walk.toFixed(2)};
+  float x = vLocal.x, y = vLocal.y, ax = abs(x), ay = abs(y);
+  float fx = fwidth(x), fy = fwidth(y);
+  vec3 grain = grainAt(vWorld);
+  bool armU = bit(vCross.y, x > 0.0 ? 1.0 : 2.0), armV = bit(vCross.y, y > 0.0 ? 4.0 : 8.0);
+  float reach = ${zebra.past.toFixed(2)};
+  vec3 albedo;
+  if (ax < aU && ay < aV) albedo = asphaltOf(grain);
+  else if (ax < aU) {
+    // (the road along v going on past the other's pavement - or not: the pavement round a T's top)
+    if (!armV) { if (ay < aV + wV) albedo = walkOf(grain); else discard; }
+    else if (ay < aV + wV + reach) {
+      float z = past(ay, aV + 0.4, fy) * (1.0 - past(ay, aV + wV + reach - 0.4, fy)) * (1.0 - past(ax, aU - 0.3, fx)) * zebraAt(x, fx);
+      albedo = mix(asphaltOf(grain), vec3(0.7), z);
+    } else discard;
+  } else if (ay < aV) {
+    if (!armU) { if (ax < aU + wU) albedo = walkOf(grain); else discard; }
+    else if (ax < aU + wU + reach) {
+      float z = past(ax, aU + 0.4, fx) * (1.0 - past(ax, aU + wU + reach - 0.4, fx)) * (1.0 - past(ay, aV - 0.3, fy)) * zebraAt(y, fy);
+      albedo = mix(asphaltOf(grain), vec3(0.7), z);
+    } else discard;
+  } else if (ax < aU + wU && ay < aV + wV) albedo = walkOf(grain);
+  else discard;
+  // Its corner lamps' pools (a metre in from each pole, toward its middle).
+  float p2 = ${(STREETS.pool * STREETS.pool).toFixed(3)} + max(fx, fy) * max(fx, fy);
+  vec2 lamp = vec2(aU + wU * ${CORNER_LAMP.toFixed(2)}, aV + wV * ${CORNER_LAMP.toFixed(2)}) - 0.7;
+  float pools = 0.0;
+  if (bit(vCross.z, 1.0)) pools += exp(-dot(vLocal - lamp, vLocal - lamp) / p2);
+  if (bit(vCross.z, 2.0)) pools += exp(-dot(vLocal - lamp * vec2(-1.0, 1.0), vLocal - lamp * vec2(-1.0, 1.0)) / p2);
+  if (bit(vCross.z, 4.0)) pools += exp(-dot(vLocal - lamp * vec2(1.0, -1.0), vLocal - lamp * vec2(1.0, -1.0)) / p2);
+  if (bit(vCross.z, 8.0)) pools += exp(-dot(vLocal + lamp, vLocal + lamp) / p2);
+  pools *= ${(STREETS.pool * STREETS.pool).toFixed(3)} / p2;
+  gl_FragColor = vec4(streetLit(albedo, pools, vCross.x > 3.5, 1.0), smoothstep(3.0, 8.0, vSeen));
+}`,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
     depthWrite: false,
     depthTest: false,
   });
@@ -731,6 +878,8 @@ export class RoadScene implements Scenery {
   /** The city's blocks in one period of it (their streets on the ground): middle (s, d), radius, turn. */
   private cityRoads: (PlanRoad & { q: THREE.Quaternion })[] = [];
   private cityLamps: PlanLamp[] = [];
+  private cityCrossings: (PlanCrossing & { q: THREE.Quaternion })[] = [];
+  private crossings!: THREE.InstancedMesh;
   /** Its streets as last laid (the world: their middles, the way they run, half their length and width) - for the piers. */
   private streetRects: { x: number; z: number; dx: number; dz: number; halfLen: number; halfW: number }[] = [];
   /** Its lamps as last laid: x, z, and the turn of each pole (its arm over its street). */
@@ -1034,7 +1183,8 @@ export class RoadScene implements Scenery {
   private layoutPiers(): void {
     const stripS = this.laidS;
     if (Number.isNaN(stripS)) return;
-    const capTop = -DECK_DEPTH, capBottom = capTop - PIER.cap;
+    // (its top a little up inside the deck: level with the deck's underside the two came through each other in turn)
+    const capTop = -DECK_DEPTH + 0.05, capBottom = -DECK_DEPTH - PIER.cap;
     const deckL = LEFT_RAIL_X - PARAPET.width, deckR = RAIL_D + PARAPET.width;
     const hit = (x: number, z: number) =>
       this.streetRects.some((r) => {
@@ -1092,9 +1242,23 @@ export class RoadScene implements Scenery {
     });
     const quad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     quad.setAttribute('road', new THREE.InstancedBufferAttribute(info, 4));
-    this.streets = new THREE.InstancedMesh(quad, streetMaterial(), this.cityRoads.length * reps);
+    const pxScale = this.lampFlareMaterial.uniforms.scale;
+    this.streets = new THREE.InstancedMesh(quad, streetMaterial(pxScale), this.cityRoads.length * reps);
     this.streets.renderOrder = -0.8;
     this.city.add(this.streets);
+
+    // Their crossings, over them.
+    this.cityCrossings = plan.crossings.map((c) => ({ ...c, q: turn(c.yaw) }));
+    const cinfo = new Float32Array(this.cityCrossings.length * reps * 4);
+    this.cityCrossings.forEach((c, k) => {
+      const row = [(c.majorU ? 1 : 0) + (c.majorV ? 2 : 0) + (c.led ? 4 : 0), c.arms, c.corners, 0];
+      for (let rep = 0; rep < reps; rep++) cinfo.set(row, (rep * this.cityCrossings.length + k) * 4);
+    });
+    const cquad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    cquad.setAttribute('crossing', new THREE.InstancedBufferAttribute(cinfo, 4));
+    this.crossings = new THREE.InstancedMesh(cquad, crossingMaterial(pxScale), this.cityCrossings.length * reps);
+    this.crossings.renderOrder = -0.75;
+    this.city.add(this.crossings);
 
     // Their lamps: poles (near the player: streetPoles) and their glow (all).
     this.cityLamps = plan.lamps.map((l) => ({ ...l }));
@@ -1168,6 +1332,19 @@ export class RoadScene implements Scenery {
         this.streetRects.push({ x: P3.x, z: P3.z, dx: road.alongU ? AX.ax : AX.bx, dz: road.alongU ? AX.az : AX.bz, halfLen: length / 2, halfW: width / 2 });
       }
     this.streets.instanceMatrix.needsUpdate = true;
+
+    i = 0;
+    const width = (major: boolean) => (major ? STREETS.major : STREETS.minor).asphalt + 2 * (major ? STREETS.major : STREETS.minor).walk;
+    for (let r = 0; r < reps; r++)
+      for (const c of this.cityCrossings) {
+        this.at(cityS - STRIP_BEHIND + r * CITY.period + c.s);
+        axes(c);
+        P3.set(worldX(c.d, c.u, c.v), GROUND_Y, worldZ(c.d, c.u, c.v));
+        // (across u: the road along v's width, and its zebra past the other's pavement either way; across v, the other's)
+        const su = width(c.majorV) + 2 * STREETS.zebra.past, sv = width(c.majorU) + 2 * STREETS.zebra.past;
+        this.crossings.setMatrixAt(i++, M4.compose(P3, Q4.copy(AT.q).multiply(c.q), S3.set(su, 1, sv)));
+      }
+    this.crossings.instanceMatrix.needsUpdate = true;
 
     const fpos = this.streetFlares.geometry.getAttribute('position') as THREE.BufferAttribute;
     const P = STREETS.pole;

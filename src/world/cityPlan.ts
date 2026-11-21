@@ -89,11 +89,30 @@ export interface PlanLamp extends Placed {
   led: boolean;
 }
 
+/**
+ * Where a road along u (its kind: majorU) crosses one along v (majorV), at (u, v): which of its four ways go on
+ * (`arms`: 1 +u, 2 -u, 4 +v, 8 -v; a T where one doesn't), which of its corners have a lamp (`corners`: 1 (+u, +v),
+ * 2 (-u, +v), 4 (+u, -v), 8 (-u, -v)).
+ */
+export interface PlanCrossing extends Placed {
+  u: number;
+  v: number;
+  majorU: boolean;
+  majorV: boolean;
+  arms: number;
+  corners: number;
+  led: boolean;
+}
+
 export interface CityPlan {
   buildings: PlanBuilding[];
   roads: PlanRoad[];
   lamps: PlanLamp[];
+  crossings: PlanCrossing[];
 }
+
+/** A crossing's corner lamps stand this far into its pavements (of their width), either way. */
+export const CORNER_LAMP = 0.6;
 
 /** A road's centre line across its axis and its kind (in a district's lineup of roads and lots). */
 interface Line {
@@ -144,7 +163,7 @@ function within(d0: number, k: number, lo: number, hi: number): [number, number]
 }
 
 export function planCity(p: CityPlanParams, rnd: () => number): CityPlan {
-  const plan: CityPlan = { buildings: [], roads: [], lamps: [] };
+  const plan: CityPlan = { buildings: [], roads: [], lamps: [], crossings: [] };
   const lerp = (r: readonly [number, number], k = rnd()) => r[0] + k * (r[1] - r[0]);
   const pick = (r: readonly [number, number]) => r[0] + Math.floor(rnd() * (r[1] - r[0] + 1));
   for (const side of [1, -1])
@@ -201,7 +220,9 @@ export function planCity(p: CityPlanParams, rnd: () => number): CityPlan {
     // Its roads, cut back from the deck: those across it (along u) no further than its middle (their ends hidden
     // under it), those along it (along v) not under it at all.
     const roadsOf = (alongU: boolean, lines: Line[], length: number, cross: Line[]) => {
+      const kept = new Map<Line, [number, number][]>();
       for (const line of lines) {
+        kept.set(line, []);
         const kind = line.major ? p.major : p.minor;
         const half = kind.asphalt / 2 + kind.walk;
         // d along it: d0 + t k (t its own coordinate), its pavements' outer edges either side
@@ -216,6 +237,7 @@ export function planCity(p: CityPlanParams, rnd: () => number): CityPlan {
         for (const [from, to] of pieces) {
           if (to - from < 2 * half) continue;
           plan.roads.push({ ...at, alongU, at: line.at, from, to, major: line.major, led });
+          kept.get(line)!.push([from, to]);
           // Its lamps, on its pavements, the two sides' staggered (none standing in a road across it).
           for (const sgn of [1, -1]) {
             const phase = sgn > 0 ? 0.25 : 0.75;
@@ -228,8 +250,25 @@ export function planCity(p: CityPlanParams, rnd: () => number): CityPlan {
           }
         }
       }
+      return kept;
     };
-    roadsOf(true, V.roads, U.length, U.roads);
-    roadsOf(false, U.roads, V.length, V.roads);
+    const alongU = roadsOf(true, V.roads, U.length, U.roads), alongV = roadsOf(false, U.roads, V.length, V.roads);
+
+    // Its crossings: where a road along u and one along v both are, the ways on from it (a road going on past the
+    // other's pavements), lamps at its corners (all four where a 2+2 road is, else two across from each other).
+    const halfOf = (major: boolean) => (major ? p.major : p.minor).asphalt / 2 + (major ? p.major : p.minor).walk;
+    for (const [a, aPieces] of alongU)
+      for (const [b, bPieces] of alongV) {
+        const pa = aPieces.find(([f, t]) => f <= b.at && b.at <= t), pb = bPieces.find(([f, t]) => f <= a.at && a.at <= t);
+        if (!pa || !pb) continue;
+        const ha = halfOf(a.major), hb = halfOf(b.major);
+        const arms = (pa[1] > b.at + hb + 1 ? 1 : 0) | (pa[0] < b.at - hb - 1 ? 2 : 0) | (pb[1] > a.at + ha + 1 ? 4 : 0) | (pb[0] < a.at - ha - 1 ? 8 : 0);
+        const corners = a.major || b.major ? 15 : 9;
+        plan.crossings.push({ ...at, u: b.at, v: a.at, majorU: a.major, majorV: b.major, arms, corners, led });
+        const ka = a.major ? p.major : p.minor, kb = b.major ? p.major : p.minor;
+        const du = kb.asphalt / 2 + kb.walk * CORNER_LAMP, dv = ka.asphalt / 2 + ka.walk * CORNER_LAMP;
+        for (const [bit, su, sv] of [[1, 1, 1], [2, -1, 1], [4, 1, -1], [8, -1, -1]])
+          if (corners & bit) plan.lamps.push({ ...at, u: b.at + su * du, v: a.at + sv * dv, armU: -su * Math.SQRT1_2, armV: -sv * Math.SQRT1_2, led });
+      }
   }
 }
