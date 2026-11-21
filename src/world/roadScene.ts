@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { LampPools, type PoolColumn } from '../render/lampPools';
-import { makeFlareMaterial } from '../render/lightFlares';
+import { FLARE_AIM, makeFlareMaterial } from '../render/lightFlares';
 import { LANE_COUNT, LANE_WIDTH, LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, ONCOMING_X, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { CORNER_LAMP, planCity, type PlanCrossing, type PlanLamp, type PlanRoad } from './cityPlan';
@@ -93,6 +93,24 @@ const CITY = {
    */
   fog: { walls: { scale: 300, gone: 1500 }, windows: [300, 2000], farBoost: 0.8 } as const,
 };
+/**
+ * The city's traffic on its streets: in each lane (1+1: one each way; 2+2: two each way, `lane` m apart from the
+ * middle) cars about `every` m apart, all at the lane's speed (m/s: none catches up another), round and round its
+ * street (faded in and out at its ends). Where each is worked out on the GPU from the race time: a box for its body
+ * (near: within `bodies` m - further, thinner than a pixel, it flickered), a white light ahead and a red one behind
+ * (only seen from the way each shines). Now and then (`big`) a bus or a lorry.
+ */
+const TRAFFIC = {
+  minor: { every: 110, speed: [8, 12] as const },
+  major: { every: 45, speed: [12, 17] as const },
+  lane: 3.5,
+  bodies: 400,
+  big: 0.1,
+  car: [1.8, 1.45, 4.4] as const,
+  lorry: [2.5, 3.0, 10] as const,
+};
+const TRAFFIC_TIME = { value: 0 };
+
 /**
  * The city on past the built one: a ring of its silhouette `radius` m round the player (past where the built
  * one's windows are gone), `height` m tall from the ground, its picture (skylineTexture) `repeat` times round;
@@ -678,6 +696,115 @@ void main() {
 }
 
 /**
+ * Where a car of the traffic is (TRAFFIC; its `carA`: the start of its lane in the world (x, z) and the way its
+ * street runs (x, z); its `carB`: its lane's length, speed (m/s, signed: the way it drives), where it starts (share of
+ * the lane) and its look (0-1)) at `time`: its middle on the ground, the way it faces, how far in from its lane's
+ * ends (faded there), and its size.
+ */
+const CAR_GLSL = /* glsl */ `
+attribute vec4 carA;
+attribute vec4 carB;
+uniform float time;
+vec3 carAt(out vec3 ahead, out float fade, out vec3 size) {
+  float len = carB.x;
+  float s = fract(carB.z + carB.y * time / len) * len;
+  fade = smoothstep(0.0, 8.0, s) * smoothstep(0.0, 8.0, len - s);
+  ahead = vec3(carA.z, 0.0, carA.w) * sign(carB.y);
+  size = carB.w > ${(1 - TRAFFIC.big).toFixed(2)} ? vec3(${TRAFFIC.lorry.map((n) => n.toFixed(2)).join(', ')}) : vec3(${TRAFFIC.car.map((n) => n.toFixed(2)).join(', ')});
+  return vec3(carA.x + carA.z * s, ${GROUND_Y.toFixed(1)}, carA.y + carA.w * s);
+}`;
+
+/** The traffic's bodies: a box each (an InstancedMesh of a unit box on the ground), dimly lit by the streets' light. */
+function carBodyMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { time: TRAFFIC_TIME, fogColor: { value: new THREE.Color(FOG) } },
+    vertexShader: /* glsl */ `
+${CAR_GLSL}
+varying vec3 vN;
+varying vec3 vColor;
+varying float vDepth;
+void main() {
+  vec3 ahead, size;
+  float fade;
+  vec3 c = carAt(ahead, fade, size);
+  vec3 side = vec3(ahead.z, 0.0, -ahead.x);
+  // (none further than TRAFFIC.bodies: shrunk away to its lights)
+  float shrink = fade * (1.0 - smoothstep(${(TRAFFIC.bodies * 0.85).toFixed(1)}, ${TRAFFIC.bodies.toFixed(1)}, distance(c, cameraPosition)));
+  vec3 p = position * size * shrink;
+  vec3 world = c + side * p.x + vec3(0.0, p.y, 0.0) + ahead * p.z;
+  vN = side * normal.x + vec3(0.0, normal.y, 0.0) + ahead * normal.z;
+  // Its paint: white, silver, grey, black, dark blue, red (the darks the likelier).
+  float k = fract(carB.w * 7.13);
+  vColor = k < 0.15 ? vec3(0.6) : k < 0.3 ? vec3(0.35) : k < 0.45 ? vec3(0.15) : k < 0.75 ? vec3(0.025) : k < 0.9 ? vec3(0.02, 0.035, 0.1) : vec3(0.3, 0.025, 0.02);
+  vec4 mv = viewMatrix * vec4(world, 1.0);
+  vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`,
+    fragmentShader: /* glsl */ `
+uniform vec3 fogColor;
+varying vec3 vN;
+varying vec3 vColor;
+varying float vDepth;
+${CITY_FOG_GLSL}
+void main() {
+  // (the street lights' warm glow on its roof and sides)
+  float lit = 0.05 + 0.25 * max(vN.y, 0.0) + 0.08 * (1.0 - abs(vN.y));
+  gl_FragColor = vec4(mix(vColor * lit * vec3(1.0, 0.78, 0.55), fogColor, cityWallFog(vDepth)), 1.0);
+}`,
+  });
+}
+
+/**
+ * The traffic's lights: two points a car (its geometry's `end`: +1 ahead, white; -1 behind, red), glowing sprites as
+ * the lamps' flares (render/lightFlares: never under `minPx`, fading off far), each seen only from the way it shines.
+ */
+function carLightMaterial(scale: { value: number }): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      time: TRAFFIC_TIME,
+      scale,
+      minPx: { value: 2 },
+      aimFull: { value: Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.full)) },
+      aimGone: { value: Math.cos(THREE.MathUtils.degToRad(FLARE_AIM.gone)) },
+    },
+    vertexShader: /* glsl */ `
+${CAR_GLSL}
+attribute float end;
+uniform float scale;
+uniform float minPx;
+uniform float aimFull;
+uniform float aimGone;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec3 ahead, size;
+  float fade;
+  vec3 c = carAt(ahead, fade, size);
+  vec3 world = c + ahead * end * (size.z * 0.5 + 0.3) + vec3(0.0, 0.75, 0.0);
+  vec4 mv = viewMatrix * vec4(world, 1.0);
+  float px = 0.8 * scale / max(-mv.z, 0.1);
+  gl_PointSize = max(px, minPx);
+  vAlpha = (px < minPx ? mix(0.55, 1.0, px / minPx) : 1.0) * fade * clamp(1.0 - (-mv.z) / 1400.0, 0.0, 1.0);
+  vAlpha *= smoothstep(aimGone, aimFull, dot(ahead * end, normalize(cameraPosition - world)));
+  vColor = end > 0.0 ? vec3(1.6, 1.47, 1.25) : vec3(1.5, 0.1, 0.05);
+  gl_Position = projectionMatrix * mv;
+}`,
+    fragmentShader: /* glsl */ `
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  float d = length((gl_PointCoord - 0.5) * 2.0);
+  if (d > 1.0) discard;
+  float core = 1.0 - d;
+  gl_FragColor = vec4(vColor * (core * core * core * 1.2 + core * 0.25) * vAlpha, 1.0);
+}`,
+  });
+}
+
+/**
  * The skyline's picture (SKYLINE): buildings side by side along it, black against nothing (its alpha: the
  * silhouette), taller where a slow wave along it says (districts of towers, low ones between), now and then a gap;
  * a few windows lit (warm or cool) and a red light on the tallest. Joined round its ends (it repeats).
@@ -959,6 +1086,10 @@ export class RoadScene implements Scenery {
   private cityLamps: PlanLamp[] = [];
   private cityCrossings: (PlanCrossing & { q: THREE.Quaternion })[] = [];
   private crossings!: THREE.InstancedMesh;
+  /** The traffic in one period of the city: each car's street (cityRoads), its lane (across the street's line), way, its carB. */
+  private cityCars: { road: number; off: number; carB: number[] }[] = [];
+  private carBodies!: THREE.InstancedMesh;
+  private carLights!: THREE.Points;
   /** Its streets as last laid (the world: their middles, the way they run, half their length and width) - for the piers. */
   private streetRects: { x: number; z: number; dx: number; dz: number; halfLen: number; halfW: number }[] = [];
   /** Its lamps as last laid: x, z, and the turn of each pole (its arm over its street). */
@@ -1339,6 +1470,46 @@ export class RoadScene implements Scenery {
     this.crossings.renderOrder = -0.75;
     this.city.add(this.crossings);
 
+    // Their traffic (TRAFFIC): each lane's cars spread round it, all at its speed.
+    const trnd = seeded(77);
+    this.cityRoads.forEach((r, road) => {
+      const T = r.major ? TRAFFIC.major : TRAFFIC.minor;
+      const len = r.to - r.from;
+      for (const way of [1, -1])
+        for (let lane = 0; lane < (r.major ? 2 : 1); lane++) {
+          const n = Math.floor((len / T.every) * (0.6 + 0.8 * trnd()));
+          const speed = T.speed[0] + trnd() * (T.speed[1] - T.speed[0]);
+          for (let k = 0; k < n; k++)
+            this.cityCars.push({ road, off: way * TRAFFIC.lane * (lane + 0.5), carB: [len, way * speed, (k + (trnd() - 0.5) * 0.4) / n, trnd()] });
+        }
+    });
+    const cars = this.cityCars.length * reps;
+    const body = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+    const bodyB = new Float32Array(cars * 4);
+    const lightB = new Float32Array(cars * 8);
+    const ends = new Float32Array(cars * 2);
+    for (let rep = 0; rep < reps; rep++)
+      this.cityCars.forEach((c, k) => {
+        const i = rep * this.cityCars.length + k;
+        bodyB.set(c.carB, i * 4);
+        lightB.set(c.carB, i * 8);
+        lightB.set(c.carB, i * 8 + 4);
+        ends[i * 2] = 1;
+        ends[i * 2 + 1] = -1;
+      });
+    body.setAttribute('carA', new THREE.InstancedBufferAttribute(new Float32Array(cars * 4), 4));
+    body.setAttribute('carB', new THREE.InstancedBufferAttribute(bodyB, 4));
+    this.carBodies = new THREE.InstancedMesh(body, carBodyMaterial(), cars);
+    this.city.add(this.carBodies);
+    const lights = new THREE.BufferGeometry();
+    lights.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cars * 2 * 3), 3));
+    lights.setAttribute('carA', new THREE.BufferAttribute(new Float32Array(cars * 8), 4));
+    lights.setAttribute('carB', new THREE.BufferAttribute(lightB, 4));
+    lights.setAttribute('end', new THREE.BufferAttribute(ends, 1));
+    this.carLights = new THREE.Points(lights, carLightMaterial(pxScale));
+    this.carLights.renderOrder = 3;
+    this.city.add(this.carLights);
+
     // Their lamps: poles (near the player: streetPoles) and their glow (all).
     this.cityLamps = plan.lamps.map((l) => ({ ...l }));
     const n = this.cityLamps.length * reps;
@@ -1424,6 +1595,26 @@ export class RoadScene implements Scenery {
         this.crossings.setMatrixAt(i++, M4.compose(P3, Q4.copy(AT.q).multiply(c.q), S3.set(su, 1, sv)));
       }
     this.crossings.instanceMatrix.needsUpdate = true;
+
+    // The traffic's lanes in the world: each car's lane's start and the way its street runs.
+    const bodyA = this.carBodies.geometry.getAttribute('carA') as THREE.BufferAttribute;
+    const lightA = this.carLights.geometry.getAttribute('carA') as THREE.BufferAttribute;
+    i = 0;
+    for (let r = 0; r < reps; r++)
+      for (const car of this.cityCars) {
+        const road = this.cityRoads[car.road];
+        this.at(cityS - STRIP_BEHIND + r * CITY.period + road.s);
+        axes(road);
+        const u = road.alongU ? road.from : road.at + car.off, v = road.alongU ? road.at + car.off : road.from;
+        const x = worldX(road.d, u, v), z = worldZ(road.d, u, v);
+        const dx = road.alongU ? AX.ax : AX.bx, dz = road.alongU ? AX.az : AX.bz;
+        bodyA.setXYZW(i, x, z, dx, dz);
+        lightA.setXYZW(i * 2, x, z, dx, dz);
+        lightA.setXYZW(i * 2 + 1, x, z, dx, dz);
+        i++;
+      }
+    bodyA.needsUpdate = true;
+    lightA.needsUpdate = true;
 
     const fpos = this.streetFlares.geometry.getAttribute('position') as THREE.BufferAttribute;
     const P = STREETS.pole;
@@ -1581,7 +1772,8 @@ void main() {
    * to the lamp pairs over our carriageway nearest ahead (one light per pair). Their pools of light fade out as
    * the real light fades in, so nothing pops.
    */
-  update(playerS: number): void {
+  update(playerS: number, play = 0): void {
+    TRAFFIC_TIME.value += play; // (the city's traffic on the race time: still while paused)
     const stripS = Math.floor(playerS / STRIP_PERIOD) * STRIP_PERIOD;
     if (stripS !== this.laidS) this.layout(stripS);
     const cityS = Math.floor(playerS / CITY.period) * CITY.period;
