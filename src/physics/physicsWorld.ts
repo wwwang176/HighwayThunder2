@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { LEFT_RAIL_X, RAIL_D } from '../config';
+import { LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, RAIL_D } from '../config';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 
 export type EntityRef = { type: 'player' } | { type: 'rival'; id: number } | { type: 'npc'; id: number } | { type: 'static' };
@@ -189,6 +189,18 @@ export class PhysicsWorld {
   /** The rails' d either side at s (curved roads: the slots' planes): the highway's, or the road's own (setRoad: fixed, or along it - a shoulder). */
   private railRight: (s: number) => number = () => RAIL_D;
   private railLeft: (s: number) => number = () => LEFT_RAIL_X;
+  /**
+   * The highway's median rails (each carriageway between its own two: ours from the median's near rail to the right
+   * one, the oncoming one's from the left one to its far rail): a car's by which side of the median's middle it is
+   * on. [left, right] (s → d) each side; none (null): the road's own two rails only.
+   */
+  private medianSides: { mid: number; ours: [(s: number) => number, (s: number) => number]; theirs: [(s: number) => number, (s: number) => number] } | null = null;
+
+  /** The rails either side of a car at d (s → d): its carriageway's. */
+  private railsAt(d: number): [(s: number) => number, (s: number) => number] {
+    const m = this.medianSides;
+    return !m ? [this.railLeft, this.railRight] : d > m.mid ? m.ours : m.theirs;
+  }
   /** The ground: the flat half-space, or (a road that climbs: setRoad's `ground`) a mesh of the road's surface. */
   private ground: RAPIER.Collider | null = null;
   private groundMesh: RAPIER.Collider | null = null;
@@ -316,9 +328,12 @@ export class PhysicsWorld {
     this.groundMesh = c;
   }
 
-  /** The straight road's guardrails: only on the outer edges (their inner faces, facing the road); the median between carriageways is open grass. */
+  /**
+   * The straight road's guardrails (training's: its cars all on our carriageway): ours either side, their faces
+   * facing the road - the right one and the median's.
+   */
   private createStraightRails(): void {
-    for (const [x, nx] of [[RAIL_D, -1], [LEFT_RAIL_X, 1]]) {
+    for (const [x, nx] of [[RAIL_D, -1], [MEDIAN_NEAR_X, 1]]) {
       const rail = this.world.createCollider(
         new RAPIER.ColliderDesc(new RAPIER.HalfSpace({ x: nx, y: 0, z: 0 }))
           .setTranslation(x, 0, 0)
@@ -358,6 +373,9 @@ export class PhysicsWorld {
     const along = (d: RailD | undefined, or: number) => (typeof d === 'function' ? d : () => d ?? or);
     this.railRight = along(opts.rails?.right, RAIL_D);
     this.railLeft = along(opts.rails?.left, LEFT_RAIL_X);
+    // (the highway - no rails of its own given: its median's two as well)
+    const near = () => MEDIAN_NEAR_X, far = () => MEDIAN_FAR_X;
+    this.medianSides = opts.rails ? null : { mid: (MEDIAN_NEAR_X + MEDIAN_FAR_X) / 2, ours: [near, this.railRight], theirs: [this.railLeft, far] };
     this.setGround(opts.ground);
     if (this.railsOff) return;
     if (road.straight) {
@@ -428,8 +446,9 @@ export class PhysicsWorld {
       const th = road.heading(p.s);
       const nx = Math.cos(th);
       const nz = Math.sin(th);
-      const right = this.railRight(p.s) - p.d - reach(b, info.box, nx, nz);
-      const left = p.d - this.railLeft(p.s) - reach(b, info.box, -nx, -nz);
+      const [railL, railR] = this.railsAt(p.d);
+      const right = railR(p.s) - p.d - reach(b, info.box, nx, nz);
+      const left = p.d - railL(p.s) - reach(b, info.box, -nx, -nz);
       const gap = Math.min(right, left);
       if (gap < (info.slot >= 0 ? RAIL_LET_GO : RAIL_NEAR)) wanting.push({ h: b.handle, gap });
       else if (info.slot >= 0) this.release(info.slot);
@@ -457,8 +476,9 @@ export class PhysicsWorld {
       // Its plane: on the nearer rail where the car is, facing the road (local +x turned to the normal).
       const d = info.d;
       const s = info.s;
-      const rightSide = this.railRight(s) - d < d - this.railLeft(s);
-      const rail = rightSide ? this.railRight : this.railLeft;
+      const [railL, railR] = this.railsAt(d);
+      const rightSide = railR(s) - d < d - railL(s);
+      const rail = rightSide ? railR : railL;
       const at = road.toWorld(s, rail(s));
       // Facing the road square to the rail where it is (a shoulder's: turned off the road's line as it widens) - the
       // rail's own right, turned from the road's as its line is from the road's.

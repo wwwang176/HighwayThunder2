@@ -1,4 +1,4 @@
-import { GRASS_GRIP, LANE_WIDTH, MEDIAN_FAR_X, MEDIAN_NEAR_X, RAIL_D, ROAD_HALF_WIDTH, SHOULDER } from '../config';
+import { GRASS_GRIP, LANE_WIDTH, MEDIAN_NEAR_X, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 import { laneAt, laneCenter } from '../road/coords';
 import type { TrafficBox } from './sensors';
 import { maxAccel, maxBrake, PLANNER, planAt, type Plan, type PlanEgo, type PlanPoint, type PreviousPlan } from './planner';
@@ -199,10 +199,10 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   const edge = Math.abs(start.d) > ROAD_HALF_WIDTH || Math.abs(start.psi + start.beta) > ACROSS ? RAIL_D - hw : ROAD_HALF_WIDTH;
   // Outside that (on the median's grass, say) it still plans - going out further only to turn back in, at a cost the
   // further out (OUT_COST); once in it never goes out again. (Outside, every move out was refused: heading away from
-  // the road it could not even start turning back, and stood braking.) Never past our rail, nor past the median onto
-  // the oncoming road's lanes (its traffic is not in the boxes).
+  // the road it could not even start turning back, and stood braking.) Never past our rails: the right one, the
+  // median's on the left (the oncoming carriageway beyond it).
   const out = (d: number) => Math.abs(d) > edge;
-  const hardHi = RAIL_D - hw, hardLo = MEDIAN_FAR_X - SHOULDER + hw; // (the oncoming shoulder is room to turn round on: to the median's side only, 90 deg across 6 m out it stood)
+  const hardHi = RAIL_D - hw, hardLo = MEDIAN_NEAR_X + hw;
   // How far (rad) a node still has to turn to run along the road, the way round there is room for at its tightest
   // turn: the short way (toward the edge it is heading for), or else the long way (away from it, through backward);
   // Infinity: neither - a dead end, kept only if nothing else is. Turning a long way round costs (TURN_COST) in the

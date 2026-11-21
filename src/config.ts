@@ -5,13 +5,14 @@ export const SHOULDER = 2.5;
 export const RAIL_D = ROAD_HALF_WIDTH + SHOULDER; // 10
 export const ROAD_LENGTH = 5000; // m: a race of about a minute and a half
 
-// Divided highway: oncoming carriageway on our left, separated by a grass median
-// you can drive across. Guardrails only on the two outer edges.
-export const MEDIAN_WIDTH = 10;
-export const MEDIAN_NEAR_X = -RAIL_D; // our inner shoulder ends here (-10)
-export const MEDIAN_FAR_X = MEDIAN_NEAR_X - MEDIAN_WIDTH; // -20
-export const ONCOMING_X = MEDIAN_FAR_X - SHOULDER - ROAD_HALF_WIDTH; // -30, oncoming centre line
-export const LEFT_RAIL_X = ONCOMING_X - ROAD_HALF_WIDTH - SHOULDER; // -40
+// An elevated urban highway, one deck: the oncoming carriageway on our left beyond a narrow planted median strip,
+// a guardrail along each side of the strip (each carriageway between its own two: physics/physicsWorld), a
+// parapet on the deck's outer edges.
+export const MEDIAN_WIDTH = 3;
+export const MEDIAN_NEAR_X = -RAIL_D; // our inner shoulder ends here, at our median rail (-10)
+export const MEDIAN_FAR_X = MEDIAN_NEAR_X - MEDIAN_WIDTH; // -13, the oncoming carriageway's median rail
+export const ONCOMING_X = MEDIAN_FAR_X - SHOULDER - ROAD_HALF_WIDTH; // -23, oncoming centre line
+export const LEFT_RAIL_X = ONCOMING_X - ROAD_HALF_WIDTH - SHOULDER; // -33, the deck's left edge
 export const GRASS_GRIP = 0.55;
 
 export const PHYSICS_DT = 1 / 120;
