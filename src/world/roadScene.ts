@@ -101,8 +101,8 @@ const CITY = {
  * (only seen from the way each shines). Now and then (`big`) a bus or a lorry.
  */
 const TRAFFIC = {
-  minor: { every: 220, speed: [8, 12] as const },
-  major: { every: 90, speed: [12, 17] as const },
+  minor: { every: 220, speed: [4.8, 7.2] as const },
+  major: { every: 90, speed: [7.2, 10.2] as const },
   lane: 3.5,
   bodies: 400,
   big: 0.1,
