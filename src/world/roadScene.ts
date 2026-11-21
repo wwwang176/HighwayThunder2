@@ -107,7 +107,7 @@ export const NIGHT = {
   wetness: 1, // the asphalt's wet patches (0 dry)
   rim: 0.25, // a warm light from the city glow ahead, edging the cars (cold blue, it tinted the road blue)
   windows: 0.7, // the buildings' lit windows' brightness
-  windowsLit: 0.22, // the share of their windows lit (each building its own: some all but dark, some lit up)
+  windowsLit: 0.11, // the share of their windows lit (each building its own: some all but dark, some lit up)
   skyGlow: 1, // the city's glow along the horizon
   streetLights: 1, // the streets' lamps on the ground
   wallGlow: 1, // the streets' light on the buildings' lower floors
