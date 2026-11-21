@@ -7,19 +7,46 @@ const MAX_TAPS = 12;
 const MASK_FEATHER = 1.6;
 /** Inside it still this share of the blur: a very light one (the car's own body looking to a side not quite sharp). */
 const MASK_FLOOR = 0.15;
+/** Most points on the path kept sharp (BlurMask.path). */
+export const MASK_POINTS = 8;
 
-/** Where the speed blur is held off (screen 0..1, y up): an ellipse, its centre and radii; radius x 0: nowhere. */
+/**
+ * Where the speed blur is held off (screen 0..1, y up): an ellipse, its centre and radii (radius x 0: none); and a
+ * tube, `count` points (under 2: none) each a round end its `width` across (a radius, in the screen's heights:
+ * `aspect` the screen's width over its height), joined - a ball's on the screen at each, a tube narrowing with the
+ * distance; blurring in out to MASK_FEATHER times the radius. `debug`: what it keeps sharp tinted green (and the
+ * blur drawn when there is none).
+ */
 export interface BlurMask {
   center: THREE.Vector2;
   radius: THREE.Vector2;
+  path: THREE.Vector2[];
+  width: number[];
+  count: number;
+  aspect: number;
+  debug?: boolean;
+}
+
+/** A mask holding nothing off. */
+export function blurMask(): BlurMask {
+  return {
+    center: new THREE.Vector2(0.5, 0.5),
+    radius: new THREE.Vector2(),
+    path: Array.from({ length: MASK_POINTS }, () => new THREE.Vector2()),
+    width: new Array<number>(MASK_POINTS).fill(0),
+    count: 0,
+    aspect: 1,
+  };
 }
 
 /**
  * The speed blur in GLSL, for a pass of its own or folded into another (ToneMapFxaaPass): `speedBlurred` is the
  * picture at `uv` smeared toward and away from `blurCenter`, the farther the more (`blurAmount` of the way), and
- * across by `blurSweep`; `texel` is a pixel's size (1 / the picture's). Little (MASK_FLOOR) inside the ellipse `blurMaskCenter`,
- * radii `blurMaskRadius` (0: no ellipse), fading in out to MASK_FEATHER times them: where the eye is on (the
- * car's own body looking to a side; ahead, where it goes).
+ * across by `blurSweep`; `texel` is a pixel's size (1 / the picture's). Little (MASK_FLOOR) inside the ellipse
+ * `blurMaskCenter`, radii `blurMaskRadius` (0: no ellipse), fading in out to MASK_FEATHER times them (looking back;
+ * the car's own body looking to a side), and inside the tube `blurPath` (`blurPathN` points, `blurPathW` their
+ * radii: the road ahead, looking ahead), fading in out to MASK_FEATHER times its radius. `blurDebug`: what is kept
+ * sharp tinted.
  */
 export const SPEED_BLUR_GLSL = /* glsl */ `
 uniform vec2 blurCenter;
@@ -27,17 +54,49 @@ uniform float blurAmount;
 uniform vec2 blurSweep;
 uniform vec2 blurMaskCenter;
 uniform vec2 blurMaskRadius;
-vec3 speedBlurred( sampler2D tex, vec2 uv, vec2 texel ) {
-  vec2 smear = ( uv - blurCenter ) * blurAmount + blurSweep;
-  if ( blurMaskRadius.x > 0.0 ) smear *= mix( ${MASK_FLOOR.toFixed(2)}, 1.0, smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, length( ( uv - blurMaskCenter ) / blurMaskRadius ) ) );
-  int n = int( clamp( length( smear / texel ) * 0.5, 1.0, ${MAX_TAPS.toFixed(1)} ) );
-  if ( n <= 1 ) return texture( tex, uv ).rgb;
-  vec3 sum = vec3( 0.0 );
-  for ( int i = 0; i < ${MAX_TAPS}; i++ ) {
-    if ( i >= n ) break;
-    sum += texture( tex, uv - smear * ( float( i ) / float( n - 1 ) - 0.5 ) ).rgb;
+uniform vec2 blurPath[${MASK_POINTS}];
+uniform float blurPathW[${MASK_POINTS}];
+uniform int blurPathN;
+uniform float blurAspect;
+uniform float blurDebug;
+// How much of the blur at uv: 0 well inside the ellipse or the tube, 1 out past their feathered edges.
+float blurLet( vec2 uv ) {
+  float open = 1.0;
+  if ( blurMaskRadius.x > 0.0 ) open = smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, length( ( uv - blurMaskCenter ) / blurMaskRadius ) );
+  vec2 k = vec2( blurAspect, 1.0 ); // (in the screen's heights: round)
+  vec2 p = uv * k;
+  // Each stretch from one point to the next, its radius going from the one's to the other's; and each point's own
+  // circle whole (two points close on the screen, their radii far apart - the hood camera's - the stretch alone cut
+  // the bigger one in half across their line).
+  for ( int i = 0; i < ${MASK_POINTS - 1}; i++ ) {
+    if ( i >= blurPathN - 1 ) break;
+    vec2 a = blurPath[ i ] * k;
+    vec2 b = blurPath[ i + 1 ] * k;
+    vec2 ab = b - a;
+    float t = clamp( dot( p - a, ab ) / max( dot( ab, ab ), 1e-8 ), 0.0, 1.0 );
+    float w = mix( blurPathW[ i ], blurPathW[ i + 1 ], t );
+    float d = min( length( p - a - ab * t ) / max( w, 1e-5 ), min( length( p - a ) / max( blurPathW[ i ], 1e-5 ), length( p - b ) / max( blurPathW[ i + 1 ], 1e-5 ) ) );
+    open = min( open, smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, d ) );
   }
-  return sum / float( n );
+  return open;
+}
+vec3 speedBlurred( sampler2D tex, vec2 uv, vec2 texel ) {
+  float open = blurLet( uv );
+  vec2 smear = ( ( uv - blurCenter ) * blurAmount + blurSweep ) * mix( ${MASK_FLOOR.toFixed(2)}, 1.0, open );
+  int n = int( clamp( length( smear / texel ) * 0.5, 1.0, ${MAX_TAPS.toFixed(1)} ) );
+  vec3 c;
+  if ( n <= 1 ) c = texture( tex, uv ).rgb;
+  else {
+    vec3 sum = vec3( 0.0 );
+    for ( int i = 0; i < ${MAX_TAPS}; i++ ) {
+      if ( i >= n ) break;
+      sum += texture( tex, uv - smear * ( float( i ) / float( n - 1 ) - 0.5 ) ).rgb;
+    }
+    c = sum / float( n );
+  }
+  // (the debug view: what is kept sharp tinted green)
+  if ( blurDebug > 0.5 ) c = mix( c, vec3( 0.1, 1.0, 0.3 ), 0.45 * ( 1.0 - open ) );
+  return c;
 }`;
 
 /** The speed blur's uniforms (SPEED_BLUR_GLSL's), off. */
@@ -48,10 +107,15 @@ export function speedBlurUniforms() {
     blurSweep: { value: new THREE.Vector2() },
     blurMaskCenter: { value: new THREE.Vector2(0.5, 0.5) },
     blurMaskRadius: { value: new THREE.Vector2() },
+    blurPath: { value: Array.from({ length: MASK_POINTS }, () => new THREE.Vector2()) },
+    blurPathW: { value: new Array<number>(MASK_POINTS).fill(0) },
+    blurPathN: { value: 0 },
+    blurAspect: { value: 1 },
+    blurDebug: { value: 0 },
   };
 }
 
-/** Set a material's speed blur uniforms; whether there is any blur. */
+/** Set a material's speed blur uniforms; whether there is any blur (or its debug view). */
 export function setSpeedBlur(uniforms: Record<string, THREE.IUniform>, center: THREE.Vector2, amount: number, sweep: THREE.Vector2, mask?: BlurMask): boolean {
   uniforms.blurCenter.value.copy(center);
   uniforms.blurAmount.value = amount;
@@ -59,8 +123,19 @@ export function setSpeedBlur(uniforms: Record<string, THREE.IUniform>, center: T
   if (mask) {
     uniforms.blurMaskCenter.value.copy(mask.center);
     uniforms.blurMaskRadius.value.copy(mask.radius);
-  } else uniforms.blurMaskRadius.value.set(0, 0);
-  return amount > 1e-4 || sweep.lengthSq() > 1e-8;
+    for (let i = 0; i < MASK_POINTS; i++) {
+      uniforms.blurPath.value[i].copy(mask.path[i]);
+      uniforms.blurPathW.value[i] = mask.width[i];
+    }
+    uniforms.blurPathN.value = mask.count;
+    uniforms.blurAspect.value = mask.aspect;
+    uniforms.blurDebug.value = mask.debug ? 1 : 0;
+  } else {
+    uniforms.blurMaskRadius.value.set(0, 0);
+    uniforms.blurPathN.value = 0;
+    uniforms.blurDebug.value = 0;
+  }
+  return amount > 1e-4 || sweep.lengthSq() > 1e-8 || !!mask?.debug;
 }
 
 /** How much the picture smears out from the motion's centre (its share of the way there): by speed, more with the nitro. */

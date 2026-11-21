@@ -4,7 +4,8 @@ import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
 import { PlanPath } from '../render/planPath';
 import { POST, PostFx } from '../render/postFx';
-import { blurAmount, motionCenter, type BlurMask } from '../render/speedBlur';
+import { blurAmount, blurMask as emptyBlurMask, MASK_POINTS, motionCenter, type BlurMask } from '../render/speedBlur';
+import { BlurMaskView } from '../debug/blurMaskView';
 import { flameTextures } from '../render/exhaustFlames';
 import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
@@ -142,13 +143,21 @@ const LOOK_BLUR = {
   sideShare: 0.2,
 };
 /**
- * Where the speed blur is held off (render/speedBlur BlurMask), where the eye is: looking ahead or back an ellipse
- * `focus` across (of the screen's width; half as tall as wide on the screen) round the point it goes to or comes
- * from; looking to a side round the car's own body (its box on the screen, `car` times its half-sizes: the corners,
- * the wheels' bottoms, blurred a little).
+ * Where the speed blur is held off (render/speedBlur BlurMask), where the eye is. Looking ahead, a tube of balls
+ * from the car's nose (the first reaching `nose` m back into it: a little of the nose sharp too) along the road
+ * ahead (`ahead` m on the mountain road, `aheadHighway` on the highway; at the car's place across it and the nose's
+ * height; the car's width across - `nearShare` of it at the nose, `grow` times more at the far end: far off still
+ * wide enough to see) - cut where
+ * the road goes behind the camera or turns back down the screen (over a crest, round a hairpin: `drop` of the
+ * screen's height); its balls `near` m from the camera or more (the hood camera's: from a few metres down the
+ * road). Looking back (or no tube) an
+ * ellipse `focus` across (of the screen's width; half as tall as wide on the screen) round the point it goes to or
+ * comes from; looking to a side round the car's own body (its box on the screen, `car` times its half-sizes: the
+ * corners, the wheels' bottoms, blurred a little).
  */
-const BLUR_MASK = { focus: 0.09, car: 1.1 };
+const BLUR_MASK = { focus: 0.09, car: 1.1, nose: 0.3, ahead: 80, aheadHighway: 200, grow: 5, nearShare: 0.8, drop: 0.01, near: 4 };
 const MASK_CORNER = new THREE.Vector3();
+const MASK_VIEW = new THREE.Vector3();
 const RESIZE_V = new THREE.Vector2();
 const EAR_FWD = new THREE.Vector3();
 const EAR_UP = new THREE.Vector3();
@@ -302,7 +311,9 @@ export class Game {
   /** Last frame's look (speedBlur: a cut to another is no turn). */
   private blurLook: Look = 'ahead';
   /** Where the speed blur is held off (BLUR_MASK; held while paused, as the blur). */
-  private readonly blurMask: BlurMask = { center: new THREE.Vector2(0.5, 0.5), radius: new THREE.Vector2() };
+  private readonly blurMask: BlurMask = emptyBlurMask();
+  /** Debug: the blur's mask marked on the screen (POST.blurMaskShow). */
+  private readonly blurMaskView = new BlurMaskView();
   /** The race's intro, whether it is on; a race starting (the fade). */
   private intro: Intro | null = null;
   private introOn = false;
@@ -1443,14 +1454,22 @@ export class Game {
         share = LOOK_BLUR.sideShare;
       }
       if (center) this.blurCenter.copy(center);
-      if (look === 'left' || look === 'right') this.carOnScreen(this.blurMask);
+      const mask = this.blurMask;
+      mask.count = 0;
+      mask.aspect = this.camera.aspect;
+      if (look === 'left' || look === 'right') this.carOnScreen(mask);
       else {
         const r = BLUR_MASK.focus / 2;
-        this.blurMask.center.copy(this.blurCenter);
-        this.blurMask.radius.set(r, (r * this.camera.aspect) / 2);
+        // Ahead: the band from the nose (none found - the nose behind the camera: the ellipse as looking back).
+        if (look === 'ahead') this.roadPath(mask, this.mountain ? BLUR_MASK.ahead : BLUR_MASK.aheadHighway);
+        if (mask.count >= 2) mask.radius.set(0, 0);
+        else {
+          mask.center.copy(this.blurCenter);
+          mask.radius.set(r, (r * this.camera.aspect) / 2);
+        }
       }
       this.blurAmount = center
-        ? share * blurAmount(Math.abs(this.player.speed) * 3.6, this.player.nitro.active, { from: POST.blurFrom, full: POST.blurFull, strength: POST.blurStrength, nitro: POST.blurNitro })
+        ? share * Math.max(POST.blurForce, blurAmount(Math.abs(this.player.speed) * 3.6, this.player.nitro.active, { from: POST.blurFrom, full: POST.blurFull, strength: POST.blurStrength, nitro: POST.blurNitro }))
         : 0;
       // (A jump of the camera - a reset - is no turn: at most 3 rad/s.)
       const turned = this.camYaw === null ? 0 : Math.atan2(Math.sin(yaw - this.camYaw), Math.cos(yaw - this.camYaw));
@@ -1460,7 +1479,63 @@ export class Game {
       this.blurSweep.set(shot || look !== 'ahead' ? 0 : ((rate / 60) / hFov) * POST.blurTurn, 0);
     }
     this.camYaw = yaw;
+    this.blurMask.debug = POST.blurMaskShow;
     this.post.motion(this.blurCenter, this.blurAmount, this.blurSweep, this.blurMask);
+    this.blurMaskView.draw(POST.blurMaskShow && !this.garage.isOpen, this.blurMask, this.blurCenter);
+  }
+
+  /**
+   * A ball of radius `half` m at a world point, on the screen as the blur's mask takes it: its centre (`out`, 0..1,
+   * y up) and radius (in the screen's heights); false behind the camera or nearer it than BLUR_MASK.near (the hood
+   * camera over the nose: a ball there filled half the screen).
+   */
+  private maskBall(x: number, y: number, z: number, half: number, out: THREE.Vector2): number | false {
+    const v = MASK_VIEW.set(x, y, z).applyMatrix4(this.camera.matrixWorldInverse);
+    if (v.z > -BLUR_MASK.near) return false;
+    const depth = -v.z;
+    v.applyMatrix4(this.camera.projectionMatrix);
+    out.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5);
+    return (half * 0.5) / (depth * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
+  }
+
+  /**
+   * The tube: balls the car's width across, along the road ahead (`ahead` m, the car's place across it, at the
+   * nose's height over the road; closer together near the car) - the first ahead of the nose, reaching back
+   * BLUR_MASK.nose m into it; from the first one far enough from the camera (the hood camera's: a few metres down
+   * the road); as far as the road keeps going up the screen (behind a crest, or round a hairpin back toward the
+   * camera: cut there).
+   */
+  private roadPath(mask: BlurMask, ahead: number): void {
+    const p = this.player, road = this.roadLine;
+    // (a ball's radius `along` the way: the car's half-width, `nearShare` of it at the nose, `grow` times more far off)
+    const radius = (along: number) => (p.width / 2) * (BLUR_MASK.nearShare + (1 - BLUR_MASK.nearShare) * along) * (1 + BLUR_MASK.grow * along);
+    const half = radius(0);
+    const mesh = p.mesh;
+    mesh.updateWorldMatrix(true, false);
+    // (the nose at -z; at the body's top: seen from behind and above, the road ahead shows over its roof)
+    const n = MASK_CORNER.set(0, PLAYER_H / 2, -p.length / 2 + BLUR_MASK.nose - half).applyMatrix4(mesh.matrixWorld);
+    const from = p.lead - BLUR_MASK.nose + half;
+    const lift = n.y - road.surfaceHeight(from, p.d);
+    let count = 0;
+    let top = -Infinity;
+    for (let k = 0; k < MASK_POINTS; k++) {
+      const along = (k / (MASK_POINTS - 1)) ** 2;
+      const s = from + ahead * along;
+      const w = k ? road.toWorld(s, p.d) : null;
+      const at = mask.path[count];
+      const r = w
+        ? this.maskBall(w.x, road.surfaceHeight(s, p.d) + lift, w.z, radius(along), at)
+        : this.maskBall(n.x, n.y, n.z, half, at);
+      if (r === false) {
+        if (count) break; // (gone behind the camera)
+        continue; // (too near it yet)
+      }
+      if (count && at.y < top - BLUR_MASK.drop) break;
+      top = Math.max(top, at.y);
+      mask.width[count] = r;
+      count++;
+    }
+    mask.count = count;
   }
 
   /** The player's car on the screen (0..1, y up) as an ellipse: round its box's corners' (BLUR_MASK.car of them). */

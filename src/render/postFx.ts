@@ -32,6 +32,10 @@ export const POST = {
   blurNitro: 1.5,
   /** The camera's turning smeared across, times what a 1/60 s exposure would. */
   blurTurn: 1,
+  /** Debug: what the speed blur keeps sharp shown (tinted green, its points marked: debug/blurMaskView). */
+  blurMaskShow: false,
+  /** Debug: the speed blur at least this strong (0: as by speed) - its mask seen slow too. */
+  blurForce: 0,
 };
 
 /**
