@@ -65,14 +65,18 @@ float blurLet( vec2 uv ) {
   if ( blurMaskRadius.x > 0.0 ) open = smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, length( ( uv - blurMaskCenter ) / blurMaskRadius ) );
   vec2 k = vec2( blurAspect, 1.0 ); // (in the screen's heights: round)
   vec2 p = uv * k;
-  // Each stretch from one point to the next, its radius going from the one's to the other's (round ends).
+  // Each stretch from one point to the next, its radius going from the one's to the other's; and each point's own
+  // circle whole (two points close on the screen, their radii far apart - the hood camera's - the stretch alone cut
+  // the bigger one in half across their line).
   for ( int i = 0; i < ${MASK_POINTS - 1}; i++ ) {
     if ( i >= blurPathN - 1 ) break;
     vec2 a = blurPath[ i ] * k;
-    vec2 ab = blurPath[ i + 1 ] * k - a;
+    vec2 b = blurPath[ i + 1 ] * k;
+    vec2 ab = b - a;
     float t = clamp( dot( p - a, ab ) / max( dot( ab, ab ), 1e-8 ), 0.0, 1.0 );
     float w = mix( blurPathW[ i ], blurPathW[ i + 1 ], t );
-    open = min( open, smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, length( p - a - ab * t ) / max( w, 1e-5 ) ) );
+    float d = min( length( p - a - ab * t ) / max( w, 1e-5 ), min( length( p - a ) / max( blurPathW[ i ], 1e-5 ), length( p - b ) / max( blurPathW[ i + 1 ], 1e-5 ) ) );
+    open = min( open, smoothstep( 1.0, ${MASK_FEATHER.toFixed(2)}, d ) );
   }
   return open;
 }

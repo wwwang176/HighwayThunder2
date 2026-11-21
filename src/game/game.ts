@@ -148,12 +148,13 @@ const LOOK_BLUR = {
  * ahead (`ahead` m on the mountain road, `aheadHighway` on the highway; at the car's place across it and the nose's
  * height; the car's width across, `grow` times more at the far end: far off still wide enough to see) - cut where
  * the road goes behind the camera or turns back down the screen (over a crest, round a hairpin: `drop` of the
- * screen's height). Looking back (or no tube: the nose behind the camera) an
+ * screen's height); its balls `near` m from the camera or more (the hood camera's: from a few metres down the
+ * road). Looking back (or no tube) an
  * ellipse `focus` across (of the screen's width; half as tall as wide on the screen) round the point it goes to or
  * comes from; looking to a side round the car's own body (its box on the screen, `car` times its half-sizes: the
  * corners, the wheels' bottoms, blurred a little).
  */
-const BLUR_MASK = { focus: 0.09, car: 1.1, nose: 0.3, ahead: 80, aheadHighway: 200, grow: 5, drop: 0.01 };
+const BLUR_MASK = { focus: 0.09, car: 1.1, nose: 0.3, ahead: 80, aheadHighway: 200, grow: 5, drop: 0.01, near: 4 };
 const MASK_CORNER = new THREE.Vector3();
 const MASK_VIEW = new THREE.Vector3();
 const RESIZE_V = new THREE.Vector2();
@@ -1484,11 +1485,12 @@ export class Game {
 
   /**
    * A ball of radius `half` m at a world point, on the screen as the blur's mask takes it: its centre (`out`, 0..1,
-   * y up) and radius (in the screen's heights); false behind the camera.
+   * y up) and radius (in the screen's heights); false behind the camera or nearer it than BLUR_MASK.near (the hood
+   * camera over the nose: a ball there filled half the screen).
    */
   private maskBall(x: number, y: number, z: number, half: number, out: THREE.Vector2): number | false {
     const v = MASK_VIEW.set(x, y, z).applyMatrix4(this.camera.matrixWorldInverse);
-    if (v.z > -this.camera.near) return false;
+    if (v.z > -BLUR_MASK.near) return false;
     const depth = -v.z;
     v.applyMatrix4(this.camera.projectionMatrix);
     out.set(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5);
@@ -1498,8 +1500,9 @@ export class Game {
   /**
    * The tube: balls the car's width across, along the road ahead (`ahead` m, the car's place across it, at the
    * nose's height over the road; closer together near the car) - the first ahead of the nose, reaching back
-   * BLUR_MASK.nose m into it; as far as the road keeps going up the screen (behind a crest, or round a hairpin back
-   * toward the camera: cut there).
+   * BLUR_MASK.nose m into it; from the first one far enough from the camera (the hood camera's: a few metres down
+   * the road); as far as the road keeps going up the screen (behind a crest, or round a hairpin back toward the
+   * camera: cut there).
    */
   private roadPath(mask: BlurMask, ahead: number): void {
     const p = this.player, road = this.roadLine, half = p.width / 2;
@@ -1507,21 +1510,25 @@ export class Game {
     mesh.updateWorldMatrix(true, false);
     // (the nose at -z; at the body's top: seen from behind and above, the road ahead shows over its roof)
     const n = MASK_CORNER.set(0, PLAYER_H / 2, -p.length / 2 + BLUR_MASK.nose - half).applyMatrix4(mesh.matrixWorld);
-    const first = this.maskBall(n.x, n.y, n.z, half, mask.path[0]);
-    if (first === false) return;
-    mask.width[0] = first;
     const from = p.lead - BLUR_MASK.nose + half;
     const lift = n.y - road.surfaceHeight(from, p.d);
-    let count = 1;
-    let top = mask.path[0].y;
-    for (let k = 1; k < MASK_POINTS; k++) {
+    let count = 0;
+    let top = -Infinity;
+    for (let k = 0; k < MASK_POINTS; k++) {
       const along = (k / (MASK_POINTS - 1)) ** 2;
       const s = from + ahead * along;
-      const w = road.toWorld(s, p.d);
-      const r = this.maskBall(w.x, road.surfaceHeight(s, p.d) + lift, w.z, half * (1 + BLUR_MASK.grow * along), mask.path[k]);
-      if (r === false || mask.path[k].y < top - BLUR_MASK.drop) break;
-      top = Math.max(top, mask.path[k].y);
-      mask.width[k] = r;
+      const w = k ? road.toWorld(s, p.d) : null;
+      const at = mask.path[count];
+      const r = w
+        ? this.maskBall(w.x, road.surfaceHeight(s, p.d) + lift, w.z, half * (1 + BLUR_MASK.grow * along), at)
+        : this.maskBall(n.x, n.y, n.z, half, at);
+      if (r === false) {
+        if (count) break; // (gone behind the camera)
+        continue; // (too near it yet)
+      }
+      if (count && at.y < top - BLUR_MASK.drop) break;
+      top = Math.max(top, at.y);
+      mask.width[count] = r;
       count++;
     }
     mask.count = count;
