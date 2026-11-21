@@ -35,14 +35,11 @@ async function boot() {
     }),
   ]);
   await loading.next('loading.scene', 0.7);
-  // The course picked last in the garage (another picked there: built in place as its race is set up). The highway
-  // bends (?straight: the straight road as ever, its own record - the highway whatever was picked).
-  const params = new URLSearchParams(location.search);
-  const curved = !params.has('straight');
+  // The course picked last in the garage (another picked there: built in place as its race is set up).
   // (?skidpad: the drift practice ground - on the mountain road's setup, its own world)
-  const skidpad = params.has('skidpad');
-  const mountain = skidpad || (curved && loadSelection(localStorage).course === 'mountain');
-  const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved, mountain, skidpad });
+  const skidpad = new URLSearchParams(location.search).has('skidpad');
+  const mountain = skidpad || loadSelection(localStorage).course === 'mountain';
+  const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { mountain, skidpad });
   (window as unknown as { __game: Game }).__game = game;
   await loading.next('loading.shaders', 0.85);
   await game.warmUp((share) => loading.set('loading.shaders', 0.85 + 0.13 * share)); // (the bar moving as they are made)
