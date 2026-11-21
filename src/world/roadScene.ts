@@ -10,10 +10,38 @@ const STRIP_AHEAD = 1300;
 const STRIP_LEN = STRIP_BEHIND + STRIP_AHEAD;
 /**
  * The deck (the highway up on it, some five floors over the city): concrete parapets on its outer edges (their road
- * faces the rails' planes), its edges reaching DECK_DEPTH m down under the road; nothing below it (never in view).
+ * faces the rails' planes), its edges reaching DECK_DEPTH m down under the road; on piers (PIER).
  */
 const PARAPET = { width: 0.45, height: 1.05 };
 const DECK_DEPTH = 1.8;
+/** The city's ground: some five floors under the road. */
+const GROUND_Y = -15;
+/**
+ * The deck's piers, every `spacing` m: a cap beam across under it (`cap` m deep, `capLong` along), on columns
+ * (`columns`: across the road, `radius`) down to the ground.
+ */
+const PIER = {
+  spacing: 50,
+  offset: 25, // (between the lamp rows)
+  cap: 1.5,
+  capLong: 2.2,
+  columns: [LEFT_RAIL_X + 4, (MEDIAN_NEAR_X + MEDIAN_FAR_X) / 2, RAIL_D - 4],
+  radius: 1.1,
+};
+/**
+ * The streets on the ground, lit by their lamps (in its shader: pools of light on the asphalt, the lamps' own
+ * glare): each block of buildings its own grid between its lots (`block`: half the street's width, the lamps'
+ * spacing along each side), the city's broad roads beyond (`arterial`: their grid's spacing on the world's axes too).
+ * Each lamp's pool `pool` m across (its glare `glare`), blurred to the pixel far off (no shimmer: as bright on the whole).
+ */
+const STREETS = {
+  block: { halfWidth: 5, spacing: 22 },
+  arterial: { cell: 260, halfWidth: 9, spacing: 28 },
+  pool: 4.5,
+  glare: 0.5,
+  ground: 0x0a0b0d,
+  asphalt: 0x15161a,
+};
 /** The median's guardrails: at each side of its strip, the way its carriageway is (+1 toward +d). */
 const MEDIAN_RAILS: [number, number][] = [[MEDIAN_NEAR_X, 1], [MEDIAN_FAR_X, -1]];
 /** The strip's low shrubs (as real ones, planted against the oncoming headlights' glare): m apart along it, how tall, how wide. */
@@ -24,7 +52,7 @@ const SHRUB = { spacing: 1.25, height: [0.85, 1.35] as const, width: [1.1, 1.7] 
  * further off (their middles `dist` m off its edge, mostly the near end), apart from each other (`apart` m between
  * their rims); each `radius` m across, its buildings (`size` m) on a grid of `cell`-m lots, some lots empty; its
  * height (`top`: the tallest over the road) its own - low blocks and towers. No building nearer the deck than
- * `clear` m (nobody builds right up against an elevated road). All standing from `base` (well under the deck: their feet never in view).
+ * `clear` m (nobody builds right up against an elevated road). All standing on the ground (`base`).
  */
 const CITY = {
   period: 800,
@@ -37,7 +65,7 @@ const CITY = {
   empty: 0.3,
   top: [6, 130] as const,
   clear: 40,
-  base: -45,
+  base: GROUND_Y,
   color: 0x16181d,
   /**
    * Its own fog, not the scene's (60-650 m): the walls into the night by distance (1 - e^(-d/scale): two thirds of
@@ -65,9 +93,46 @@ export const NIGHT = {
   windows: 0.7, // the buildings' lit windows' brightness
   windowsLit: 0.22, // the share of their windows lit (each building its own: some all but dark, some lit up)
   skyGlow: 1, // the city's glow along the horizon
+  streetLights: 1, // the streets' lamps on the ground
+  wallGlow: 1, // the streets' light on the buildings' lower floors
 };
 const WINDOWS = { strength: { value: NIGHT.windows }, lit: { value: NIGHT.windowsLit } };
 const SKY_GLOW_STRENGTH = { value: NIGHT.skyGlow };
+const STREET_STRENGTH = { value: NIGHT.streetLights };
+const WALL_GLOW = { value: NIGHT.wallGlow };
+/** Street lights' colours: sodium orange, LED white. */
+const SODIUM = 'vec3(1.0, 0.52, 0.2)';
+const LED = 'vec3(0.9, 0.92, 1.0)';
+/** The city's fog (CITY.fog), in its shaders: walls (and the ground) into the night, the lights fading much further. */
+const CITY_FOG_GLSL = /* glsl */ `
+float cityWallFog(float d) { return max(1.0 - exp(-d / ${CITY.fog.walls.scale.toFixed(1)}), smoothstep(${(CITY.fog.walls.gone * 0.8).toFixed(1)}, ${CITY.fog.walls.gone.toFixed(1)}, d)); }
+float cityLightFade(float d) { return 1.0 - smoothstep(${CITY.fog.windows[0].toFixed(1)}, ${CITY.fog.windows[1].toFixed(1)}, d); }`;
+/**
+ * Streets' lamps' light on the ground (STREETS), at p on a grid `cell` m apart (its lines at whole cells past
+ * `phase`): streets along the lines, `halfW` m either side, a lamp at each side every `spacing` m (the two sides'
+ * staggered); `fp` the pixel's footprint (m) the pools blurred to. Its light, and how much p is on a street.
+ */
+const STREETS_GLSL = /* glsl */ `
+float streetLamps(float across, float along, float halfW, float spacing, float fp) {
+  float p2 = ${(STREETS.pool * STREETS.pool).toFixed(3)}, g2 = ${(STREETS.glare * STREETS.glare).toFixed(3)};
+  float ps = p2 + fp * fp, gs = g2 + fp * fp;
+  float light = 0.0;
+  for (int i = 0; i < 2; i++) {
+    float side = i == 0 ? -1.0 : 1.0;
+    float a = along / spacing + side * 0.25;
+    vec2 d = vec2(across - side * (halfW - 0.8), (a - floor(a + 0.5)) * spacing);
+    float r2 = dot(d, d);
+    light += p2 / ps * exp(-r2 / ps) + 8.0 * g2 / gs * exp(-r2 / gs);
+  }
+  return light;
+}
+vec2 streetGrid(vec2 p, float cell, float phase, float halfW, float spacing, float fp) {
+  vec2 g = p / cell - phase;
+  vec2 off = (g - floor(g + 0.5)) * cell;
+  float light = streetLamps(off.x, p.y, halfW, spacing, fp) + streetLamps(off.y, p.x, halfW, spacing, fp);
+  float road = 1.0 - smoothstep(halfW - 0.5, halfW + 0.5 + fp, min(abs(off.x), abs(off.y)));
+  return vec2(light, road);
+}`;
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
 const LAMP_HEIGHT = 9.8;
 // Real (shading) lights for the lamps over our carriageway inside this window;
@@ -251,6 +316,7 @@ function withWindows(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMateria
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.windowStrength = WINDOWS.strength;
     shader.uniforms.windowLit = WINDOWS.lit;
+    shader.uniforms.wallGlow = WALL_GLOW;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWall;\nvarying vec3 vWallN;\nvarying float vWallSeed;\nvarying float vWallTop;')
       .replace(
@@ -272,6 +338,8 @@ varying float vWallSeed;
 varying float vWallTop;
 uniform float windowStrength;
 uniform float windowLit;
+uniform float wallGlow;
+${CITY_FOG_GLSL}
 float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 // Warm: ~2700 K (bulbs) to ~3500 K; cool: ~4000 K to ~5500 K (LED, fluorescent) - not blue-white.
 const vec3 WARM_LO = vec3(1.0, 0.58, 0.28), WARM_HI = vec3(1.0, 0.8, 0.56);
@@ -300,8 +368,12 @@ vec3 windowsAt(vec2 cell, float m, vec2 face, float seed, vec4 box, float unit, 
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
 vec3 windowGlow = vec3(0.0);
+vec3 streetGlow = vec3(0.0);
 if (abs(vWallN.y) < 0.5) {
   float seed = floor(vWallSeed * 1000.0 + 0.5) / 1000.0; // (whole thousandths: interpolated, the same value came out a hair off pixel to pixel - each window's hash noise)
+  // The street lights' glow up its lower floors (orange or white).
+  streetGlow = wallGlow * 0.035 * (0.5 + fract(seed * 3.3)) * exp(-(vWall.y - ${GROUND_Y.toFixed(1)}) / 7.0)
+    * mix(${SODIUM}, ${LED}, step(0.6, fract(seed * 8.9)));
   bool office = fract(seed * 2.9) < 0.15 + 0.7 * smoothstep(25.0, 80.0, vWallTop);
   float floorH = office ? 3.8 + 0.4 * fract(seed * 13.7) : 3.0 + 0.3 * fract(seed * 13.7);
   float colW = office ? 1.5 : 1.6 + 0.3 * fract(seed * 7.3);
@@ -332,12 +404,11 @@ if (abs(vWallN.y) < 0.5) {
       .replace(
         '#include <fog_fragment>',
         `#ifdef USE_FOG
-float wallFog = max(1.0 - exp(-vFogDepth / ${CITY.fog.walls.scale.toFixed(1)}), smoothstep(${(CITY.fog.walls.gone * 0.8).toFixed(1)}, ${CITY.fog.walls.gone.toFixed(1)}, vFogDepth));
-gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, wallFog);
+gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, cityWallFog(vFogDepth));
 float windowBoost = 1.0 + ${CITY.fog.farBoost.toFixed(2)} * smoothstep(150.0, 900.0, vFogDepth);
-gl_FragColor.rgb += windowGlow * windowBoost * (1.0 - smoothstep(${CITY.fog.windows[0].toFixed(1)}, ${CITY.fog.windows[1].toFixed(1)}, vFogDepth));
+gl_FragColor.rgb += (windowGlow * windowBoost + streetGlow) * cityLightFade(vFogDepth);
 #else
-gl_FragColor.rgb += windowGlow;
+gl_FragColor.rgb += windowGlow + streetGlow;
 #endif`,
       );
   };
@@ -565,6 +636,11 @@ export class RoadScene implements Scenery {
    * as a quaternion), their own place on the block (u, v: along its axes), size (w, l: along them), top over the road.
    */
   private cityBase: { s: number; d: number; u: number; v: number; w: number; l: number; top: number; cy: number; sy: number; q: THREE.Quaternion }[] = [];
+  /** The city's blocks in one period of it (their streets on the ground): middle (s, d), radius, turn. */
+  private cityBlocks: { s: number; d: number; r: number; q: THREE.Quaternion }[] = [];
+  private streets!: THREE.InstancedMesh;
+  private pierCaps!: THREE.InstancedMesh;
+  private pierColumns!: THREE.InstancedMesh;
 
   /** The street lights currently shining (for things lit by hand, like tyre smoke). */
   activeLights(): THREE.SpotLight[] {
@@ -675,6 +751,11 @@ export class RoadScene implements Scenery {
     const deck = new THREE.Mesh(deckSweep.geometry, new THREE.MeshStandardMaterial({ color: 0x75777a, roughness: 0.9 }));
     deck.receiveShadow = true;
     this.strip.add(deck);
+    // Its piers (PIER): a cap beam across under it, its columns down to the ground.
+    const piers = STRIP_LEN / PIER.spacing;
+    this.pierCaps = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), deck.material, piers);
+    this.pierColumns = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 12), deck.material, piers * PIER.columns.length);
+    this.strip.add(this.pierCaps, this.pierColumns);
 
     // The median's guardrails: a beam along each side of its strip, facing its carriageway, posts every 4 m.
     const metal = new THREE.MeshStandardMaterial({ color: 0xb9bec4, roughness: 0.4, metalness: 0.7 });
@@ -838,13 +919,21 @@ export class RoadScene implements Scenery {
         }
       }
     }
+    const capTop = -DECK_DEPTH, capBottom = capTop - PIER.cap;
+    const deckL = LEFT_RAIL_X - PARAPET.width, deckR = RAIL_D + PARAPET.width;
+    let ci = 0;
+    for (let k = 0; k < STRIP_LEN / PIER.spacing; k++) {
+      this.at(stripS - STRIP_BEHIND + PIER.offset + k * PIER.spacing);
+      this.put(this.pierCaps, k, (deckL + deckR) / 2, (capTop + capBottom) / 2, deckR - deckL - 1, PIER.cap, PIER.capLong);
+      for (const x of PIER.columns) this.put(this.pierColumns, ci++, x, (capBottom + GROUND_Y) / 2, PIER.radius * 2, capBottom - GROUND_Y, PIER.radius * 2);
+    }
     const fpos = this.lampFlares.geometry.getAttribute('position') as THREE.BufferAttribute;
     this.lampHeads.forEach((h, k) => {
       const w = this.line.toWorld(stripS + h.s, h.x);
       fpos.setXYZ(k, w.x, LAMP_HEIGHT - 0.15, w.z);
     });
     fpos.needsUpdate = true;
-    for (const m of [this.posts, this.shrubs, this.poles, this.arms, this.heads]) m.instanceMatrix.needsUpdate = true;
+    for (const m of [this.posts, this.shrubs, this.poles, this.arms, this.heads, this.pierCaps, this.pierColumns]) m.instanceMatrix.needsUpdate = true;
   }
 
   /**
@@ -854,6 +943,7 @@ export class RoadScene implements Scenery {
   private buildCity(): void {
     const rnd = seeded(42);
     const lerp = (r: readonly [number, number], k = rnd()) => r[0] + k * (r[1] - r[0]);
+    const streetInfo: number[] = []; // (each block's: its grid's phase, its radius, its lamps' hue)
     for (const side of [1, -1]) {
       const edge = side > 0 ? RAIL_D + PARAPET.width : LEFT_RAIL_X - PARAPET.width;
       const blocks: { s: number; dist: number; r: number }[] = [];
@@ -872,6 +962,8 @@ export class RoadScene implements Scenery {
         const top = lerp(CITY.top, rnd() ** 1.6);
         const dc = edge + side * b.dist;
         const n = Math.ceil((2 * b.r) / CITY.cell);
+        this.cityBlocks.push({ s: b.s, d: dc, r: b.r, q });
+        streetInfo.push(n % 2 ? 0.5 : 0, b.r, (b.s * 0.0731 + b.dist * 0.0173) % 1);
         for (let a = 0; a < n; a++)
           for (let c = 0; c < n; c++) {
             const u = (a - (n - 1) / 2) * CITY.cell, v = (c - (n - 1) / 2) * CITY.cell;
@@ -891,6 +983,53 @@ export class RoadScene implements Scenery {
       this.cityBase.length * reps,
     );
     this.city.add(this.buildings);
+
+    // Each block's streets: a square on the ground under it (its own turn), their lamps' light added onto the
+    // ground's (drawn just after it, before everything else: nothing under the ground).
+    const info = new Float32Array(streetInfo.length * reps);
+    for (let r = 0; r < reps; r++) info.set(streetInfo, r * streetInfo.length);
+    const quad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    quad.setAttribute('street', new THREE.InstancedBufferAttribute(info, 3));
+    const B = STREETS.block;
+    this.streets = new THREE.InstancedMesh(
+      quad,
+      new THREE.ShaderMaterial({
+        uniforms: { strength: STREET_STRENGTH },
+        vertexShader: /* glsl */ `
+attribute vec3 street;
+varying vec2 vLocal;
+varying vec3 vStreet;
+varying float vDepth;
+void main() {
+  vLocal = position.xz * vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[2].xyz));
+  vStreet = street;
+  vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+  vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`,
+        fragmentShader: /* glsl */ `
+uniform float strength;
+varying vec2 vLocal;
+varying vec3 vStreet;
+varying float vDepth;
+${CITY_FOG_GLSL}
+${STREETS_GLSL}
+void main() {
+  float fp = max(fwidth(vLocal.x), fwidth(vLocal.y));
+  vec2 s = streetGrid(vLocal, ${CITY.cell.toFixed(1)}, vStreet.x, ${B.halfWidth.toFixed(1)}, ${B.spacing.toFixed(1)}, fp);
+  // (its lots' rim: the streets round its outer ones, no further)
+  float rim = 1.0 - smoothstep(vStreet.y + 12.0, vStreet.y + 24.0, length(vLocal));
+  vec3 tint = mix(${SODIUM}, ${LED}, step(0.65, vStreet.z));
+  gl_FragColor = vec4(tint * (0.03 * s.x + 0.006 * s.y) * strength * rim * cityLightFade(vDepth), 1.0);
+}`,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      }),
+      this.cityBlocks.length * reps,
+    );
+    this.streets.renderOrder = -0.8;
+    this.city.add(this.streets);
   }
 
   /** The city (its pattern repeating every CITY.period m) along the road from s = `cityS` - STRIP_BEHIND. */
@@ -908,6 +1047,15 @@ export class RoadScene implements Scenery {
         this.buildings.setMatrixAt(i++, M4.compose(P3, Q4.copy(AT.q).multiply(b.q), S3.set(b.w, b.top - CITY.base, b.l)));
       }
     this.buildings.instanceMatrix.needsUpdate = true;
+    i = 0;
+    for (let r = 0; r < reps; r++)
+      for (const b of this.cityBlocks) {
+        this.at(cityS - STRIP_BEHIND + r * CITY.period + b.s);
+        const side = 2 * (b.r + CITY.cell);
+        P3.set(AT.cx + b.d * AT.nx, GROUND_Y, AT.cz + b.d * AT.nz);
+        this.streets.setMatrixAt(i++, M4.compose(P3, Q4.copy(AT.q).multiply(b.q), S3.set(side, 1, side)));
+      }
+    this.streets.instanceMatrix.needsUpdate = true;
   }
 
   private buildFar(): void {
@@ -960,6 +1108,45 @@ void main() {
     );
     sky.renderOrder = -1;
     this.far.add(sky);
+
+    // The ground, five floors down: dark, into the night with the walls, the city's broad roads' lamps on it (each
+    // block's streets added after it) - drawn right after the sky (nothing under the ground to hide).
+    const A = STREETS.arterial;
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2),
+      new THREE.ShaderMaterial({
+        uniforms: { strength: STREET_STRENGTH, fogColor: { value: new THREE.Color(FOG) }, ground: { value: new THREE.Color(STREETS.ground) }, asphalt: { value: new THREE.Color(STREETS.asphalt) } },
+        vertexShader: /* glsl */ `
+varying vec2 vWorld;
+varying float vDepth;
+void main() {
+  vWorld = (modelMatrix * vec4(position, 1.0)).xz;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}`,
+        fragmentShader: /* glsl */ `
+uniform float strength;
+uniform vec3 fogColor;
+uniform vec3 ground;
+uniform vec3 asphalt;
+varying vec2 vWorld;
+varying float vDepth;
+${CITY_FOG_GLSL}
+${STREETS_GLSL}
+void main() {
+  float fp = max(fwidth(vWorld.x), fwidth(vWorld.y));
+  vec2 s = streetGrid(vWorld, ${A.cell.toFixed(1)}, 0.0, ${A.halfWidth.toFixed(1)}, ${A.spacing.toFixed(1)}, fp);
+  vec3 col = mix(mix(ground, asphalt, s.y), fogColor, cityWallFog(vDepth));
+  gl_FragColor = vec4(col + ${SODIUM} * (0.03 * s.x + 0.006 * s.y) * strength * cityLightFade(vDepth), 1.0);
+}`,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    ground.position.y = GROUND_Y;
+    ground.renderOrder = -0.9;
+    this.far.add(ground);
   }
 
   /**
@@ -975,6 +1162,8 @@ void main() {
     WINDOWS.strength.value = NIGHT.windows;
     WINDOWS.lit.value = NIGHT.windowsLit;
     SKY_GLOW_STRENGTH.value = NIGHT.skyGlow;
+    STREET_STRENGTH.value = NIGHT.streetLights;
+    WALL_GLOW.value = NIGHT.wallGlow;
     // (the far scenery and the sky go along with the player, its line's point: as far off whichever way it turns)
     const c = this.line.center(playerS);
     this.far.position.set(c.x, 0, c.z);

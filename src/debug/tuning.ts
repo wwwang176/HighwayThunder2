@@ -80,6 +80,8 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   n.add(NIGHT, 'windows', 0, 4, 0.05).name('大樓窗戶亮度');
   n.add(NIGHT, 'windowsLit', 0, 1, 0.01).name('大樓窗戶開燈比例');
   n.add(NIGHT, 'skyGlow', 0, 3, 0.05).name('地平線城市光害');
+  n.add(NIGHT, 'streetLights', 0, 4, 0.05).name('地面街道路燈');
+  n.add(NIGHT, 'wallGlow', 0, 4, 0.05).name('大樓低樓層街光');
   n.add(POST, 'antialias', { 'FXAA（最省）': 'fxaa', 'SMAA（較銳利）': 'smaa', 'MSAA 4 倍（最慢）': 'msaa', '關': 'none' }).name('抗鋸齒');
   n.add(POST, 'bloom').name('光暈');
   n.add(POST, 'strength', 0, 2, 0.05).name('光暈強度');
