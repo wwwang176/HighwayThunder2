@@ -114,6 +114,7 @@ it('rail and grass drag', async () => {
     SURFACE_DRAG.rail = 0;
     SURFACE_DRAG.railLow = 0;
     SURFACE_DRAG.grass = 0;
+    SURFACE_DRAG.grassLow = 0;
     const before = drive(run);
     const fmt = (r: { at: number[]; lean: number; ok: boolean; landed: number | null }) =>
       `${r.landed !== null ? `landing at ${r.landed.toFixed(2)}, then ` : ''}${r.at.map((v) => v.toFixed(0)).join(' / ')} km/h, lean ${r.lean.toFixed(1)}°${r.ok ? '' : '  OFF / OVER'}`;
@@ -123,6 +124,7 @@ it('rail and grass drag', async () => {
         SURFACE_DRAG.rail = on.rail * k;
         SURFACE_DRAG.railLow = low * k;
         SURFACE_DRAG.grass = on.grass * k;
+        SURFACE_DRAG.grassLow = on.grassLow * k;
         const after = drive(run);
         lines.push(`  x${k}${lows.length > 1 ? ` low ${low}` : ''}: ${fmt(after)}   (3 s: ${(after.at[2] - before.at[2]).toFixed(1)} km/h)`);
       }

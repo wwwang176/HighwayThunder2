@@ -78,9 +78,11 @@ export const BODY_FRICTION = { upright: 0.02, rolled: 0.4, fromDeg: 45 };
  * `rail`: scraping a guardrail, as metal sliding on metal - this times how hard it presses on the rail, at its centre
  * of mass (not the rail's own friction: the body's above - at its side, it tipped the car over); `railLow` sliding
  * along it slowly, easing up to `rail` at `railFullKmh` and over (slow, a scrape stopped it dead). `grass`: its tyres
- * in grass - this times the weight on them (rolling in soft ground; asphalt's ~0.015).
+ * in grass - this times the weight on them (rolling in soft ground; asphalt's ~0.015; 0.3 was too little held back),
+ * `grassLow` slowly, easing up to `grass` at `grassFullKmh` and over (all of it slow, a car stuck in it could not
+ * drive out).
  */
-export const SURFACE_DRAG = { rail: 1.2, railLow: 0.2, railFullKmh: 150, grass: 0.3 };
+export const SURFACE_DRAG = { rail: 1.2, railLow: 0.2, railFullKmh: 150, grass: 0.6, grassLow: 0.1, grassFullKmh: 120 };
 
 /** The body's friction with its up pointing `upY` (its roof's way, world y: 1 upright, 0 on its side, -1 on its roof). */
 export function bodyFriction(upY: number): number {
@@ -684,7 +686,8 @@ export class PlayerCar {
     // 4) Scraping a guardrail and the tyres in grass: held back, at its centre of mass (no roll from it - a rail's own
     // friction at the body's side tipped it over). The rail: against its sliding along the rail only (straight into it,
     // none - the hit itself stops that), by how hard it presses on it (its contacts' last step); never past a stop
-    // along it. The grass: against the way it goes, by the weight on its tyres in it; never past a stop.
+    // along it. The grass: against the way it goes, by the weight on its tyres in it, less slowly (SURFACE_DRAG.
+    // grassLow); never past a stop.
     if (sp > 0.1) {
       const rail = this.physics.railPush(this.body.handle);
       if (rail) {
@@ -699,7 +702,9 @@ export class PlayerCar {
       }
       let grass = 0;
       for (const w of this.wheels) if (w.inContact && w.surface < 1) grass += w.load;
-      const back = Math.min(SURFACE_DRAG.grass * grass * dt, this.body.mass() * sp);
+      const g = Math.min(1, (sp * 3.6) / SURFACE_DRAG.grassFullKmh);
+      const grassMu = SURFACE_DRAG.grassLow + (SURFACE_DRAG.grass - SURFACE_DRAG.grassLow) * g * g * (3 - 2 * g);
+      const back = Math.min(grassMu * grass * dt, this.body.mass() * sp);
       if (back > 0) this.body.applyImpulse({ x: (-lv.x / sp) * back, y: 0, z: (-lv.z / sp) * back }, true);
     }
 
