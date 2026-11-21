@@ -31,14 +31,22 @@ export class Minimap {
   private zs = new Float32Array(0);
   private finish: { x: number; z: number } | null = null;
 
-  constructor(parent: HTMLElement) {
-    const box = document.createElement('div');
+  private readonly box = document.createElement('div');
+
+  constructor(private readonly parent: HTMLElement) {
+    const box = this.box;
     box.className = 'h-map';
     box.innerHTML = '<div class="pool"></div>';
     box.appendChild(this.canvas);
     parent.appendChild(box);
     parent.classList.add('has-map');
     this.g = this.canvas.getContext('2d')!;
+  }
+
+  /** Taken off the HUD (another course, without one). */
+  dispose(): void {
+    this.box.remove();
+    this.parent.classList.remove('has-map');
   }
 
   /** The road to draw (a new race's), and where it ends (its finish). */

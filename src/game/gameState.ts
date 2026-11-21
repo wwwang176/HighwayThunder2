@@ -24,12 +24,24 @@ export class GameFlow {
   /** `bestKey`: where its best time is kept (the curved road's apart from the straight one's). */
   constructor(
     private storage: KV,
-    private readonly bestKey = BEST_TIME_KEY,
+    private bestKey = BEST_TIME_KEY,
     /** The race's length (m): past it, finished. */
-    readonly length = ROAD_LENGTH,
+    public length = ROAD_LENGTH,
   ) {
-    const raw = Number(storage.getItem(bestKey));
-    this.best = Number.isFinite(raw) && raw > 0 ? raw : null;
+    this.best = this.readBest();
+  }
+
+  /** Another course (picked in the garage): its own record (kept under `bestKey`), its length. */
+  setCourse(bestKey: string, length: number): void {
+    this.bestKey = bestKey;
+    this.length = length;
+    this.best = this.readBest();
+    this.isBest = false;
+  }
+
+  private readBest(): number | null {
+    const raw = Number(this.storage.getItem(this.bestKey));
+    return Number.isFinite(raw) && raw > 0 ? raw : null;
   }
 
   /** Start (or restart) a race: its intro first (beginCountdown ends it). Valid from title, finished or paused. */

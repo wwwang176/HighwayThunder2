@@ -142,6 +142,7 @@ export const STRINGS = {
   'loading.ready': { zh: '完成', en: 'Ready' },
   'loading.grid': { zh: '車輛進場', en: 'Cars to the grid' },
   'loading.road': { zh: '布置賽道', en: 'Setting the road' },
+  'loading.course': { zh: '建立路線', en: 'Building the course' },
   'loading.settle': { zh: '車輛就位', en: 'Settling on the grid' },
   'loading.go': { zh: '準備出發', en: 'Ready to go' },
   // The tuning's details (beside the car): what it does, measure by measure.
