@@ -226,22 +226,26 @@ diffuseColor.rgb *= mix(vec3(0.62, 0.72, 0.62), vec3(1.2, 1.15, 0.9), patchy);`,
 }
 
 /**
- * The buildings' material, its faces' windows worked out in its shader: a grid of them on each wall (each building
- * its own floor height and window width, by its place), some lit - warm or cool, each its own brightness - and the
- * rest dark glass. Far off, where a window is under a pixel or so, their average instead (no shimmer).
+ * The buildings' material, its faces' windows worked out in its shader: each building (by its place) homes or
+ * offices - the taller, the likelier offices. Homes: floors 3.0-3.3 m, windows some 1.3 m square with wall between,
+ * lit a home at a time (2-3 windows of a floor), mostly warm. Offices: floors 3.8-4.2 m, a band of glass round each
+ * (thin mullions every 1.5 m, a spandrel under it), lit a stretch of a floor at a time, mostly cool white. Each lit
+ * group its own brightness; the rest dark glass. Far off, where a window is under a pixel or so, their average
+ * instead (no shimmer).
  */
 function withWindows(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.windowStrength = WINDOWS.strength;
     shader.uniforms.windowLit = WINDOWS.lit;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWall;\nvarying vec3 vWallN;\nvarying float vWallSeed;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWall;\nvarying vec3 vWallN;\nvarying float vWallSeed;\nvarying float vWallTop;')
       .replace(
         '#include <project_vertex>',
         `#include <project_vertex>
 vec3 wallSize = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
 vWall = vec3(position.x * wallSize.x, (instanceMatrix * vec4(position, 1.0)).y, position.z * wallSize.z);
 vWallN = normal;
+vWallTop = floor(wallSize.y + ${CITY.base.toFixed(1)} + 0.5); // (its top over the road, whole metres)
 vWallSeed = floor(fract(sin(dot(instanceMatrix[3].xz * 0.0137, vec2(12.9898, 78.233))) * 43758.5453) * 1000.0) / 1000.0; // (by its place: the same building wherever its instance)`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -251,6 +255,7 @@ vWallSeed = floor(fract(sin(dot(instanceMatrix[3].xz * 0.0137, vec2(12.9898, 78.
 varying vec3 vWall;
 varying vec3 vWallN;
 varying float vWallSeed;
+varying float vWallTop;
 uniform float windowStrength;
 uniform float windowLit;
 float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
@@ -260,20 +265,27 @@ float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.54
         `#include <emissivemap_fragment>
 if (abs(vWallN.y) < 0.5) {
   float seed = floor(vWallSeed * 1000.0 + 0.5) / 1000.0; // (whole thousandths: interpolated, the same value came out a hair off pixel to pixel - each window's hash noise)
-  float floorH = 3.1 + 0.7 * fract(seed * 13.7);
-  float colW = 2.2 + 1.8 * fract(seed * 7.3);
+  bool office = fract(seed * 2.9) < 0.15 + 0.7 * smoothstep(25.0, 80.0, vWallTop);
+  float floorH = office ? 3.8 + 0.4 * fract(seed * 13.7) : 3.0 + 0.3 * fract(seed * 13.7);
+  float colW = office ? 1.5 : 1.6 + 0.3 * fract(seed * 7.3);
   float across = abs(vWallN.x) > 0.5 ? vWall.z : vWall.x;
   vec2 cell = vec2(across / colW, vWall.y / floorH);
   vec2 id = floor(cell) + vec2(floor(vWallN.x + 0.5) * 31.0 + floor(vWallN.z + 0.5) * 57.0, 0.0);
   vec2 f = fract(cell);
-  float pane = step(0.16, f.x) * step(f.x, 0.84) * step(0.22, f.y) * step(f.y, 0.78);
-  float share = clamp(windowLit * (0.4 + 1.2 * fract(seed * 5.1)), 0.0, 1.0);
-  float lit = step(1.0 - share, wallHash(id + seed * 97.0));
+  // (a home's window: wall between them, a sill under; an office's glass: mullions, the spandrel)
+  vec4 box = office ? vec4(0.04, 0.96, 0.14, 0.86) : vec4(0.12, 0.88, 0.36, 0.78);
+  float pane = step(box.x, f.x) * step(f.x, box.y) * step(box.z, f.y) * step(f.y, box.w);
+  // Lit together: a home (2-3 windows of a floor), an office's stretch of a floor (8-15 modules).
+  float unit = office ? 8.0 + floor(8.0 * fract(seed * 4.7)) : 2.0 + floor(2.0 * fract(seed * 4.7));
+  vec2 group = vec2(floor(id.x / unit), id.y);
+  float share = clamp(windowLit * (0.4 + 1.2 * fract(seed * 5.1)) * (office ? 1.2 : 1.0), 0.0, 1.0);
+  float lit = step(1.0 - share, wallHash(group + seed * 97.0));
   vec3 warm = vec3(1.0, 0.7, 0.4), cool = vec3(0.72, 0.84, 1.0);
-  vec3 tint = mix(warm, cool, step(0.55 + 0.4 * fract(seed * 3.3), wallHash(id * 1.7 + seed * 41.0)));
-  float bright = 0.45 + 0.85 * wallHash(id * 3.1 + seed * 19.0);
+  float coolOdds = office ? 0.85 : 0.2;
+  vec3 tint = mix(warm, cool, step(1.0 - coolOdds, wallHash(group * 1.7 + seed * 41.0)));
+  float bright = (0.5 + 0.7 * wallHash(group * 3.1 + seed * 19.0)) * (0.85 + 0.3 * wallHash(id * 5.3 + seed * 7.0));
   vec3 sharp = pane * lit * tint * bright;
-  vec3 average = 0.46 * share * 0.88 * mix(warm, cool, 0.35);
+  vec3 average = (box.y - box.x) * (box.w - box.z) * share * 0.85 * mix(warm, cool, coolOdds);
   float far = clamp(max(fwidth(cell.x), fwidth(cell.y)) * 2.0 - 0.4, 0.0, 1.0);
   totalEmissiveRadiance += windowStrength * mix(sharp, average, far);
   diffuseColor.rgb *= mix(1.0, 0.55, pane * (1.0 - far)); // (the dark panes: glass, darker than the wall)
