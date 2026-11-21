@@ -28,12 +28,17 @@ export interface CityPlanParams {
   gap: { odds: number; size: readonly [number, number] };
   /** Most a district's turn against the road (rad, either way). */
   yaw: number;
-  /** Lots each way in a block, blocks across (u) and along (v) a district. */
+  /**
+   * Each way: lots in a city block (its buildings back to back, `alley` m between: no street), city blocks in a
+   * block (1+1 streets between them), blocks across (u) and along (v) a district (2+2 roads round each).
+   */
   lots: readonly [number, number];
+  cityBlocks: readonly [number, number];
   blocksAcross: readonly [number, number];
   blocksAlong: readonly [number, number];
-  /** A lot's size (m, square); its building's sides; the share of lots left empty. */
+  /** A lot's size (m, square), the alley between two; its building's sides; the share of lots left empty. */
   lot: number;
+  alley: number;
   size: readonly [number, number];
   empty: number;
   /** Between districts at least. */
@@ -43,7 +48,7 @@ export interface CityPlanParams {
    * curves away from it, some L^2 / 2R m at L along - kept well inside `clear` and the deck's half width).
    */
   maxAlong: number;
-  /** Buildings' tops (each block its own: low ones and towers), none nearer the deck's edge than `clear`. */
+  /** Buildings' tops (each city block its own: low ones and towers; each building under it its own), none nearer the deck's edge than `clear`. */
   top: readonly [number, number];
   clear: number;
   minor: RoadKind;
@@ -121,25 +126,36 @@ interface Line {
 }
 
 /**
- * One axis of a district: `blocks` blocks of `lots` lots, a major road round each block, minor ones between its
- * lots - centred on 0. Its roads, its lots' middles (and their blocks), its whole length.
+ * One axis of a district: `blocks` blocks, a major road round each; in each `cityBlocks` city blocks, minor roads
+ * between them; in each `lots` lots back to back, an alley between two (no road) - centred on 0. Its roads, its
+ * lots' middles (and their city blocks, numbered along it), its whole length.
  */
-export function lineUp(blocks: number, lots: number, p: Pick<CityPlanParams, 'lot' | 'minor' | 'major'>): { roads: Line[]; lots: { at: number; block: number }[]; length: number } {
+export function lineUp(
+  blocks: number,
+  cityBlocks: number,
+  lots: number,
+  p: Pick<CityPlanParams, 'lot' | 'alley' | 'minor' | 'major'>,
+): { roads: Line[]; lots: { at: number; block: number }[]; length: number } {
   const MW = p.major.asphalt + 2 * p.major.walk, mw = p.minor.asphalt + 2 * p.minor.walk;
-  const length = blocks * (lots * p.lot + (lots - 1) * mw) + (blocks + 1) * MW;
+  const cityBlock = lots * p.lot + (lots - 1) * p.alley;
+  const length = blocks * (cityBlocks * cityBlock + (cityBlocks - 1) * mw) + (blocks + 1) * MW;
   const roads: Line[] = [];
   const out: { at: number; block: number }[] = [];
   let x = -length / 2;
+  let n = 0;
   for (let b = 0; b < blocks; b++) {
     roads.push({ at: x + MW / 2, major: true });
     x += MW;
-    for (let k = 0; k < lots; k++) {
-      if (k > 0) {
+    for (let c = 0; c < cityBlocks; c++, n++) {
+      if (c > 0) {
         roads.push({ at: x + mw / 2, major: false });
         x += mw;
       }
-      out.push({ at: x + p.lot / 2, block: b });
-      x += p.lot;
+      for (let k = 0; k < lots; k++) {
+        if (k > 0) x += p.alley;
+        out.push({ at: x + p.lot / 2, block: n });
+        x += p.lot;
+      }
     }
   }
   roads.push({ at: x + MW / 2, major: true });
@@ -178,7 +194,8 @@ export function planCity(p: CityPlanParams, rnd: () => number): CityPlan {
         for (let tries = 0; !made && tries < 60; tries++) {
           const yaw = (rnd() * 2 - 1) * p.yaw;
           const cy = Math.cos(yaw), sy = Math.sin(yaw);
-          const U = lineUp(pick(p.blocksAcross), pick(p.lots), p), V = lineUp(pick(p.blocksAlong), pick(p.lots), p);
+          const U = lineUp(pick(p.blocksAcross), pick(p.cityBlocks), pick(p.lots), p);
+          const V = lineUp(pick(p.blocksAlong), pick(p.cityBlocks), pick(p.lots), p);
           // (its reach across the road and along it, either way from its middle)
           const hd = (U.length / 2) * cy + (V.length / 2) * Math.abs(sy);
           const hs = (U.length / 2) * Math.abs(sy) + (V.length / 2) * cy;
@@ -203,7 +220,7 @@ export function planCity(p: CityPlanParams, rnd: () => number): CityPlan {
     const led = rnd() < p.led;
     const across = (u: number, v: number) => d + u * cy + v * sy;
 
-    // Its buildings, a lot each (some empty), the deck kept clear; each block its own height.
+    // Its buildings, a lot each (some empty), the deck kept clear; each city block its own height (its buildings under it).
     const tops = new Map<string, number>();
     for (const lu of U.lots)
       for (const lv of V.lots) {

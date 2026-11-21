@@ -56,9 +56,10 @@ const SHRUB = { spacing: 1.25, height: [0.85, 1.35] as const, width: [1.1, 1.7] 
 /**
  * The city round the deck (cityPlan), its pattern repeating every `period` m: either side rows (`bands`) of
  * districts one after another along the road (now and then a dark gap), each its own grid of streets turned its own
- * way (up to `yaw` either way) - the near row's streets across the deck passing under it; blocks of `lots` x `lots`
- * lots (`lot` m), buildings `size` m on them, some lots empty; each block's height (`top`: the tallest over the
- * road) its own - low blocks and towers. No building nearer the deck than `clear` m (nobody builds right up against
+ * way (up to `yaw` either way) - the near row's streets across the deck passing under it; blocks (2+2 roads round
+ * them) of city blocks (1+1 streets between them) of `lots` x `lots` lots (`lot` m, back to back, an `alley`
+ * between), buildings `size` m on them, some lots empty; each city block's height (`top`: the tallest over the road)
+ * its own - low ones and towers. No building nearer the deck than `clear` m (nobody builds right up against
  * an elevated road), no street along it under it. All standing on the ground (`base`).
  */
 const CITY = {
@@ -70,11 +71,13 @@ const CITY = {
   gap: { odds: 0.25, size: [30, 120] as const },
   yaw: THREE.MathUtils.degToRad(30),
   lots: [2, 3] as const,
-  blocksAcross: [2, 4] as const,
-  blocksAlong: [1, 3] as const,
-  lot: 26,
-  size: [13, 22] as const,
-  empty: 0.15,
+  cityBlocks: [1, 3] as const,
+  blocksAcross: [1, 3] as const,
+  blocksAlong: [1, 2] as const,
+  lot: 24,
+  alley: 4,
+  size: [17, 24] as const,
+  empty: 0.12,
   apart: 6,
   maxAlong: 190,
   top: [6, 130] as const,

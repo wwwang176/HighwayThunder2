@@ -13,11 +13,13 @@ const P: CityPlanParams = {
   gap: { odds: 0.25, size: [30, 120] },
   yaw: (30 * Math.PI) / 180,
   lots: [2, 3],
-  blocksAcross: [2, 4],
-  blocksAlong: [1, 3],
-  lot: 26,
-  size: [13, 22],
-  empty: 0.15,
+  cityBlocks: [1, 3],
+  blocksAcross: [1, 3],
+  blocksAlong: [1, 2],
+  lot: 24,
+  alley: 4,
+  size: [17, 24],
+  empty: 0.12,
   apart: 6,
   maxAlong: 190,
   top: [6, 130],
@@ -30,11 +32,14 @@ const half = (r: PlanRoad) => (r.major ? P.major : P.minor).asphalt / 2 + (r.maj
 const same = (a: { s: number; d: number }, b: { s: number; d: number }) => a.s === b.s && a.d === b.d;
 
 describe('cityPlan', () => {
-  it('lines a district up: blocks of lots, a major road round each block, minor ones between its lots', () => {
-    const L = lineUp(2, 3, P);
-    expect(L.roads.map((r) => r.major)).toEqual([true, false, false, true, false, false, true]);
-    expect(L.lots.length).toBe(6);
-    expect(L.length).toBeCloseTo(2 * (3 * 26 + 2 * 11) + 3 * 20);
+  it('lines a district up: a major road round each block, minor ones between its city blocks, alleys between their lots', () => {
+    const L = lineUp(2, 2, 3, P);
+    expect(L.roads.map((r) => r.major)).toEqual([true, false, true, false, true]);
+    expect(L.lots.length).toBe(12);
+    expect(L.lots.map((l) => l.block)).toEqual([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]);
+    // (a city block: 3 lots, 2 alleys; a block: 2 of them, a minor road between; 2 blocks, 3 major roads)
+    expect(L.length).toBeCloseTo(2 * (2 * (3 * 24 + 2 * 4) + 11) + 3 * 20);
+    expect(L.lots[1].at - L.lots[0].at).toBeCloseTo(24 + 4);
     expect(L.roads[0].at - 10).toBeCloseTo(-L.length / 2);
   });
 
