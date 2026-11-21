@@ -148,11 +148,11 @@ export const NIGHT = {
   poolStrength: 0.15, // the lamps' pools of light on the ground (render/lampPools; as bright as the real lights make the road)
   wetness: 1, // the asphalt's wet patches (0 dry)
   rim: 0.25, // a warm light from the city glow ahead, edging the cars (cold blue, it tinted the road blue)
-  windows: 0.45, // the buildings' lit windows' brightness (at 0.7 the near ones glared like the lamps)
+  windows: 0.35, // the buildings' lit windows' brightness (at 0.7 the near ones glared like the lamps)
   windowsLit: 0.11, // the share of their windows lit (each building its own: some all but dark, some lit up)
-  skyGlow: 1, // the city's glow along the horizon
+  skyGlow: 1.5, // the city's glow along the horizon
   streetLights: 1, // the streets' lamps on the ground
-  wallGlow: 1, // the streets' light on the buildings' lower floors
+  wallGlow: 0.9, // the streets' light on the buildings' lower floors
 };
 const WINDOWS = { strength: { value: NIGHT.windows }, lit: { value: NIGHT.windowsLit } };
 const SKY_GLOW_STRENGTH = { value: NIGHT.skyGlow };
