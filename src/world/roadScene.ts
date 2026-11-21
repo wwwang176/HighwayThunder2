@@ -24,19 +24,19 @@ const SHRUB = { spacing: 1.25, height: [0.85, 1.35] as const, width: [1.1, 1.7] 
  * further off (their middles `dist` m off its edge, mostly the near end), apart from each other (`apart` m between
  * their rims); each `radius` m across, its buildings (`size` m) on a grid of `cell`-m lots, some lots empty; its
  * height (`top`: the tallest over the road) its own - low blocks and towers. No building nearer the deck than
- * `clear` m. All standing from `base` (well under the deck: their feet never in view).
+ * `clear` m (nobody builds right up against an elevated road). All standing from `base` (well under the deck: their feet never in view).
  */
 const CITY = {
   period: 800,
   clusters: 13,
-  dist: [12, 380] as const,
+  dist: [55, 420] as const,
   apart: 10,
   radius: [22, 55] as const,
   cell: 30,
   size: [12, 26] as const,
   empty: 0.3,
   top: [6, 130] as const,
-  clear: 5,
+  clear: 40,
   base: -45,
   color: 0x16181d,
 };
