@@ -375,7 +375,7 @@ export class Game {
       onTitle: () => this.toTitle(),
       onSettings: () => this.settings.open(uiRoot),
     });
-    // The course to start on: the one picked last (main.ts; ?mountain, ?highway, ?skidpad say which whatever was).
+    // The course to start on: the one picked last (main.ts; ?skidpad the practice ground, ?straight the highway).
     this.useCourse(opts.skidpad ? 'skidpad' : opts.mountain ? 'mountain' : 'highway');
     this.settings = new SettingsPopup(uiRoot);
     this.settings.onQuality = (pr) => this.setQuality(pr);
@@ -629,7 +629,7 @@ export class Game {
     this.sound.silenceEngine();
     this.sound.hush(); // (the squeals, the nitro, the wind: at once, even from a pause - its clock not yet running again)
     this.hud.hide();
-    // (its course the one the game is on: picked from the URL, ?mountain, it is that, whatever was saved)
+    // (its course the one the game is on: the saved one, or ?skidpad's / ?straight's, whatever was saved)
     this.garage.open({ ...loadSelection(localStorage), course: this.mountain ? 'mountain' : 'highway' }, title);
   }
 
