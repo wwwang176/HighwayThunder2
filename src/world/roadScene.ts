@@ -8,7 +8,31 @@ const STRIP_PERIOD = 100; // m; lane-dash (20), rail-post (4) and lamp (50) peri
 const STRIP_BEHIND = 300;
 const STRIP_AHEAD = 1300;
 const STRIP_LEN = STRIP_BEHIND + STRIP_AHEAD;
-const TREE_PERIOD = 400;
+/**
+ * The deck (the highway up on it, some five floors over the city): concrete parapets on its outer edges (their road
+ * faces the rails' planes), its edges reaching DECK_DEPTH m down under the road; nothing below it (never in view).
+ */
+const PARAPET = { width: 0.45, height: 1.05 };
+const DECK_DEPTH = 1.8;
+/** The median's guardrails: at each side of its strip, the way its carriageway is (+1 toward +d). */
+const MEDIAN_RAILS: [number, number][] = [[MEDIAN_NEAR_X, 1], [MEDIAN_FAR_X, -1]];
+/** The strip's low shrubs (as real ones, planted against the oncoming headlights' glare): m apart along it, how tall, how wide. */
+const SHRUB = { spacing: 1.25, height: [0.85, 1.35] as const, width: [1.1, 1.7] as const, color: 0x1a2e17 };
+/**
+ * The city round the deck: blocks of buildings either side, their pattern repeating every `period` m; rows of
+ * them (their near faces from-to m off the deck's edge, their tops so high over the road: mostly the low end),
+ * all standing from `base` (well under the deck: their feet never in view).
+ */
+const CITY = {
+  period: 800,
+  rows: [
+    { from: 14, to: 32, top: [3, 42] },
+    { from: 60, to: 105, top: [10, 75] },
+    { from: 140, to: 240, top: [25, 125] },
+  ],
+  base: -45,
+  color: 0x16181d,
+};
 // Night: near-black sky, distance fading into deep blue-black.
 const SKY = 0x03050b;
 const FOG = 0x05070d;
@@ -20,7 +44,10 @@ export const NIGHT = {
   poolStrength: 0.15, // the lamps' pools of light on the ground (render/lampPools; as bright as the real lights make the road)
   wetness: 1, // the asphalt's wet patches (0 dry)
   rim: 0.25, // a warm light from the city glow ahead, edging the cars (cold blue, it tinted the road blue)
+  windows: 0.7, // the buildings' lit windows' brightness
+  windowsLit: 0.3, // the share of their windows lit (each building its own, about this)
 };
+const WINDOWS = { strength: { value: NIGHT.windows }, lit: { value: NIGHT.windowsLit } };
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
 const LAMP_HEIGHT = 9.8;
 // Real (shading) lights for the lamps over our carriageway inside this window;
@@ -191,6 +218,65 @@ diffuseColor.rgb *= mix(vec3(0.62, 0.72, 0.62), vec3(1.2, 1.15, 0.9), patchy);`,
   return mat;
 }
 
+/**
+ * The buildings' material, its faces' windows worked out in its shader: a grid of them on each wall (each building
+ * its own floor height and window width, by its place), some lit - warm or cool, each its own brightness - and the
+ * rest dark glass. Far off, where a window is under a pixel or so, their average instead (no shimmer).
+ */
+function withWindows(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.windowStrength = WINDOWS.strength;
+    shader.uniforms.windowLit = WINDOWS.lit;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWall;\nvarying vec3 vWallN;\nvarying float vWallSeed;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+vec3 wallSize = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+vWall = vec3(position.x * wallSize.x, (instanceMatrix * vec4(position, 1.0)).y, position.z * wallSize.z);
+vWallN = normal;
+vWallSeed = fract(sin(dot(instanceMatrix[3].xz * 0.0137, vec2(12.9898, 78.233))) * 43758.5453); // (by its place: the same building wherever its instance)`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vWall;
+varying vec3 vWallN;
+varying float vWallSeed;
+uniform float windowStrength;
+uniform float windowLit;
+float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+if (abs(vWallN.y) < 0.5) {
+  float seed = vWallSeed;
+  float floorH = 3.1 + 0.7 * fract(seed * 13.7);
+  float colW = 2.2 + 1.8 * fract(seed * 7.3);
+  float across = abs(vWallN.x) > 0.5 ? vWall.z : vWall.x;
+  vec2 cell = vec2(across / colW, vWall.y / floorH);
+  vec2 id = floor(cell) + vec2(vWallN.x * 31.0 + vWallN.z * 57.0, 0.0);
+  vec2 f = fract(cell);
+  float pane = step(0.16, f.x) * step(f.x, 0.84) * step(0.22, f.y) * step(f.y, 0.78);
+  float share = clamp(windowLit * (0.4 + 1.2 * fract(seed * 5.1)), 0.0, 1.0);
+  float lit = step(1.0 - share, wallHash(id + seed * 97.0));
+  vec3 warm = vec3(1.0, 0.7, 0.4), cool = vec3(0.72, 0.84, 1.0);
+  vec3 tint = mix(warm, cool, step(0.55 + 0.4 * fract(seed * 3.3), wallHash(id * 1.7 + seed * 41.0)));
+  float bright = 0.45 + 0.85 * wallHash(id * 3.1 + seed * 19.0);
+  vec3 sharp = pane * lit * tint * bright;
+  vec3 average = 0.46 * share * 0.88 * mix(warm, cool, 0.35);
+  float far = clamp(max(fwidth(cell.x), fwidth(cell.y)) * 2.0 - 0.4, 0.0, 1.0);
+  totalEmissiveRadiance += windowStrength * mix(sharp, average, far);
+  diffuseColor.rgb *= mix(1.0, 0.55, pane * (1.0 - far)); // (the dark panes: glass, darker than the wall)
+}`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'city-windows';
+  return mat;
+}
+
 export function repeating(file: string): THREE.Texture {
   const t = new THREE.TextureLoader().load(TEXTURES + file);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -250,8 +336,6 @@ diffuseColor.rgb *= 1.0 - ${WET.darken.toFixed(2)} * wet;`,
 /** The ribbons' rows along the road (m apart): a bend of R 1000 strays from a 5 m chord by 3 mm. */
 const SEG = 5;
 const ROWS = STRIP_LEN / SEG + 1;
-/** The grass's columns across the road (d, m): close together near the road (where the lamps' pools fall). */
-const GRASS_D = [-900, -300, -150, -90, -60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 60, 90, 150, 300, 900];
 
 /** One face of a sweep: its edge across the road, (d, y) to (d, y) - its face to the left of that way (clockwise round a solid). */
 type Edge = [number, number, number, number];
@@ -381,7 +465,7 @@ export interface Scenery {
 
 export class RoadScene implements Scenery {
   private strip = new THREE.Group();
-  private trees = new THREE.Group();
+  private city = new THREE.Group();
   private far = new THREE.Group();
   private lampHeads: LampHead[] = [];
   private lampRows: LampRow[] = [];
@@ -392,10 +476,10 @@ export class RoadScene implements Scenery {
   private lampPools!: LampPools;
   private realLights: THREE.SpotLight[] = [];
   private readonly rim = new THREE.DirectionalLight(0xffb35c, NIGHT.rim);
-  /** The road's line, and the strip's start (s) and the trees' as last laid along it (NaN: to be). */
+  /** The road's line, and the strip's start (s) and the city's as last laid along it (NaN: to be). */
   private line: Centerline = STRAIGHT_ROAD;
   private laidS = NaN;
-  private treesS = NaN;
+  private cityS = NaN;
   private readonly sweeps: Sweep[] = [];
   private readonly rows: RowFrames = { cx: new Float64Array(ROWS), cz: new Float64Array(ROWS), nx: new Float64Array(ROWS), nz: new Float64Array(ROWS) };
   private posts!: THREE.InstancedMesh;
@@ -404,9 +488,11 @@ export class RoadScene implements Scenery {
   private heads!: THREE.InstancedMesh;
   private lampFlares!: THREE.Points;
   private poleSpecs: PoleSpec[] = [];
-  private trunks!: THREE.InstancedMesh;
-  private crowns!: THREE.InstancedMesh;
-  private treeBase: { d: number; s: number; k: number }[] = [];
+  private shrubs!: THREE.InstancedMesh;
+  private shrubBase: { s: number; d: number; h: number; w: number }[] = [];
+  private buildings!: THREE.InstancedMesh;
+  /** The city's buildings in one period of it: their middle (s, d), size along and across the road, top over it. */
+  private cityBase: { s: number; d: number; len: number; depth: number; top: number }[] = [];
 
   /** The street lights currently shining (for things lit by hand, like tyre smoke). */
   activeLights(): THREE.SpotLight[] {
@@ -440,11 +526,11 @@ export class RoadScene implements Scenery {
     }
 
     this.buildStrip(renderer);
-    this.buildTrees();
+    this.buildCity();
     this.buildFar();
     // (laid along the road round the player: always in view somewhere - and their bounds not worked out anew each time)
-    for (const o of [...this.strip.children, ...this.trees.children]) o.frustumCulled = false;
-    scene.add(this.strip, this.trees, this.far);
+    for (const o of [...this.strip.children, ...this.city.children]) o.frustumCulled = false;
+    scene.add(this.strip, this.city, this.far);
     this.layout(0);
   }
 
@@ -452,7 +538,7 @@ export class RoadScene implements Scenery {
   setRoad(line: Centerline): void {
     this.line = line;
     this.laidS = NaN;
-    this.treesS = NaN;
+    this.cityS = NaN;
   }
 
   private buildStrip(renderer: THREE.WebGLRenderer): void {
@@ -482,9 +568,8 @@ export class RoadScene implements Scenery {
     this.strip.add(road2);
     this.groundMaterials.push(road.material as THREE.MeshStandardMaterial, roadMat2);
 
-    const grassEdges: Edge[] = [];
-    for (let i = 0; i + 1 < GRASS_D.length; i++) grassEdges.push([GRASS_D[i], -0.02, GRASS_D[i + 1], -0.02]);
-    const grassSweep = new Sweep(grassEdges, { u: 1 / GRASS.tile, u0: 0, v: 1 / GRASS.tile });
+    // The median's strip of grass, a little up off the road (its kerbs under the rails' beams).
+    const grassSweep = new Sweep([[MEDIAN_FAR_X, 0.1, MEDIAN_NEAR_X, 0.1]], { u: 1 / GRASS.tile, u0: 0, v: 1 / GRASS.tile });
     const grass = new THREE.Mesh(
       grassSweep.geometry,
       withPatches(
@@ -500,22 +585,51 @@ export class RoadScene implements Scenery {
     this.strip.add(grass);
     this.groundMaterials.push(grass.material);
 
-    // Guardrails: beam + posts every 4 m.
+    // The deck: its parapets (from their tops' outer edges round: the road between them left out) and its edges
+    // down under the road, its underside.
+    const L = LEFT_RAIL_X, R = RAIL_D, pw = PARAPET.width, ph = PARAPET.height, under = -DECK_DEPTH;
+    const deckSweep = new Sweep([
+      [L - pw, ph, L, ph],
+      [L, ph, L, 0.01],
+      [R, 0.01, R, ph],
+      [R, ph, R + pw, ph],
+      [R + pw, ph, R + pw, under],
+      [R + pw, under, L - pw, under],
+      [L - pw, under, L - pw, ph],
+    ]);
+    const deck = new THREE.Mesh(deckSweep.geometry, new THREE.MeshStandardMaterial({ color: 0x75777a, roughness: 0.9 }));
+    deck.receiveShadow = true;
+    this.strip.add(deck);
+
+    // The median's guardrails: a beam along each side of its strip, facing its carriageway, posts every 4 m.
     const metal = new THREE.MeshStandardMaterial({ color: 0xb9bec4, roughness: 0.4, metalness: 0.7 });
-    const railX = [RAIL_D, LEFT_RAIL_X];
     const beamEdges: Edge[] = [];
-    for (const x of railX) {
-      const c = x + Math.sign(x) * 0.06;
+    for (const [x, way] of MEDIAN_RAILS) {
+      const c = x - way * 0.06;
       beamEdges.push(...boxEdges(c - 0.06, c + 0.06, 0.62 - 0.17, 0.62 + 0.17));
     }
     const beamSweep = new Sweep(beamEdges);
     const beams = new THREE.Mesh(beamSweep.geometry, metal);
     beams.castShadow = true;
     this.strip.add(beams);
-    this.sweeps.push(roadSweep, road2Sweep, grassSweep, beamSweep);
+    this.sweeps.push(roadSweep, road2Sweep, grassSweep, deckSweep, beamSweep);
     const postCount = (STRIP_LEN / 4) * 2;
     this.posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.8, 0.14), metal, postCount);
     this.strip.add(this.posts);
+
+    // The strip's shrubs: a pattern repeating every STRIP_PERIOD m (the strip laid on a whole one), each its own
+    // size and place across.
+    const rnd = seeded(7);
+    const per = STRIP_PERIOD / SHRUB.spacing;
+    const lerp = (r: readonly [number, number]) => r[0] + rnd() * (r[1] - r[0]);
+    for (let k = 0; k < per; k++)
+      this.shrubBase.push({ s: (k + rnd() * 0.6) * SHRUB.spacing, d: (MEDIAN_NEAR_X + MEDIAN_FAR_X) / 2 + (rnd() - 0.5) * 0.6, h: lerp(SHRUB.height), w: lerp(SHRUB.width) });
+    this.shrubs = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(0.5, 1),
+      new THREE.MeshStandardMaterial({ color: SHRUB.color, roughness: 1, flatShading: true }),
+      per * (STRIP_LEN / STRIP_PERIOD),
+    );
+    this.strip.add(this.shrubs);
 
     // Street lights, opposite arrangement: each row has a lamp on the right shoulder
     // and one on the median facing it, so their pools meet across our carriageway
@@ -524,10 +638,11 @@ export class RoadScene implements Scenery {
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3e44, roughness: 0.6, metalness: 0.5 });
     const headMat = new THREE.MeshBasicMaterial({ color: LAMP_COLOR });
     const medianX = (MEDIAN_NEAR_X + MEDIAN_FAR_X) / 2;
+    // (the outer ones on the parapets, the median's among its shrubs)
     this.poleSpecs = [
-      { d: RAIL_D + 1.6, arms: [[-1, 2.3]] },
+      { d: RAIL_D + PARAPET.width / 2, arms: [[-1, 2]] },
       { d: medianX, arms: [[-1, 4.5], [1, 4.5]] },
-      { d: LEFT_RAIL_X - 1.6, arms: [[1, 2.3]] },
+      { d: LEFT_RAIL_X - PARAPET.width / 2, arms: [[1, 2]] },
     ];
     const rows = STRIP_LEN / LAMP_SPACING;
     const poleCount = rows * this.poleSpecs.length;
@@ -602,6 +717,12 @@ export class RoadScene implements Scenery {
     mesh.setMatrixAt(i, M4.compose(P3, AT.q, S3.set(sx * scale, scale, scale)));
   }
 
+  /** An instance as `place`, sized `w` across the road, `h` up and `l` along it. */
+  private put(mesh: THREE.InstancedMesh, i: number, d: number, y: number, w: number, h: number, l: number): void {
+    P3.set(AT.cx + d * AT.nx, y, AT.cz + d * AT.nz);
+    mesh.setMatrixAt(i, M4.compose(P3, AT.q, S3.set(w, h, l)));
+  }
+
   /** The strip's scenery laid along the road from s = `stripS` - STRIP_BEHIND. */
   private layout(stripS: number): void {
     this.laidS = stripS;
@@ -620,8 +741,14 @@ export class RoadScene implements Scenery {
     let i = 0;
     for (let s = -STRIP_BEHIND; s < STRIP_AHEAD; s += 4) {
       this.at(stripS + s);
-      for (const x of [RAIL_D, LEFT_RAIL_X]) this.place(this.posts, i++, x + Math.sign(x) * 0.2, 0.4);
+      for (const [x, way] of MEDIAN_RAILS) this.place(this.posts, i++, x - way * 0.2, 0.4);
     }
+    i = 0;
+    for (let p = -STRIP_BEHIND; p < STRIP_AHEAD; p += STRIP_PERIOD)
+      for (const b of this.shrubBase) {
+        this.at(stripS + p + b.s);
+        this.put(this.shrubs, i++, b.d, 0.1 + b.h * 0.4, b.w, b.h, b.w * 1.3);
+      }
     let pi = 0;
     let ai = 0;
     const rows = STRIP_LEN / LAMP_SPACING;
@@ -642,46 +769,45 @@ export class RoadScene implements Scenery {
       fpos.setXYZ(k, w.x, LAMP_HEIGHT - 0.15, w.z);
     });
     fpos.needsUpdate = true;
-    for (const m of [this.posts, this.poles, this.arms, this.heads]) m.instanceMatrix.needsUpdate = true;
+    for (const m of [this.posts, this.shrubs, this.poles, this.arms, this.heads]) m.instanceMatrix.needsUpdate = true;
   }
 
-  private buildTrees(): void {
+  /** The city's buildings: one period of them either side, row by row (CITY), side by side along it with gaps between. */
+  private buildCity(): void {
     const rnd = seeded(42);
-    const per = 70;
-    const reps = Math.ceil(STRIP_LEN / TREE_PERIOD) + 1;
-    const count = per * reps;
-    this.trunks = new THREE.InstancedMesh(
-      new THREE.CylinderGeometry(0.25, 0.35, 2, 6),
-      new THREE.MeshStandardMaterial({ color: 0x3a2a20 }),
-      count,
+    for (const side of [1, -1])
+      for (const row of CITY.rows) {
+        const edge = side > 0 ? RAIL_D + PARAPET.width : LEFT_RAIL_X - PARAPET.width;
+        for (let s = rnd() * 20; ; ) {
+          const len = 16 + rnd() * 30;
+          if (s + len > CITY.period) break;
+          const depth = 14 + rnd() * 24;
+          const near = row.from + rnd() * (row.to - row.from);
+          const top = row.top[0] + rnd() * rnd() * (row.top[1] - row.top[0]);
+          this.cityBase.push({ s: s + len / 2, d: edge + side * (near + depth / 2), len, depth, top });
+          s += len + 3 + rnd() * 14;
+        }
+      }
+    const reps = Math.ceil(STRIP_LEN / CITY.period) + 1;
+    this.buildings = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      withWindows(new THREE.MeshStandardMaterial({ color: CITY.color, roughness: 0.85 })),
+      this.cityBase.length * reps,
     );
-    this.crowns = new THREE.InstancedMesh(
-      new THREE.ConeGeometry(2.2, 6, 7),
-      new THREE.MeshStandardMaterial({ color: 0x1f3d1c, flatShading: true }),
-      count,
-    );
-    for (let j = 0; j < per; j++) {
-      const right = rnd() < 0.5;
-      const off = 6 + rnd() * rnd() * 90;
-      this.treeBase.push({ d: right ? RAIL_D + off : LEFT_RAIL_X - off, s: rnd() * TREE_PERIOD, k: 0.7 + rnd() * 0.8 });
-    }
-    this.crowns.castShadow = true;
-    this.trees.add(this.trunks, this.crowns);
+    this.city.add(this.buildings);
   }
 
-  /** The trees (their pattern repeating every TREE_PERIOD m) along the road from s = `treeS` - STRIP_BEHIND. */
-  private layoutTrees(treeS: number): void {
-    this.treesS = treeS;
-    const reps = Math.ceil(STRIP_LEN / TREE_PERIOD) + 1;
+  /** The city (its pattern repeating every CITY.period m) along the road from s = `cityS` - STRIP_BEHIND. */
+  private layoutCity(cityS: number): void {
+    this.cityS = cityS;
+    const reps = Math.ceil(STRIP_LEN / CITY.period) + 1;
     let i = 0;
     for (let r = 0; r < reps; r++)
-      for (const t of this.treeBase) {
-        this.at(treeS - STRIP_BEHIND + r * TREE_PERIOD + t.s);
-        this.place(this.trunks, i, t.d, 1 * t.k, 1, t.k);
-        this.place(this.crowns, i, t.d, 4.5 * t.k, 1, t.k);
-        i++;
+      for (const b of this.cityBase) {
+        this.at(cityS - STRIP_BEHIND + r * CITY.period + b.s);
+        this.put(this.buildings, i++, b.d, (b.top + CITY.base) / 2, b.depth, b.top - CITY.base, b.len);
       }
-    for (const m of [this.trunks, this.crowns]) m.instanceMatrix.needsUpdate = true;
+    this.buildings.instanceMatrix.needsUpdate = true;
   }
 
   private buildFar(): void {
@@ -724,8 +850,10 @@ export class RoadScene implements Scenery {
   update(playerS: number): void {
     const stripS = Math.floor(playerS / STRIP_PERIOD) * STRIP_PERIOD;
     if (stripS !== this.laidS) this.layout(stripS);
-    const treeS = Math.floor(playerS / TREE_PERIOD) * TREE_PERIOD;
-    if (treeS !== this.treesS) this.layoutTrees(treeS);
+    const cityS = Math.floor(playerS / CITY.period) * CITY.period;
+    if (cityS !== this.cityS) this.layoutCity(cityS);
+    WINDOWS.strength.value = NIGHT.windows;
+    WINDOWS.lit.value = NIGHT.windowsLit;
     // (the far scenery and the sky go along with the player, its line's point: as far off whichever way it turns)
     const c = this.line.center(playerS);
     this.far.position.set(c.x, 0, c.z);
