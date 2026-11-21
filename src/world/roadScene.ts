@@ -90,6 +90,27 @@ const CITY = {
    */
   fog: { walls: { scale: 300, gone: 1500 }, windows: [300, 2000], farBoost: 0.8 } as const,
 };
+/**
+ * The city on past the built one: a ring of its silhouette `radius` m round the player (past where the built
+ * one's windows are gone), `height` m tall from the ground, its picture (skylineTexture) `repeat` times round;
+ * its windows `windows` as bright as the built city's (far off, dim).
+ */
+const SKYLINE = {
+  radius: 2400,
+  height: 240,
+  repeat: 3,
+  windows: 0.8,
+  /** Its picture: px, metres a pixel across (height: SKYLINE.height over its rows). */
+  width: 4096,
+  rows: 512,
+  /** Its buildings' widths and heights (m), the tallest districts' (a slow wave along it) and the low ones'. */
+  wide: [18, 90] as const,
+  tall: [15, 220] as const,
+  /** Floors (m) and windows' spacing across (m) - a lit one a few pixels: one alone, far off, averaged away; the share lit. */
+  floor: 3.5,
+  across: 3,
+  lit: 0.1,
+};
 /** The city's periods laid at once: from STRIP_BEHIND behind the player to its windows' fog's end ahead, wherever in a period it is. */
 const CITY_REPS = Math.ceil((STRIP_BEHIND + CITY.period + CITY.fog.windows[1]) / CITY.period);
 // Night: near-black sky, distance fading into deep blue-black.
@@ -651,6 +672,61 @@ void main() {
     depthWrite: false,
     depthTest: false,
   });
+}
+
+/**
+ * The skyline's picture (SKYLINE): buildings side by side along it, black against nothing (its alpha: the
+ * silhouette), taller where a slow wave along it says (districts of towers, low ones between), now and then a gap;
+ * a few windows lit (warm or cool) and a red light on the tallest. Joined round its ends (it repeats).
+ */
+function skylineTexture(): THREE.CanvasTexture {
+  const S = SKYLINE;
+  const W = S.width, H = S.rows;
+  const mx = (S.radius * 2 * Math.PI) / S.repeat / W; // (metres a pixel across)
+  const my = S.height / H;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const rnd = seeded(11);
+  const lerp = (r: readonly [number, number], k = rnd()) => r[0] + k * (r[1] - r[0]);
+  // (drawn at x and, past the end, round again at x - W)
+  const rect = (x: number, y: number, w: number, h: number) => {
+    g.fillRect(x, y, w, h);
+    if (x + w > W) g.fillRect(x - W, y, w, h);
+  };
+  for (let x = 0; x < W; ) {
+    const wPx = Math.max(3, Math.round(lerp(S.wide) / mx));
+    if (rnd() < 0.06) {
+      x += wPx; // (a gap: a park, a road)
+      continue;
+    }
+    // (towers where the wave is up: three slow waves round, a quicker one on them)
+    const wave = 0.5 + 0.35 * Math.sin((x / W) * Math.PI * 2 * 3 + 1.3) + 0.15 * Math.sin((x / W) * Math.PI * 2 * 11);
+    const tall = lerp(S.tall, Math.min(1, Math.max(0, wave * (0.3 + 0.9 * rnd() ** 2))));
+    const hPx = Math.round(tall / my);
+    g.fillStyle = '#000';
+    rect(x, H - hPx, wPx, hPx);
+    // Its windows: a few lit, a pixel or two each.
+    const floors = Math.floor(tall / S.floor), cols = Math.floor((wPx * mx) / S.across);
+    const fPx = S.floor / my;
+    for (let f = 1; f < floors; f++)
+      for (let k = 0; k < cols; k++) {
+        if (rnd() > S.lit) continue;
+        const warm = rnd() < 0.7;
+        g.fillStyle = warm ? `rgb(255,${150 + Math.floor(rnd() * 60)},${70 + Math.floor(rnd() * 50)})` : `rgb(${200 + Math.floor(rnd() * 30)},${215 + Math.floor(rnd() * 25)},255)`;
+        rect(x + Math.floor(((k + 0.5) * wPx) / cols), Math.round(H - f * fPx - fPx * 0.7), 2, Math.max(2, Math.round(fPx * 0.5)));
+      }
+    if (tall > 110 && rnd() < 0.6) {
+      g.fillStyle = 'rgb(255,40,30)';
+      rect(x + Math.floor(wPx / 2), H - hPx - 1, 1, 2);
+    }
+    x += wPx;
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 export function repeating(file: string): THREE.Texture {
@@ -1461,6 +1537,40 @@ void main() {
     ground.position.y = GROUND_Y;
     ground.renderOrder = -0.9;
     this.far.add(ground);
+
+    // The city on past the built one (SKYLINE): a ring of its silhouette round the player, some windows lit -
+    // never a bare horizon where the near city leaves a gap. Drawn after the ground (over its far edge), before
+    // everything nearer.
+    const S = SKYLINE;
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(S.radius, S.radius, S.height, 128, 1, true).translate(0, GROUND_Y + S.height / 2, 0),
+      new THREE.ShaderMaterial({
+        uniforms: { map: { value: skylineTexture() }, fogColor: { value: new THREE.Color(FOG) }, strength: WINDOWS.strength },
+        vertexShader: /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`,
+        fragmentShader: /* glsl */ `
+uniform sampler2D map;
+uniform vec3 fogColor;
+uniform float strength;
+varying vec2 vUv;
+void main() {
+  vec4 t = texture2D(map, vec2(vUv.x * ${S.repeat.toFixed(1)}, vUv.y));
+  gl_FragColor = vec4(fogColor + t.rgb * strength * ${S.windows.toFixed(2)}, t.a);
+}`,
+        side: THREE.BackSide,
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.SrcAlphaFactor,
+        blendDst: THREE.OneMinusSrcAlphaFactor,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    band.renderOrder = -0.85;
+    this.far.add(band);
   }
 
   /**
