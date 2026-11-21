@@ -40,10 +40,11 @@ const CITY = {
   base: -45,
   color: 0x16181d,
   /**
-   * Its own fog (m: from - gone), not the scene's (60-650): the walls fading into the night further off, the lit
-   * windows further still (a city's lights seen from kilometres off).
+   * Its own fog, not the scene's (60-650 m): the walls into the night by distance (1 - e^(-d/scale): two thirds of
+   * the way at `scale` m, wholly by `gone`), the lit windows much further (m: from - gone: a city's lights seen from
+   * kilometres off), brighter far off (by up to `farBoost`: points of light against the dark, as the eye sees them).
    */
-  fog: { walls: [60, 1500], windows: [300, 2000] } as const,
+  fog: { walls: { scale: 300, gone: 1500 }, windows: [300, 2000], farBoost: 0.8 } as const,
 };
 /** The city's periods laid at once: from STRIP_BEHIND behind the player to its windows' fog's end ahead, wherever in a period it is. */
 const CITY_REPS = Math.ceil((STRIP_BEHIND + CITY.period + CITY.fog.windows[1]) / CITY.period);
@@ -265,7 +266,20 @@ varying float vWallSeed;
 varying float vWallTop;
 uniform float windowStrength;
 uniform float windowLit;
-float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
+float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+const vec3 WARM = vec3(1.0, 0.7, 0.4), COOL = vec3(0.72, 0.84, 1.0);
+// The lit windows' light at merge m (1: each window; 2, 4, 8: m x m of them as one), and whether it is a pane (pane).
+vec3 windowsAt(vec2 cell, float m, vec2 face, float seed, vec4 box, float unit, float share, float coolOdds, out float pane) {
+  vec2 c = cell / m;
+  vec2 id = floor(c) + face;
+  vec2 f = fract(c);
+  pane = step(box.x, f.x) * step(f.x, box.y) * step(box.z, f.y) * step(f.y, box.w);
+  vec2 group = m < 1.5 ? vec2(floor(id.x / unit), id.y) : id + m * 13.0;
+  float lit = step(1.0 - share, wallHash(group + seed * 97.0));
+  vec3 tint = mix(WARM, COOL, step(1.0 - coolOdds, wallHash(group * 1.7 + seed * 41.0)));
+  float bright = (0.5 + 0.7 * wallHash(group * 3.1 + seed * 19.0)) * (0.85 + 0.3 * wallHash(id * 5.3 + seed * 7.0));
+  return pane * lit * tint * bright;
+}`,
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -278,32 +292,33 @@ if (abs(vWallN.y) < 0.5) {
   float colW = office ? 1.5 : 1.6 + 0.3 * fract(seed * 7.3);
   float across = abs(vWallN.x) > 0.5 ? vWall.z : vWall.x;
   vec2 cell = vec2(across / colW, vWall.y / floorH);
-  vec2 id = floor(cell) + vec2(floor(vWallN.x + 0.5) * 31.0 + floor(vWallN.z + 0.5) * 57.0, 0.0);
-  vec2 f = fract(cell);
+  vec2 face = vec2(floor(vWallN.x + 0.5) * 31.0 + floor(vWallN.z + 0.5) * 57.0, 0.0);
   // (a home's window: wall between them, a sill under; an office's glass: mullions, the spandrel)
   vec4 box = office ? vec4(0.04, 0.96, 0.14, 0.86) : vec4(0.12, 0.88, 0.36, 0.78);
-  float pane = step(box.x, f.x) * step(f.x, box.y) * step(box.z, f.y) * step(f.y, box.w);
   // Lit together: a home (2-3 windows of a floor), an office's stretch of a floor (8-15 modules).
   float unit = office ? 8.0 + floor(8.0 * fract(seed * 4.7)) : 2.0 + floor(2.0 * fract(seed * 4.7));
-  vec2 group = vec2(floor(id.x / unit), id.y);
   float share = clamp(windowLit * (0.4 + 1.2 * fract(seed * 5.1)) * (office ? 1.2 : 1.0), 0.0, 1.0);
-  float lit = step(1.0 - share, wallHash(group + seed * 97.0));
-  vec3 warm = vec3(1.0, 0.7, 0.4), cool = vec3(0.72, 0.84, 1.0);
   float coolOdds = office ? 0.85 : 0.2;
-  vec3 tint = mix(warm, cool, step(1.0 - coolOdds, wallHash(group * 1.7 + seed * 41.0)));
-  float bright = (0.5 + 0.7 * wallHash(group * 3.1 + seed * 19.0)) * (0.85 + 0.3 * wallHash(id * 5.3 + seed * 7.0));
-  vec3 sharp = pane * lit * tint * bright;
-  vec3 average = (box.y - box.x) * (box.w - box.z) * share * 0.85 * mix(warm, cool, coolOdds);
-  float far = clamp(max(fwidth(cell.x), fwidth(cell.y)) * 2.0 - 0.4, 0.0, 1.0);
-  windowGlow = windowStrength * mix(sharp, average, far); // (added after the fog: its own)
-  diffuseColor.rgb *= mix(1.0, 0.55, pane * (1.0 - far)); // (the dark panes: glass, darker than the wall)
+  // Further off, the windows merged m x m (m 1, 2, 4, 8) so each stays a few pixels: still points of light,
+  // as many lit and as bright on the whole - the two nearest merges blended; past the coarsest, their average.
+  float lod = clamp(log2(max(max(fwidth(cell.x), fwidth(cell.y)), 1e-4) * 3.0), 0.0, 4.0);
+  float k = min(floor(lod), 2.0), t = clamp(lod - k, 0.0, 1.0);
+  float p0, p1;
+  vec3 a = windowsAt(cell, exp2(k), face, seed, box, unit, share, coolOdds, p0);
+  vec3 b = windowsAt(cell, exp2(k + 1.0), face, seed, box, unit, share, coolOdds, p1);
+  vec3 average = (box.y - box.x) * (box.w - box.z) * share * 0.85 * mix(WARM, COOL, coolOdds);
+  float far = clamp(lod - 3.0, 0.0, 1.0);
+  windowGlow = windowStrength * mix(mix(a, b, t), average, far); // (added after the fog: its own)
+  diffuseColor.rgb *= mix(1.0, 0.55, mix(p0, p1, t) * (1.0 - far)); // (the dark panes: glass, darker than the wall)
 }`,
       )
       .replace(
         '#include <fog_fragment>',
         `#ifdef USE_FOG
-gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(${CITY.fog.walls[0].toFixed(1)}, ${CITY.fog.walls[1].toFixed(1)}, vFogDepth));
-gl_FragColor.rgb += windowGlow * (1.0 - smoothstep(${CITY.fog.windows[0].toFixed(1)}, ${CITY.fog.windows[1].toFixed(1)}, vFogDepth));
+float wallFog = max(1.0 - exp(-vFogDepth / ${CITY.fog.walls.scale.toFixed(1)}), smoothstep(${(CITY.fog.walls.gone * 0.8).toFixed(1)}, ${CITY.fog.walls.gone.toFixed(1)}, vFogDepth));
+gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, wallFog);
+float windowBoost = 1.0 + ${CITY.fog.farBoost.toFixed(2)} * smoothstep(150.0, 900.0, vFogDepth);
+gl_FragColor.rgb += windowGlow * windowBoost * (1.0 - smoothstep(${CITY.fog.windows[0].toFixed(1)}, ${CITY.fog.windows[1].toFixed(1)}, vFogDepth));
 #else
 gl_FragColor.rgb += windowGlow;
 #endif`,
