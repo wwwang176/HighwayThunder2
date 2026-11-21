@@ -99,7 +99,7 @@ const SKYLINE = {
   radius: 2400,
   height: 240,
   repeat: 3,
-  windows: 0.8,
+  windows: 0.6,
   /** Its picture: px, metres a pixel across (height: SKYLINE.height over its rows). */
   width: 4096,
   rows: 512,
@@ -109,7 +109,7 @@ const SKYLINE = {
   /** Floors (m) and windows' spacing across (m) - a lit one a few pixels: one alone, far off, averaged away; the share lit. */
   floor: 3.5,
   across: 3,
-  lit: 0.1,
+  lit: 0.04,
 };
 /** The city's periods laid at once: from STRIP_BEHIND behind the player to its windows' fog's end ahead, wherever in a period it is. */
 const CITY_REPS = Math.ceil((STRIP_BEHIND + CITY.period + CITY.fog.windows[1]) / CITY.period);
