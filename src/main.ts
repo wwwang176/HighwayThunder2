@@ -45,7 +45,7 @@ async function boot() {
   const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved, mountain, skidpad });
   (window as unknown as { __game: Game }).__game = game;
   await loading.next('loading.shaders', 0.85);
-  game.warmUp();
+  await game.warmUp((share) => loading.set('loading.shaders', 0.85 + 0.13 * share)); // (the bar moving as they are made)
   game.start();
   await loading.finish('loading.ready');
 }

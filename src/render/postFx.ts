@@ -80,6 +80,56 @@ export class PostFx {
     this.composer.addPass(this.smaa);
   }
 
+  /**
+   * The shaders of what it draws (the world, the flares, the unbloomed) made now (WebGLRenderer.compile: with
+   * KHR_parallel_shader_compile, without waiting for them), as they will be drawn - into its own targets, not the
+   * screen (no tone mapping, linear: made for the screen, each was made again as it was first drawn). Their
+   * materials, to wait for.
+   */
+  async compileScenes(camera: THREE.Camera, issued?: (share: number) => void): Promise<Set<THREE.Material>> {
+    const r = this.renderer;
+    this.settle(); // (as it will draw: the passes on, the unbloomed's fog)
+    const all = new Set<THREE.Material>();
+    const into = (target: THREE.WebGLRenderTarget | null, compile: () => Set<THREE.Material>) => {
+      const was = r.getRenderTarget();
+      r.setRenderTarget(target);
+      for (const m of compile()) all.add(m);
+      r.setRenderTarget(was);
+    };
+    // A piece at a time, the page let draw between (each shader sent holds it ~15 ms): the parts with no light in
+    // them, each with its scene's lights; then each scene whole (its lit parts - a car and its lamps: compiled alone,
+    // a part's own lights were counted twice - the rest made already, found again).
+    const scenes = [this.scene, this.flares.scene, this.unbloomed];
+    const parts: [THREE.Object3D, THREE.Scene][] = [];
+    for (const s of scenes) for (const c of s.children) unlit(c, (o) => parts.push([o, s]));
+    let since = performance.now();
+    for (let i = 0; i < parts.length; i++) {
+      const [o, s] = parts[i];
+      into(this.composer.renderTarget1, () => r.compile(o, camera, s));
+      if (performance.now() - since > COMPILE_SLICE) {
+        issued?.(i / parts.length);
+        await new Promise((go) => setTimeout(go));
+        since = performance.now();
+      }
+    }
+    for (const s of scenes) {
+      into(this.composer.renderTarget1, () => r.compile(s, camera));
+      issued?.(1);
+      await new Promise((go) => setTimeout(go));
+    }
+    // The passes' own (the bloom's blurs, the anti-aliasing, the output): into its targets, the last to the screen.
+    const on = this.composer.passes.filter((p) => p.enabled);
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2).deleteAttribute('normal')); // (as a pass's quad: position and uv only - normals made other shaders)
+    for (const p of on) {
+      for (const m of passMaterials(p)) {
+        quad.material = m;
+        into(p === on[on.length - 1] ? null : this.composer.renderTarget1, () => r.compile(quad, camera));
+      }
+    }
+    quad.geometry.dispose();
+    return all;
+  }
+
   setSize(w: number, h: number): void {
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(w, h);
@@ -109,6 +159,12 @@ export class PostFx {
       this.bloomScale = POST.bloomScale;
       this.bloom.setSize(Math.round(this.size.x * this.bloomScale), Math.round(this.size.y * this.bloomScale));
     }
+    this.settle();
+    this.composer.render();
+  }
+
+  /** Its passes on as POST says, the bloom as set, the unbloomed's fog the scene's. */
+  private settle(): void {
     this.unbloomed.fog = this.scene.fog;
     this.fxaa.enabled = POST.antialias === 'fxaa';
     this.output.enabled = !this.fxaa.enabled;
@@ -117,6 +173,32 @@ export class PostFx {
     this.bloom.strength = POST.strength;
     this.bloom.radius = POST.radius;
     this.bloom.threshold = POST.threshold;
-    this.composer.render();
   }
+}
+
+/** How long (ms) shaders are sent for at a time before the page draws (compileScenes). */
+const COMPILE_SLICE = 25;
+
+/** The parts of `o` with no light in them, as big as can be (a light's own: not a part; a lit part's own: not looked into further). */
+function unlit(o: THREE.Object3D, part: (o: THREE.Object3D) => void): void {
+  if ((o as THREE.Light).isLight) return;
+  let lit = false;
+  o.traverse((c) => (lit ||= (c as THREE.Light).isLight === true));
+  if (!lit) return part(o);
+  for (const c of o.children) unlit(c, part);
+}
+
+/** A pass's materials: its own, in lists, and its full-screen quad's. */
+function passMaterials(pass: object): THREE.Material[] {
+  const out: THREE.Material[] = [];
+  const take = (v: unknown) => {
+    if (v instanceof THREE.Material) out.push(v);
+    else if (Array.isArray(v)) for (const x of v) if (x instanceof THREE.Material) out.push(x);
+  };
+  for (const v of Object.values(pass)) {
+    take(v);
+    const mesh = (v as { _mesh?: THREE.Mesh } | null)?._mesh;
+    if (mesh) take(mesh.material);
+  }
+  return [...new Set(out)];
 }
