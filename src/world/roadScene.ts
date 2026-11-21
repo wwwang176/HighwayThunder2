@@ -863,16 +863,6 @@ export class RoadScene implements Scenery {
 
   private buildFar(): void {
     const rnd = seeded(9);
-    // Mountains: barely-there silhouettes against the night sky.
-    const mat = new THREE.MeshBasicMaterial({ color: 0x0a0e17, fog: false });
-    const mat2 = new THREE.MeshBasicMaterial({ color: 0x0c111a, fog: false });
-    for (let i = 0; i < 26; i++) {
-      const side = i % 2 ? 1 : -1;
-      const h = 60 + rnd() * 160;
-      const mtn = new THREE.Mesh(new THREE.ConeGeometry(h * 1.6, h, 6), rnd() < 0.5 ? mat : mat2);
-      mtn.position.set(side * (700 + rnd() * 500), h / 2 - 5, -(rnd() * 3000 - 600));
-      this.far.add(mtn);
-    }
     // Faint stars (no moon in the sky, so the street and car lights stand out).
     const n = 900;
     const pos = new Float32Array(n * 3);
