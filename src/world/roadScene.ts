@@ -39,7 +39,14 @@ const CITY = {
   clear: 40,
   base: -45,
   color: 0x16181d,
+  /**
+   * Its own fog (m: from - gone), not the scene's (60-650): the walls fading into the night further off, the lit
+   * windows further still (a city's lights seen from kilometres off).
+   */
+  fog: { walls: [60, 1500], windows: [300, 2000] } as const,
 };
+/** The city's periods laid at once: from STRIP_BEHIND behind the player to its windows' fog's end ahead, wherever in a period it is. */
+const CITY_REPS = Math.ceil((STRIP_BEHIND + CITY.period + CITY.fog.windows[1]) / CITY.period);
 // Night: near-black sky, distance fading into deep blue-black.
 const SKY = 0x03050b;
 const FOG = 0x05070d;
@@ -263,6 +270,7 @@ float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.54
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
+vec3 windowGlow = vec3(0.0);
 if (abs(vWallN.y) < 0.5) {
   float seed = floor(vWallSeed * 1000.0 + 0.5) / 1000.0; // (whole thousandths: interpolated, the same value came out a hair off pixel to pixel - each window's hash noise)
   bool office = fract(seed * 2.9) < 0.15 + 0.7 * smoothstep(25.0, 80.0, vWallTop);
@@ -287,9 +295,18 @@ if (abs(vWallN.y) < 0.5) {
   vec3 sharp = pane * lit * tint * bright;
   vec3 average = (box.y - box.x) * (box.w - box.z) * share * 0.85 * mix(warm, cool, coolOdds);
   float far = clamp(max(fwidth(cell.x), fwidth(cell.y)) * 2.0 - 0.4, 0.0, 1.0);
-  totalEmissiveRadiance += windowStrength * mix(sharp, average, far);
+  windowGlow = windowStrength * mix(sharp, average, far); // (added after the fog: its own)
   diffuseColor.rgb *= mix(1.0, 0.55, pane * (1.0 - far)); // (the dark panes: glass, darker than the wall)
 }`,
+      )
+      .replace(
+        '#include <fog_fragment>',
+        `#ifdef USE_FOG
+gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(${CITY.fog.walls[0].toFixed(1)}, ${CITY.fog.walls[1].toFixed(1)}, vFogDepth));
+gl_FragColor.rgb += windowGlow * (1.0 - smoothstep(${CITY.fog.windows[0].toFixed(1)}, ${CITY.fog.windows[1].toFixed(1)}, vFogDepth));
+#else
+gl_FragColor.rgb += windowGlow;
+#endif`,
       );
   };
   mat.customProgramCacheKey = () => 'city-windows';
@@ -835,7 +852,7 @@ export class RoadScene implements Scenery {
           }
       }
     }
-    const reps = Math.ceil(STRIP_LEN / CITY.period) + 1;
+    const reps = CITY_REPS;
     this.buildings = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
       withWindows(new THREE.MeshStandardMaterial({ color: CITY.color, roughness: 0.85 })),
@@ -847,7 +864,7 @@ export class RoadScene implements Scenery {
   /** The city (its pattern repeating every CITY.period m) along the road from s = `cityS` - STRIP_BEHIND. */
   private layoutCity(cityS: number): void {
     this.cityS = cityS;
-    const reps = Math.ceil(STRIP_LEN / CITY.period) + 1;
+    const reps = CITY_REPS;
     let i = 0;
     for (let r = 0; r < reps; r++)
       for (const b of this.cityBase) {
