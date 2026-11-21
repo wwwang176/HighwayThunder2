@@ -723,14 +723,16 @@ ${CAR_GLSL}
 varying vec3 vN;
 varying vec3 vColor;
 varying float vDepth;
+varying float vFade;
 void main() {
   vec3 ahead, size;
   float fade;
   vec3 c = carAt(ahead, fade, size);
   vec3 side = vec3(ahead.z, 0.0, -ahead.x);
-  // (none further than TRAFFIC.bodies: shrunk away to its lights)
-  float shrink = fade * (1.0 - smoothstep(${(TRAFFIC.bodies * 0.85).toFixed(1)}, ${TRAFFIC.bodies.toFixed(1)}, distance(c, cameraPosition)));
-  vec3 p = position * size * shrink;
+  // Faded in and out (its lane's ends; none further than TRAFFIC.bodies: only its lights) - its full size, its
+  // pixels let go a few at a time (the fragment shader); quite gone, drawn at no size.
+  vFade = fade * (1.0 - smoothstep(${(TRAFFIC.bodies * 0.85).toFixed(1)}, ${TRAFFIC.bodies.toFixed(1)}, distance(c, cameraPosition)));
+  vec3 p = position * size * (vFade > 0.0 ? 1.0 : 0.0);
   vec3 world = c + side * p.x + vec3(0.0, p.y, 0.0) + ahead * p.z;
   vN = side * normal.x + vec3(0.0, normal.y, 0.0) + ahead * normal.z;
   // Its paint: white, silver, grey, black, dark blue, red (the darks the likelier).
@@ -745,8 +747,11 @@ uniform vec3 fogColor;
 varying vec3 vN;
 varying vec3 vColor;
 varying float vDepth;
+varying float vFade;
 ${CITY_FOG_GLSL}
 void main() {
+  // (fading: a share of its pixels let go, scattered - interleaved gradient noise over the screen)
+  if (vFade < 1.0 && vFade <= fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) discard;
   // (the street lights' warm glow on its roof and sides)
   float lit = 0.05 + 0.25 * max(vN.y, 0.0) + 0.08 * (1.0 - abs(vN.y));
   gl_FragColor = vec4(mix(vColor * lit * vec3(1.0, 0.78, 0.55), fogColor, cityWallFog(vDepth)), 1.0);
