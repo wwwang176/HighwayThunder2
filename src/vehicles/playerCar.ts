@@ -80,7 +80,7 @@ export const BODY_FRICTION = { upright: 0.02, rolled: 0.4, fromDeg: 45 };
  * along it slowly, easing up to `rail` at `railFullKmh` and over (slow, a scrape stopped it dead). `grass`: its tyres
  * in grass - this times the weight on them (rolling in soft ground; asphalt's ~0.015; 0.3 was too little held back).
  */
-export const SURFACE_DRAG = { rail: 1.2, railLow: 0.2, railFullKmh: 150, grass: 0.45 };
+export const SURFACE_DRAG = { rail: 1.2, railLow: 0.2, railFullKmh: 150, grass: 0.6 };
 
 /** The body's friction with its up pointing `upY` (its roof's way, world y: 1 upright, 0 on its side, -1 on its roof). */
 export function bodyFriction(upY: number): number {
