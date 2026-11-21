@@ -619,6 +619,9 @@ export class RoadScene implements Scenery {
       [R + pw, ph, R + pw, under],
       [R + pw, under, L - pw, under],
       [L - pw, under, L - pw, ph],
+      // (the median strip's kerbs, up from the road to its grass: no gap under them to see through)
+      [MEDIAN_NEAR_X, 0.12, MEDIAN_NEAR_X, 0],
+      [MEDIAN_FAR_X, 0, MEDIAN_FAR_X, 0.12],
     ]);
     const deck = new THREE.Mesh(deckSweep.geometry, new THREE.MeshStandardMaterial({ color: 0x75777a, roughness: 0.9 }));
     deck.receiveShadow = true;
