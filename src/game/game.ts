@@ -185,6 +185,8 @@ const START_FADE_IN = 700;
 const SETTLE_SECONDS = 0.6;
 /** The same thing touched again within this (s of race time) isn't heard again (game.contactSound). */
 const CONTACT_SOUND_GAP = 0.3;
+/** How often (ms) the shaders being made are looked at (prewarmAsync: the loading bar's steps). */
+const COMPILE_POLL = 30;
 /** The intros' round left (game/intro IntroBag), kept between visits. */
 const INTRO_BAG_KEY = 'ht2.introBag';
 
@@ -425,8 +427,36 @@ export class Game {
     addEventListener('keydown', wake);
   }
 
-  /** Every shader compiled and picture sent before the first race (prewarm: main.ts, its own step on the loading screen). */
-  warmUp(): void {
+  /**
+   * Every shader compiled and picture sent before the first race (prewarmAsync: main.ts, its own step on the loading
+   * screen, `progress` 0..1 through it).
+   */
+  warmUp(progress?: (share: number) => void): Promise<void> {
+    return this.prewarmAsync(progress);
+  }
+
+  /**
+   * prewarm, its shaders made first without holding the page: sent all at once (PostFx.compileScenes), then waited
+   * for, the share ready reported as they come (`progress`: the loading screen's bar moving, the page not frozen -
+   * made one after another as drawn, 49 of them held it ~5 s). Then prewarm itself: what is left made as it draws
+   * (the effects' passes, the shadows' depth), quickly.
+   */
+  private async prewarmAsync(progress?: (share: number) => void): Promise<void> {
+    for (const t of flameTextures()) this.renderer.initTexture(t);
+    this.render(0, 1, false); // (everything placed, not drawn: its shaders made below)
+    const undo = this.stageAll();
+    // (half the bar as they are sent, half as they are ready)
+    const materials = await this.post.compileScenes(this.camera, (share) => progress?.(share / 2));
+    undo();
+    const props = this.renderer.properties;
+    const total = materials.size;
+    let left = [...materials];
+    for (;;) {
+      left = left.filter((m) => !((props.get(m) as { currentProgram?: { isReady(): boolean } }).currentProgram?.isReady() ?? true));
+      progress?.(0.5 + (total ? 0.5 * (1 - left.length / total) : 0.5));
+      if (!left.length) break;
+      await new Promise((r) => setTimeout(r, COMPILE_POLL));
+    }
     this.prewarm();
   }
 
@@ -440,14 +470,26 @@ export class Game {
   private prewarm(): void {
     for (const t of flameTextures()) this.renderer.initTexture(t);
     this.render(0, 1); // (everything placed: the camera, the cars)
+    const undo = this.stageAll();
+    this.post.motion(new THREE.Vector2(0.5, 0.5), 0.01, new THREE.Vector2()); // (the speed blur's shader too: off till 120 km/h)
+    this.post.render();
+    undo();
+    this.render(0, 1);
+  }
+
+  /**
+   * Everything there to be drawn once (prewarm): every traffic model in both lamp states ahead of the car, the
+   * racers' wheels; hidden things shown, and nothing culled (by the camera or the headlights) - what is behind the
+   * camera or out of the beams now (the rails' posts, the trees) is drawn, and casts its shadow, later. Undone by
+   * what it returns.
+   */
+  private stageAll(): () => void {
     const ahead = new THREE.Matrix4().makeTranslation(0, 0, -15).premultiply(this.player.mesh.matrix);
     this.bodies.begin(this.camera, this.shadowLights());
     for (const m of allTrafficModels()) for (const lamps of PREWARM_LAMPS) this.bodies.add(m.key, m.template, ahead, lamps);
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);
     this.bodies.end();
-    // Hidden things shown, and nothing culled (by the camera or the headlights): what is behind the camera or out
-    // of the beams now (the rails' posts, the trees) is drawn, and casts its shadow, later.
     const hidden: THREE.Object3D[] = [];
     const culled: THREE.Object3D[] = [];
     for (const root of [this.scene, this.post.unbloomed]) {
@@ -458,11 +500,10 @@ export class Game {
     }
     for (const o of hidden) o.visible = true;
     for (const o of culled) o.frustumCulled = false;
-    this.post.motion(new THREE.Vector2(0.5, 0.5), 0.01, new THREE.Vector2()); // (the speed blur's shader too: off till 120 km/h)
-    this.post.render();
-    for (const o of hidden) o.visible = false;
-    for (const o of culled) o.frustumCulled = true;
-    this.render(0, 1);
+    return () => {
+      for (const o of hidden) o.visible = false;
+      for (const o of culled) o.frustumCulled = true;
+    };
   }
 
   private bindKeys(): void {
@@ -671,7 +712,7 @@ export class Game {
     // intro's first shot).
     this.simulate(SETTLE_SECONDS, undefined, false);
     await this.loading.next('loading.shaders', 0.75);
-    this.prewarm();
+    await this.prewarmAsync((share) => this.loading.set('loading.shaders', 0.75 + 0.2 * share));
     await this.loading.finish('loading.go');
     this.loadingRace = false;
     this.starting = false;
@@ -1662,7 +1703,8 @@ export class Game {
   }
 
   /** `play`: the race's time this frame (0 paused: frame()), what everything here moves by. */
-  private render(play: number, alpha: number): void {
+  /** The frame drawn (`draw`: else everything placed for it, nothing drawn - prewarmAsync). */
+  private render(play: number, alpha: number, draw = true): void {
     // The intro's show for this frame (the cars drawn arriving, the engine blipped); the countdown in its last
     // shot, the chase camera after it.
     if (this.introOn) {
@@ -1830,6 +1872,6 @@ export class Game {
     const h = this.renderer.domElement.height;
     updateFlareScale(this.flares.material, this.camera, h);
     updateFlareScale(this.road.lampFlareMaterial, this.camera, h);
-    this.post.render();
+    if (draw) this.post.render();
   }
 }
