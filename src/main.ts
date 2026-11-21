@@ -1,9 +1,7 @@
-import { AUTOSTART, Game } from './game/game';
+import { Game } from './game/game';
 import { loadSelection } from './game/carSelection';
 import { PhysicsWorld } from './physics/physicsWorld';
-import { DRIVER_TUNING, PlannerDriver } from './ai/plannerDriver';
-import { WorkerPlanSource } from './ai/workerPlanSource';
-import { MountainPlannerDriver } from './ai/mountainPlannerDriver';
+import { DRIVER_TUNING } from './ai/plannerDriver';
 import { loadCarModels } from './vehicles/carModels';
 import { applyUiZoom } from './ui/uiScale';
 import { loadSettings, setLang } from './ui/i18n';
@@ -46,23 +44,10 @@ async function boot() {
   const mountain = skidpad || params.has('mountain') || (!params.has('highway') && !params.has('straight') && loadSelection(localStorage).course === 'mountain');
   const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { curved, mountain, skidpad });
   (window as unknown as { __game: Game }).__game = game;
-  // I hands the car to the AI: the path planner, driven by plain controllers for now
-  // (a trained network is to take over the driving part). Plans are worked out in a worker.
-  // (the mountain road: its racing-line driver, as the rivals', its line worked out with each race's road)
-  game.aiDriver = mountain ? new MountainPlannerDriver() : new PlannerDriver(new WorkerPlanSource());
   await loading.next('loading.shaders', 0.85);
   game.warmUp();
   game.start();
   await loading.finish('loading.ready');
-  // Loaded again on another course (picked in the garage, its start pressed): its race straight away.
-  let autostart = false;
-  try {
-    autostart = sessionStorage.getItem(AUTOSTART) === '1';
-    sessionStorage.removeItem(AUTOSTART);
-  } catch {
-    // (no session storage: the garage)
-  }
-  if (autostart) game.startRace(loadSelection(localStorage), true);
 }
 
 boot();

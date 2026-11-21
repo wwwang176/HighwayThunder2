@@ -219,7 +219,7 @@ export class Hud {
               <div class="rows">
                 <div><span class="lbl">Near miss</span><b class="num" data-id="fNear"></b></div>
                 <div><span class="lbl">Top speed</span><b class="num" data-id="fTop"></b></div>
-                <div><span class="lbl">Distance</span><b class="num">${(flow.length / 1000).toFixed(2)}<small>km</small></b></div>
+                <div><span class="lbl">Distance</span><b class="num" data-id="fDist">${(flow.length / 1000).toFixed(2)}<small>km</small></b></div>
               </div>
             </div>
           </div>
@@ -418,6 +418,7 @@ export class Hud {
         this.el.fPlace.innerHTML = `${f.place}<small>/${f.racers.length}</small>`;
         this.el.fNear.textContent = `×${flow.nearMisses}`;
         this.el.fTop.innerHTML = `${Math.round(flow.topSpeed)}<small>km/h</small>`;
+        this.el.fDist.innerHTML = `${(flow.length / 1000).toFixed(2)}<small>km</small>`; // (the course's: picked in the garage)
       }
     }
 
