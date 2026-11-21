@@ -153,7 +153,7 @@ const LOOK_BLUR = {
  * comes from; looking to a side round the car's own body (its box on the screen, `car` times its half-sizes: the
  * corners, the wheels' bottoms, blurred a little).
  */
-const BLUR_MASK = { focus: 0.09, car: 1.1, nose: 0.3, ahead: 80, aheadHighway: 200, grow: 11, drop: 0.01 };
+const BLUR_MASK = { focus: 0.09, car: 1.1, nose: 0.3, ahead: 80, aheadHighway: 200, grow: 5, drop: 0.01 };
 const MASK_CORNER = new THREE.Vector3();
 const MASK_VIEW = new THREE.Vector3();
 const RESIZE_V = new THREE.Vector2();
