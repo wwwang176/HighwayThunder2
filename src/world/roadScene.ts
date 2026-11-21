@@ -51,6 +51,9 @@ const CITY_REPS = Math.ceil((STRIP_BEHIND + CITY.period + CITY.fog.windows[1]) /
 // Night: near-black sky, distance fading into deep blue-black.
 const SKY = 0x03050b;
 const FOG = 0x05070d;
+// The city's light in its sky (light pollution: its street lights' glow scattered back), a dull warm haze along the
+// horizon: the buildings dark against it.
+const SKY_GLOW = 0x3b2a2c;
 // Street lights: warm white, ~3400 K (a touch cooler than the city glow ahead; at ~4700 K they looked cold beside it).
 export const LAMP_COLOR = 0xffc285;
 /** Night lighting levels (mutable: tuned live from the panel). */
@@ -60,9 +63,11 @@ export const NIGHT = {
   wetness: 1, // the asphalt's wet patches (0 dry)
   rim: 0.25, // a warm light from the city glow ahead, edging the cars (cold blue, it tinted the road blue)
   windows: 0.7, // the buildings' lit windows' brightness
-  windowsLit: 0.3, // the share of their windows lit (each building its own, about this)
+  windowsLit: 0.22, // the share of their windows lit (each building its own: some all but dark, some lit up)
+  skyGlow: 1, // the city's glow along the horizon
 };
 const WINDOWS = { strength: { value: NIGHT.windows }, lit: { value: NIGHT.windowsLit } };
+const SKY_GLOW_STRENGTH = { value: NIGHT.skyGlow };
 const LAMP_SPACING = 50; // every row has lamps on both sides of each carriageway, facing each other
 const LAMP_HEIGHT = 9.8;
 // Real (shading) lights for the lamps over our carriageway inside this window;
@@ -238,7 +243,8 @@ diffuseColor.rgb *= mix(vec3(0.62, 0.72, 0.62), vec3(1.2, 1.15, 0.9), patchy);`,
  * offices - the taller, the likelier offices. Homes: floors 3.0-3.3 m, windows some 1.3 m square with wall between,
  * lit a home at a time (2-3 windows of a floor), mostly warm. Offices: floors 3.8-4.2 m, a band of glass round each
  * (thin mullions every 1.5 m, a spandrel under it), lit a stretch of a floor at a time, mostly cool white. Each lit
- * group its own brightness; the rest dark glass. Far off, where a window is under a pixel or so, their average
+ * group its own brightness and colour (warm ~2700-3500 K, cool ~4000-5500 K), a home's windows each their own too
+ * (a room dark, a curtain drawn); the rest dark glass. Far off, where a window is under a pixel or so, their average
  * instead (no shimmer).
  */
 function withWindows(mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
@@ -267,17 +273,26 @@ varying float vWallTop;
 uniform float windowStrength;
 uniform float windowLit;
 float wallHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-const vec3 WARM = vec3(1.0, 0.7, 0.4), COOL = vec3(0.72, 0.84, 1.0);
+// Warm: ~2700 K (bulbs) to ~3500 K; cool: ~4000 K to ~5500 K (LED, fluorescent) - not blue-white.
+const vec3 WARM_LO = vec3(1.0, 0.58, 0.28), WARM_HI = vec3(1.0, 0.8, 0.56);
+const vec3 COOL_LO = vec3(1.0, 0.9, 0.76), COOL_HI = vec3(0.86, 0.92, 1.0);
+// A lit window's own brightness (a home's: some rooms dark, some curtains drawn; an office's: even, dimmer, its
+// stretch all alike); 'mean' its average.
+float paneLight(float r, bool office) {
+  return office ? 0.7 + 0.2 * r : r < 0.12 ? 0.0 : r < 0.4 ? 0.35 : 0.8 + 0.4 * (r - 0.4) / 0.6;
+}
+const float HOME_MEAN = 0.28 * 0.35 + 0.6 * 1.0, OFFICE_MEAN = 0.8;
 // The lit windows' light at merge m (1: each window; 2, 4, 8: m x m of them as one), and whether it is a pane (pane).
-vec3 windowsAt(vec2 cell, float m, vec2 face, float seed, vec4 box, float unit, float share, float coolOdds, out float pane) {
+vec3 windowsAt(vec2 cell, float m, vec2 face, float seed, vec4 box, float unit, float share, float coolOdds, bool office, out float pane) {
   vec2 c = cell / m;
   vec2 id = floor(c) + face;
   vec2 f = fract(c);
   pane = step(box.x, f.x) * step(f.x, box.y) * step(box.z, f.y) * step(f.y, box.w);
   vec2 group = m < 1.5 ? vec2(floor(id.x / unit), id.y) : id + m * 13.0;
   float lit = step(1.0 - share, wallHash(group + seed * 97.0));
-  vec3 tint = mix(WARM, COOL, step(1.0 - coolOdds, wallHash(group * 1.7 + seed * 41.0)));
-  float bright = (0.5 + 0.7 * wallHash(group * 3.1 + seed * 19.0)) * (0.85 + 0.3 * wallHash(id * 5.3 + seed * 7.0));
+  float hue = wallHash(group * 2.3 + seed * 11.0);
+  vec3 tint = step(1.0 - coolOdds, wallHash(group * 1.7 + seed * 41.0)) > 0.5 ? mix(COOL_LO, COOL_HI, hue) : mix(WARM_LO, WARM_HI, hue);
+  float bright = (0.5 + 0.7 * wallHash(group * 3.1 + seed * 19.0)) * paneLight(wallHash(id * 5.3 + seed * 7.0), office);
   return pane * lit * tint * bright;
 }`,
       )
@@ -297,16 +312,18 @@ if (abs(vWallN.y) < 0.5) {
   vec4 box = office ? vec4(0.04, 0.96, 0.14, 0.86) : vec4(0.12, 0.88, 0.36, 0.78);
   // Lit together: a home (2-3 windows of a floor), an office's stretch of a floor (8-15 modules).
   float unit = office ? 8.0 + floor(8.0 * fract(seed * 4.7)) : 2.0 + floor(2.0 * fract(seed * 4.7));
-  float share = clamp(windowLit * (0.4 + 1.2 * fract(seed * 5.1)) * (office ? 1.2 : 1.0), 0.0, 1.0);
+  // (each building its own: most a little lit, a few lit up - their mean windowLit)
+  float share = clamp(windowLit * (0.2 + 2.0 * pow(fract(seed * 5.1), 1.5)), 0.0, 1.0);
   float coolOdds = office ? 0.85 : 0.2;
   // Further off, the windows merged m x m (m 1, 2, 4, 8) so each stays a few pixels: still points of light,
   // as many lit and as bright on the whole - the two nearest merges blended; past the coarsest, their average.
   float lod = clamp(log2(max(max(fwidth(cell.x), fwidth(cell.y)), 1e-4) * 3.0), 0.0, 4.0);
   float k = min(floor(lod), 2.0), t = clamp(lod - k, 0.0, 1.0);
   float p0, p1;
-  vec3 a = windowsAt(cell, exp2(k), face, seed, box, unit, share, coolOdds, p0);
-  vec3 b = windowsAt(cell, exp2(k + 1.0), face, seed, box, unit, share, coolOdds, p1);
-  vec3 average = (box.y - box.x) * (box.w - box.z) * share * 0.85 * mix(WARM, COOL, coolOdds);
+  vec3 a = windowsAt(cell, exp2(k), face, seed, box, unit, share, coolOdds, office, p0);
+  vec3 b = windowsAt(cell, exp2(k + 1.0), face, seed, box, unit, share, coolOdds, office, p1);
+  vec3 average = (box.y - box.x) * (box.w - box.z) * share * 0.85 * (office ? OFFICE_MEAN : HOME_MEAN)
+    * mix((WARM_LO + WARM_HI) * 0.5, (COOL_LO + COOL_HI) * 0.5, coolOdds);
   float far = clamp(lod - 3.0, 0.0, 1.0);
   windowGlow = windowStrength * mix(mix(a, b, t), average, far); // (added after the fog: its own)
   diffuseColor.rgb *= mix(1.0, 0.55, mix(p0, p1, t) * (1.0 - far)); // (the dark panes: glass, darker than the wall)
@@ -913,6 +930,36 @@ export class RoadScene implements Scenery {
       new THREE.PointsMaterial({ color: 0xbfcbe6, size: 1.6, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.7 }),
     );
     this.far.add(stars);
+    // The sky: night-black overhead, the city's glow along the horizon (and on down, the city under it) - drawn
+    // first, behind everything (inside the camera's far plane).
+    const sky = new THREE.Mesh(
+      new THREE.SphereGeometry(2500, 32, 24),
+      new THREE.ShaderMaterial({
+        uniforms: { zenith: { value: new THREE.Color(SKY) }, horizon: { value: new THREE.Color(SKY_GLOW) }, glow: SKY_GLOW_STRENGTH },
+        vertexShader: /* glsl */ `
+varying vec3 vDir;
+void main() {
+  vDir = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`,
+        fragmentShader: /* glsl */ `
+uniform vec3 zenith;
+uniform vec3 horizon;
+uniform float glow;
+varying vec3 vDir;
+void main() {
+  float h = normalize(vDir).y;
+  // (a thin bright band low down, a broad faint one higher)
+  float g = h > 0.0 ? 0.7 * exp(-h / 0.045) + 0.3 * exp(-h / 0.2) : exp(h / 0.2);
+  gl_FragColor = vec4(zenith + horizon * glow * g, 1.0);
+}`,
+        side: THREE.BackSide,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    sky.renderOrder = -1;
+    this.far.add(sky);
   }
 
   /**
@@ -927,6 +974,7 @@ export class RoadScene implements Scenery {
     if (cityS !== this.cityS) this.layoutCity(cityS);
     WINDOWS.strength.value = NIGHT.windows;
     WINDOWS.lit.value = NIGHT.windowsLit;
+    SKY_GLOW_STRENGTH.value = NIGHT.skyGlow;
     // (the far scenery and the sky go along with the player, its line's point: as far off whichever way it turns)
     const c = this.line.center(playerS);
     this.far.position.set(c.x, 0, c.z);
