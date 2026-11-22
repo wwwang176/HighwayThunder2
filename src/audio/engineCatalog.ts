@@ -21,13 +21,15 @@ export interface EngineClip {
 }
 
 /**
- * A vehicle's engine: its clips in rising rpm; its rev limiter (its top rev with the fuel cut
- * stuttering it about 12 times a second - heard at the redline in its place); its start-up (played once, as the
- * race is started); how much higher than recorded it's all played (1: as recorded); how much louder than its clips'
- * common loudness it's played (dB; 0: as they are).
+ * A vehicle's engine: its clips in rising rpm (on the throttle, pulling); the same revs off it (`offClips`, one for
+ * each: the engine overrunning, a deeper note - the idle's its own, the same clip); its rev limiter (its top rev
+ * with the fuel cut stuttering it about 12 times a second - heard at the redline in its place); its start-up (played
+ * once, as the race is started); how much higher than recorded it's all played (1: as recorded); how much louder
+ * than its clips' common loudness it's played (dB; 0: as they are).
  */
 export interface EngineSet {
   clips: string[];
+  offClips: string[];
   limiter: string;
   startup: string;
   pitch: number;
@@ -98,11 +100,20 @@ export const ENGINE_CLIPS: Record<string, EngineClip> = {
   'trk-startup': { rpm: 0 },
 };
 
-/** An engine's steady revs (its rev limiter and its start-up apart). */
+/** An engine's steady revs (its rev limiter, its start-up and its revs off the throttle apart). */
 const revsOf = (tag: string): string[] =>
-  Object.keys(ENGINE_CLIPS).filter((id) => id.startsWith(tag + '-') && id !== `${tag}-limiter` && id !== `${tag}-startup`);
+  Object.keys(ENGINE_CLIPS).filter((id) => id.startsWith(tag + '-') && id !== `${tag}-limiter` && id !== `${tag}-startup` && !id.endsWith(OFF));
+/** A rev's clip off the throttle: its id with this on (each recorded at the same rpm as its rev on it). */
+const OFF = '-off';
+/** The rev's clip off the throttle (the idle: itself). */
+export const offOf = (id: string): string => (id.endsWith('-idle') ? id : id + OFF);
+// Every rev but the idle its clip off the throttle too.
+for (const id of Object.keys(ENGINE_CLIPS)) {
+  const tag = id.slice(0, id.indexOf('-'));
+  if (revsOf(tag).includes(id) && offOf(id) !== id) ENGINE_CLIPS[offOf(id)] = { rpm: ENGINE_CLIPS[id].rpm };
+}
 const setOf = (tag: string, pitch = 1, gainDb = 0): EngineSet =>
-  ({ clips: revsOf(tag), limiter: `${tag}-limiter`, startup: `${tag}-startup`, pitch, gainDb });
+  ({ clips: revsOf(tag), offClips: revsOf(tag).map(offOf), limiter: `${tag}-limiter`, startup: `${tag}-startup`, pitch, gainDb });
 
 /**
  * Each vehicle's engine. The truck: the tractor unit's engine, played higher (lighter, revvier). The supercar's V10
