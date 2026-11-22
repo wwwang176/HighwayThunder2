@@ -22,13 +22,20 @@ interface Layer {
 
 /**
  * One engine's sound: its set's clips (engineCatalog), each a looping source through its own gain, mixed by the rpm
- * (engineMix) into `output`; on the rev limiter its limiter clip instead. Only the clips sounding are playing.
+ * (engineMix) into `output` - those on the throttle and those off it (overrunning) crossfaded by the throttle (as it
+ * follows, THROTTLE_FOLLOW; equal power), the idle the same clip either way; on the rev limiter its limiter clip
+ * instead. Only the clips sounding are playing. (A bundle without the revs off the throttle: those on it alone.)
  */
 export class EngineVoice {
   readonly kind: EngineKind;
   readonly output: GainNode;
   private readonly ctx: BaseAudioContext;
-  private readonly layers: Layer[];
+  /** The revs on the throttle, then the limiter, then the revs off it (as many as on it; the idle's null: shared). */
+  private readonly layers: (Layer | null)[];
+  private readonly offThrottle: boolean;
+  /** The throttle as it follows (0..1; NaN: not yet set), and when it was. */
+  private load = NaN;
+  private loadAt = 0;
   private readonly rpms: number[];
   private readonly bands: [number, number][];
   private readonly pitch: number;
@@ -53,12 +60,15 @@ export class EngineVoice {
     this.output.gain.value = 0;
     this.output.connect(out);
     this.limiterRpm = ENGINE_CLIPS[set.limiter].rpm;
-    this.layers = [...set.clips, set.limiter].map((id) => {
+    const layer = (id: string): Layer => {
       const gain = ctx.createGain();
       gain.gain.value = 0;
       gain.connect(this.output);
       return { buffer: bank.get(id)!, gain, src: null, silentSince: 0 };
-    });
+    };
+    this.layers = [...set.clips, set.limiter].map(layer);
+    this.offThrottle = set.offClips.every((id) => bank.has(id));
+    if (this.offThrottle) for (let i = 0; i < set.clips.length; i++) this.layers.push(set.offClips[i] === set.clips[i] ? null : layer(set.offClips[i]));
   }
 
   /**
@@ -83,11 +93,26 @@ export class EngineVoice {
     if (limiting) for (let i = 0; i < n; i++) this.gains[i] = 0;
     this.gains[n] = limiting ? 1 : 0;
     this.rates[n] = (s / this.limiterRpm) * this.pitch;
+    // On the throttle or off it: each rev's two clips crossfaded by the throttle as it follows (the idle's one clip
+    // either way, whole).
+    if (this.offThrottle) {
+      const k = Number.isNaN(this.load) ? 1 : 1 - Math.exp(-Math.max(0, t - this.loadAt) / THROTTLE_FOLLOW);
+      this.load = Number.isNaN(this.load) ? throttle : this.load + (throttle - this.load) * k;
+      this.loadAt = t;
+      const on = Math.sin((this.load * Math.PI) / 2), off = Math.cos((this.load * Math.PI) / 2);
+      for (let i = 0; i < n; i++) {
+        const shared = this.layers[n + 1 + i] === null;
+        this.gains[n + 1 + i] = shared ? 0 : this.gains[i] * off;
+        this.rates[n + 1 + i] = this.rates[i];
+        if (!shared) this.gains[i] *= on;
+      }
+    }
     this.output.gain.setTargetAtTime(volume * this.level * (OFF_THROTTLE_GAIN + (1 - OFF_THROTTLE_GAIN) * throttle), t, follow);
     // Silenced: its clips carry on under the fade (`follow`), and stop once it's been silent a while.
     if (volume > 0) this.quietSince = t;
     const stopped = t - this.quietSince > IDLE_STOP;
     this.layers.forEach((L, i) => {
+      if (!L) return; // (the idle off the throttle: its one clip, on it)
       const g = stopped ? 0 : this.gains[i];
       if (g > 0 && (L.src || volume > 0)) {
         if (!L.src) {
@@ -112,6 +137,7 @@ export class EngineVoice {
   /** Its sources stopped, its nodes let go. */
   dispose(): void {
     for (const L of this.layers) {
+      if (!L) continue;
       L.src?.stop();
       L.src?.disconnect();
       L.gain.disconnect();
