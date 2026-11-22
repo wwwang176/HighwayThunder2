@@ -62,9 +62,9 @@ type Ride = 'car' | 'cruise';
 /**
  * A shot: the camera from one pose to another over `seconds` (a cut into it: the shot before ends elsewhere).
  * `blip` seconds in, the player's engine blipped (a light rev or a few, and let go), the rivals' each its own
- * time round it (BLIP_RIVALS). `ride` / `lookRide`: what its
- * position / where it looks ride along with (none: held to the grid). `shake`: the camera shaken this much (m: a
- * camera car's at speed).
+ * time round it (BLIP_RIVALS); `pop`: the player's first a deep one (BLIP_POP), its exhaust in the shot popping.
+ * `ride` / `lookRide`: what its position / where it looks ride along with (none: held to the grid). `shake`: the
+ * camera shaken this much (m: a camera car's at speed).
  */
 interface Shot {
   seconds: number;
@@ -72,6 +72,7 @@ interface Shot {
   to: Pose;
   ease: (t: number) => number;
   blip?: number;
+  pop?: boolean;
   ride?: Ride;
   lookRide?: Ride;
   shake?: number;
@@ -263,12 +264,19 @@ const BLIP_AGAIN: readonly [number, number] = [0.35, 1];
  */
 const BLIP_RIVALS: readonly [number, number] = [-1.0, 1.8];
 const BLIP_APART = 0.25;
+/**
+ * The deep one (a shot's `pop`: the player's exhaust in it): the throttle all the way down, the revs up to this
+ * share of the redline (its own, between these: past the exhaust's popping - BACKFIRE.rpm), held this long.
+ */
+const BLIP_POP: readonly [number, number] = [0.7, 0.85];
+const BLIP_POP_HOLD = 0.22;
 
-/** A car's blip: when (the intro's time, s), how far down its throttle (0..1), how long held (s). */
+/** A car's blip: when (the intro's time, s), up to what revs (rpm), on how much throttle (0..1), how long held (s). */
 interface Blip {
   car: PlayerCar;
   at: number;
-  pedal: number;
+  top: number;
+  throttle: number;
   hold: number;
 }
 
@@ -384,24 +392,31 @@ export class Intro {
    */
   private planBlips(within: (range: readonly [number, number]) => number): void {
     let start = 0, calm = 0; // (calm: past the last bend's shot - the cars drawn going by in it)
-    const mine: number[] = [];
+    const mine: { at: number; pop: boolean }[] = [];
     for (const s of this.shots) {
       if (s.pass) calm = start + s.seconds;
-      if (s.blip !== undefined) mine.push(start + s.blip);
+      if (s.blip !== undefined) mine.push({ at: start + s.blip, pop: !!s.pop });
       start += s.seconds;
     }
     const end = this.seconds - 0.1;
-    const blip = (car: PlayerCar, at: number): Blip => ({ car, at, pedal: within(BLIP_PEDAL), hold: within(BLIP_HOLD) });
+    const blip = (car: PlayerCar, at: number): Blip => {
+      const pedal = within(BLIP_PEDAL), idle = car.params.idleRpm;
+      const top = idle + pedal * Math.max(0, car.params.redline * BLIP_TOP - idle);
+      return { car, at, top, throttle: BLIP_THROTTLE * pedal, hold: within(BLIP_HOLD) };
+    };
+    const deep = (car: PlayerCar, at: number): Blip => ({ car, at, top: car.params.redline * within(BLIP_POP), throttle: 1, hold: BLIP_POP_HOLD });
     const burst = (first: Blip) => {
       const n = 1 + Math.floor(Math.random() * BLIP_MOST);
       for (let b = first, k = 0; k < n && b.at + this.blipLength(b) <= end; k++) {
         this.blips.push(b);
-        b = blip(b.car, b.at + within(BLIP_AGAIN) * this.blipLength(b));
+        // (after a deep one, once it has nearly wound down: blipped again high up, it hid the light one)
+        b = blip(b.car, b.at + within(b.throttle === 1 ? [0.8, 1] : BLIP_AGAIN) * this.blipLength(b));
       }
     };
     const firsts: number[] = [];
-    for (const at of mine) {
-      burst(blip(this.scene.player, at));
+    for (const { at, pop } of mine) {
+      // (the player's: its exhaust in the shot, a deep one first - popping)
+      burst((pop ? deep : blip)(this.scene.player, at));
       firsts.push(at);
       for (const car of this.scene.rivals) {
         const first = blip(car, 0);
@@ -620,21 +635,15 @@ export class Intro {
   }
 
   /** The blip `t` s in: the rpm up fast and the throttle held, then let go and the rpm winding down (as driving). */
-  private rev({ car, pedal, hold }: Blip, t: number): { rpm: number; throttle: number } {
-    const idle = car.params.idleRpm, top = this.blipTop(car, pedal);
-    if (t < hold) return { rpm: idle + (top - idle) * Math.min(1, t / BLIP_RISE), throttle: BLIP_THROTTLE * pedal };
+  private rev({ car, top, throttle, hold }: Blip, t: number): { rpm: number; throttle: number } {
+    const idle = car.params.idleRpm;
+    if (t < hold) return { rpm: idle + (top - idle) * Math.min(1, t / BLIP_RISE), throttle };
     return { rpm: Math.max(idle, top - ENGINE_FALL_RATE * (t - hold)), throttle: 0 };
   }
 
-  /** The revs a car's blip goes up to, its throttle `pedal` down (rpm). */
-  private blipTop(car: PlayerCar, pedal: number): number {
-    const idle = car.params.idleRpm;
-    return idle + pedal * Math.max(0, car.params.redline * BLIP_TOP - idle);
-  }
-
   /** How long a blip lasts (s): held, then back down to its car's idle. */
-  private blipLength({ car, pedal, hold }: Blip): number {
-    return hold + (this.blipTop(car, pedal) - car.params.idleRpm) / ENGINE_FALL_RATE;
+  private blipLength({ car, top, hold }: Blip): number {
+    return hold + Math.max(0, top - car.params.idleRpm) / ENGINE_FALL_RATE;
   }
 
   private world([x, y, z]: number[]): THREE.Vector3 {
@@ -808,7 +817,7 @@ export class Intro {
         },
       ];
     }
-    // Details: the rear wheel on the wet road, the exhaust (a blip), along the bonnet, the tail lights; then out.
+    // Details: the rear wheel on the wet road, the exhaust popping (a blip), along the bonnet, the tail lights; then out.
     const tips = (car.mesh.userData.exhausts ?? []) as THREE.Vector3[];
     const tip: [number, number, number] = tips.length ? [tips[0].x, carY + tips[0].y, -tips[0].z] : [0.5, 0.35, -p.length / 2];
     const rear: [number, number, number] = [track, r, -half];
@@ -826,6 +835,7 @@ export class Intro {
         to: { pos: [tip[0] + 0.75, tip[1] + 0.15, tip[2] - 1.35], look: [...tip], fov: 28 },
         ease: linear, // (still moving at the cut)
         blip: 0.1,
+        pop: true,
       },
       {
         // Its front corner, the headlight (along the bonnet the night left it all dark).
@@ -977,7 +987,7 @@ export class Intro {
       ];
     }
     // The first hairpin: low by its outside's chevron boards, their lamps blinking, looking round it; then the grid
-    // low between the lanes from behind (four cars' tail lights); the exhaust (a blip); its tail light; out.
+    // low between the lanes from behind (four cars' tail lights); the exhaust popping (a blip); its tail light; out.
     const out = -dir;
     const edgeOut = edges.at(from, out as 1 | -1);
     const tips = (car.mesh.userData.exhausts ?? []) as THREE.Vector3[];
@@ -1016,6 +1026,7 @@ export class Intro {
         to: { pos: [tip[0] + 0.75, tip[1] + 0.15, tip[2] - 1.35], look: [...tip], fov: 28 },
         ease: linear, // (still moving at the cut)
         blip: 0.1,
+        pop: true,
       },
       {
         seconds: 0.4,
