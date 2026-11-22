@@ -3,7 +3,7 @@
  * copied in for the build as the sound bundles are, docs/sound.md), listed in its playlist.json - file names
  * (["a.mp3", ...]) or { "file": "a.mp3", "title": "..." } - played one after another in a shuffled order, round
  * and round. `change()` (a change of scene) fades the song out, waits and fades the next one in; `skip()` (N) the
- * same in half a second, no wait (switched there and then, a song would click). Its own <audio> element, streamed (no song decoded whole into memory) and outside the
+ * same in half a second, no wait (switched there and then, a song would click). Its own <audio> elements, streamed (no song decoded whole into memory) and outside the
  * sound's Web Audio graph (stopped in a pause, and in a hidden tab, by `setPaused` / `setHidden`; faded back in).
  * No playlist (or no songs): silent.
  */
@@ -113,8 +113,17 @@ export function easeVolume(now: number, target: number, dt: number): number {
   return now + (target - now) * Math.min(1, dt / MUSIC_FADE);
 }
 
+/**
+ * The music: the song playing on one <audio> element; the one after it loading on another meanwhile (`ahead`), the
+ * two swapped as it comes on - a change of scene's song ready, not fetched from its start then (on a slow line a song
+ * took 9 s to start, the race's intro over first). The first one loading from `prepare()` (as the game opens: a
+ * download needs no click, only playing it does).
+ */
 export class Music {
-  private readonly el: HTMLAudioElement;
+  private el: HTMLAudioElement;
+  private ahead: HTMLAudioElement;
+  /** The song `ahead` has loading (its URL; null: none). */
+  private aheadUrl: string | null = null;
   private songs: Song[] = [];
   private order: number[] = [];
   private at = -1;
@@ -136,14 +145,28 @@ export class Music {
   onSong: ((song: Song) => void) | null = null;
 
   constructor(private readonly base: string = import.meta.env.BASE_URL) {
-    this.el = new Audio();
-    this.el.preload = 'auto';
-    this.el.volume = 0;
-    this.el.addEventListener('ended', () => this.next());
-    this.el.addEventListener('playing', () => (this.failed = 0));
-    this.el.addEventListener('error', () => {
-      if (++this.failed < this.songs.length) this.next();
-    });
+    const element = (): HTMLAudioElement => {
+      const el = new Audio();
+      el.preload = 'auto';
+      el.volume = 0;
+      // (each element's events counted only while it's the one playing; the one ahead failing: fetched afresh then)
+      el.addEventListener('ended', () => el === this.el && this.next());
+      el.addEventListener('playing', () => {
+        if (el !== this.el) return;
+        this.failed = 0;
+        this.loadAhead();
+      });
+      el.addEventListener('error', () => {
+        if (el !== this.el) {
+          if (el === this.ahead) this.aheadUrl = null;
+          return;
+        }
+        if (++this.failed < this.songs.length) this.next();
+      });
+      return el;
+    };
+    this.el = element();
+    this.ahead = element();
   }
 
   /** The song playing (null: none). */
@@ -151,10 +174,8 @@ export class Music {
     return this.at >= 0 ? this.songs[this.order[this.at]] : null;
   }
 
-  /** Start playing (from a click or a key: the browser lets it start only then); once is enough. */
-  start(): void {
-    if (this.started) return;
-    this.started = true;
+  /** The playlist fetched and its first song loading (not playing: start() plays it); once is enough. */
+  prepare(): Promise<void> {
     this.loading ??= fetch(this.base + MUSIC_URL + 'playlist.json')
       .then((res) => (res.ok ? res.json() : []))
       .catch(() => [])
@@ -163,27 +184,65 @@ export class Music {
         this.order = shuffled(this.songs.length);
         if (this.songs.length) this.next();
       });
+    return this.loading;
   }
 
-  /** The next song (the first after the last one round again). */
+  /** Start playing (from a click or a key: the browser lets it start only then); once is enough. */
+  start(): void {
+    if (this.started) return;
+    this.started = true;
+    void this.prepare().then(() => {
+      const song = this.song;
+      if (!song) return;
+      this.play();
+      this.onSong?.(song);
+    });
+  }
+
+  private urlOf(song: Song): string {
+    return this.base + MUSIC_URL + encodeURI(song.file);
+  }
+
+  /**
+   * The next song (the first after the last one round again): the one ahead if it has it loading (swapped in), else
+   * fetched now. Before start(): only loading.
+   */
   next(): void {
     if (!this.songs.length) return;
     this.at = (this.at + 1) % this.order.length;
     const song = this.songs[this.order[this.at]];
-    this.el.src = this.base + MUSIC_URL + encodeURI(song.file);
+    const url = this.urlOf(song);
+    if (this.aheadUrl === url) {
+      const was = this.el;
+      this.el = this.ahead;
+      this.ahead = was;
+      was.pause();
+      this.el.volume = was.volume;
+    } else this.el.src = url;
+    this.aheadUrl = null;
+    if (!this.started) return;
     this.play();
     this.onSong?.(song);
   }
 
+  /** The song after this one loading on the element ahead (one song only: none - it's this one again). */
+  private loadAhead(): void {
+    if (this.order.length < 2) return;
+    const url = this.urlOf(this.songs[this.order[(this.at + 1) % this.order.length]]);
+    if (this.aheadUrl === url) return;
+    this.aheadUrl = url;
+    this.ahead.src = url;
+  }
+
   /** The next song, asked for (N): SKIP_SWITCH - quickly out and the next in, a change of scene under way cut short. */
   skip(): void {
-    if (this.at < 0) return;
+    if (!this.started || this.at < 0) return;
     startSwitch(this.fade, SKIP_SWITCH, this.el.paused || this.fade.switching === 'gap');
   }
 
   /** A change of scene: SCENE_SWITCH (out, a moment's quiet, the next in). */
   change(): void {
-    if (this.at < 0 || this.fade.switching) return; // (none yet - start() brings the first in - or changing already)
+    if (!this.started || this.at < 0 || this.fade.switching) return; // (none yet - start() brings the first in - or changing already)
     startSwitch(this.fade, SCENE_SWITCH, this.el.paused);
   }
 
@@ -234,7 +293,7 @@ export class Music {
   }
 
   private play(): void {
-    if (this.hidden || this.paused || this.fade.switching || this.at < 0) return;
+    if (!this.started || this.hidden || this.paused || this.fade.switching || this.at < 0) return; // (prepared only: not yet)
     void this.el.play().catch(() => {}); // (refused - no click or key yet: start() is called from one)
   }
 }

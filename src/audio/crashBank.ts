@@ -1,4 +1,5 @@
 import { BUNDLE_RATE, unpackBundle } from './bundleCodec';
+import { fetchBundle } from './bundleFetch';
 
 /** The crash recordings' bundle (built in the private audio repo; git-ignored, licensed: docs/sound.md). */
 export const CRASH_BUNDLE_URL = 'audio/crashes.bin';
@@ -15,9 +16,9 @@ export interface CrashClip {
  */
 export async function loadCrashBank(ctx: BaseAudioContext): Promise<CrashClip[] | null> {
   try {
-    const res = await fetch(import.meta.env.BASE_URL + CRASH_BUNDLE_URL);
-    if (!res.ok) return null;
-    const clips = unpackBundle(new Uint8Array(await res.arrayBuffer()));
+    const bytes = await fetchBundle(CRASH_BUNDLE_URL); // (fetched early: prefetchSoundBundles)
+    if (!bytes) return null;
+    const clips = unpackBundle(new Uint8Array(bytes));
     if (!clips?.length) return null;
     return await Promise.all(clips.map(async ({ entry, data }) => {
       const decoded = await ctx.decodeAudioData(data.slice().buffer);

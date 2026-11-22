@@ -14,6 +14,19 @@ import { emitFlares } from '../vehicles/npcVehicle';
 import { PLAYER_H, PLAYER_L, PLAYER_W } from '../vehicles/playerCar';
 
 const SKY = `${import.meta.env.BASE_URL}ui/garage-sky.jpg`;
+/** The backdrop's picture: loading from the boot on (loadGarageSky: the loading screen waits for it), or as built. */
+let sky: THREE.Texture | null = null;
+
+/**
+ * The backdrop's picture loaded (its texture kept for the garage): as the game opens, under the loading screen - on
+ * a slow line, left to the garage's building, the garage showed for seconds with no sky. Failed: on without it.
+ */
+export function loadGarageSky(): Promise<void> {
+  return new Promise((done) => {
+    sky = new THREE.TextureLoader().load(SKY, () => done(), undefined, () => done());
+    sky.colorSpace = THREE.SRGBColorSpace;
+  });
+}
 
 // The camera: round the car (at the origin, its nose toward the camera's left), swinging slowly either side of a
 // front three-quarter view, close.
@@ -343,8 +356,8 @@ export class GarageScene {
 
   /** The sky and the city, far off, out of focus: a picture on a curved strip round the car. */
   private backdrop(): void {
-    const tex = new THREE.TextureLoader().load(SKY);
-    tex.colorSpace = THREE.SRGBColorSpace;
+    if (!sky) void loadGarageSky(); // (not loaded at the boot: as it comes)
+    const tex = sky!;
     const arc = (105 * Math.PI) / 180; // (the camera sees 44 degrees across, swinging 20 either way)
     const width = FAR * arc;
     const height = width / (21 / 9);
