@@ -6,6 +6,8 @@ import { loadCarModels } from './vehicles/carModels';
 import { applyUiZoom } from './ui/uiScale';
 import { loadSettings, setLang } from './ui/i18n';
 import { LoadingScreen, shareDone } from './ui/loading';
+import { loadGarageSky } from './ui/garageScene';
+import { prefetchSoundBundles } from './audio/sound';
 
 /**
  * The game started under the loading screen (index.html's, there from the first paint): the physics and the car
@@ -21,8 +23,8 @@ async function boot() {
   const loading = new LoadingScreen();
   loading.set('loading.physics', 0);
   await loading.hold();
-  let physicsIn = 0, carsIn = 0;
-  const fetched = () => 0.65 * (0.25 * physicsIn + 0.75 * carsIn); // (the downloads: the first 65 %)
+  let physicsIn = 0, carsIn = 0, skyIn = 0;
+  const fetched = () => 0.65 * (0.2 * physicsIn + 0.75 * carsIn + 0.05 * skyIn); // (the downloads: the first 65 %)
   const [physics] = await Promise.all([
     PhysicsWorld.create().then((p) => {
       physicsIn = 1;
@@ -31,6 +33,11 @@ async function boot() {
     }),
     loadCarModels((done, total) => {
       carsIn = shareDone(done, total);
+      loading.set('loading.cars', fetched());
+    }),
+    // (the garage's backdrop: there as the loading screen goes - on a slow line it came seconds after)
+    loadGarageSky().then(() => {
+      skyIn = 1;
       loading.set('loading.cars', fetched());
     }),
   ]);
@@ -44,6 +51,10 @@ async function boot() {
   await loading.next('loading.shaders', 0.85);
   await game.warmUp((share) => loading.set('loading.shaders', 0.85 + 0.13 * share)); // (the bar moving as they are made)
   game.start();
+  // The sound's bundles and the first song downloading now, under the garage (a download needs no click; the sound
+  // and the music wait for one only to play) - not from the first click, when on a slow line they came 20 s on.
+  prefetchSoundBundles();
+  void game.music.prepare();
   await loading.finish('loading.ready');
 }
 

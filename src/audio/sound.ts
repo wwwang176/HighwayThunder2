@@ -1,6 +1,7 @@
-import { ENGINE_SETS, popId, SKID_CLIP, WIND_COUNT, WIND_LOOP, windId, type EngineKind } from './engineCatalog';
+import { ENGINE_BUNDLE_URL, ENGINE_SETS, popId, SKID_CLIP, WIND_COUNT, WIND_LOOP, windId, type EngineKind } from './engineCatalog';
 import { EFFECTS_BUNDLE_URL, loadEngineBank, loadSoundBank } from './engineBank';
-import { loadCrashBank, type CrashClip } from './crashBank';
+import { CRASH_BUNDLE_URL, loadCrashBank, type CrashClip } from './crashBank';
+import { fetchBundle } from './bundleFetch';
 import { EngineVoice } from './engineVoice';
 import { OtherEngines, type EngineSource } from './otherEngines';
 import { PlacedLoops, type LoopSource } from './placedLoops';
@@ -9,6 +10,14 @@ import { windLevel, windRate, WINDS } from './wind';
 import { azimuthDeg, equalPowerMono, inverseDistanceGain, type EarPose } from './pan';
 // (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
 import limiterUrl from './limiter.worklet.js?url&no-inline';
+
+/**
+ * The sound's bundles downloading now, before the first click wakes the sound (a download needs none): on a slow
+ * line, begun at that click, the engines' came in 20 s on - a race started straight away silent. Decoded at the wake.
+ */
+export function prefetchSoundBundles(): void {
+  for (const url of [ENGINE_BUNDLE_URL, EFFECTS_BUNDLE_URL, CRASH_BUNDLE_URL]) void fetchBundle(url);
+}
 
 /** The player's engine, this loud (its clips are at -16 LUFS each); the others' (each by its distance on top). */
 const ENGINE_VOLUME = 0.8;

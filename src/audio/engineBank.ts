@@ -1,4 +1,5 @@
 import { BUNDLE_RATE, unpackBundle } from './bundleCodec';
+import { fetchBundle } from './bundleFetch';
 import { ENGINE_BUNDLE_URL } from './engineCatalog';
 
 /** The tyre squeal's, the nitro's and the cues' bundle (built in the private audio repo; git-ignored: docs/sound.md). */
@@ -19,9 +20,9 @@ export function loadEngineBank(ctx: BaseAudioContext): Promise<Map<string, Audio
  */
 export async function loadSoundBank(ctx: BaseAudioContext, url: string): Promise<Map<string, AudioBuffer> | null> {
   try {
-    const res = await fetch(import.meta.env.BASE_URL + url);
-    if (!res.ok) return null;
-    const clips = unpackBundle(new Uint8Array(await res.arrayBuffer()));
+    const bytes = await fetchBundle(url); // (fetched early, as the game opened: prefetchSoundBundles)
+    if (!bytes) return null;
+    const clips = unpackBundle(new Uint8Array(bytes));
     if (!clips) return null;
     const bank = new Map<string, AudioBuffer>();
     await Promise.all(clips.map(async ({ entry, data }) => {
