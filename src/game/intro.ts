@@ -244,25 +244,27 @@ const LAST_SHOT = 2.0;
 const COUNTDOWN_INTO = 0.5;
 
 /**
- * A blip: up to this share of the redline, held this long, then let go - the rpm winding back down to the idle as
- * the car's own do off the throttle (ENGINE_FALL_RATE), on through the shots' cuts until it is there.
+ * A blip: the throttle down some way (its pedal, 0..1: the revs up that share of the way from the idle to BLIP_TOP
+ * of the redline), held this long, then let go - the rpm winding back down to the idle as the car's own do off the
+ * throttle (ENGINE_FALL_RATE), on through the shots' cuts until it is there. Each its own pedal, BLIP_PEDAL (the
+ * player's, BLIP_PEDAL_PLAYER: its exhaust in the shot, a proper pop).
  */
-const BLIP_RPM = 0.8;
+const BLIP_TOP = 0.9;
 const BLIP_HOLD = 0.22;
+const BLIP_PEDAL: readonly [number, number] = [0.35, 1];
+const BLIP_PEDAL_PLAYER: readonly [number, number] = [0.6, 1];
 /**
  * The rivals' blips: each its own, this long (s) before the player's to after it (none still going by in a bend's
- * shot, all over before the intro is), at least BLIP_APART s from any other's; each up to its own share of its
- * redline, BLIP_RPM ± BLIP_RPM_VARY.
+ * shot, all over before the intro is), at least BLIP_APART s from any other's.
  */
 const BLIP_RIVALS: readonly [number, number] = [-1.0, 1.8];
 const BLIP_APART = 0.25;
-const BLIP_RPM_VARY = 0.06;
 
-/** A car's blip: when (the intro's time, s), up to what share of its redline. */
+/** A car's blip: when (the intro's time, s), how far down its throttle (0..1). */
 interface Blip {
   car: PlayerCar;
   at: number;
-  share: number;
+  pedal: number;
 }
 
 /** What the intro sees of the race: the player's car (its spot the grid's origin), the rivals', the chase camera's set-up. */
@@ -376,19 +378,19 @@ export class Intro {
     let start = 0, calm = 0; // (calm: past the last bend's shot - the cars drawn going by in it)
     for (const s of this.shots) {
       if (s.pass) calm = start + s.seconds;
-      if (s.blip !== undefined) this.blips.push({ car: this.scene.player, at: start + s.blip, share: BLIP_RPM });
+      if (s.blip !== undefined) this.blips.push({ car: this.scene.player, at: start + s.blip, pedal: within(BLIP_PEDAL_PLAYER) });
       start += s.seconds;
     }
     for (const mine of this.blips.slice()) {
       for (const car of this.scene.rivals) {
-        const share = BLIP_RPM + BLIP_RPM_VARY * (2 * Math.random() - 1);
+        const pedal = within(BLIP_PEDAL);
         const lo = Math.max(calm + 0.2, mine.at + BLIP_RIVALS[0]);
-        const hi = Math.min(this.seconds - 0.1 - this.blipLength(car, share), mine.at + BLIP_RIVALS[1]);
+        const hi = Math.min(this.seconds - 0.1 - this.blipLength(car, pedal), mine.at + BLIP_RIVALS[1]);
         if (hi < lo) continue;
         // (a few tries for a time clear of the others' - else the last)
         let at = within([lo, hi]);
         for (let k = 0; k < 8 && this.blips.some((b) => Math.abs(b.at - at) < BLIP_APART); k++) at = within([lo, hi]);
-        this.blips.push({ car, at, share });
+        this.blips.push({ car, at, pedal });
       }
     }
   }
@@ -446,7 +448,7 @@ export class Intro {
       for (const r of this.scene.rivals) r.showRev = null;
       for (const b of this.blips) {
         const t = this.elapsed - b.at;
-        if (t >= 0 && t < this.blipLength(b.car, b.share)) b.car.showRev = this.rev(b, t);
+        if (t >= 0 && t < this.blipLength(b.car, b.pedal)) b.car.showRev = this.rev(b, t);
       }
     }
     if (done) this.end();
@@ -593,15 +595,21 @@ export class Intro {
   }
 
   /** The blip `t` s in: the rpm up fast and the throttle held, then let go and the rpm winding down (as driving). */
-  private rev({ car, share }: Blip, t: number): { rpm: number; throttle: number } {
-    const { idleRpm: idle, redline } = car.params, top = redline * share;
-    if (t < BLIP_HOLD) return { rpm: idle + (top - idle) * Math.min(1, t / 0.15), throttle: 1 };
+  private rev({ car, pedal }: Blip, t: number): { rpm: number; throttle: number } {
+    const idle = car.params.idleRpm, top = this.blipTop(car, pedal);
+    if (t < BLIP_HOLD) return { rpm: idle + (top - idle) * Math.min(1, t / 0.15), throttle: pedal };
     return { rpm: Math.max(idle, top - ENGINE_FALL_RATE * (t - BLIP_HOLD)), throttle: 0 };
   }
 
+  /** The revs a car's blip goes up to, its throttle `pedal` down (rpm). */
+  private blipTop(car: PlayerCar, pedal: number): number {
+    const idle = car.params.idleRpm;
+    return idle + pedal * Math.max(0, car.params.redline * BLIP_TOP - idle);
+  }
+
   /** How long a car's blip lasts (s): held, then back down to its idle. */
-  private blipLength(car: PlayerCar, share: number): number {
-    return BLIP_HOLD + Math.max(0, car.params.redline * share - car.params.idleRpm) / ENGINE_FALL_RATE;
+  private blipLength(car: PlayerCar, pedal: number): number {
+    return BLIP_HOLD + (this.blipTop(car, pedal) - car.params.idleRpm) / ENGINE_FALL_RATE;
   }
 
   private world([x, y, z]: number[]): THREE.Vector3 {
