@@ -3,6 +3,7 @@ import { LANE_WIDTH } from '../config';
 import type { CameraParams } from '../render/cameraRig';
 import type { Centerline } from '../road/centerline';
 import { roadEdges } from '../road/mountain';
+import { ENGINE_FALL_RATE } from '../vehicles/handling';
 import type { PlayerCar } from '../vehicles/playerCar';
 
 /** The race's intro shot lists (one picked at random each race, Game.startRace). */
@@ -241,10 +242,12 @@ function pullBack(from: Pose, to: Pose, first: number): Shot[] {
 const LAST_SHOT = 2.0;
 const COUNTDOWN_INTO = 0.5;
 
-/** A blip: up to this share of the redline, held this long, then let go (the rpm falls back over BLIP_FALL s). */
+/**
+ * A blip: up to this share of the redline, held this long, then let go - the rpm winding back down to the idle as
+ * the car's own do off the throttle (ENGINE_FALL_RATE), on through the shots' cuts until it is there.
+ */
 const BLIP_RPM = 0.8;
 const BLIP_HOLD = 0.22;
-const BLIP_FALL = 0.7;
 
 /** What the intro sees of the race: the player's car (its spot the grid's origin), the rivals', the chase camera's set-up. */
 export interface IntroScene {
@@ -269,6 +272,7 @@ export class Intro {
   private shot = 0;
   private t = 0;
   private blipAt: number | null = null; // the blip's time so far (s), while it lasts
+  private blippedIn = -1; // the shot whose blip it is (each shot's blipped once)
   private readonly idle: number;
   private readonly redline: number;
   /** Each rival's place (grid coordinates); its arrival (way back, time); the intro's time so far. */
@@ -376,13 +380,17 @@ export class Intro {
     while (this.shot < this.shots.length && this.t >= this.shots[this.shot].seconds) {
       this.t -= this.shots[this.shot].seconds;
       this.shot++;
-      this.blipAt = null;
     }
     const done = this.shot >= this.shots.length;
     const s = this.shots[Math.min(this.shot, this.shots.length - 1)];
     const car = this.scene.player;
-    if (!done && s.blip !== undefined && this.t >= s.blip && this.blipAt === null) this.blipAt = 0;
-    else if (this.blipAt !== null) this.blipAt += dt;
+    if (!done && s.blip !== undefined && this.t >= s.blip && this.blippedIn !== this.shot) {
+      this.blipAt = 0;
+      this.blippedIn = this.shot;
+    } else if (this.blipAt !== null) {
+      this.blipAt += dt;
+      if (this.blipAt >= this.blipLength()) this.blipAt = null; // (back at the idle)
+    }
     // The cars through a bend (the player's among them), or back on the grid at the cut.
     const passing = !done && !!s.pass;
     this.passPuffs = [];
@@ -548,12 +556,16 @@ export class Intro {
     this.passPuffs = [];
   }
 
-  /** The blip `t` s in: the rpm up fast and the throttle held, then let go and the rpm falling back. */
+  /** The blip `t` s in: the rpm up fast and the throttle held, then let go and the rpm winding down (as driving). */
   private rev(t: number): { rpm: number; throttle: number } {
-    const top = this.idle + (this.redline * BLIP_RPM - this.idle);
+    const top = this.redline * BLIP_RPM;
     if (t < BLIP_HOLD) return { rpm: this.idle + (top - this.idle) * Math.min(1, t / 0.15), throttle: 1 };
-    const fall = Math.min(1, (t - BLIP_HOLD) / BLIP_FALL);
-    return { rpm: top + (this.idle - top) * easeOut(fall), throttle: 0 };
+    return { rpm: Math.max(this.idle, top - ENGINE_FALL_RATE * (t - BLIP_HOLD)), throttle: 0 };
+  }
+
+  /** How long a blip lasts (s): held, then back down to the idle. */
+  private blipLength(): number {
+    return BLIP_HOLD + Math.max(0, this.redline * BLIP_RPM - this.idle) / ENGINE_FALL_RATE;
   }
 
   private world([x, y, z]: number[]): THREE.Vector3 {
