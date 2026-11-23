@@ -18,7 +18,7 @@ import { PlayerCar } from '../vehicles/playerCar';
 import { crossFraction } from '../vehicles/outline';
 import { Blocker, clearResetSpot } from './reset';
 import { trackerFrom } from '../ai/netTracker';
-import type { CarParams } from '../vehicles/handling';
+import { replaceParams, type CarParams } from '../vehicles/handling';
 import { randomPerfTuning, tuned, type Tuning } from '../vehicles/tuning';
 import { TUNE_CAL } from '../vehicles/tuneCalibration';
 
@@ -421,7 +421,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
         r.tuning = randomPerfTuning();
         r.base = tuned(r.spec.params, r.tuning, TUNE_CAL[r.spec.id]);
         if (this.setup) r.base = this.setup.params(r.base, r.spec);
-        Object.assign(r.car.params, r.base);
+        replaceParams(r.car.params, r.base); // (assigned over, the last race's knobs not drawn this time stayed)
         if (this.setup) r.car.applyMass();
         this.layLine(r); // (its line on its grip as tuned)
       }
