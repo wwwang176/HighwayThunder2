@@ -524,6 +524,17 @@ export class MountainDriver implements RivalDriver {
     this.slid = false;
     this.recover = 0;
     this.mode = 'line';
+    // (the rest of a drift as it was built: put back mid-drift, its next steered by the last bend's)
+    this.settling = false;
+    this.pullLeft = 0;
+    this.pullSince = 99;
+    this.pullHeld = 0;
+    this.entryD = 0;
+    this.entryPin = null;
+    this.alignTo = null;
+    this.lastSteer = 0;
+    this.courseF = 0;
+    this.courseA = 0;
   }
 
   dispose(): void {}

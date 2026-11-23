@@ -1,4 +1,5 @@
 import { QUALITY_LEVELS, qualityAvailable, readQuality, saveQuality } from '../render/quality';
+import { store } from '../game/storage';
 import { getLang, saveSettings, setLang, t, type Lang } from './i18n';
 import { loadVolumes, saveVolumes, tenths, type Volumes } from '../audio/volumes';
 
@@ -23,7 +24,7 @@ export class SettingsPopup {
   /** The quality picked (render/quality's pixel ratio; OK takes it), and the row the keys are on (0 language, 1 quality). */
   private pendingQuality = readQuality();
   /** The volumes picked (heard at once; OK keeps them, cancel puts the saved ones back). */
-  private pendingVolumes: Volumes = loadVolumes(localStorage);
+  private pendingVolumes: Volumes = loadVolumes(store);
   /** The row the keys are on: 0 language, 1 quality, 2 music, 3 sound. */
   private row = 0;
   /** The quality taken (OK): the game draws at it. */
@@ -49,12 +50,17 @@ export class SettingsPopup {
     return this.el.classList.contains('open');
   }
 
+  /** The volumes heard now: open, the ones picked in it (not yet kept); else the saved ones. */
+  get heardVolumes(): Volumes {
+    return this.isOpen ? { ...this.pendingVolumes, muted: loadVolumes(store).muted } : loadVolumes(store);
+  }
+
   /** Open, in the accent of the screen under it (`over`: the garage's car's, or the race's). */
   open(over: HTMLElement): void {
     this.el.style.setProperty('--accent', getComputedStyle(over).getPropertyValue('--accent').trim());
     this.pendingLang = getLang();
     this.pendingQuality = readQuality();
-    this.pendingVolumes = loadVolumes(localStorage);
+    this.pendingVolumes = loadVolumes(store);
     this.row = 0;
     this.draw();
     this.el.classList.add('open');
@@ -64,7 +70,7 @@ export class SettingsPopup {
   /** Cancel (Esc, its button, a click on the veil): nothing of it kept (the volumes heard as they were). */
   close(): void {
     this.el.classList.remove('open');
-    this.onVolumes(loadVolumes(localStorage));
+    this.onVolumes(loadVolumes(store));
   }
 
   /** ↑ ↓: the keys onto the other row. */
@@ -95,9 +101,9 @@ export class SettingsPopup {
 
   /** OK (or Enter): the settings taken - the game into the language picked, and kept for the next visit. */
   confirm(): void {
-    saveVolumes(localStorage, { ...this.pendingVolumes, muted: loadVolumes(localStorage).muted }); // (M's mute as it is)
+    saveVolumes(store, { ...this.pendingVolumes, muted: loadVolumes(store).muted }); // (M's mute as it is)
     this.close();
-    saveSettings(localStorage, { lang: this.pendingLang });
+    saveSettings(store, { lang: this.pendingLang });
     if (this.pendingLang !== getLang()) setLang(this.pendingLang);
     if (this.pendingQuality !== readQuality()) {
       saveQuality(this.pendingQuality);
@@ -130,7 +136,7 @@ export class SettingsPopup {
   /** A volume picked: heard at once, the pop-up redrawn. */
   private setVolume(k: 'music' | 'sfx', v: number): void {
     this.pendingVolumes = { ...this.pendingVolumes, [k]: tenths(v) };
-    this.onVolumes({ ...this.pendingVolumes, muted: loadVolumes(localStorage).muted });
+    this.onVolumes({ ...this.pendingVolumes, muted: loadVolumes(store).muted });
     this.draw();
   }
 

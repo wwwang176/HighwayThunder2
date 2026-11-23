@@ -5,7 +5,7 @@ import { CARS } from '../src/vehicles/cars';
 import type { CarParams } from '../src/vehicles/handling';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { mountainAi, mountainSetup, mountainSetupOf } from '../src/vehicles/mountainSetup';
-import type { AccelTable } from '../src/ai/mountainLine';
+import type { AccelTable } from '../src/ai/planner';
 import { openGround } from './openGround';
 import { mulberry32 } from '../src/ai/rng';
 import { randomPerfTuning, tuned } from '../src/vehicles/tuning';

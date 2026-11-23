@@ -26,10 +26,10 @@ export interface IntroBag {
 /**
  * The next race's intro: from a shuffled round of all of them, a new round once one is used up (its first not
  * the one just shown) - every one seen once in each round, none twice in a row. A bag with something
- * unknown in it (read back from an older game) starts a fresh round.
+ * unknown in it (read back from an older game, or not a list at all) starts a fresh round.
  */
 export function nextIntro(bag: IntroBag, rng: () => number = Math.random, kinds: IntroKind[] = INTRO_KINDS): { kind: IntroKind; bag: IntroBag } {
-  let left = bag.left.every((k) => kinds.includes(k)) ? [...bag.left] : [];
+  let left = Array.isArray(bag.left) && bag.left.every((k) => kinds.includes(k)) ? [...bag.left] : [];
   if (left.length === 0) {
     left = [...kinds];
     for (let i = left.length - 1; i > 0; i--) {

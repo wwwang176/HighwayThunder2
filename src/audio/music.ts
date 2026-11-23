@@ -150,7 +150,8 @@ export class Music {
       el.preload = 'auto';
       el.volume = 0;
       // (each element's events counted only while it's the one playing; the one ahead failing: fetched afresh then)
-      el.addEventListener('ended', () => el === this.el && this.next());
+      // (ended mid-switch: the switch brings the next one in - both did, and a song was skipped)
+      el.addEventListener('ended', () => el === this.el && !this.fade.switching && this.next());
       el.addEventListener('playing', () => {
         if (el !== this.el) return;
         this.failed = 0;
@@ -243,6 +244,7 @@ export class Music {
   /** A change of scene: SCENE_SWITCH (out, a moment's quiet, the next in). */
   change(): void {
     if (!this.started || this.at < 0 || this.fade.switching) return; // (none yet - start() brings the first in - or changing already)
+    this.failed = 0; // (every song failed once - a line down - given up on: tried again with each new scene)
     startSwitch(this.fade, SCENE_SWITCH, this.el.paused);
   }
 

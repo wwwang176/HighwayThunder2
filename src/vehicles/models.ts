@@ -372,6 +372,7 @@ export function mergeStillParts(model: VehicleModel): void {
     mesh.castShadow = first.castShadow;
     mesh.receiveShadow = first.receiveShadow;
     mesh.renderOrder = first.renderOrder;
+    mesh.userData.ownGeometry = true; // (this car's alone - not its file's, shared: freed with the car)
     root.add(mesh);
     for (const m of set) m.removeFromParent();
     const lit = model.lights.brake;

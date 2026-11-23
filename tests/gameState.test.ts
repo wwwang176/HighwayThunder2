@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { GameFlow, formatTime, picksCars } from '../src/game/gameState';
-import { BEST_TIME_KEY, ROAD_LENGTH } from '../src/config';
-
-function memStorage(init: Record<string, string> = {}) {
-  const m = new Map(Object.entries(init));
-  return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), m };
-}
+import { ROAD_LENGTH } from '../src/config';
 
 function runTo(g: GameFlow, seconds: number, s = 0) {
   const n = Math.round(seconds / 0.01);
@@ -20,7 +15,7 @@ function startRace(g: GameFlow) {
 
 describe('GameFlow', () => {
   it('a race starts with its intro: no countdown, no race time, till the intro hands over', () => {
-    const g = new GameFlow(memStorage());
+    const g = new GameFlow();
     g.start();
     expect(g.phase).toBe('intro');
     runTo(g, 10);
@@ -35,7 +30,7 @@ describe('GameFlow', () => {
   });
 
   it('starts at title, countdown does not accumulate race time', () => {
-    const g = new GameFlow(memStorage());
+    const g = new GameFlow();
     expect(g.phase).toBe('title');
     startRace(g);
     expect(g.phase).toBe('countdown');
@@ -48,30 +43,17 @@ describe('GameFlow', () => {
     expect(g.raceTime).toBeLessThan(1);
   });
 
-  it('finishes at the end of the road and stores best time only when faster', () => {
-    const st = memStorage({ [BEST_TIME_KEY]: '100' });
-    const g = new GameFlow(st);
-    expect(g.best).toBe(100);
+  it('finishes at the end of the road, its time where in the step it crossed', () => {
+    const g = new GameFlow();
     startRace(g);
     runTo(g, 3.05);
     runTo(g, 50, ROAD_LENGTH / 2);
     g.update(0.01, ROAD_LENGTH);
     expect(g.phase).toBe('finished');
-    expect(g.finishTime).not.toBeNull();
-    expect(g.isBest).toBe(true);
-    expect(Number(st.m.get(BEST_TIME_KEY))).toBeCloseTo(g.finishTime!, 5);
-
-    const g2 = new GameFlow(st);
-    startRace(g2);
-    runTo(g2, 3.05);
-    runTo(g2, 80, ROAD_LENGTH / 2);
-    g2.update(0.01, ROAD_LENGTH + 1);
-    expect(g2.isBest).toBe(false);
-    expect(Number(st.m.get(BEST_TIME_KEY))).toBeCloseTo(g.finishTime!, 5);
+    expect(g.finishTime).toBeCloseTo(50.05, 1);
   });
-
   it('after finish, updates, pause and start do not change finish time', () => {
-    const g = new GameFlow(memStorage());
+    const g = new GameFlow();
     startRace(g);
     runTo(g, 3.05);
     g.update(0.01, ROAD_LENGTH);
@@ -84,7 +66,7 @@ describe('GameFlow', () => {
   });
 
   it('pause stops the clock', () => {
-    const g = new GameFlow(memStorage());
+    const g = new GameFlow();
     startRace(g);
     runTo(g, 4);
     g.togglePause();
@@ -96,11 +78,13 @@ describe('GameFlow', () => {
     expect(g.phase).toBe('racing');
   });
 
-  it('reset only after GO and with 3s cooldown', () => {
-    const g = new GameFlow(memStorage());
+  it('reset only 3 s after GO and with 3s cooldown', () => {
+    const g = new GameFlow();
     startRace(g);
     expect(g.canReset()).toBe(false);
     runTo(g, 3.05);
+    expect(g.canReset()).toBe(false); // (not at the green: a standstill put back at RESET_SPEED)
+    runTo(g, 3);
     expect(g.canReset()).toBe(true);
     g.markReset();
     expect(g.canReset()).toBe(false);
@@ -111,7 +95,7 @@ describe('GameFlow', () => {
   });
 
   it('keeps the race top speed: only while racing, from zero each race', () => {
-    const g = new GameFlow(memStorage());
+    const g = new GameFlow();
     startRace(g);
     g.noteSpeed(120); // (the countdown: not yet)
     expect(g.topSpeed).toBe(0);

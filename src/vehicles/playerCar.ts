@@ -781,6 +781,10 @@ export class PlayerCar {
     for (const c of this.colliders) physics.unregister(c);
     physics.world.removeRigidBody(this.body); // its colliders go with it
     this.flames?.dispose();
+    // What is its own on the GPU (not its file's shared parts): its lamps' and pipes' merged meshes, its headlights'
+    // shadow maps (three frees them only so).
+    this.mesh.traverse((o) => (o as THREE.Mesh).isMesh && o.userData.ownGeometry && (o as THREE.Mesh).geometry.dispose());
+    for (const hl of this.headlights) hl.dispose();
     this.mesh.removeFromParent();
   }
 
@@ -891,6 +895,10 @@ export class PlayerCar {
     this.backfire.reset();
     this.toe = null;
     this.gearbox.reset();
+    // (the revs from the idle: kept, a race restarted at speed wound down from them under the new intro)
+    this.rpm = this.baseRpm = p.idleRpm;
+    this.sinceBite = Infinity;
+    this.offThrottle = false;
     this.driveMode = 'D';
     this.discTemp.fill(BRAKE_HEAT.ambient); // (put back on the road: its discs cold)
     for (const w of this.wheels) {
