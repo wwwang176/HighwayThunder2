@@ -5,7 +5,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { type Driver, speedPedals } from '../src/ai/driver';
 import { trackSteer } from '../src/ai/netTracker';
 import { judgeContacts, ownLane, TrainingSim } from '../src/ai/trainingSim';
-import { GRASS_GRIP, KMH, LANE_COUNT, PHYSICS_DT } from '../src/config';
+import { GRASS_GRIP, KMH, LANE_COUNT, MEDIAN_FAR_X, MEDIAN_NEAR_X, PHYSICS_DT } from '../src/config';
 import { FITNESS, isOffRoad } from '../src/ai/fitness';
 import { laneAt, laneCenter } from '../src/road/coords';
 import { OUR_FRAME } from '../src/road/frame';
@@ -98,7 +98,7 @@ describe('TrainingSim', () => {
   it('ghosts have the same grass grip as the player car in the game', () => {
     const sim = new TrainingSim([constant(0, 0.5)], 1, { speedCap: 40 });
     const car = sim.ghosts[0].car;
-    expect(car.surfaceGrip(-15)).toBe(GRASS_GRIP);
+    expect(car.surfaceGrip((MEDIAN_NEAR_X + MEDIAN_FAR_X) / 2)).toBe(GRASS_GRIP); // (the median's strip)
     expect(car.surfaceGrip(0)).toBe(1);
     sim.dispose();
   });
