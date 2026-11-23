@@ -2,7 +2,6 @@ import { Game } from './game/game';
 import { store } from './game/storage';
 import { loadSelection } from './game/carSelection';
 import { PhysicsWorld } from './physics/physicsWorld';
-import { DRIVER_TUNING } from './ai/plannerDriver';
 import { loadCarModels } from './vehicles/carModels';
 import { applyUiZoom } from './ui/uiScale';
 import { loadSettings, setLang } from './ui/i18n';
@@ -16,9 +15,6 @@ import { prefetchSoundBundles } from './audio/sound';
  * page - then the screen faded off the garage's title.
  */
 async function boot() {
-  // The AI plans by direction of travel, and across the road follows those plans plainly (the debug panel's switch;
-  // off for training and benchmarks).
-  DRIVER_TUNING.coursePlanner = true;
   applyUiZoom(document.getElementById('ui')!);
   setLang(loadSettings(store, navigator.language).lang); // (the loading screen's words in it too)
   const loading = new LoadingScreen();

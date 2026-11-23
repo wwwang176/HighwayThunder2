@@ -7,7 +7,8 @@ import { PlayerCar } from '../src/vehicles/playerCar';
 import { CARS } from '../src/vehicles/cars';
 import { selfStateOf } from '../src/ai/driver';
 import { baseSteer } from '../src/ai/netTracker';
-import { PLAN_STATS, planAt } from '../src/ai/planner';
+import { planAt } from '../src/ai/planner';
+import { COURSE_STATS } from '../src/ai/coursePlanner';
 import { planPedals } from '../src/ai/plannerDriver';
 import { DRIVER, makeDriver, planStats } from './drivers';
 
@@ -69,7 +70,7 @@ it('recovery', async () => {
         const start = car.yaw;
         const d0 = car.d;
         let braked = 0, planStop = 0, maxD = 0;
-        const fallback0 = PLAN_STATS.fallback;
+        const fallback0 = COURSE_STATS.fallback;
         let rotation = 0, overshoot = 0, awayAt = NaN, awaySince = NaN, touched = false;
         const way: number[][] = [], plans: { t: number; pts: number[][] }[] = [];
         let lastPlan: unknown = null;
@@ -116,7 +117,7 @@ it('recovery', async () => {
         turned += rotation * DEG;
         if (!Number.isNaN(awayAt)) away++;
         if (touched) rails++;
-        rows.push(`  ${String(side * deg).padStart(5)} deg: ${Number.isNaN(awayAt) ? 'NOT away' : `away ${awayAt.toFixed(1)} s`}, turned ${(rotation * DEG).toFixed(0)} deg, swung past ${(overshoot * DEG).toFixed(0)} deg, braked ${braked.toFixed(1)} s (emergency ${(driver.overrides * PHYSICS_DT).toFixed(1)} s), plan off the pedal ${planStop.toFixed(1)} s, no plan found ${PLAN_STATS.fallback - fallback0}x, |d| up to ${maxD.toFixed(1)} m${touched ? ', rail' : ''}`);
+        rows.push(`  ${String(side * deg).padStart(5)} deg: ${Number.isNaN(awayAt) ? 'NOT away' : `away ${awayAt.toFixed(1)} s`}, turned ${(rotation * DEG).toFixed(0)} deg, swung past ${(overshoot * DEG).toFixed(0)} deg, braked ${braked.toFixed(1)} s (emergency ${(driver.overrides * PHYSICS_DT).toFixed(1)} s), plan off the pedal ${planStop.toFixed(1)} s, no plan found ${COURSE_STATS.fallback - fallback0}x, |d| up to ${maxD.toFixed(1)} m${touched ? ', rail' : ''}`);
       }
     }
     lines.push(`${id}: away ${away}/${total}, turned ${(turned / total).toFixed(0)} deg a run on average, rails ${rails}`, ...rows);

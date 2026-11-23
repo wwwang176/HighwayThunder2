@@ -1,19 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { planAt, plan, Plan, PlanEgo, PreviousPlan } from '../src/ai/planner';
+import { coursePlan } from '../src/ai/coursePlanner';
+import { planAt, Plan, PlanEgo, PreviousPlan } from '../src/ai/planner';
 import { emergencyBrake, PlannerDriver, PlanSource } from '../src/ai/plannerDriver';
 import type { TrafficBox } from '../src/ai/sensors';
-import { KMH } from '../src/config';
 import { laneCenter } from '../src/road/coords';
 
 // The driver's decisions only; it driving the real car is checked in training/plannerDriverSim.train.ts.
 
 describe('planAt', () => {
-  it('interpolates between plan points', () => {
-    const p = plan({ s: 0, d: laneCenter(1), v: 20, speedCap: 300 * KMH }, []);
-    const a = planAt(p, p.points[1].t / 2);
-    expect(a.s).toBeGreaterThan(p.points[0].s);
-    expect(a.s).toBeLessThan(p.points[1].s);
-    expect(planAt(p, 99).s).toBe(p.points[p.points.length - 1].s);
+  it('interpolates between plan points, and moves sideways as the step it is in does', () => {
+    const p: Plan = { points: [{ t: 0, s: 0, d: 0, v: 20 }, { t: 0.25, s: 5, d: 0, v: 20 }, { t: 0.5, s: 10, d: 0.5, v: 20 }] };
+    const a = planAt(p, 0.375);
+    expect(a.s).toBeCloseTo(7.5, 9);
+    expect(a.d).toBeCloseTo(0.25, 9);
+    expect(a.dRate).toBeCloseTo(2, 9);
+    expect(planAt(p, 99).s).toBe(10);
+    expect(planAt(p, 99).dRate).toBe(0);
   });
 });
 
@@ -28,7 +30,7 @@ class LateSource implements PlanSource {
   }
   request(stamp: number, ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null): void {
     this.requests++;
-    this.queue.push({ due: this.steps + this.delaySteps, stamp, plan: plan(ego, traffic, previous) });
+    this.queue.push({ due: this.steps + this.delaySteps, stamp, plan: coursePlan(ego, traffic, previous) });
   }
   take() {
     this.steps++;

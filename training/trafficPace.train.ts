@@ -2,7 +2,7 @@ import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { KMH } from '../src/config';
 import { surfaceGrip } from '../src/road/coords';
-import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
+import { PlannerDriver } from '../src/ai/plannerDriver';
 import { trackerFrom } from '../src/ai/netTracker';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { CARS } from '../src/vehicles/cars';
@@ -22,7 +22,6 @@ const GRIP = Number(process.env.GRIP ?? 0.1);
 
 it('traffic pace', async () => {
   await RAPIER.init();
-  DRIVER_TUNING.coursePlanner = true; // (the game's rivals)
   const out: string[] = [];
   for (const id of CAR_IDS) {
     const spec = CARS[id];

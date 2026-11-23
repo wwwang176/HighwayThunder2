@@ -5,7 +5,7 @@ import { PlayerCar } from '../src/vehicles/playerCar';
 import { CARS } from '../src/vehicles/cars';
 import { KMH, PHYSICS_DT } from '../src/config';
 import { surfaceGrip } from '../src/road/coords';
-import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
+import { PlannerDriver } from '../src/ai/plannerDriver';
 import { trackerFrom } from '../src/ai/netTracker';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { openGround } from './openGround';
@@ -109,7 +109,6 @@ it('boost lean', async () => {
         }
         out.push(`boost ${b.join('/')} | full lock ${row.join(' | ')} || lane change ${lc.join(' | ')}`);
       } else {
-        DRIVER_TUNING.coursePlanner = true; // (the game's rivals)
         const leans: number[] = [], lats: number[] = [];
         let rockN = 0, revN = 0, minutes = 0, finishes = 0, resets = 0, wrecked = 0;
         for (const seed of SEEDS) {

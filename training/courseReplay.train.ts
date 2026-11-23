@@ -27,7 +27,7 @@ it('course replay', () => {
         Object.assign(COURSE, base);
         let ego = sn.ego;
         if (v === 'onPrev') {
-          // Planned from where the last plan had it now (as the lattice planner's reuse): on its line, its speed, its course.
+          // Planned from where the last plan had it now (as the planner's own reuse): on its line, its speed, its course.
           const at = planAt(sn.previous.plan, sn.previous.age);
           const k = Math.min(sn.previous.plan.points.length - 1, Math.round(sn.previous.age / 0.25));
           const psi = sn.previous.plan.points[k].psi ?? 0;
