@@ -206,7 +206,6 @@ function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'
         const net = netDrive(brain!, plan, age, self, car.params, pedals.throttle);
         steer = net.steer;
         pedals.throttle = net.throttle;
-        if (net.across) pedals.brake = 0;
       } else steer = baseSteer(plan, age, self, car.params);
       input = { steer, ...pedals };
     }
