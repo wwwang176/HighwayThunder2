@@ -229,6 +229,21 @@ export function limiterBounce(t: number): number {
   return -LIMITER_BOUNCE_RPM * (p < BOUNCE_DROP ? p / BOUNCE_DROP : 1 - (p - BOUNCE_DROP) / (1 - BOUNCE_DROP));
 }
 
+/**
+ * A downshift off the throttle (under `off`): heel and toe - the throttle blipped (`throttle`) for `hold` s as the
+ * clutch is in, the revs up from where they were over `rise` s, `over` of the redline past the lower gear's, then let
+ * go: winding down (ENGINE_FALL_RATE) onto the gear's. Heard and seen only (the gearbox's revs and drive as ever); the
+ * blip let go at those revs, the exhaust pops (Backfire: its throttle past BACKFIRE.from, the revs past BACKFIRE.rpm).
+ */
+export const HEEL_TOE = { off: 0.1, throttle: 0.7, rise: 0.07, hold: 0.12, over: 0.08 };
+
+/** The revs as heard `t` s into a heel-and-toe blip from `from` rpm up to `top`, the engine at `rpm` (never under it). */
+export function heelToeRevs(t: number, from: number, top: number, rpm: number): number {
+  const { rise, hold } = HEEL_TOE;
+  const blip = t < rise ? from + (top - from) * (t / rise) : t < hold ? top : top - ENGINE_FALL_RATE * (t - hold);
+  return Math.max(rpm, blip);
+}
+
 const TC_MAX_MULT = 2.0; // torque converter multiplication at stall
 const TC_STALL_RPM = 3000;
 

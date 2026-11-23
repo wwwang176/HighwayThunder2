@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, arcadeShare, arcadeEnterFrom, type ArcadeDrift, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, heelToeRevs, HEEL_TOE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, arcadeShare, arcadeEnterFrom, type ArcadeDrift, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -336,6 +336,17 @@ describe('the engine winding down', () => {
 
   it('never falls past the target', () => {
     expect(revsFalling(1000, 900, 1)).toBe(900);
+  });
+});
+
+describe('heel and toe (heelToeRevs)', () => {
+  it('up from where it was, held past the gear, wound down onto it', () => {
+    const { rise, hold } = HEEL_TOE;
+    expect(heelToeRevs(0, 3500, 5300, 4800)).toBe(4800); // (never under the engine's)
+    expect(heelToeRevs(rise / 2, 3500, 5300, 3000)).toBeCloseTo(4400);
+    expect(heelToeRevs(hold - 0.001, 3500, 5300, 4800)).toBe(5300);
+    expect(heelToeRevs(hold + 0.05, 3500, 5300, 4800)).toBeCloseTo(5300 - ENGINE_FALL_RATE * 0.05);
+    expect(heelToeRevs(hold + 1, 3500, 5300, 4800)).toBe(4800);
   });
 });
 

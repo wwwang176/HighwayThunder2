@@ -4,7 +4,7 @@ import { PHYSICS_DT } from '../config';
 import { laneCenter } from '../road/coords';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 import { EntityRef, PLAYER_GROUPS, PhysicsWorld, RIVAL_GROUPS } from '../physics/physicsWorld';
-import { arcadeEnterFrom, arcadeShare, arcadeTurn, CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
+import { arcadeEnterFrom, arcadeShare, arcadeTurn, CarParams, DriveInput, driveCommand, DriveMode, escPowerTrim, escTargetYawRate, escTorque, Gearbox, revsFalling, heelToeRevs, HEEL_TOE, rollInfluenceAt, shuntRevs, limiterBounce, LIMITER_SHARE, SHUNT_MIN_SPEED, SHUNT_OFF, SHUNT_ON, smoothSteer, aeroGripScale, pressureGripScale, steerAngle, tractionTrim, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin } from './handling';
 import { CarSpec, CarStyle, STREET_RACER } from './cars';
 import { Nitro, NITRO } from './nitro';
 import { outlineOf, reachAhead } from './outline';
@@ -196,6 +196,8 @@ export class PlayerCar {
   private baseRpm = 900;
   private sinceBite = Infinity;
   private offThrottle = false;
+  /** A heel-and-toe blip under way (a downshift off the throttle: HEEL_TOE): s into it, the revs from and up to. */
+  private toe: { t: number; from: number; top: number } | null = null;
   /** Launch control's share of the drive it lets through (CarParams.launchSlip): 1 while the rears are not over it. */
   private launchTrim = 1;
   /** Of the drive, what launch control lets through: launchTrim as much as it holds (the tail following the nose). */
@@ -543,7 +545,7 @@ export class PlayerCar {
 
     // Engine power is limited by how fast the driven wheels turn (wheelspin eats power).
     const rearOmega = (this.wheels[2].omega + this.wheels[3].omega) / 2;
-    const gear = this.gearbox.gear, wasShifting = this.gearbox.shifting;
+    const gear = this.gearbox.gear, wasShifting = this.gearbox.shifting, heard = this.heardRpm;
     this.gearbox.update(this.vLong, dt, p, rearOmega);
     // Displayed / audible rpm bounces off the limiter but never far past it; it winds down, not drops, as the
     // wheels slow (revsFalling) - but for a shift, whose own fall (the gearbox's) is the gearbox's speed.
@@ -559,6 +561,13 @@ export class PlayerCar {
       this.offThrottle = false;
     } else this.sinceBite += dt;
     this.rpm = this.baseRpm + shuntRevs(this.sinceBite, input.throttle);
+    // A downshift off the throttle: heel and toe - blipped from the revs heard up past the lower gear's, let go onto
+    // them (heard and seen: heardRpm, shownThrottle; its exhaust popping as it is let go).
+    if (this.gearbox.gear < gear && this.throttle < HEEL_TOE.off) {
+      this.toe = { t: 0, from: heard, top: Math.min(p.redline, revs + HEEL_TOE.over * p.redline) };
+    } else if (this.toe && (this.toe.t += dt) > HEEL_TOE.hold && heelToeRevs(this.toe.t, this.toe.from, this.toe.top, this.rpm) <= this.rpm) {
+      this.toe = null;
+    }
     // On the rev limiter: how long (the gauge's needle bounces by it, gaugeRpm).
     this.onLimiter = this.rpm >= p.redline * LIMITER_SHARE && this.throttle > 0.5 ? Math.max(0, this.onLimiter) + dt : -1;
     // Nitro: a harder push, a little past the limiter (on the throttle only).
@@ -800,18 +809,28 @@ export class PlayerCar {
     this.body.applyTorqueImpulse({ x: LOAD_AXIS.x * impulse, y: LOAD_AXIS.y * impulse, z: LOAD_AXIS.z * impulse }, true);
   }
 
-  /** The engine as heard and seen at the exhaust: its own, or a blip put on for show (`showRev`). */
+  /** The engine as heard and seen at the exhaust: its own (a heel-and-toe blip in it), or a blip put on for show (`showRev`). */
   get shownRpm(): number {
-    return this.showRev?.rpm ?? this.rpm;
+    return this.showRev?.rpm ?? this.heardRpm;
   }
 
-  /** The rpm on the gauge: the engine's, its needle bouncing on the rev limiter (limiterBounce). */
+  /** Its own revs as heard: the engine's, a heel-and-toe blip on them. */
+  private get heardRpm(): number {
+    return this.toe ? heelToeRevs(this.toe.t, this.toe.from, this.toe.top, this.rpm) : this.rpm;
+  }
+
+  /** The rpm on the gauge: the engine's (a heel-and-toe blip in it), its needle bouncing on the rev limiter (limiterBounce). */
   get gaugeRpm(): number {
-    return this.rpm + (this.onLimiter >= 0 ? limiterBounce(this.onLimiter) : 0);
+    return this.heardRpm + (this.onLimiter >= 0 ? limiterBounce(this.onLimiter) : 0);
+  }
+
+  /** A heel-and-toe blip's throttle on (HEEL_TOE.hold s of it). */
+  get blipping(): boolean {
+    return !!this.toe && this.toe.t < HEEL_TOE.hold;
   }
 
   get shownThrottle(): number {
-    return this.showRev?.throttle ?? this.throttle;
+    return this.showRev?.throttle ?? (this.blipping ? Math.max(HEEL_TOE.throttle, this.throttle) : this.throttle);
   }
 
   /**
@@ -870,6 +889,7 @@ export class PlayerCar {
     this.lastSlide = 0;
     this.driftHold = 0;
     this.backfire.reset();
+    this.toe = null;
     this.gearbox.reset();
     this.driveMode = 'D';
     this.discTemp.fill(BRAKE_HEAT.ambient); // (put back on the road: its discs cold)
