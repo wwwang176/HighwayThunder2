@@ -1,5 +1,6 @@
 import { PHYSICS_DT } from '../config';
-import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
+import { clamp01 } from '../math';
+import { CarParams, DEFAULT_CAR, DriveInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import type { Brain } from './brain';
 import { ACROSS_YAW, baseSteer, netDrive, trackerFrom } from './netTracker';
@@ -15,12 +16,8 @@ export const REPLAN_EVERY = 0.25;
 const ACCEL_WINDOW = 0.3;
 /** 1/s: how hard it pulls back to the plan's speed when off it. */
 const SPEED_GAIN = 1.5;
-/** m/s² the car loses with no pedal (drag, rolling); and what full brake gives, with no brake table (CarSpec.ai.brake). */
+/** m/s² the car loses with no pedal (drag, rolling). */
 const COAST_DECEL = 1;
-const FULL_BRAKE_DECEL = 11;
-/** What full brake gives at speed v (m/s): the car's table, FULL_BRAKE_DECEL with none. */
-const fullBrake = (v: number, table?: AccelTable | null) => (table ? maxBrake(v, table) : FULL_BRAKE_DECEL);
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
 /**
  * Pedals for the acceleration the plan wants now (read straight off it, so a
@@ -33,7 +30,7 @@ export function planPedals(p: Plan, age: number, v: number, table?: AccelTable, 
   const a = (planAt(p, age + ACCEL_WINDOW).v - now.v) / ACCEL_WINDOW + SPEED_GAIN * (now.v - v);
   if (a >= 0) return { throttle: clamp01(a / (0.95 * maxAccel(v, table))), brake: 0 }; // near flat out is flat out
   if (a > -COAST_DECEL) return { throttle: 0, brake: 0 };
-  return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / fullBrake(v, brakeTable)) };
+  return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / maxBrake(v, brakeTable)) };
 }
 /** The state the plans are made from, the car's as it is. */
 export function egoOf(self: SelfState, p: CarParams, accel: AccelTable, latAccel: AccelTable, brake: AccelTable | null): PlanEgo {
@@ -91,14 +88,6 @@ export const DRIVER_TUNING = {
    * time it got there and clipped it.
    */
   pathLag: 0.3,
-  /**
-   * A car the plans take it past is no reason to brake only while stopping for it straight on would take at most this
-   * share of the car's full brake (its table at its speed): past that, if the pass fails no brake can save it, so it
-   * brakes anyway. Infinity: the plans are believed whatever it would take.
-   * Not used (Infinity): most of those passes come off. Muscle car, 60 game-contact races (wrecked / resets / time):
-   * Infinity 15 / 3 / 92.5 s; 1: 10 / 1, 2.2 +- 0.5 s slower; 0.8: 5 / 1, 3.4 +- 0.4 s slower.
-   */
-  trustUpTo: Infinity,
   /** Steer with the car type's trained network (PlannerDriver.tracker) where it has one; off: the plain tracker. */
   netTracker: true,
 };
@@ -152,8 +141,9 @@ export function emergencyBrake(
     const room = gap - STOP_GAP;
     const overlap = Math.min(t.dMax, self.d + halfW) - Math.max(t.dMin, self.d - halfW);
     const needHere = room <= 0.1 ? Infinity : (closing * closing) / (2 * room);
-    const trusted = needHere <= DRIVER_TUNING.trustUpTo * fullBrake(self.vLong, brakeTable);
-    if (trusted && onPlan && overlap <= DRIVER_TUNING.pathOverlap) {
+    // (the plans believed whatever stopping straight on would take: braking anyway past a share of the full brake, the
+    // muscle car's 60 game-contact races were 2-3 s slower for 5-10 fewer wrecks - most of those passes come off)
+    if (onPlan && overlap <= DRIVER_TUNING.pathOverlap) {
       const t0 = Math.max(0, gap) / closing, t1 = (t.s - self.s) / closing;
       const sides = paths.map((p, i) => passSide(p, offsets[i], lags[i], halfW, t, t0, t1));
       if (sides[0] !== 0 && sides.every((x) => x === sides[0])) continue;
@@ -166,9 +156,9 @@ export function emergencyBrake(
       const overlap = vD > 0 ? t.dMax - (self.d - halfW) : self.d + halfW - t.dMin;
       if (closing * (overlap / Math.abs(vD)) < room) continue;
     }
-    need = Math.max(need, room <= 0.1 ? Infinity : (closing * closing) / (2 * room));
+    need = Math.max(need, needHere);
   }
-  return need < from ? 0 : Math.min(1, need / fullBrake(self.vLong, brakeTable));
+  return need < from ? 0 : Math.min(1, need / maxBrake(self.vLong, brakeTable));
 }
 
 /**
@@ -265,7 +255,7 @@ export class PlannerDriver implements Driver {
     this.staleUpTo = this.clock; // answers for the car before it was moved are no use
   }
 
-  drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
+  drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): DriveInput {
     this.clock += PHYSICS_DT;
     if (!this.plan || this.planAge >= REPLAN_EVERY) {
       const previous = this.plan && { plan: this.plan, age: this.planAge };

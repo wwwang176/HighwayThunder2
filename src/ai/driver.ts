@@ -1,4 +1,5 @@
-import type { CarParams, HandlingInput } from '../vehicles/handling';
+import { clamp01 } from '../math';
+import type { CarParams, DriveInput } from '../vehicles/handling';
 import type { PlayerCar } from '../vehicles/playerCar';
 import type { SelfState, TrafficBox } from './sensors';
 
@@ -12,7 +13,7 @@ const BRAKE_RAMP = 5;
 /** Something that drives an AI car: the planner with its network steering, the mountain driver. */
 export interface Driver {
   /** Driving input for one physics step. */
-  drive(self: SelfState, traffic: TrafficBox[], p?: CarParams): HandlingInput;
+  drive(self: SelfState, traffic: TrafficBox[], p?: CarParams): DriveInput;
   /** The car was put somewhere (start, reset, respawn) or the AI just took over at `d`. */
   reset(d: number): void;
 }
@@ -44,8 +45,6 @@ export function selfStateOf(car: PlayerCar, speedCap: number): SelfState {
     pitchRate: car.pitchRate,
   };
 }
-
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
 /**
  * Pedals that bring the car from `v` to `target` (m/s): full throttle `ramp` m/s under it, full brake `brakeRamp` m/s

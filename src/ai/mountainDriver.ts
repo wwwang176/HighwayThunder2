@@ -1,7 +1,7 @@
 import { PHYSICS_DT } from '../config';
 import type { Centerline } from '../road/centerline';
 import { MOUNTAIN, roadEdges } from '../road/mountain';
-import { type CarParams, DEFAULT_CAR, type HandlingInput, steerRange } from '../vehicles/handling';
+import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../vehicles/handling';
 import { type RivalDriver, speedPedals } from './driver';
 import { type LineCar, lineAt, type RaceLine, racingLine, speedProfile } from './mountainLine';
 import type { SelfState, TrafficBox } from './sensors';
@@ -212,7 +212,7 @@ export class MountainDriver implements RivalDriver {
    * (MountainPlannerDriver.withNet: out of a drift on full throttle, it takes the throttle down as it needs to); null:
    * kicking, drifting, catching - the drift network's.
    */
-  lastLine: HandlingInput | null = null;
+  lastLine: DriveInput | null = null;
   /** Where it steers for, across the road (m): the line's there plus the offset. */
   aimD = 0;
   /** The road's hairpins (hairpinRuns), the one it last pulled the handbrake into, and how long more it holds it (s). */
@@ -409,7 +409,7 @@ export class MountainDriver implements RivalDriver {
   /** Its course's turning (from its slide's change a step: noisy) smoothed over drift.arcLag s, for its forecast (rad/s). */
   private courseA = 0;
 
-  drive(self: SelfState, others: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
+  drive(self: SelfState, others: TrafficBox[], p: CarParams = DEFAULT_CAR): DriveInput {
     const input = this.driveRaw(self, others, p);
     const r = MOUNTAIN_DRIVER.drift.steerRate;
     if (r > 0) {
@@ -421,7 +421,7 @@ export class MountainDriver implements RivalDriver {
     return input;
   }
 
-  private driveRaw(self: SelfState, others: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
+  private driveRaw(self: SelfState, others: TrafficBox[], p: CarParams = DEFAULT_CAR): DriveInput {
     const road = this.road;
     const line = this.line;
     if (!road || !line) return { throttle: 0, brake: 1, steer: 0 };

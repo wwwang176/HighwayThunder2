@@ -103,9 +103,6 @@ export interface DriveInput {
   nitro?: boolean;
 }
 
-/** Kept for callers that only deal with pedals and steering. */
-export type HandlingInput = DriveInput;
-
 export type DriveMode = 'D' | 'R';
 
 const STOPPED = 0.5; // m/s

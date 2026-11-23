@@ -1,5 +1,5 @@
 import { PHYSICS_DT } from '../config';
-import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
+import { CarParams, DEFAULT_CAR, DriveInput } from '../vehicles/handling';
 import { followSteer, STANDING, tractionShare } from './courseFollow';
 import type { Driver } from './driver';
 import { coursePlan } from './coursePlanner';
@@ -33,7 +33,7 @@ export class CourseDriver implements Driver {
     this.earlier = [];
   }
 
-  drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
+  drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): DriveInput {
     this.clock += PHYSICS_DT;
     if (!this.plan || this.planAge >= REPLAN_EVERY) {
       const previous = this.plan && { plan: this.plan, age: this.planAge };

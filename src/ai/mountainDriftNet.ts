@@ -1,6 +1,7 @@
+import { clamp3 } from '../math';
 import { type Brain, createBrain, forward, weightCount } from './brain';
 import type { Rng } from './rng';
-import type { HandlingInput } from '../vehicles/handling';
+import type { DriveInput } from '../vehicles/handling';
 
 /**
  * The mountain road's drift network: round a hairpin, after the kick (MountainDriver.driftView), on top of the
@@ -33,14 +34,13 @@ export interface DriftView {
 export const DRIFT_NET_INPUTS = 14;
 export const DRIFT_NET_LAYERS = [DRIFT_NET_INPUTS, 10, 3];
 
-const clamp3 = (x: number) => (Number.isFinite(x) ? Math.max(-3, Math.min(3, x)) : 0);
 
 /**
  * Its inputs into `out` (DRIFT_NET_INPUTS long): what it sees, and the driver's own input this step - its wheel into
  * the bend (+), as all it sees: one network for both ways (not mirrored, it learned left-hand bends apart - its wheel in
  * 0.75 there, 0.97 in right-hand ones, and slid late into a quarter of the left-hand downhill hairpins).
  */
-export function driftNetInputs(view: DriftView, base: HandlingInput, out: Float32Array): Float32Array {
+export function driftNetInputs(view: DriftView, base: DriveInput, out: Float32Array): Float32Array {
   let k = 0;
   out[k++] = clamp3(view.miss / 3);
   out[k++] = clamp3(view.missRate / 5);
@@ -81,7 +81,7 @@ const OUT = new Float32Array(3);
  * The driver's input with the drift network's: its wheel added to (into the bend +: `dir` the bend's way, as its inputs),
  * its throttle moved (either way), its handbrake pulled or let go.
  */
-export function applyDriftNet(brain: Brain | null, inputs: Float32Array, base: HandlingInput, dir: number): HandlingInput {
+export function applyDriftNet(brain: Brain | null, inputs: Float32Array, base: DriveInput, dir: number): DriveInput {
   if (!brain) return base;
   const o = forward(brain, inputs, OUT);
   return {

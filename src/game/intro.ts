@@ -1,3 +1,4 @@
+import { easeOut } from '../math';
 import * as THREE from 'three';
 import { LANE_WIDTH } from '../config';
 import type { CameraParams } from '../render/cameraRig';
@@ -218,7 +219,6 @@ const CRUISE_GAP = 0.65;
 const DRIFT_REV = 0.72;
 const CRUISE_REV = 0.5;
 const UP = new THREE.Vector3(0, 1, 0);
-const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
 
 /**

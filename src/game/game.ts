@@ -35,7 +35,7 @@ import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
 import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { Hud } from '../ui/hud';
-import { HandlingInput, HEEL_TOE, replaceParams } from '../vehicles/handling';
+import { DriveInput, HEEL_TOE, replaceParams } from '../vehicles/handling';
 import { allTrafficModels, NpcVehicle } from '../vehicles/npcVehicle';
 import { BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
 import { NitroAi } from '../vehicles/nitro';
@@ -122,8 +122,8 @@ const RIVAL_AWAKE = 60;
 const TRAFFIC_PLAN_EVERY = 2;
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
-const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, hold: true };
-const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
+const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
+const ROLL_OUT: DriveInput = { throttle: 0, brake: 0.35, steer: 0 };
 /** Every lamp state a traffic vehicle shows (brake lights dim and on, indicators off and on): for prewarm. */
 const PREWARM_LAMPS: VehicleLights[] = [
   { left: [], right: [], brake: [new THREE.Mesh(undefined, BRAKE_DIM)], third: [] },
@@ -297,7 +297,7 @@ export class Game {
   private touched = new Set<number>();
   /** When each thing the player touched was last heard (race time, s): contactSound. */
   private contactSoundAt = new Map<string, number>();
-  private lastInput: HandlingInput = HOLD;
+  private lastInput: DriveInput = HOLD;
   /** The AI driving the player's car (I) uses the nitro as the rivals do. */
   private readonly playerNitroAi = new NitroAi();
   /** The player's gear last frame (a gear going in shakes the camera). */
@@ -339,7 +339,7 @@ export class Game {
   private leaving = false;
   private overlay!: IntroOverlay;
   /** Overrides keyboard input when set (used by automated checks). */
-  inputOverride: HandlingInput | null = null;
+  inputOverride: DriveInput | null = null;
   /** Debug: stop the real-time loop from advancing the simulation. */
   freeze = false;
 
@@ -1154,7 +1154,7 @@ export class Game {
   }
 
   /** Debug: advance the simulation synchronously (independent of rAF throttling). */
-  simulate(seconds: number, input?: HandlingInput, render = true): void {
+  simulate(seconds: number, input?: DriveInput, render = true): void {
     const prev = this.inputOverride;
     if (input) this.inputOverride = input;
     const n = Math.round(seconds / PHYSICS_DT);
@@ -1182,13 +1182,13 @@ export class Game {
    * no more (driveCommand: its maxSpeed), and the AI aims at the speed it has - it rolls down to it, never brakes
    * for it (only for what is ahead).
    */
-  private aiInput(ai: Driver, limit: number, coast = false): HandlingInput {
+  private aiInput(ai: Driver, limit: number, coast = false): DriveInput {
     const input = this.aiDrive(ai, limit, coast);
     return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
   }
 
   /** The AI's pedals and steering (no nitro); also its planning on the grid before the green (unused there). */
-  private aiDrive(ai: Driver, limit: number, coast = false): HandlingInput {
+  private aiDrive(ai: Driver, limit: number, coast = false): DriveInput {
     const cap = Math.min(limit, aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player)));
     this.player.params.maxSpeed = cap;
     const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
@@ -1197,7 +1197,7 @@ export class Game {
     return ai.drive(selfStateOf(this.player, aim), seen, this.player.params);
   }
 
-  private currentInput(): HandlingInput {
+  private currentInput(): DriveInput {
     switch (this.flow.phase) {
       case 'racing':
         if (this.aiActive && this.aiDriver && !this.inputOverride) return this.aiInput(this.aiDriver, Infinity);

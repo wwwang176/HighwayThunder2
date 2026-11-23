@@ -1,7 +1,8 @@
+import { clamp3 } from '../math';
 import { type Brain, createBrain, forward, weightCount } from './brain';
 import type { Rng } from './rng';
 import type { SelfState } from './sensors';
-import type { HandlingInput } from '../vehicles/handling';
+import type { DriveInput } from '../vehicles/handling';
 import type { Centerline } from '../road/centerline';
 
 /**
@@ -26,7 +27,6 @@ const DEAD = 0.1;
 /** An output past DEAD, on to ±1. */
 const past = (o: number) => (Math.abs(o) <= DEAD ? 0 : (o - Math.sign(o) * DEAD) / (1 - DEAD));
 
-const clamp3 = (x: number) => (Number.isFinite(x) ? Math.max(-3, Math.min(3, x)) : 0);
 
 /** Its inputs into `out` (MOUNTAIN_NET_INPUTS long): the plan's `d` and `kappa` along the road, `base` the driver's own input this step. */
 export function mountainNetInputs(
@@ -34,7 +34,7 @@ export function mountainNetInputs(
   plan: { d(s: number): number; kappa(s: number): number },
   road: Centerline,
   room: (s: number) => number,
-  base: HandlingInput,
+  base: DriveInput,
   out: Float32Array,
 ): Float32Array {
   const v = Math.max(0, self.vLong);
@@ -88,7 +88,7 @@ const OUT = new Float32Array(3);
  * (Up only, it once was: let take the throttle away it learned to drive 1-5 % slower; its cost is what weighs speed
  * now, mountainNetEval.ts.)
  */
-export function applyMountainNet(brain: Brain | null, inputs: Float32Array, base: HandlingInput): HandlingInput {
+export function applyMountainNet(brain: Brain | null, inputs: Float32Array, base: DriveInput): DriveInput {
   if (!brain) return base;
   const o = forward(brain, inputs, OUT);
   return {
