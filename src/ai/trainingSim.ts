@@ -7,8 +7,7 @@ import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
 import { PlayerCar } from '../vehicles/playerCar';
-import type { Brain } from './brain';
-import { AiDriver, Driver, selfStateOf } from './driver';
+import { Driver, selfStateOf } from './driver';
 import { endOn, FITNESS, isOffRoad, RunResult, touching } from './fitness';
 import { mulberry32 } from './rng';
 import type { TrafficBox } from './sensors';
@@ -100,7 +99,7 @@ export function judgeContacts(
 }
 
 export interface TrainingSimOptions {
-  /** Top speed every car in this run is limited to (m/s); also a network input. */
+  /** Top speed every car in this run is limited to (m/s). */
   speedCap: number;
   timeLimit?: number;
   /**
@@ -124,7 +123,7 @@ export interface TrainingSimOptions {
 
 /**
  * One generation's race: a fresh physics world, traffic from `seed`, and one
- * ghost car per brain (or driver), all starting together. Ghosts don't touch
+ * ghost car per driver, all starting together. Ghosts don't touch
  * each other or the traffic; one is out when it hits a vehicle hard, leaves our
  * pavement, stalls, or finishes. Traffic ignores the ghosts and is kept around
  * all of them.
@@ -147,7 +146,7 @@ export class TrainingSim {
   readonly wrecks: { ghost: number; time: number; box: TrafficBox | null; s: number; d: number; yaw: number; speed: number; closing: number; nx: number; nz: number }[] = [];
   private touched: TrafficBox[] = [];
 
-  constructor(drivers: (Brain | Driver)[], seed: number, opts: TrainingSimOptions) {
+  constructor(drivers: Driver[], seed: number, opts: TrainingSimOptions) {
     const spec = opts.spec ?? STREET_RACER;
     this.speedCap = aiTopSpeed(opts.speedCap, spec);
     this.timeLimit = opts.timeLimit ?? FITNESS.timeLimit;
@@ -162,11 +161,10 @@ export class TrainingSim {
       car.params.maxSpeed = this.speedCap;
       car.surfaceGrip = surfaceGrip; // same ground as the player's car in the game
       car.resetTo(0, START_LANE, 0);
-      const driver = 'weights' in d ? new AiDriver(d) : d;
-      driver.reset(car.d);
+      d.reset(car.d);
       this.ghosts.push({
         car,
-        driver,
+        driver: d,
         alive: true,
         result: { distance: 0, crashed: false, finishTime: null, contacts: 0 },
         progressS: 0,

@@ -1,24 +1,17 @@
-import { MEDIAN_NEAR_X, RAIL_D, ROAD_LENGTH } from '../config';
+import { MEDIAN_NEAR_X, RAIL_D } from '../config';
 import { lanesOccupied } from '../road/coords';
-// (LEFT_LIMIT / RIGHT_LIMIT below are also what the sensors measure the edges against.)
 import type { TrafficBox } from './sensors';
 
-/** Scoring and elimination settings (mutable: tuned while training). */
+/** How the training sim judges a run (TrainingSim): its time, a stall, a contact. */
 export const FITNESS = {
-  // s per generation. Too short to finish the road by following traffic (80-125 km/h,
-  // ~180 s for 5 km): only a car averaging 120+ km/h - one that passes - gets the finish.
-  // Until then the score is the distance covered in this time, i.e. the average speed.
-  // (With time to spare, following finished too and the networks never learned to pass.)
+  /** s a run has (TrainingSimOptions.timeLimit: unless given). */
   timeLimit: 150,
-  finishBonus: 4000, // shared out by how early a car finishes
-  crashPenalty: 1000, // a crash costs this many metres
   stallWindow: 10, // s: a car that moves less than stallMinProgress in this long is out
   stallMinProgress: 5, // m
   // Light contact is allowed (street racing): touching at under this closing speed (m/s,
-  // along the way the two meet: end-on or side-on, see `endOn`) is not a crash, but each
-  // contact costs contactPenalty metres so rubbing does not pay. As CONTACT_TUNING.npcWreckSpeed in the game.
+  // along the way the two meet: end-on or side-on, see `endOn`) is not a crash. As CONTACT_TUNING.npcWreckSpeed in
+  // the game.
   lightContactSpeed: 15 / 3.6,
-  contactPenalty: 50,
   // Overlapping the same vehicle longer than this (s) is driving through it: a crash.
   maxContactTime: 0.5,
 };
@@ -33,17 +26,6 @@ export interface RunResult {
   resets?: number;
   /** Each crash: off the road or into traffic, whether it was sliding (body slip past 10°) in the second before, at what speed. */
   crashLog?: { offRoad: boolean; sliding: boolean; kmh: number }[];
-}
-
-/**
- * Further and earlier is better; finishing always beats not finishing. A crash
- * costs up to a kilometre, but never more than half the distance driven: a flat
- * penalty made standing still the best thing a beginner network could do.
- */
-export function fitness(r: RunResult): number {
-  const contacts = (r.contacts ?? 0) * FITNESS.contactPenalty;
-  if (r.finishTime !== null) return ROAD_LENGTH + (FITNESS.finishBonus * Math.max(0, FITNESS.timeLimit - r.finishTime)) / FITNESS.timeLimit - contacts;
-  return (r.crashed ? r.distance - Math.min(FITNESS.crashPenalty, r.distance / 2) : r.distance) - contacts;
 }
 
 /** Furthest left the car may go: two wheels on the median grass (2 m past our inner shoulder) is allowed. */

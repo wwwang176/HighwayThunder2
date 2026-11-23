@@ -2,28 +2,28 @@
 //   npx vitest run --config training/vitest.config.ts training/trainingSimChecks.train.ts
 import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { Brain, createBrain } from '../src/ai/brain';
-import { BRAIN_LAYERS } from '../src/ai/evolution';
-import { mulberry32 } from '../src/ai/rng';
+import { type Driver, speedPedals } from '../src/ai/driver';
+import { trackSteer } from '../src/ai/netTracker';
 import { judgeContacts, ownLane, TrainingSim } from '../src/ai/trainingSim';
-import { GRASS_GRIP, PHYSICS_DT } from '../src/config';
+import { GRASS_GRIP, KMH, LANE_COUNT, PHYSICS_DT } from '../src/config';
 import { FITNESS, isOffRoad } from '../src/ai/fitness';
 import { laneAt, laneCenter } from '../src/road/coords';
 import { OUR_FRAME } from '../src/road/frame';
+import { DEFAULT_CAR } from '../src/vehicles/handling';
 
 beforeAll(async () => {
   await RAPIER.init();
 });
 
-/** A network that ignores its inputs: lane choice (-1 left, 0 keep, 1 right) and target speed (fraction of the cap) set by the output biases. */
-function constant(lane: number, speed: number): Brain {
-  const b = createBrain(BRAIN_LAYERS, mulberry32(1));
-  b.weights.fill(0);
-  const n = b.weights.length;
-  const row = 16 + 1;
-  b.weights[n - 2 * row + 16] = 3 * lane;
-  b.weights[n - 1 * row + 16] = Math.atanh(speed * 2 - 1);
-  return b;
+/** A driver that ignores the traffic: always a lane over (-1 left, 0 keep, 1 right), at `speed` x 300 km/h (or its cap). */
+function constant(lane: number, speed: number): Driver {
+  return {
+    reset() {},
+    drive(self, _traffic, p = DEFAULT_CAR) {
+      const aim = laneCenter(Math.max(0, Math.min(LANE_COUNT - 1, laneAt(self.d) + lane)));
+      return { steer: trackSteer(aim, 0, self.d, self.yaw, self.vLong, self.vLat, p), ...speedPedals(Math.min(self.speedCap, speed * 300 * KMH), self.vLong) };
+    },
+  };
 }
 
 const run = (sim: TrainingSim, seconds: number) => {

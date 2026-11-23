@@ -1163,12 +1163,9 @@ export class Game {
     if (render) this.render(PHYSICS_DT, 1);
   }
 
-  /** Hand the car to the trained AI, or take it back. */
+  /** Hand the car to the AI, or take it back (none before the first race is set up). */
   toggleAi(): void {
-    if (!this.aiDriver) {
-      this.hud.message(t('toast.noAi'));
-      return;
-    }
+    if (!this.aiDriver) return;
     this.aiActive = !this.aiActive;
     if (this.aiActive) {
       this.humanMaxSpeed = this.player.params.maxSpeed;

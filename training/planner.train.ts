@@ -5,11 +5,10 @@ import { PLAN_STATS, PLANNER, planAt } from '../src/ai/planner';
 import { COURSE, COURSE_STATS } from '../src/ai/coursePlanner';
 import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
 import { TrainingSim } from '../src/ai/trainingSim';
-import { LANE_TUNING } from '../src/ai/laneController';
 import { laneAt, laneCenter } from '../src/road/coords';
 import { LANE_COUNT, ROAD_HALF_WIDTH } from '../src/config';
 import { CARS } from '../src/vehicles/cars';
-import { trackerFrom } from '../src/ai/netTracker';
+import { TRACK_TUNING, trackerFrom } from '../src/ai/netTracker';
 
 const pct = (xs: number[], p: number) => {
   if (!xs.length) return NaN;
@@ -31,7 +30,7 @@ it('planner', async () => {
   if (process.env.EMERGENCY_FROM) DRIVER_TUNING.emergencyFrom = Number(process.env.EMERGENCY_FROM);
   // DRIVER_JSON='{"pathAgree":99}': the driver's settings changed without editing the code.
   if (process.env.DRIVER_JSON) Object.assign(DRIVER_TUNING, JSON.parse(process.env.DRIVER_JSON));
-  if (process.env.LANE_K) LANE_TUNING.k = Number(process.env.LANE_K); // the tracker's pull back onto the plan (1/s)
+  if (process.env.LANE_K) TRACK_TUNING.k = Number(process.env.LANE_K); // the tracker's pull back onto the plan (1/s)
   if (process.env.NET_TRACKER) DRIVER_TUNING.netTracker = process.env.NET_TRACKER !== '0'; // 0: the plain tracker, not the car's trained network
   await RAPIER.init();
   const out: string[] = [];

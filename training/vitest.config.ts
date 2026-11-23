@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 /**
  * Headless training runs (not part of `npm test`):
  *   npx vitest run --config training/vitest.config.ts
- * Settings come from environment variables, see headless.train.ts.
+ * Settings come from environment variables (each script says which).
  */
 export default defineConfig({
   test: {

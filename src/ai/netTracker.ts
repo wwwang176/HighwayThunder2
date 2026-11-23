@@ -1,7 +1,6 @@
 import { MEDIAN_NEAR_X, RAIL_D } from '../config';
-import type { CarParams } from '../vehicles/handling';
+import { type CarParams, steerRange } from '../vehicles/handling';
 import { Brain, createBrain, forward, weightCount } from './brain';
-import { trackSteer } from './laneController';
 import { Plan, planAt, PLANNER } from './planner';
 import type { Rng } from './rng';
 import type { SelfState } from './sensors';
@@ -52,6 +51,26 @@ const REVERSE_DEAD = 0.1;
 const STEER_ONLY_LAYERS = [PLAN_INPUTS - HEADING_INPUTS - 2, 12, 12, 1];
 
 const clamp = (x: number, m = 3) => Math.max(-m, Math.min(m, x));
+
+/** The plain tracker's pull back onto the plan: cross-track gain (1/s). */
+export const TRACK_TUNING = { k: 0.8 };
+
+/**
+ * Steering input (-1..1) toward lateral position `dAim` moving sideways at
+ * `rate` (both taken a preview time ahead on a path): Stanley (cross-track
+ * error at the front axle, the path's lateral speed fed forward), but on the
+ * direction the car actually travels (heading plus body slip) and limited only
+ * by the car's own grip-derived steering range - the player car understeers far
+ * more than the kinematic model the traffic's tracker caps its wheel angle by,
+ * and would never finish a lane change at speed under that cap.
+ */
+export function trackSteer(dAim: number, rate: number, d: number, yaw: number, vLong: number, vLat: number, p: CarParams): number {
+  const v = Math.max(vLong, 1);
+  const course = yaw + Math.atan2(vLat, v);
+  const e = dAim - (d + Math.sin(yaw) * (p.wheelbase / 2));
+  const angle = Math.atan2(rate, v) - course + Math.atan2(TRACK_TUNING.k * e, v + 2);
+  return Math.max(-1, Math.min(1, angle / steerRange(vLong, p)));
+}
 
 /** The plain tracker's steering: Stanley aiming `PLANNER.trackerLead` s ahead on the plan. */
 export function baseSteer(plan: Plan, age: number, self: SelfState, p: CarParams): number {
