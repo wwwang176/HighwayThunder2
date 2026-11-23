@@ -49,10 +49,6 @@ export interface VehicleSpec {
   allowedLanes: number[];
   idm: Omit<IdmParams, 'v0'>;
   politenessRange: [number, number];
-  // container only
-  cabLength?: number;
-  trailerLength?: number;
-  trailerMass?: number;
 }
 
 export const VEHICLE_SPECS: Record<VehicleKind, VehicleSpec> = {
@@ -92,8 +88,6 @@ export const VEHICLE_SPECS: Record<VehicleKind, VehicleSpec> = {
     allowedLanes: [2, 3],
     idm: { T: 1.9, s0: 3.5, a: 0.7, b: 1.8 },
     politenessRange: [0.4, 0.7],
-    cabLength: 6.29,
-    trailerLength: 12.5,
-    trailerMass: 16000,
+    // (its cab's and trailer's own lengths and the trailer's mass: vehicles/npcVehicle)
   },
 };

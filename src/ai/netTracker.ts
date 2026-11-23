@@ -46,7 +46,6 @@ export const REVERSE_V = 3;
  * back at 60 km/h). Then the network has the throttle, and may back up (REVERSE_V).
  */
 export const ACROSS_YAW = 0.4;
-export const REVERSE_YAW = ACROSS_YAW;
 /** Of its reverse output, this much is nothing (so a slightly-off weight does not back it up). */
 const REVERSE_DEAD = 0.1;
 /** The layout before the throttle: steering only, without the wheelspin and throttle inputs. */

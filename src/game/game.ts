@@ -262,7 +262,7 @@ export class Game {
   private readonly settings: SettingsPopup;
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
   readonly trafficWorld: TrafficWorld;
-  /** Trained driver from public/ai/driver.json (null when none could be loaded). */
+  /** The AI's driver for the player's car (I): the course's planner driver (null: none yet). */
   aiDriver: Driver | null = null;
   /** The AI drives the player's car (toggled with I). */
   aiActive = false;

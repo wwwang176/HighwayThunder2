@@ -117,7 +117,7 @@ export function cruisePedals(target: number, self: SelfState, traffic: TrafficBo
  * when something was ahead; with the target speed alone, they learned to be
  * slow everywhere rather than to slow down behind a car - and stayed behind it.
  * Now the way to go faster is the network's own: pick a lane that is free.
- * Used by the trainer's ghost cars and by the game alike, once per physics step.
+ * Used by the trainer's ghost cars (the lab's), once per physics step - the game's AI is the planner's (plannerDriver).
  */
 export class AiDriver implements Driver {
   private readonly sensors = new Float32Array(SENSOR_COUNT);

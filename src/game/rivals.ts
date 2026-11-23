@@ -579,7 +579,6 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
     const k = 1 + RIVAL_TUNING.engineBoost * r.push;
     r.car.params.power = base.power * k;
     r.car.params.engineTorque = base.engineTorque * k;
-    r.car.params.maxDriveForce = base.maxDriveForce * k;
     r.driver.accelScale = k;
     if (r.driver.push !== undefined) r.driver.push = r.push;
   }

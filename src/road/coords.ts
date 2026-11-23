@@ -41,8 +41,3 @@ export function worldToRoad(x: number, z: number): { s: number; d: number } {
 export function headingVector(yaw: number): { x: number; z: number } {
   return { x: Math.sin(yaw), z: -Math.cos(yaw) };
 }
-
-/** Road-relative yaw from a Three.js Y rotation (mesh.rotation.y = -yaw). */
-export function yawFromRotationY(rotY: number): number {
-  return -rotY;
-}

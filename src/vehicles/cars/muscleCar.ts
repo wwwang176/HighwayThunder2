@@ -17,15 +17,14 @@ import { MUSCLE_CAR_COLLIDER } from './muscleCarCollider';
  */
 export const MUSCLE_CAR: CarSpec = {
   id: 'muscle-car',
-  name: '肌肉車',
   color: 0xf2780c, // the concept's orange (docs/art/muscle-car): the dark paint was lost at night
   style: 'muscle',
   collider: MUSCLE_CAR_COLLIDER, // its model's body up to the hood (and deck), and its cabin
   // Tuned at 1450 kg; it drives at 1800, a real muscle car's weight, every force as much heavier (withMass): the same.
   params: withMass({
     ...SUPERCAR_TUNE,
-    // EXPERIMENT (weight, tyres, springs as before - the lean the same): against the supercar (training/dragRace) 0-100
-    // 3.60 s (3.73; it took 4.47), 0-140 5.13 s (5.42; 6.21), 0-200 8.12 s (9.16; 9.70), 0-240 10.99 s (12.86;
+    // Its acceleration its strength (weight, tyres, springs as they were - the lean the same), before its drag tyres
+    // (rearLongGrip, below): side by side with the supercar 0-100 3.60 s (3.73; it took 4.47), 0-140 5.13 s (5.42; 6.21), 0-200 8.12 s (9.16; 9.70), 0-240 10.99 s (12.86;
     // 13.32), and it runs out at 259 km/h (300); side by side 16 m ahead at 10 s, 29 m at 12.5 s. Power on in a gentle
     // turn (cornering.train powerOn) it spins at 60 and 100 km/h (62 / 50 deg; 29 / 41 before, spins too), 6 deg at
     // 150 (6). 10 % more torque and power (743 kW; 646 before): 20 % more (808 kW) 0-200 7.83 s, but 16 deg at 150.
@@ -50,17 +49,12 @@ export const MUSCLE_CAR: CarSpec = {
     // less sideways too (1.1 x 1.4: as quick, but braking and steering it slid 15 deg - hard to hold); tried too, as an
     // arcade aid, 15 % more straight on only while driving straight - as quick, but not a real tyre.
     rearLongGrip: 1.15,
-    // training/cornering.train.ts (launch, powerOn, cornering, turnIn, maneuvers) against the supercar:
-    // 0-100 4.0 s (4.2), 0-200 8.4 s (9.4), top 259 km/h (300), nose up ~2 deg at launch (0.7),
-    // full-lock grip 1.06 / 1.4 g at 100 / 200 km/h (1.4 / 2.1), lean changing lanes 4.3-6 deg (3-4),
-    // power on in a gentle turn at 60 km/h: the tail swings out 17 deg (3). No rollover, also with the
-    // rubber band's +25 % grip (lean up to 10 deg).
+    // (No rollover, also with the rubber band's +25 % grip: training/cornering.train.ts.)
     mass: 1450,
     comY: -0.1, // higher than the supercar's: more weight onto the rear tyres off the line (traction, nose up)
     comFwd: 0.127, // the big engine up front: 55 % of the weight on the front tyres (0.05 x the 2.54 m wheelbase)
     power: 598_500, // 743 kW at 1800 kg (520_000 before: 646 kW)
     engineTorque: 990, // 900 before
-    maxDriveForce: 22_000, // 20_000 before
     maxSpeed: 72, // ~260 km/h
     brakeFrontBias: 0.88, // braking and steering hard the tail swings out 11-12° and comes back (0.82: it spun at 120 km/h)
     dragK: 0.5,

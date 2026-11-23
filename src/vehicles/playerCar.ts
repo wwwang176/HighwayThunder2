@@ -105,11 +105,6 @@ export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, f
   return (p.mass * (front ? frontShare : 1 - frontShare)) / 2;
 }
 
-/** Road-relative yaw from a Y-only quaternion (yaw = -rotation.y). */
-export function yawOf(q: { x: number; y: number; z: number; w: number }): number {
-  return -2 * Math.atan2(q.y, q.w);
-}
-
 export function quatFromYaw(yaw: number): { x: number; y: number; z: number; w: number } {
   return { x: 0, y: Math.sin(-yaw / 2), z: 0, w: Math.cos(-yaw / 2) };
 }
@@ -442,7 +437,7 @@ export class PlayerCar {
       muPeak: p.muPeak,
       muSlide: p.muSlide,
       slipAnglePeak: p.slipAnglePeak,
-      rollingResistance: 0.012 * (p.rollingRes ?? 1),
+      rollingResistance: 0.012,
       regripSpeed: 0.6,
       slipFalloff: p.slipFalloff,
       latGrip: (p.latGrip ?? 1) * pressureGripScale(speed, p), // (the pressure: cornering only)
@@ -484,7 +479,7 @@ export class PlayerCar {
     this.readBack();
     this.rollFriction();
 
-    this.steer = smoothSteer(this.steer, input.steer, p, dt, this.vLong);
+    this.steer = smoothSteer(this.steer, input.steer, p, dt);
     const slide = Math.atan2(this.vLat, Math.max(Math.abs(this.vLong), 1));
     const bodySlip = Math.abs(slide);
     // Drift assist (drift): the more it slides, the more the car the driver's - no switch; the handbrake only by the

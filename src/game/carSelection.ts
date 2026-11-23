@@ -49,14 +49,12 @@ export const PICKABLE: string[] = [STREET_RACER.id, MUSCLE_CAR.id, JDM_CAR.id];
  */
 export interface CarCard {
   id: string;
-  name: string;
   /** Accent of the garage while this car is picked. */
   accent: string;
   /** Silhouette icon (public/ui/<icon>.png). */
   icon: string;
   /** A stat: its small-caps label, the number and its unit apart (the number big; 's' in the player's language). */
   stats: { icon: string; label: string; value: string; unit: string; bar: number }[];
-  pickable: boolean;
 }
 
 const stats = (accel: string, a: number, top: string, t: number, grip: string, g: number) => [
@@ -68,9 +66,9 @@ const stats = (accel: string, a: number, top: string, t: number, grip: string, g
 // training/cornering.train.ts (launch: 0-100, top speed; cornering: full lock at 200 km/h), 2026-11-13; the bars by
 // each car's rank (0-100: the muscle car's 3.30 s the quickest).
 export const CAR_CARDS: CarCard[] = [
-  { id: STREET_RACER.id, name: STREET_RACER.name, accent: '#ff3b30', icon: 'icon-super', stats: stats('3.73', 0.9, '300', 1, '2.03', 0.75), pickable: true },
-  { id: MUSCLE_CAR.id, name: MUSCLE_CAR.name, accent: '#ff9f1a', icon: 'icon-muscle', stats: stats('3.30', 1, '259', 0.75, '1.50', 0.5), pickable: true },
-  { id: JDM_CAR.id, name: JDM_CAR.name, accent: '#2f9bff', icon: 'icon-jdm', stats: stats('4.28', 0.75, '245', 0.6, '2.35', 1), pickable: true },
+  { id: STREET_RACER.id, accent: '#ff3b30', icon: 'icon-super', stats: stats('3.73', 0.9, '300', 1, '2.03', 0.75) },
+  { id: MUSCLE_CAR.id, accent: '#ff9f1a', icon: 'icon-muscle', stats: stats('3.30', 1, '259', 0.75, '1.50', 0.5) },
+  { id: JDM_CAR.id, accent: '#2f9bff', icon: 'icon-jdm', stats: stats('4.28', 0.75, '245', 0.6, '2.35', 1) },
 ];
 
 /** A first visit's race: the player on the supercar, five rivals on cars drawn at random, hard, a clear night. */

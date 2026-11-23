@@ -43,7 +43,6 @@ it('traffic pace', async () => {
       c.surfaceGrip = (x) => surfaceGrip(x) * (1 + GRIP);
       c.params.power = spec.params.power * (1 + ENGINE);
       c.params.engineTorque = spec.params.engineTorque * (1 + ENGINE);
-      c.params.maxDriveForce = spec.params.maxDriveForce * (1 + ENGINE);
       let on = false, s0 = 0, t0 = 0, fast = 0, steps = 0;
       while (!sim.done) {
         sim.step();

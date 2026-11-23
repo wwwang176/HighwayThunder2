@@ -15,7 +15,6 @@ import { JDM_COLLIDER } from './jdmCollider';
  */
 export const JDM_CAR: CarSpec = {
   id: 'jdm',
-  name: '改裝車',
   color: 0x3a8dde,
   style: 'jdm',
   collider: JDM_COLLIDER, // its model's body up to the hood (sloping down to the nose; the wing at the tail), and its cabin
@@ -32,7 +31,6 @@ export const JDM_CAR: CarSpec = {
     comFwd: 0, // half the weight on each axle
     power: 340_000,
     engineTorque: 450,
-    maxDriveForce: 11_000,
     maxSpeed: 68, // ~245 km/h
     nitroBurn: 1.5, // a bigger tank than the others': 6 s of nitro (NITRO.burn's 4)
     brakeFrontBias: 0.88, // braking and steering hard the tail barely moves (3-4°): the most precise of the three

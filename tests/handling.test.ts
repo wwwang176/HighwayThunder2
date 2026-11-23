@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, heelToeRevs, HEEL_TOE, replaceParams, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, arcadeShare, arcadeEnterFrom, type ArcadeDrift, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, heelToeRevs, HEEL_TOE, replaceParams, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, arcadeShare, arcadeEnterFrom, type ArcadeDrift, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -9,7 +9,7 @@ describe('withMass', () => {
     const base = { ...P, mass: 1000 };
     const h = withMass(base, 1250);
     expect(h.mass).toBe(1250);
-    for (const k of ['power', 'engineTorque', 'maxDriveForce', 'brakeForceMax', 'dragK', 'downforceK', 'springK', 'damperBump', 'antiRollFront', 'wheelInertia', 'lsd', 'lsdMax', 'escMaxTorque'] as const) {
+    for (const k of ['power', 'engineTorque', 'brakeForceMax', 'dragK', 'downforceK', 'springK', 'damperBump', 'antiRollFront', 'wheelInertia', 'lsd', 'lsdMax', 'escMaxTorque'] as const) {
       expect(h[k] / h.mass).toBeCloseTo(base[k] / base.mass, 9);
     }
     expect(h.maxSpeed).toBe(base.maxSpeed);
@@ -21,9 +21,9 @@ describe('withMass', () => {
 describe('driveCommand', () => {
   const T = { throttle: 1, brake: 0, steer: 0 };
   const B = { throttle: 0, brake: 1, steer: 0 };
-  it('D: full throttle from standstill is traction limited', () => {
+  it('D: full throttle from standstill drives', () => {
     const c = driveCommand(T, 0, P, 'D');
-    expect(c.engineForce).toBeCloseTo(P.maxDriveForce);
+    expect(c.engineForce).toBeCloseTo(P.power); // (nominal: the gearbox gives the force)
     expect(c.brake).toBe(0);
     expect(c.mode).toBe('D');
   });
@@ -94,24 +94,6 @@ describe('driveCommand', () => {
 });
 
 describe('steering', () => {
-  it('full lock at low speed, tiny angle at 300 km/h', () => {
-    expect(steerLimit(2, P)).toBeCloseTo(P.maxSteer);
-    const high = steerLimit(83.3, P);
-    expect(high).toBeLessThan(0.025);
-    expect(high).toBeGreaterThan(0.002);
-  });
-  it('limit keeps lateral accel near latAccelLimit (kinematic bicycle)', () => {
-    for (const v of [20, 40, 60, 80]) {
-      const a = (v * v * Math.tan(steerLimit(v, P))) / P.wheelbase;
-      expect(a).toBeLessThanOrEqual(P.latAccelLimit + 1e-6);
-    }
-  });
-  it('optional speed-scaled turn-in (off by default), returning stays quick', () => {
-    expect(smoothSteer(0, 1, P, 0.05, 55)).toBeCloseTo(smoothSteer(0, 1, P, 0.05, 5));
-    const Q = { ...P, steerSlowdownSpeed: 40 };
-    expect(smoothSteer(0, 1, Q, 0.05, 55)).toBeLessThan(smoothSteer(0, 1, Q, 0.05, 0) / 2);
-    expect(smoothSteer(0.5, 0, Q, 0.05, 55)).toBeCloseTo(smoothSteer(0.5, 0, Q, 0.05, 5));
-  });
   it('input smoothing ramps and returns faster', () => {
     let s = 0;
     s = smoothSteer(s, 1, P, 0.05);

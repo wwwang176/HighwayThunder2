@@ -5,9 +5,7 @@ const ascending = (table: [number, number][]) => table.every(([kmh], i) => i ===
 
 describe('cars', () => {
   it('the supercar, the muscle car and the tuned JDM car, by id', () => {
-    expect(CARS['street-racer'].name).toBe('超跑');
-    expect(CARS['muscle-car'].name).toBe('肌肉車');
-    expect(CARS.jdm.name).toBe('改裝車');
+    for (const id of ['street-racer', 'muscle-car', 'jdm']) expect(CARS[id].id).toBe(id);
   });
 
   it('the JDM car grips harder than the supercar and tops out lowest of all', () => {

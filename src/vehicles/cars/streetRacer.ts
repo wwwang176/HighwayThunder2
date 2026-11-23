@@ -9,7 +9,6 @@ import { withMass } from './mass';
 /** The supercar as tuned, at 1300 kg (it drives at 1500: STREET_RACER). */
 const SUPERCAR: CarSpec = {
   id: 'street-racer',
-  name: '超跑',
   color: 0xd62828,
   style: 'super',
   collider: SUPERCAR_COLLIDER, // its model's body up to the hood (and the wing at the tail), and its cabin
@@ -18,7 +17,6 @@ const SUPERCAR: CarSpec = {
     comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h
     comFwd: -0.2, // mid-engined (behind the cabin): 42 % of the weight on the front tyres, 58 % on the rear (0.08 x the 2.5 m wheelbase)
     power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
-    maxDriveForce: 14_250,
     engineTorque: 600,
     redline: 7500,
     idleRpm: 900,
@@ -39,7 +37,6 @@ const SUPERCAR: CarSpec = {
     downforceK: 0.4, // the real part (presses the springs); most of the aero grip is aeroGrip
     wheelbase: 2.5, // its model's
     maxSteer: 0.55,
-    latAccelLimit: 55,
     steerRise: 6,
     steerFall: 9,
     throttleRise: 20,
@@ -70,7 +67,6 @@ const SUPERCAR: CarSpec = {
     // diff locking it all (all of it, steady steering 60-200 km/h up to 8.9 % quicker; half, 4.3 %).
     lsdTurnFree: 0.1,
     counterSteer: 0.8,
-    steerSlowdownSpeed: Infinity,
     escGain: 9000,
     escMaxTorque: 12000,
   },

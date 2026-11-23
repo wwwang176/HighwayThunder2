@@ -128,7 +128,7 @@ export function emergencyBrake(
   const lags = paths.map((p) => actualVD - planAt(p.plan, p.age).dRate);
   const onPlan = paths.length >= DRIVER_TUNING.pathAgree && Math.abs(self.yaw) < OFF_PLAN_YAW && offsets.every((o) => Math.abs(o) <= DRIVER_TUNING.pathTrust);
   // Sideways speed: what the car has, or what the plan is taking it to if more (the car lags the plan).
-  const actual = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
+  const actual = actualVD;
   const vD = Math.abs(plannedVD) > Math.abs(actual) && Math.sign(plannedVD) !== -Math.sign(actual) ? plannedVD : actual;
   const halfW = self.halfWidth ?? HALF_WIDTH;
   for (const t of traffic) {

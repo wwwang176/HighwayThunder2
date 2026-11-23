@@ -12,7 +12,6 @@ export interface CarParams {
   comY: number; // m, centre of mass height relative to the body's centre (which rides 0.55 m up); lower = harder to roll
   comFwd: number; // m, centre of mass ahead of the axles' midpoint: the front tyres carry 0.5 + comFwd / wheelbase of the weight
   power: number; // W, engine peak power
-  maxDriveForce: number; // N at the rear axle when reversing / pedal-mapping limit
   engineTorque: number; // N·m, engine peak torque
   redline: number; // rpm
   idleRpm: number; // rpm
@@ -30,7 +29,6 @@ export interface CarParams {
   downforceK: number; // aero downforce F = downforceK * v^2
   wheelbase: number; // m
   maxSteer: number; // rad, front wheel lock
-  latAccelLimit: number; // m/s^2, keyboard steering limit (above grip so you can overdrive)
   steerRise: number; // input ramp (1/s)
   steerFall: number; // input return to centre (1/s)
   throttleRise: number; // pedal travel speed (1/s)
@@ -61,7 +59,6 @@ export interface CarParams {
   lsdMax: number; // N·m, the most it moves
   lsdTurnFree?: number; // 0..1: this share of the rear wheels' rolling round a bend (the outer one faster) the diff lets be, locking their slip (unset: 1, all of it; 0: it locks that too, holding the car straight)
   counterSteer: number; // 0..1 hands off, front wheels turn this share toward the direction of travel
-  steerSlowdownSpeed: number; // m/s; turn-in rate is halved at this speed (Infinity = never slower)
   escGain: number; // stability control: N·m of yaw correction per rad/s of yaw-rate error (0 = off)
   escMaxTorque: number; // N·m
   gearTops?: number[]; // its gearbox: each gear's top speed (km/h, at the redline); unset: GEAR_TOP_KMH
@@ -75,7 +72,6 @@ export interface CarParams {
   longGrip?: number; // ... and driving / braking straight, times this
   nitroForce?: number; // the nitro's push (NITRO.force) times this
   nitroBurn?: number; // a tank's seconds of use (NITRO.burn) times this
-  rollingRes?: number; // the tyres' rolling resistance times this
   gripSpeed?: number; // tyre pressure: grip change per 100 km/h from gripPivot (pressureGripScale)
   gripPivot?: number; // km/h it turns about (unset: PRESSURE_PIVOT_KMH)
   brakeGrip?: number; // braking, all four tyres' grip straight on times this (the balance's stopping distance kept)
@@ -124,7 +120,8 @@ export const BURNOUT_SPEED = 4;
  * in D first brakes the backwards slide). Both keys in D (nearly) stopped: a burnout - the engine drives and
  * the brakes hold the car (the caller brakes only the front wheels, the driven rear ones spin).
  * @param vForward speed along the car's nose (m/s, negative when moving backwards)
- * @returns engine force (N, + = forward), brake pedal 0..1, the selected mode, and whether it is a burnout
+ * @returns engine force (N, + = forward: driving, the power's at this speed - nominal, the car's gearbox gives the
+ *   force: PlayerCar; - reversing, reverseForce), brake pedal 0..1, the selected mode, and whether it is a burnout
  */
 export function driveCommand(
   input: DriveInput,
@@ -140,14 +137,13 @@ export function driveCommand(
   }
   if (m === 'D') {
     if (input.brake > 0 && input.throttle > 0 && Math.abs(vForward) < BURNOUT_SPEED) {
-      return { engineForce: p.maxDriveForce * input.throttle, brake: input.brake, mode: m, burnout: true };
+      return { engineForce: p.power * input.throttle, brake: input.brake, mode: m, burnout: true };
     }
     if (input.brake > 0) return { engineForce: 0, brake: input.brake, mode: m };
     if (input.throttle > 0) {
       if (vForward < -STOPPED) return { engineForce: 0, brake: input.throttle, mode: m };
       if (vForward >= p.maxSpeed) return { engineForce: 0, brake: 0, mode: m };
-      const f = Math.min(p.maxDriveForce, p.power / Math.max(vForward, 1));
-      return { engineForce: f * input.throttle, brake: 0, mode: m };
+      return { engineForce: (p.power / Math.max(vForward, 1)) * input.throttle, brake: 0, mode: m };
     }
   } else {
     if (input.throttle > 0) return { engineForce: 0, brake: input.throttle, mode: m };
@@ -160,22 +156,13 @@ export function driveCommand(
   return { engineForce: 0, brake: 0, mode: m };
 }
 
-/** Front-wheel lock allowed at this speed (speed-sensitive steering). */
-export function steerLimit(speed: number, p: CarParams): number {
-  const v = Math.abs(speed);
-  if (v < 1) return p.maxSteer;
-  return Math.min(p.maxSteer, Math.atan((p.latAccelLimit * p.wheelbase) / (v * v)));
-}
-
 /**
- * Smooth the digital keyboard steering into a -1..1 value. Turning in slows with
- * speed (a driver eases the wheel in at 200 km/h instead of yanking it), which
- * avoids the yaw overshoot-and-dip a step input causes; returning stays quick.
+ * Smooth the digital keyboard steering into a -1..1 value: in at steerRise, back (to the centre, or the other way)
+ * at steerFall. (Slowing the turn-in with speed was tried: every car had it off.)
  */
-export function smoothSteer(current: number, target: number, p: CarParams, dt: number, speed = 0): number {
+export function smoothSteer(current: number, target: number, p: CarParams, dt: number): number {
   const returning = target === 0 || (current !== 0 && Math.sign(target) !== Math.sign(current));
-  const rise = p.steerRise / (1 + Math.abs(speed) / p.steerSlowdownSpeed);
-  const rate = (returning ? p.steerFall : rise) * dt;
+  const rate = (returning ? p.steerFall : p.steerRise) * dt;
   if (current < target) return Math.min(target, current + rate);
   return Math.max(target, current - rate);
 }

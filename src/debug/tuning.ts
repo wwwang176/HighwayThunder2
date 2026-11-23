@@ -20,12 +20,13 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   const gui = new GUI({ title: '調校面板（` 切換）' });
   const d = gui.addFolder('動力 / 轉向');
   d.add(car, 'power', 100_000, 800_000, 10_000).name('馬力 W');
-  d.add(car, 'maxDriveForce', 3_000, 20_000, 100).name('最大驅動力 N');
+  d.add(car, 'engineTorque', 150, 900, 5).name('引擎扭力 N·m');
   d.add(car, 'maxSpeed', 40, 110, 0.5).name('極速 m/s');
   d.add(car, 'throttleRise', 1, 30, 0.5).name('油門踩下速度');
   d.add(car, 'brakeForceMax', 5_000, 40_000, 500).name('煞車力 N');
   d.add(car, 'brakeFrontBias', 0.3, 0.9, 0.01).name('前輪煞車比例');
-  d.add(car, 'frontBrakeApart').name('重踩煞車前輪仍可轉向');  d.add(car, 'dragK', 0, 2, 0.01).name('風阻係數');
+  d.add(car, 'frontBrakeApart').name('重踩煞車前輪仍可轉向');
+  d.add(car, 'dragK', 0, 2, 0.01).name('風阻係數');
   d.add(car, 'downforceK', 0, 2, 0.01).name('下壓力係數');
   d.add(car, 'maxSteer', 0.1, 0.8, 0.01).name('前輪最大轉角');
   d.add(car, 'steerRise', 1, 20, 0.5).name('轉向上升速度');
@@ -53,7 +54,6 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   s.add(car, 'wheelInertia', 0.3, 5, 0.1).name('輪子慣量');
   s.add(car, 'slipFalloff', 1, 30, 0.5).name('滑動摩擦衰減 m/s');
   s.add(car, 'lsd', 0, 600, 10).name('限滑差速器');
-  d.add(car, 'engineTorque', 150, 900, 5).name('引擎扭力 N·m');
   const c = gui.addFolder('鏡頭');
   c.add(camera, 'distance', 4, 16, 0.1).name('距離');
   c.add(camera, 'height', 1, 8, 0.1).name('高度');

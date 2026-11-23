@@ -42,7 +42,6 @@ function boost(car: PlayerCar, base: PlayerCar['params'], [b, g = b]: number[]):
   car.surfaceGrip = (x) => surfaceGrip(x) * (1 + g);
   car.params.power = base.power * k;
   car.params.engineTorque = base.engineTorque * k;
-  car.params.maxDriveForce = base.maxDriveForce * k;
 }
 
 const q = (a: number[], p: number) => {

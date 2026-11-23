@@ -9,9 +9,8 @@ import type { CarParams } from '../handling';
  * clear with (SelfState / PlanEgo halfWidth, halfLength).
  */
 export interface CarSpec {
+  /** Its name shown to the player: src/ui/i18n's, by this. */
   id: string;
-  /** Shown to the player. */
-  name: string;
   /** Body colour. */
   color: number;
   /** Body shape (src/vehicles/models.ts buildCar). */
