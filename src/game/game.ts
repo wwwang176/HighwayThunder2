@@ -34,7 +34,7 @@ import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
 import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { Hud } from '../ui/hud';
-import { HandlingInput, HEEL_TOE } from '../vehicles/handling';
+import { HandlingInput, HEEL_TOE, replaceParams } from '../vehicles/handling';
 import { allTrafficModels, NpcVehicle } from '../vehicles/npcVehicle';
 import { BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
 import { NitroAi } from '../vehicles/nitro';
@@ -694,18 +694,12 @@ export class Game {
     }
     // (the mountain rivals' grip by the difficulty too: their lines laid anew as they are placed - Rivals.budget)
     // The player's car as tuned (src/vehicles/tuning; as built where it isn't).
+    // (the mountain road's setup on top: vehicles/mountainSetup - its centre of mass lower, its body given it anew; off
+    // it, its body as built. Replaced whole: assigned over, a knob back at 0 or the mountain's traction control stayed)
     const spec = specOf(this.cars.player);
-    if (course && !this.mountain) {
-      // (off the mountain road: its setup off the car - its body as built, as on a highway the game started on)
-      Object.assign(this.player.params, spec.params);
-      this.player.applyMass();
-    }
-    Object.assign(this.player.params, tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]));
-    if (this.mountain) {
-      // (the mountain road's setup on top: vehicles/mountainSetup - its centre of mass lower, its body given it anew)
-      Object.assign(this.player.params, mountainSetup(this.player.params, mountainSetupOf(spec.id)));
-      this.player.applyMass();
-    }
+    const params = tuned(spec.params, this.cars.tuning?.[spec.id] ?? {}, TUNE_CAL[spec.id]);
+    replaceParams(this.player.params, this.mountain ? mountainSetup(params, mountainSetupOf(spec.id)) : params);
+    this.player.applyMass();
     this.hud.setAccent(accent);
     this.accent = accent;
     await this.loading.next('loading.road', 0.35);

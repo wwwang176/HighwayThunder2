@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, heelToeRevs, HEEL_TOE, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, arcadeShare, arcadeEnterFrom, type ArcadeDrift, type DriftAssist } from '../src/vehicles/handling';
+import { BURNOUT_SPEED, DEFAULT_CAR, driveCommand, steerLimit, smoothSteer, Gearbox, GEAR_TOP_KMH, steerAngle, steerRange, escTargetYawRate, escYawCap, escTorque, effectiveMu, rollInfluenceAt, aeroGripScale, revsFalling, ENGINE_FALL_RATE, heelToeRevs, HEEL_TOE, replaceParams, shuntRevs, SHUNT_RPM, SHUNT_TIME, limiterBounce, LIMITER_BOUNCE_RPM, LIMITER_BOUNCE_HZ, escPowerTrim, ESC_TRIM_FROM, ESC_TRIM_FULL, ESC_TRIM_LEAST, tractionTrim, TRACTION_LEAST, driftShare, driftSpeed, driftEsc, driftDrive, driftLimit, driftCarve, driftInto, driftHeld, driftFollow, driftSpin, arcadeShare, arcadeEnterFrom, type ArcadeDrift, type DriftAssist } from '../src/vehicles/handling';
 import { withMass } from '../src/vehicles/cars/mass';
 
 const P = DEFAULT_CAR;
@@ -336,6 +336,16 @@ describe('the engine winding down', () => {
 
   it('never falls past the target', () => {
     expect(revsFalling(1000, 900, 1)).toBe(900);
+  });
+});
+
+describe('replaceParams', () => {
+  it('the same object, as the new set: what that hasn\'t gone', () => {
+    const p = { ...DEFAULT_CAR, longGrip: 1.2, tractionSlip: 1 };
+    const next = { ...DEFAULT_CAR, gearScale: 0.9 };
+    replaceParams(p, next);
+    expect(p).toEqual(next);
+    expect('longGrip' in p || 'tractionSlip' in p).toBe(false);
   });
 });
 

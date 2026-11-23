@@ -85,6 +85,16 @@ export interface CarParams {
 /** The player car's handling (the street racer: src/vehicles/cars/streetRacer.ts). */
 export const DEFAULT_CAR: CarParams = STREET_RACER.params;
 
+/**
+ * A car's params replaced by `next` in place (the object kept: the debug panel and the car hold it), the keys `next`
+ * hasn't got deleted first. (Only assigned over, the optional ones the last set had and this one hasn't stayed: a
+ * knob's longGrip or gearScale back at 0, the mountain road's traction control and drift assist on the highway after it.)
+ */
+export function replaceParams(target: CarParams, next: CarParams): void {
+  for (const k of Object.keys(target) as (keyof CarParams)[]) if (!(k in next)) delete target[k];
+  Object.assign(target, next);
+}
+
 export interface DriveInput {
   throttle: number; // 0..1
   brake: number; // 0..1
