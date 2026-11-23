@@ -48,7 +48,6 @@ it('planner', async () => {
     driver.brake = spec.ai.brake;
     // TRACKER_JSON=<archive.json>: a candidate network (training/out/tracker) instead of the car's own.
     driver.tracker = trackerFrom(process.env.TRACKER_JSON ? JSON.parse(readFileSync(process.env.TRACKER_JSON, 'utf8')).weights : spec.ai.tracker);
-    driver.recovery = trackerFrom(spec.ai.recovery);
     const st = driver.measure();
     // Traffic gives way to the AI car as it does the player in the game (TRAFFIC_BLIND=1: as in training).
     const sim = new TrainingSim([driver], seed, { spec, speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND,

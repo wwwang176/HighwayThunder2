@@ -47,11 +47,6 @@ export interface CarPerformance {
   /** Weights of its trained steering network (src/ai/netTracker.ts, training/tracker.train.ts); none: the plain tracker. */
   tracker?: number[];
   /**
-   * Weights of a second network of the same layout, trained for driving off after a crash: it drives instead of
-   * `tracker` standing across the road (ACROSS_YAW), so racing stays the tracker's alone. None: the tracker there too.
-   */
-  recovery?: number[];
-  /**
    * Weights of its mountain road driving network (src/ai/mountainNet.ts, training/mountainNet.train.ts): residual, on
    * the mountain driver's own control along its plan. None: that control alone.
    */

@@ -830,7 +830,6 @@ export class Game {
       this.aiDriver.latAccel = spec.ai.latAccel;
       this.aiDriver.brake = spec.ai.brake;
       this.aiDriver.tracker = trackerFrom(spec.ai.tracker);
-      this.aiDriver.recovery = trackerFrom(spec.ai.recovery);
     }
     const drawn = raceRivals(cars, Math.random); // (at random: drawn afresh each race, the same race again too)
     const rivals = this.mountain ? drawn.slice(0, this.skidpad ? 0 : MOUNTAIN_RIVALS) : drawn;

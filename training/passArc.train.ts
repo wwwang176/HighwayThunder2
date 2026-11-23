@@ -66,7 +66,6 @@ it('pass arc', async () => {
     driver.accel = spec.ai.accel;
     driver.latAccel = spec.ai.latAccel;
     driver.tracker = trackerFrom(spec.ai.tracker);
-    driver.recovery = trackerFrom(spec.ai.recovery);
     const drive = driver.drive.bind(driver);
     driver.drive = (self, traffic, p) => {
       clock += 1 / 120;

@@ -4,7 +4,6 @@ import { withMass } from './mass';
 import { MUSCLE_CAR_TRACKER } from './muscleCarTracker';
 import { MUSCLE_CAR_MOUNTAIN_NET } from './muscleCarMountainNet';
 import { MUSCLE_CAR_DRIFT_NET } from './muscleCarDriftNet';
-import { MUSCLE_CAR_RECOVERY } from './muscleCarRecovery';
 import { MUSCLE_CAR_COLLIDER } from './muscleCarCollider';
 
 /**
@@ -127,7 +126,6 @@ export const MUSCLE_CAR: CarSpec = {
       accel: [[0, 4.4], [10, 11.1], [20, 13.9], [30, 7.9], [40, 8.5], [50, 9.3], [60, 9], [70, 9.3], [80, 9.8], [90, 10.4], [100, 5.6], [110, 9.5], [120, 9.8], [130, 9.3], [140, 4.8], [150, 6.4], [160, 6.2], [170, 6.1], [180, 6], [190, 5.6], [200, 5.1], [210, 3.2], [220, 4.4], [230, 4], [240, 3.7], [250, 3.3]],
     },
     tracker: MUSCLE_CAR_TRACKER,
-    recovery: MUSCLE_CAR_RECOVERY,
     mountainTracker: MUSCLE_CAR_MOUNTAIN_NET,
     mountainDrift: MUSCLE_CAR_DRIFT_NET,
   },

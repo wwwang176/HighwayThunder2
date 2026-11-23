@@ -359,8 +359,7 @@ function raceOnce(b: Brain | null, seed: number, seconds: number) {
   const driver = new PlannerDriver();
   driver.accel = SPEC.ai.accel;
   driver.latAccel = SPEC.ai.latAccel;
-  driver.brake = SPEC.ai.brake; // (its own brake table and recovery network, as in the game and the benchmark)
-  driver.recovery = trackerFrom(SPEC.ai.recovery);
+  driver.brake = SPEC.ai.brake; // (its own brake table, as in the game and the benchmark)
   driver.tracker = b;
   const stats = driver.measure();
   const sim = new TrainingSim([driver], seed, { spec: SPEC, speedCap: 300 * KMH, trafficSeesCars: true, resetOnCrash: 60 * KMH, timeLimit: seconds, gameContact: GAME_CONTACT });

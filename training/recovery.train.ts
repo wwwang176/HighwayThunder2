@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { KMH, LANE_COUNT, PHYSICS_DT } from '../src/config';
@@ -6,10 +6,9 @@ import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { PlayerCar } from '../src/vehicles/playerCar';
 import { CARS } from '../src/vehicles/cars';
 import { selfStateOf } from '../src/ai/driver';
-import { baseSteer, trackerFrom } from '../src/ai/netTracker';
-import type { Brain } from '../src/ai/brain';
+import { baseSteer } from '../src/ai/netTracker';
 import { PLAN_STATS, planAt } from '../src/ai/planner';
-import { PlannerDriver, planPedals } from '../src/ai/plannerDriver';
+import { planPedals } from '../src/ai/plannerDriver';
 import { DRIVER, makeDriver, planStats } from './drivers';
 
 /**
@@ -32,19 +31,9 @@ const DEG = 180 / Math.PI;
 const PROBE_FLOOR = Number(process.env.PROBE_FLOOR ?? 0);
 /** PROBE_LEAD=0.4: ...only while it would not reach the road's heading within this many s at its yaw rate (then off it). */
 const PROBE_LEAD = Number(process.env.PROBE_LEAD ?? 0);
-/** PROBE_WRECK="6,0,0;-8,3.75,20": other cars (m ahead of it, m to the side of its start, m/s), seen only (not physical). */
-/**
- * PROBE_RECOVERY=<file.json> (training/out/tracker's archives: { weights }) - the network standing across the road
- * instead of the car's own (CarSpec.ai.recovery); =none: the tracker there too.
- */
-const PROBE_RECOVERY: Brain | null | undefined =
-  process.env.PROBE_RECOVERY === undefined
-    ? undefined
-    : process.env.PROBE_RECOVERY === 'none'
-      ? null
-      : trackerFrom(JSON.parse(readFileSync(process.env.PROBE_RECOVERY, 'utf8')).weights);
 /** PROBE_X=-13: where across it stands (m, x; -10..-20 the median's grass), not the middle lane. */
 const PROBE_X = process.env.PROBE_X === undefined ? NaN : Number(process.env.PROBE_X);
+/** PROBE_WRECK="6,0,0;-8,3.75,20": other cars (m ahead of it, m to the side of its start, m/s), seen only (not physical). */
 const PROBE_WRECK = (process.env.PROBE_WRECK ?? '').split(';').filter(Boolean).map((x) => x.split(',').map(Number));
 
 it('recovery', async () => {
@@ -77,7 +66,6 @@ it('recovery', async () => {
           car.postPhysics();
         }
         const driver = makeDriver(spec); // (DRIVER: the planner and driver - drivers.ts)
-        if (driver instanceof PlannerDriver && PROBE_RECOVERY !== undefined) driver.recovery = PROBE_RECOVERY;
         const start = car.yaw;
         const d0 = car.d;
         let braked = 0, planStop = 0, maxD = 0;

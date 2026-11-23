@@ -35,7 +35,6 @@ it('traffic pace', async () => {
       driver.latAccel = spec.ai.latAccel;
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      driver.recovery = trackerFrom(spec.ai.recovery);
       driver.accelScale = 1 + ENGINE;
       const sim = new TrainingSim([driver], seed, { spec, speedCap: top, trafficSeesCars: true, resetOnCrash: 60 / 3.6, gameContact: true });
       const g = sim.ghosts[0];

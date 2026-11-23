@@ -56,7 +56,6 @@ it('pass brake', async () => {
     driver.accel = spec.ai.accel;
     driver.latAccel = spec.ai.latAccel;
     driver.tracker = trackerFrom(spec.ai.tracker);
-    driver.recovery = trackerFrom(spec.ai.recovery);
     let planCause: Cause = 'plan';
     let lastPlan: unknown = null;
     let wasBraking = false;

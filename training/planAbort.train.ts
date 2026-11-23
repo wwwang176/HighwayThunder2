@@ -37,7 +37,6 @@ it('plan aborts', async () => {
     driver.accel = spec.ai.accel;
     driver.latAccel = spec.ai.latAccel;
     driver.tracker = trackerFrom(spec.ai.tracker);
-    driver.recovery = trackerFrom(spec.ai.recovery);
     let clock = 0;
     let last: { plan: Plan; t: number; boxes: Map<number, TrafficBox> } | null = null;
     const open: Abort[] = [];

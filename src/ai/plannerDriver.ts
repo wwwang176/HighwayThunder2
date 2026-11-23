@@ -84,7 +84,7 @@ export const DRIVER_TUNING = {
   netTracker: true,
   /**
    * Plan by direction of travel (coursePlanner.ts) - and across the road (a crash) follow those plans plainly
-   * (courseFollow.ts) in place of the recovery network. Off: the lattice planner and the networks. Off here for the
+   * (courseFollow.ts). Off: the lattice planner and the networks. Off here for the
    * training and benchmarks (as they were measured); the game turns it on (main.ts).
    */
   coursePlanner: false,
@@ -222,8 +222,6 @@ export class PlannerDriver implements Driver {
   brake: AccelTable | null = null;
   /** The car type's trained steering network (CarSpec.ai.tracker), used with DRIVER_TUNING.netTracker. */
   tracker: Brain | null = trackerFrom(STREET_RACER.ai.tracker);
-  /** Its network for standing across the road after a crash (CarSpec.ai.recovery); none: `tracker` there too. */
-  recovery: Brain | null = trackerFrom(STREET_RACER.ai.recovery);
   /** Engine boost on top (the rivals' rubber band): the plan and the pedals count on it. */
   accelScale = 1;
   /** Answers to requests made up to this clock time are thrown away (the car was moved since). */
@@ -291,15 +289,14 @@ export class PlannerDriver implements Driver {
     // The car type's network steers, and takes back some of the throttle (wheelspin, a sliding tail).
     let steer: number;
     let reverse = 0;
-    const brain = this.recovery && Math.abs(self.yaw) > ACROSS_YAW ? this.recovery : this.tracker;
     if (DRIVER_TUNING.coursePlanner && Math.abs(self.yaw) > ACROSS_YAW) {
       // Across the road (a crash): the plan by direction of travel followed plainly - the networks did not follow a
       // turn round (standing across the road 18/18 away so, 13-16/18 with the networks).
       steer = followSteer(this.plan, age, self, p);
       pedals.throttle *= tractionShare(self);
       if (pedals.brake > 0 && Math.abs(self.vLong) < STANDING) return { steer, throttle: 0, brake: 0, hold: true }; // (the brake would select reverse)
-    } else if (DRIVER_TUNING.netTracker && brain) {
-      const net = netDrive(brain, this.plan, age, self, p, pedals.throttle);
+    } else if (DRIVER_TUNING.netTracker && this.tracker) {
+      const net = netDrive(this.tracker, this.plan, age, self, p, pedals.throttle);
       steer = net.steer;
       pedals.throttle = net.throttle;
       if (net.across) pedals.brake = 0; // (across the road the throttle is the network's: no plan brakes it - one that

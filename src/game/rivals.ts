@@ -370,7 +370,6 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
         planner.latAccel = spec.ai.latAccel;
         planner.brake = spec.ai.brake;
         planner.tracker = trackerFrom(spec.ai.tracker);
-        planner.recovery = trackerFrom(spec.ai.recovery);
         driver = planner as unknown as D;
       }
       const base = this.setup ? this.setup.params(spec.params, spec) : spec.params;

@@ -118,7 +118,6 @@ it('boost lean', async () => {
           driver.latAccel = spec.ai.latAccel;
           driver.brake = spec.ai.brake;
           driver.tracker = trackerFrom(spec.ai.tracker);
-          driver.recovery = trackerFrom(spec.ai.recovery);
           driver.accelScale = 1 + b[0];
           let lastSteer = 0, steerSide = 0;
           const orig = driver.drive.bind(driver);

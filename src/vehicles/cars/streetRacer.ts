@@ -2,7 +2,6 @@ import type { CarSpec } from './types';
 import { STREET_RACER_TRACKER } from './streetRacerTracker';
 import { STREET_RACER_MOUNTAIN_NET } from './streetRacerMountainNet';
 import { STREET_RACER_DRIFT_NET } from './streetRacerDriftNet';
-import { STREET_RACER_RECOVERY } from './streetRacerRecovery';
 import { SUPERCAR_COLLIDER } from './supercarCollider';
 import { withMass } from './mass';
 
@@ -108,7 +107,6 @@ const SUPERCAR: CarSpec = {
       accel: [[0, 6.9], [10, 14.5], [20, 12.8], [30, 11.9], [40, 11.9], [50, 11.5], [60, 11.9], [70, 11.5], [80, 11.5], [90, 6.9], [100, 7.6], [110, 7.8], [120, 7.6], [130, 5.3], [140, 5.6], [150, 5.5], [160, 5.4], [170, 4.2], [180, 4], [190, 4], [200, 3.8], [210, 3.2], [220, 2.9], [230, 2.8], [240, 2.7], [250, 2.1], [260, 1.9], [270, 1.8], [280, 1.7], [290, 1.5]],
     },
     tracker: STREET_RACER_TRACKER,
-    recovery: STREET_RACER_RECOVERY,
     mountainTracker: STREET_RACER_MOUNTAIN_NET,
     mountainDrift: STREET_RACER_DRIFT_NET,
   },

@@ -4,7 +4,6 @@ import { withMass } from './mass';
 import { JDM_TRACKER } from './jdmTracker';
 import { JDM_MOUNTAIN_NET } from './jdmMountainNet';
 import { JDM_DRIFT_NET } from './jdmDriftNet';
-import { JDM_RECOVERY } from './jdmRecovery';
 import { JDM_COLLIDER } from './jdmCollider';
 
 /**
@@ -89,7 +88,6 @@ export const JDM_CAR: CarSpec = {
       accel: [[0, 5.6], [10, 12.3], [20, 10.8], [30, 10.4], [40, 9.3], [50, 8.5], [60, 8.8], [70, 8.5], [80, 8.5], [90, 4.2], [100, 5.6], [110, 5.6], [120, 5.5], [130, 3.3], [140, 3.9], [150, 3.8], [160, 3.7], [170, 2.5], [180, 2.6], [190, 2.5], [200, 2.4], [210, 1.7], [220, 1.6], [230, 1.5]],
     },
     tracker: JDM_TRACKER,
-    recovery: JDM_RECOVERY,
     mountainTracker: JDM_MOUNTAIN_NET,
     mountainDrift: JDM_DRIFT_NET,
   },
