@@ -34,7 +34,7 @@ import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
 import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { Hud } from '../ui/hud';
-import { HandlingInput } from '../vehicles/handling';
+import { HandlingInput, HEEL_TOE } from '../vehicles/handling';
 import { allTrafficModels, NpcVehicle } from '../vehicles/npcVehicle';
 import { BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
 import { NitroAi } from '../vehicles/nitro';
@@ -1880,13 +1880,15 @@ export class Game {
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);
     this.bodies.end();
-    // (Mid-upshift the engine is let go of: it sounds off the throttle. The intro's blip, as it is put on.)
+    // (Mid-upshift the engine is let go of: it sounds off the throttle. The intro's blip, as it is put on; a
+    // downshift's heel-and-toe blip, on the throttle.)
     const rev = this.player.showRev;
     const car = this.player.params;
     // (drawn through a bend in an intro: heard there instead - heardEngines, heardSkids)
     const drawn = !!this.player.showPose;
+    const own = this.player.gearbox.shifting ? 0 : this.lastInput.throttle;
     this.sound.setEngine(this.player.style, this.player.shownRpm, car.idleRpm, car.redline,
-      rev ? rev.throttle : this.player.gearbox.shifting ? 0 : this.lastInput.throttle, this.flow.phase !== 'title' && !drawn);
+      rev ? rev.throttle : this.player.blipping ? Math.max(HEEL_TOE.throttle, own) : own, this.flow.phase !== 'title' && !drawn);
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
