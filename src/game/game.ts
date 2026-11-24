@@ -516,6 +516,7 @@ export class Game {
     for (const m of allTrafficModels()) for (const lamps of PREWARM_LAMPS) this.bodies.add(m.key, m.template, ahead, lamps);
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);
+    for (const p of this.police?.list ?? []) p.car.addWheels(this.bodies);
     this.bodies.end();
     const hidden: THREE.Object3D[] = [];
     const culled: THREE.Object3D[] = [];
@@ -2011,6 +2012,7 @@ export class Game {
     for (const npc of this.npcs.values()) npc.addBodies(this.bodies);
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);
+    for (const p of this.police?.list ?? []) p.car.addWheels(this.bodies); // (their wheels: files', drawn as the cars')
     this.bodies.end();
     // (Mid-upshift the engine is let go of: it sounds off the throttle. The intro's blip, as it is put on; a
     // downshift's heel-and-toe blip, on the throttle.)
