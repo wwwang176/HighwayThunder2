@@ -18,6 +18,8 @@ export interface Rouser {
   reach: number;
 }
 const ONCOMING_FIRST_ID = 1_000_000;
+/** The game's traffic planned every this many physics steps (60 Hz: its drivers' choices; the bodies driven at 120) - the sims' too. */
+export const TRAFFIC_PLAN_EVERY = 2;
 
 /** One carriageway: its traffic planner, coordinate frame and direction relative to us. */
 export interface TrafficSide {

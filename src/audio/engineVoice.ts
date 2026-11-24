@@ -47,6 +47,8 @@ export class EngineVoice {
   private readonly rates: number[] = [];
   /** When it was last asked to sound (its volume above 0). */
   private quietSince = 0;
+  /** Every clip of its set in the bundle (any missing: silent). */
+  private readonly playable: boolean;
 
   constructor(ctx: BaseAudioContext, bank: Map<string, AudioBuffer>, kind: EngineKind, out: AudioNode) {
     this.ctx = ctx;
@@ -67,6 +69,8 @@ export class EngineVoice {
       return { buffer: bank.get(id)!, gain, src: null, silentSince: 0 };
     };
     this.layers = [...set.clips, set.limiter].map(layer);
+    // (a clip missing from the bundle - the catalog ahead of it, built apart: the set silent, not thrown on each frame)
+    this.playable = [...set.clips, set.limiter].every((id) => bank.has(id));
     this.offThrottle = set.offClips.every((id) => bank.has(id));
     if (this.offThrottle) for (let i = 0; i < set.clips.length; i++) this.layers.push(set.offClips[i] === set.clips[i] ? null : layer(set.offClips[i]));
   }
@@ -79,7 +83,7 @@ export class EngineVoice {
   update(rpm: number, idle: number, redline: number, throttle: number, volume: number, rateScale = 1, follow = THROTTLE_FOLLOW): void {
     // Every number into a sane range first (a body the physics blew up on gave rpm and speeds past what a float32
     // AudioParam holds: setting one threw, in the frame's loop). Its range broken: nothing changed.
-    if (!(Number.isFinite(idle) && Number.isFinite(redline) && redline > idle)) return;
+    if (!this.playable || !(Number.isFinite(idle) && Number.isFinite(redline) && redline > idle)) return;
     rpm = Number.isFinite(rpm) ? Math.min(Math.max(rpm, 0), redline * 1.5) : idle;
     throttle = Number.isFinite(throttle) ? Math.min(Math.max(throttle, 0), 1) : 0;
     volume = Number.isFinite(volume) ? Math.min(Math.max(volume, 0), 4) : 0;

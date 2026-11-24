@@ -4,7 +4,8 @@ import { beforeAll, describe, it, expect } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { selfStateOf } from '../src/ai/driver';
 import { touching } from '../src/ai/fitness';
-import { planAt, plan, Plan, PlanEgo, PreviousPlan } from '../src/ai/planner';
+import { coursePlan } from '../src/ai/coursePlanner';
+import { planAt, Plan, PlanEgo, PreviousPlan } from '../src/ai/planner';
 import { emergencyBrake, PlannerDriver, PlanSource } from '../src/ai/plannerDriver';
 import type { TrafficBox } from '../src/ai/sensors';
 import { KMH, PHYSICS_DT } from '../src/config';
@@ -58,7 +59,7 @@ class LateSource implements PlanSource {
   }
   request(stamp: number, ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null): void {
     this.requests++;
-    this.queue.push({ due: this.steps + this.delaySteps, stamp, plan: plan(ego, traffic, previous) });
+    this.queue.push({ due: this.steps + this.delaySteps, stamp, plan: coursePlan(ego, traffic, previous) });
   }
   take() {
     this.steps++;

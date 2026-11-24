@@ -9,9 +9,8 @@ import type { CarParams } from '../handling';
  * clear with (SelfState / PlanEgo halfWidth, halfLength).
  */
 export interface CarSpec {
+  /** Its name shown to the player: src/ui/i18n's, by this. */
   id: string;
-  /** Shown to the player. */
-  name: string;
   /** Body colour. */
   color: number;
   /** Body shape (src/vehicles/models.ts buildCar). */
@@ -47,11 +46,6 @@ export interface CarPerformance {
   mountain?: { latAccel: [kmh: number, accel: number][]; brake: [kmh: number, decel: number][]; accel?: [kmh: number, accel: number][] };
   /** Weights of its trained steering network (src/ai/netTracker.ts, training/tracker.train.ts); none: the plain tracker. */
   tracker?: number[];
-  /**
-   * Weights of a second network of the same layout, trained for driving off after a crash: it drives instead of
-   * `tracker` standing across the road (ACROSS_YAW), so racing stays the tracker's alone. None: the tracker there too.
-   */
-  recovery?: number[];
   /**
    * Weights of its mountain road driving network (src/ai/mountainNet.ts, training/mountainNet.train.ts): residual, on
    * the mountain driver's own control along its plan. None: that control alone.

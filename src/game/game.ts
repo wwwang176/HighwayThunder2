@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { store } from './storage';
 import Stats from 'stats.js';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
@@ -11,7 +12,7 @@ import { HEADLIGHTS } from '../vehicles/headlight';
 import { BodyInstances } from '../render/bodyInstances';
 import type { Plan } from '../ai/planner';
 import type GUI from 'lil-gui';
-import { CURVED_BEST_TIME_KEY, MAX_FRAME_DT, MAX_SUBSTEPS, MOUNTAIN_BEST_TIME_KEY, SKIDPAD_BEST_TIME_KEY, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
+import { MAX_FRAME_DT, MAX_SUBSTEPS, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH, type VehicleKind } from '../config';
 import { Centerline, randomRoad, STRAIGHT_ROAD } from '../road/centerline';
 import { boxToFrame, OUR_FRAME, RoadFrame, useRoad } from '../road/frame';
 import { Sound, IMPACT_PEAK, type SkidSource } from '../audio/sound';
@@ -28,13 +29,13 @@ import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
 import { CameraRig, type Look } from '../render/cameraRig';
 import { TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
-import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { TRAFFIC_PLAN_EVERY, TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
 import { pixelRatioFor, readQuality } from '../render/quality';
 import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
 import { laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { Hud } from '../ui/hud';
-import { HandlingInput, HEEL_TOE, replaceParams } from '../vehicles/handling';
+import { DriveInput, HEEL_TOE, replaceParams } from '../vehicles/handling';
 import { allTrafficModels, NpcVehicle } from '../vehicles/npcVehicle';
 import { BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
 import { NitroAi } from '../vehicles/nitro';
@@ -117,12 +118,10 @@ const TRAFFIC_AWAKE = 120;
  * 200 m each kept some 46 cars in full.
  */
 const RIVAL_AWAKE = 60;
-/** The traffic planned every this many physics steps (60 Hz: its drivers' choices; the bodies driven at 120). */
-const TRAFFIC_PLAN_EVERY = 2;
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
-const HOLD: HandlingInput = { throttle: 0, brake: 0, steer: 0, hold: true };
-const ROLL_OUT: HandlingInput = { throttle: 0, brake: 0.35, steer: 0 };
+const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
+const ROLL_OUT: DriveInput = { throttle: 0, brake: 0.35, steer: 0 };
 /** Every lamp state a traffic vehicle shows (brake lights dim and on, indicators off and on): for prewarm. */
 const PREWARM_LAMPS: VehicleLights[] = [
   { left: [], right: [], brake: [new THREE.Mesh(undefined, BRAKE_DIM)], third: [] },
@@ -261,7 +260,7 @@ export class Game {
   private readonly settings: SettingsPopup;
   readonly trafficSettings = { spacing: DEFAULT_SPACING };
   readonly trafficWorld: TrafficWorld;
-  /** Trained driver from public/ai/driver.json (null when none could be loaded). */
+  /** The AI's driver for the player's car (I): the course's planner driver (null: none yet). */
   aiDriver: Driver | null = null;
   /** The AI drives the player's car (toggled with I). */
   aiActive = false;
@@ -296,7 +295,7 @@ export class Game {
   private touched = new Set<number>();
   /** When each thing the player touched was last heard (race time, s): contactSound. */
   private contactSoundAt = new Map<string, number>();
-  private lastInput: HandlingInput = HOLD;
+  private lastInput: DriveInput = HOLD;
   /** The AI driving the player's car (I) uses the nitro as the rivals do. */
   private readonly playerNitroAi = new NitroAi();
   /** The player's gear last frame (a gear going in shakes the camera). */
@@ -338,13 +337,13 @@ export class Game {
   private leaving = false;
   private overlay!: IntroOverlay;
   /** Overrides keyboard input when set (used by automated checks). */
-  inputOverride: HandlingInput | null = null;
+  inputOverride: DriveInput | null = null;
   /** Debug: stop the real-time loop from advancing the simulation. */
   freeze = false;
 
   constructor(container: HTMLElement, uiRoot: HTMLElement, readonly physics: PhysicsWorld, opts: { mountain?: boolean; skidpad?: boolean } = {}) {
     this.uiRoot = uiRoot;
-    this.flow = new GameFlow(localStorage); // (its course's record and length: useCourse)
+    this.flow = new GameFlow(); // (its course's length: useCourse)
     physics.timestep = PHYSICS_DT;
     // (No antialiasing of its own: the picture's edges are smoothed in render/postFx.)
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -371,7 +370,7 @@ export class Game {
     this.sparks = new Sparks(this.scene);
     this.stats.dom.style.cssText = 'position:fixed;left:3.1vw;top:8.4vw;z-index:20;opacity:0.85;cursor:pointer'; // (under the HUD's time)
     document.body.appendChild(this.stats.dom);
-    setLang(loadSettings(localStorage, navigator.language).lang); // (the screens below are built in it)
+    setLang(loadSettings(store, navigator.language).lang); // (the screens below are built in it)
     this.hud = new Hud(uiRoot, this.flow, {
       onAgain: () => this.startRace(this.cars),
       onResume: () => this.togglePause(),
@@ -384,9 +383,10 @@ export class Game {
     this.settings = new SettingsPopup(uiRoot);
     this.settings.onQuality = (pr) => this.setQuality(pr);
     this.settings.onVolumes = (v) => this.setVolumes(v);
-    this.setVolumes(loadVolumes(localStorage));
+    this.setVolumes(loadVolumes(store));
     this.garage = new Garage(uiRoot, RIVAL_COLORS, (cars) => {
-      saveSelection(localStorage, cars);
+      // (?skidpad: its course - shown as the mountain road's - not kept: the next visit booted on the mountain road)
+      saveSelection(store, this.skidpad ? { ...cars, course: loadSelection(store).course } : cars);
       this.startRace(cars, true); // (another course: built as the race is set up, under its loading screen)
     }, this.settings);
     this.overlay = new IntroOverlay(uiRoot); // (over the garage: its fade covers it)
@@ -414,6 +414,10 @@ export class Game {
     document.addEventListener('visibilitychange', () => {
       this.music.setHidden(document.hidden);
       if (document.hidden && (this.flow.phase === 'racing' || this.flow.phase === 'countdown')) this.togglePause();
+      // (hidden in the intro, the garage, the finish: the sound stopped too - its frames stop, and the engines and
+      // squeals droned on at their last levels; back as it was, a pause's still stopped)
+      else if (document.hidden) this.sound.suspend(true);
+      else if (this.flow.phase !== 'paused') this.sound.suspend(false);
     });
     this.resetWorld();
     this.openGarage(true); // (the game opens on its title)
@@ -523,7 +527,9 @@ export class Game {
     const click = () => this.sound.uiClick();
     const enter = () => {
       if (document.activeElement instanceof HTMLButtonElement) return;
-      if (set.isOpen || (g.isOpen && !g.keysOpen) || menu()) click();
+      // (a menu's pick clicks its button - that click heard already: two at once, twice as loud)
+      const picks = !set.isOpen && (menu() || (g.isOpen && !g.keysOpen && g.resetAsking));
+      if (!picks && (set.isOpen || (g.isOpen && !g.keysOpen) || menu())) click();
       if (set.isOpen) return set.confirm();
       if (g.isOpen) {
         if (g.keysOpen) return;
@@ -584,9 +590,10 @@ export class Game {
       this.tryReset();
     });
     k.onPress('KeyM', () => {
-      const v = { ...loadVolumes(localStorage), muted: !this.sound.muted };
-      saveVolumes(localStorage, v);
-      this.setVolumes(v);
+      const muted = !this.sound.muted;
+      saveVolumes(store, { ...loadVolumes(store), muted });
+      // (the settings open: what is being tried there still heard - not the saved volumes)
+      this.setVolumes({ ...set.heardVolumes, muted });
     });
     k.onPress('KeyN', () => this.music.skip());
     k.onPress('KeyV', () => {
@@ -595,7 +602,8 @@ export class Game {
       this.endIntroShot(); // (in the countdown: the view switched seen at once, not after the intro's last shot)
     });
     k.onPress('KeyX', () => !g.isOpen && (this.highBeamOn = !this.highBeamOn));
-    k.onPress('KeyI', () => !g.isOpen && this.toggleAi());
+    // (not as a race is set up: its car's top speed kept then was the car's before it, put back on handing over)
+    k.onPress('KeyI', () => !g.isOpen && !this.starting && !this.loadingRace && this.toggleAi());
     k.onPress('KeyP', () => !g.isOpen && (this.showPlan = !this.showPlan));
     k.onPress('Backquote', () => (this.gui._hidden ? this.gui.show() : this.gui.hide()));
   }
@@ -634,7 +642,7 @@ export class Game {
     this.sound.hush(); // (the squeals, the nitro, the wind: at once, even from a pause - its clock not yet running again)
     this.hud.hide();
     // (its course the one the game is on: the saved one, or ?skidpad's, whatever was saved)
-    this.garage.open({ ...loadSelection(localStorage), course: this.mountain ? 'mountain' : 'highway' }, title);
+    this.garage.open({ ...loadSelection(store), course: this.mountain ? 'mountain' : 'highway' }, title);
   }
 
   /**
@@ -647,7 +655,7 @@ export class Game {
    * for the grid), after the finish, or paused (the same race again: the engine already running, no start-up).
    */
   startRace(cars?: CarSelection, fromGarage = false): void {
-    if (!(picksCars(this.flow.phase) || this.flow.phase === 'paused') || this.starting) return;
+    if (!(picksCars(this.flow.phase) || this.flow.phase === 'paused') || this.starting || this.leaving) return;
     this.starting = true;
     // (in the click or key itself: the browser lets the sound start only there; paused, the race's sound stays
     // stopped - silent through the fade and the loading - and comes back with the new race, setUpRace)
@@ -717,10 +725,13 @@ export class Game {
     // The sound back on (after a pause, faded in from silence; after the finish, its fade-away undone) with the new
     // race - not under the loading, where the old race's engine, frozen as it was paused, sounded on.
     // (the old race's engines, squeals, nitro and wind silenced: the new one's own from its first frame)
+    // (and the cues a pause froze mid-way - the green's impact, a crash - stopped: they played on into the new intro)
+    this.sound.quiet();
     this.sound.silenceEngine();
     this.sound.hush();
     this.sound.suspend(false);
     this.sound.bringBack();
+    this.hud.hide(); // (the old race's toast, frozen by the pause, played out over the new intro)
     this.beginIntro();
     this.overlay.fromBlack(START_FADE_IN);
   }
@@ -733,12 +744,12 @@ export class Game {
     const key = mountain ? `${INTRO_BAG_KEY}.mountain` : INTRO_BAG_KEY;
     let bag: IntroBag = { left: [], last: null };
     try {
-      bag = { ...bag, ...JSON.parse(localStorage.getItem(key) ?? '{}') };
+      bag = { ...bag, ...JSON.parse(store.getItem(key) ?? '{}') };
     } catch {
       // (unreadable: a fresh round)
     }
     const next = nextIntro(bag, Math.random, mountain ? MOUNTAIN_INTRO_KINDS : INTRO_KINDS);
-    localStorage.setItem(key, JSON.stringify(next.bag));
+    store.setItem(key, JSON.stringify(next.bag));
     this.intro = new Intro(next.kind, { camera: this.camera, player: this.player, rivals: this.rivals.list.map((r) => r.car), chase: this.rig.params, road: mountain ? this.roadLine : undefined });
     this.introOn = true;
     this.overlay.show(true);
@@ -817,7 +828,6 @@ export class Game {
       this.aiDriver.latAccel = spec.ai.latAccel;
       this.aiDriver.brake = spec.ai.brake;
       this.aiDriver.tracker = trackerFrom(spec.ai.tracker);
-      this.aiDriver.recovery = trackerFrom(spec.ai.recovery);
     }
     const drawn = raceRivals(cars, Math.random); // (at random: drawn afresh each race, the same race again too)
     const rivals = this.mountain ? drawn.slice(0, this.skidpad ? 0 : MOUNTAIN_RIVALS) : drawn;
@@ -854,6 +864,8 @@ export class Game {
   }
 
   togglePause(): void {
+    // (not as a race is being set up or left: restarted from the pause, it went on running, its flow never started anew)
+    if (this.starting || this.leaving) return;
     this.flow.togglePause();
     this.sound.suspend(this.flow.phase === 'paused');
   }
@@ -1006,7 +1018,7 @@ export class Game {
     this.skidpad = course === 'skidpad';
     this.mountain = course !== 'highway';
     this.courseLength = this.skidpad ? Infinity : this.mountain ? MOUNTAIN.length : ROAD_LENGTH;
-    this.flow.setCourse(this.skidpad ? SKIDPAD_BEST_TIME_KEY : this.mountain ? MOUNTAIN_BEST_TIME_KEY : CURVED_BEST_TIME_KEY, this.courseLength);
+    this.flow.length = this.courseLength;
     // Its own root in the scene (taken away whole); its sky and fog the scene's.
     const root = new THREE.Scene();
     this.courseRoot = root;
@@ -1140,7 +1152,7 @@ export class Game {
   }
 
   /** Debug: advance the simulation synchronously (independent of rAF throttling). */
-  simulate(seconds: number, input?: HandlingInput, render = true): void {
+  simulate(seconds: number, input?: DriveInput, render = true): void {
     const prev = this.inputOverride;
     if (input) this.inputOverride = input;
     const n = Math.round(seconds / PHYSICS_DT);
@@ -1149,12 +1161,9 @@ export class Game {
     if (render) this.render(PHYSICS_DT, 1);
   }
 
-  /** Hand the car to the trained AI, or take it back. */
+  /** Hand the car to the AI, or take it back (none before the first race is set up). */
   toggleAi(): void {
-    if (!this.aiDriver) {
-      this.hud.message(t('toast.noAi'));
-      return;
-    }
+    if (!this.aiDriver) return;
     this.aiActive = !this.aiActive;
     if (this.aiActive) {
       this.humanMaxSpeed = this.player.params.maxSpeed;
@@ -1171,13 +1180,13 @@ export class Game {
    * no more (driveCommand: its maxSpeed), and the AI aims at the speed it has - it rolls down to it, never brakes
    * for it (only for what is ahead).
    */
-  private aiInput(ai: Driver, limit: number, coast = false): HandlingInput {
+  private aiInput(ai: Driver, limit: number, coast = false): DriveInput {
     const input = this.aiDrive(ai, limit, coast);
     return { ...input, nitro: this.playerNitroAi.want(PHYSICS_DT, input.throttle, this.player.nitro) }; // its nitro by the rivals' rule
   }
 
   /** The AI's pedals and steering (no nitro); also its planning on the grid before the green (unused there). */
-  private aiDrive(ai: Driver, limit: number, coast = false): HandlingInput {
+  private aiDrive(ai: Driver, limit: number, coast = false): DriveInput {
     const cap = Math.min(limit, aiTopSpeed(this.aiSettings.speedCapKmh / 3.6, specOf(this.cars.player)));
     this.player.params.maxSpeed = cap;
     const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
@@ -1186,7 +1195,7 @@ export class Game {
     return ai.drive(selfStateOf(this.player, aim), seen, this.player.params);
   }
 
-  private currentInput(): HandlingInput {
+  private currentInput(): DriveInput {
     switch (this.flow.phase) {
       case 'racing':
         if (this.aiActive && this.aiDriver && !this.inputOverride) return this.aiInput(this.aiDriver, Infinity);

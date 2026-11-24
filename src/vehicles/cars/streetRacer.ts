@@ -2,14 +2,12 @@ import type { CarSpec } from './types';
 import { STREET_RACER_TRACKER } from './streetRacerTracker';
 import { STREET_RACER_MOUNTAIN_NET } from './streetRacerMountainNet';
 import { STREET_RACER_DRIFT_NET } from './streetRacerDriftNet';
-import { STREET_RACER_RECOVERY } from './streetRacerRecovery';
 import { SUPERCAR_COLLIDER } from './supercarCollider';
 import { withMass } from './mass';
 
 /** The supercar as tuned, at 1300 kg (it drives at 1500: STREET_RACER). */
 const SUPERCAR: CarSpec = {
   id: 'street-racer',
-  name: '超跑',
   color: 0xd62828,
   style: 'super',
   collider: SUPERCAR_COLLIDER, // its model's body up to the hood (and the wing at the tail), and its cabin
@@ -18,7 +16,6 @@ const SUPERCAR: CarSpec = {
     comY: -0.25, // centre of mass 0.3 m up: at 0.5 m it rolled over turning hard at 280 km/h
     comFwd: -0.2, // mid-engined (behind the cabin): 42 % of the weight on the front tyres, 58 % on the rear (0.08 x the 2.5 m wheelbase)
     power: 435_000, // 1.5x (was 290 kW): a street racer, not a road car
-    maxDriveForce: 14_250,
     engineTorque: 600,
     redline: 7500,
     idleRpm: 900,
@@ -39,7 +36,6 @@ const SUPERCAR: CarSpec = {
     downforceK: 0.4, // the real part (presses the springs); most of the aero grip is aeroGrip
     wheelbase: 2.5, // its model's
     maxSteer: 0.55,
-    latAccelLimit: 55,
     steerRise: 6,
     steerFall: 9,
     throttleRise: 20,
@@ -70,7 +66,6 @@ const SUPERCAR: CarSpec = {
     // diff locking it all (all of it, steady steering 60-200 km/h up to 8.9 % quicker; half, 4.3 %).
     lsdTurnFree: 0.1,
     counterSteer: 0.8,
-    steerSlowdownSpeed: Infinity,
     escGain: 9000,
     escMaxTorque: 12000,
   },
@@ -112,7 +107,6 @@ const SUPERCAR: CarSpec = {
       accel: [[0, 6.9], [10, 14.5], [20, 12.8], [30, 11.9], [40, 11.9], [50, 11.5], [60, 11.9], [70, 11.5], [80, 11.5], [90, 6.9], [100, 7.6], [110, 7.8], [120, 7.6], [130, 5.3], [140, 5.6], [150, 5.5], [160, 5.4], [170, 4.2], [180, 4], [190, 4], [200, 3.8], [210, 3.2], [220, 2.9], [230, 2.8], [240, 2.7], [250, 2.1], [260, 1.9], [270, 1.8], [280, 1.7], [290, 1.5]],
     },
     tracker: STREET_RACER_TRACKER,
-    recovery: STREET_RACER_RECOVERY,
     mountainTracker: STREET_RACER_MOUNTAIN_NET,
     mountainDrift: STREET_RACER_DRIFT_NET,
   },

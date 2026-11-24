@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { createBrain } from '../src/ai/brain';
-import { BRAIN_LAYERS, DEFAULT_EVO, nextGeneration } from '../src/ai/evolution';
+import { DEFAULT_EVO, nextGeneration } from '../src/ai/evolution';
+import { TRACKER_LAYERS } from '../src/ai/netTracker';
 import { mulberry32 } from '../src/ai/rng';
 
 const population = (n: number, seed = 1) => {
   const rng = mulberry32(seed);
-  return Array.from({ length: n }, () => createBrain(BRAIN_LAYERS, rng));
+  return Array.from({ length: n }, () => createBrain(TRACKER_LAYERS, rng));
 };
 
 describe('nextGeneration', () => {

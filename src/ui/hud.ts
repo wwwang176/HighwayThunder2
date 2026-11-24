@@ -214,7 +214,7 @@ export class Hud {
           <div class="main" data-id="fMain">
             <div class="place" data-id="fPlaceBox"><div class="hexo hex"><div class="hexi hex"><span class="p num" data-id="fPlace"></span></div></div><span class="lbl">Position</span></div>
             <div class="time">
-              <span class="lbl">Finish time</span><span class="lbl best" data-id="fBest">New best</span>
+              <span class="lbl">Finish time</span>
               <div class="num lean v" data-id="finishTime"></div>
               <div class="rows">
                 <div><span class="lbl">Near miss</span><b class="num" data-id="fNear"></b></div>
@@ -412,7 +412,6 @@ export class Hud {
       }
       if (phase === 'finished') {
         this.el.finishTime.innerHTML = timeHtml(flow.finishTime ?? 0);
-        this.el.fBest.style.display = flow.isBest ? '' : 'none';
         this.el.fPlaceBox.style.display = many ? '' : 'none';
         this.el.fMain.classList.toggle('solo', !many);
         this.el.fPlace.innerHTML = `${f.place}<small>/${f.racers.length}</small>`;

@@ -1,15 +1,14 @@
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PLAN_STATS, PLANNER, planAt } from '../src/ai/planner';
+import { PLANNER, planAt } from '../src/ai/planner';
 import { COURSE, COURSE_STATS } from '../src/ai/coursePlanner';
 import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
 import { TrainingSim } from '../src/ai/trainingSim';
-import { LANE_TUNING } from '../src/ai/laneController';
 import { laneAt, laneCenter } from '../src/road/coords';
 import { LANE_COUNT, ROAD_HALF_WIDTH } from '../src/config';
 import { CARS } from '../src/vehicles/cars';
-import { trackerFrom } from '../src/ai/netTracker';
+import { TRACK_TUNING, trackerFrom } from '../src/ai/netTracker';
 
 const pct = (xs: number[], p: number) => {
   if (!xs.length) return NaN;
@@ -31,7 +30,7 @@ it('planner', async () => {
   if (process.env.EMERGENCY_FROM) DRIVER_TUNING.emergencyFrom = Number(process.env.EMERGENCY_FROM);
   // DRIVER_JSON='{"pathAgree":99}': the driver's settings changed without editing the code.
   if (process.env.DRIVER_JSON) Object.assign(DRIVER_TUNING, JSON.parse(process.env.DRIVER_JSON));
-  if (process.env.LANE_K) LANE_TUNING.k = Number(process.env.LANE_K); // the tracker's pull back onto the plan (1/s)
+  if (process.env.LANE_K) TRACK_TUNING.k = Number(process.env.LANE_K); // the tracker's pull back onto the plan (1/s)
   if (process.env.NET_TRACKER) DRIVER_TUNING.netTracker = process.env.NET_TRACKER !== '0'; // 0: the plain tracker, not the car's trained network
   await RAPIER.init();
   const out: string[] = [];
@@ -48,7 +47,6 @@ it('planner', async () => {
     driver.brake = spec.ai.brake;
     // TRACKER_JSON=<archive.json>: a candidate network (training/out/tracker) instead of the car's own.
     driver.tracker = trackerFrom(process.env.TRACKER_JSON ? JSON.parse(readFileSync(process.env.TRACKER_JSON, 'utf8')).weights : spec.ai.tracker);
-    driver.recovery = trackerFrom(spec.ai.recovery);
     const st = driver.measure();
     // Traffic gives way to the AI car as it does the player in the game (TRAFFIC_BLIND=1: as in training).
     const sim = new TrainingSim([driver], seed, { spec, speedCap: Number(process.env.CAP_KMH ?? 300) / 3.6, trafficSeesCars: !process.env.TRAFFIC_BLIND,
@@ -69,11 +67,11 @@ it('planner', async () => {
     if (trace) {
       const orig = driver.drive.bind(driver);
       driver.drive = (self, traffic, p) => {
-        const c0 = { ...COURSE_STATS }, l0 = { ...PLAN_STATS }, was = driver.plan, ageBefore = driver.planAge;
+        const c0 = { ...COURSE_STATS }, was = driver.plan, ageBefore = driver.planAge;
         const out = orig(self, traffic, p);
         stepN++;
         if (driver.plan && driver.plan !== was) {
-          planKind = COURSE_STATS.reused > c0.reused ? 'U' : COURSE_STATS.fallback > c0.fallback || PLAN_STATS.fallback > l0.fallback ? 'F' : COURSE_STATS.relaxed > c0.relaxed || PLAN_STATS.relaxed > l0.relaxed ? 'R' : 'N';
+          planKind = COURSE_STATS.reused > c0.reused ? 'U' : COURSE_STATS.fallback > c0.fallback ? 'F' : COURSE_STATS.relaxed > c0.relaxed ? 'R' : 'N';
           const end = driver.plan.points[driver.plan.points.length - 1].t;
           planCount[planKind]++;
           if (planKind !== 'F' && end < 7.5) planCount.short++;
@@ -168,10 +166,8 @@ it('planner', async () => {
     `tracker alone (off the plan it follows, now; p50 / p95 / max, m): moving ${f(pct(all.nowMoving, 0.5))} / ${f(pct(all.nowMoving, 0.95))} / ${f(pct(all.nowMoving, 1))}` +
       `, holding ${f(pct(all.nowHolding, 0.5))} / ${f(pct(all.nowHolding, 0.95))} / ${f(pct(all.nowHolding, 1))}`,
   );
-  const plans = PLAN_STATS.normal + PLAN_STATS.relaxed + PLAN_STATS.fallback;
-  out.push(`plans: ${plans}, relaxed ${Math.round((100 * PLAN_STATS.relaxed) / plans)}%, boxed-in fallback ${Math.round((100 * PLAN_STATS.fallback) / plans)}%, ${(PLAN_STATS.ms / plans).toFixed(1)} ms a plan (slowest ${PLAN_STATS.slowest.toFixed(0)})`);
   const cp = COURSE_STATS.normal + COURSE_STATS.relaxed + COURSE_STATS.fallback;
-  if (cp) out.push(`course plans: ${cp}, reused ${COURSE_STATS.reused}, relaxed ${Math.round((100 * COURSE_STATS.relaxed) / cp)}%, fallback ${Math.round((100 * COURSE_STATS.fallback) / cp)}%, ${(COURSE_STATS.ms / cp).toFixed(1)} ms a plan`);
+  if (cp) out.push(`plans: ${cp}, reused ${COURSE_STATS.reused}, relaxed ${Math.round((100 * COURSE_STATS.relaxed) / cp)}%, fallback ${Math.round((100 * COURSE_STATS.fallback) / cp)}%, ${(COURSE_STATS.ms / cp).toFixed(1)} ms a plan`);
   const sa = all.speedAtOverride;
   out.push(`at emergency brake: speed over plan p50 ${f(pct(sa, 0.5))} m/s, faster than plan ${Math.round((100 * sa.filter((x) => x > 0).length) / Math.max(1, sa.length))}% of the time`);
   process.stdout.write(out.join('\n') + '\n');

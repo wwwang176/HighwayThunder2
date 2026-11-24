@@ -28,15 +28,6 @@ export const COUNTDOWN_SECONDS = 3;
 export const WRECK_LIFETIME = 12;
 export const MAX_WRECKS = 12;
 
-/** The straight road's best time (no longer raced: its record left as it was; GameFlow's default, the tests'). */
-export const BEST_TIME_KEY = 'highwayThunder2.bestTime.5km'; // per race length: 10 km times are not 5 km records
-/** The curved road's best time (its bends at random each race): not a straight road's record. */
-export const CURVED_BEST_TIME_KEY = 'highwayThunder2.bestTime.5km-curve';
-/** The mountain road's best time (laid out at random each race). */
-export const MOUNTAIN_BEST_TIME_KEY = 'highwayThunder2.bestTime.mountain';
-/** The drift practice ground's (?skidpad): its own, not the mountain road's. */
-export const SKIDPAD_BEST_TIME_KEY = 'highwayThunder2.bestTime.skidpad';
-
 export type VehicleKind = 'car' | 'truck' | 'container';
 
 export interface IdmParams {
@@ -58,10 +49,6 @@ export interface VehicleSpec {
   allowedLanes: number[];
   idm: Omit<IdmParams, 'v0'>;
   politenessRange: [number, number];
-  // container only
-  cabLength?: number;
-  trailerLength?: number;
-  trailerMass?: number;
 }
 
 export const VEHICLE_SPECS: Record<VehicleKind, VehicleSpec> = {
@@ -101,8 +88,6 @@ export const VEHICLE_SPECS: Record<VehicleKind, VehicleSpec> = {
     allowedLanes: [2, 3],
     idm: { T: 1.9, s0: 3.5, a: 0.7, b: 1.8 },
     politenessRange: [0.4, 0.7],
-    cabLength: 6.29,
-    trailerLength: 12.5,
-    trailerMass: 16000,
+    // (its cab's and trailer's own lengths and the trailer's mass: vehicles/npcVehicle)
   },
 };

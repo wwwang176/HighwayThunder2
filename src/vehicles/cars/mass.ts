@@ -4,7 +4,6 @@ import type { CarParams } from '../handling';
 const WITH_MASS = [
   'power',
   'engineTorque',
-  'maxDriveForce',
   'reverseForce',
   'brakeForceMax',
   'dragK',

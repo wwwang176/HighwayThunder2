@@ -1,4 +1,4 @@
-import { plan, PLANNER } from './planner';
+import { PLANNER } from './planner';
 import { coursePlan } from './coursePlanner';
 import type { PlanRequest, PlanAnswer } from './workerPlanSource';
 
@@ -8,5 +8,5 @@ const ctx = self as unknown as { onmessage: ((e: MessageEvent<PlanRequest>) => v
 ctx.onmessage = (e) => {
   const r = e.data;
   Object.assign(PLANNER, r.settings); // tuned in the game's panel
-  ctx.postMessage({ stamp: r.stamp, plan: (r.course ? coursePlan : plan)(r.ego, r.traffic, r.previous) });
+  ctx.postMessage({ stamp: r.stamp, plan: coursePlan(r.ego, r.traffic, r.previous) });
 };

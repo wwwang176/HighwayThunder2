@@ -2,7 +2,7 @@ import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { selfStateOf } from '../src/ai/driver';
-import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
+import { PlannerDriver } from '../src/ai/plannerDriver';
 import { mulberry32 } from '../src/ai/rng';
 import { KMH, PHYSICS_DT, ROAD_LENGTH } from '../src/config';
 import { PLAYER_BOX_ID, RaceView, RIVAL_TUNING, Rivals } from '../src/game/rivals';
@@ -88,7 +88,7 @@ function run(seed: number, rivalId: string, kmh: number): Run {
   const playerObstacle = (frame = OUR_FRAME) => {
     const t = player.body.translation();
     const lv = player.body.linvel();
-    const f = OUR_FRAME.forwardWorld(player.yaw);
+    const f = OUR_FRAME.forwardWorld(player.yaw, player.s);
     return { ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: PLAYER_W, l: PLAYER_L, vx: lv.x, vz: lv.z }), id: PLAYER_BOX_ID, isPlayer: true };
   };
   let time = 0;
@@ -147,7 +147,6 @@ function run(seed: number, rivalId: string, kmh: number): Run {
 
 it('catch-up', async () => {
   await RAPIER.init();
-  DRIVER_TUNING.coursePlanner = true; // (the game's)
   const lines: string[] = [];
   for (const id of CAR_IDS) {
     const top = CARS[id].params.maxSpeed / KMH;

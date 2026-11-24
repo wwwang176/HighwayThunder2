@@ -110,12 +110,8 @@ describe('carSelection', () => {
     for (const id of r.rivals) expect(PICKABLE).toContain(id);
   });
 
-  it('three cards, all pickable, each with acceleration, top speed and cornering', () => {
-    expect(CAR_CARDS.map((c) => [c.name, c.pickable, c.stats.length])).toEqual([
-      ['超跑', true, 3],
-      ['肌肉車', true, 3],
-      ['改裝車', true, 3],
-    ]);
+  it('three cards, the pickable cars, each with acceleration, top speed and cornering', () => {
+    expect(CAR_CARDS.map((c) => [c.id, c.stats.length])).toEqual(PICKABLE.map((id) => [id, 3]));
   });
 });
 

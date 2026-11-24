@@ -5,10 +5,9 @@ import { KMH, PHYSICS_DT } from '../src/config';
 import { laneCenter } from '../src/road/coords';
 import { selfStateOf } from '../src/ai/driver';
 import { baseSteer } from '../src/ai/netTracker';
-import { PLANNER } from '../src/ai/planner';
 import { NITRO } from '../src/vehicles/nitro';
 import { tuned, type TuneCal, type Tuning } from '../src/vehicles/tuning';
-import { movePlan } from './trackerEval';
+import { MOVE, movePlan } from './trackerEval';
 import { openGround } from './openGround';
 
 /**
@@ -191,7 +190,7 @@ export function measure(specId: string, t: Tuning, cal: TuneCal = {}, only: stri
     m.lane = NaN;
     while (time < 5) {
       const self = selfStateOf(c, cap);
-      if (!plan || time - madeAt >= PLANNER.step - 1e-9) {
+      if (!plan || time - madeAt >= MOVE.step - 1e-9) {
         plan = movePlan(self.s, self.d, self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw), Math.max(5, self.vLong), target, cap);
         madeAt = time;
       }

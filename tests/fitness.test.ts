@@ -1,27 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { fitness, FITNESS, hitsTraffic, isOffRoad, touching } from '../src/ai/fitness';
+import { hitsTraffic, isOffRoad, touching } from '../src/ai/fitness';
 import { laneCenter } from '../src/road/coords';
-import { ROAD_LENGTH } from '../src/config';
-
-describe('fitness', () => {
-  it('earlier finishes beat later ones, and any finish beats not finishing', () => {
-    const f150 = fitness({ distance: ROAD_LENGTH, crashed: false, finishTime: FITNESS.timeLimit * 0.5 });
-    const f200 = fitness({ distance: ROAD_LENGTH, crashed: false, finishTime: FITNESS.timeLimit * 0.8 });
-    const none = fitness({ distance: ROAD_LENGTH - 1, crashed: false, finishTime: null });
-    expect(f150).toBeGreaterThan(f200);
-    expect(f200).toBeGreaterThan(none);
-  });
-
-  it('driving off and crashing early still beats not moving at all', () => {
-    expect(fitness({ distance: 250, crashed: true, finishTime: null })).toBeGreaterThan(fitness({ distance: 5, crashed: false, finishTime: null }));
-    expect(fitness({ distance: 40, crashed: true, finishTime: null })).toBeGreaterThan(0);
-  });
-
-  it('crashing costs about a kilometre', () => {
-    expect(fitness({ distance: 5000, crashed: false, finishTime: null })).toBeGreaterThan(fitness({ distance: 5800, crashed: true, finishTime: null }));
-    expect(fitness({ distance: 7000, crashed: true, finishTime: null })).toBeGreaterThan(fitness({ distance: 5000, crashed: false, finishTime: null }));
-  });
-});
 
 describe('crash rules', () => {
   it('leaving our pavement counts', () => {
@@ -51,13 +30,6 @@ describe('crash rules', () => {
     expect(touching(0, 0, 0.17, t).length).toBe(1); // turned the other way (moving right) the tail swings left: into it
     const level = [{ s: 0, dMin: -3, dMax: bodyLeft + 0.1, v: 20, length: 4.4 }]; // beside the nose corner: touching
     expect(touching(0, 0, yaw, level).length).toBe(1);
-  });
-
-  it('light contacts cost a little each, a crash a lot', () => {
-    const clean = fitness({ distance: 5000, crashed: false, finishTime: null });
-    const twice = fitness({ distance: 5000, crashed: false, finishTime: null, contacts: 2 });
-    expect(twice).toBe(clean - 2 * FITNESS.contactPenalty);
-    expect(fitness({ distance: 5000, crashed: true, finishTime: null })).toBeLessThan(twice);
   });
 
   it('lists what the car is touching', () => {

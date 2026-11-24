@@ -41,7 +41,7 @@ it('start: who pulls which way', async () => {
     const playerObstacle = (frame = OUR_FRAME) => {
       const t = player.body.translation();
       const v = player.body.linvel();
-      const f = OUR_FRAME.forwardWorld(player.yaw);
+      const f = OUR_FRAME.forwardWorld(player.yaw, player.s);
       return { ...boxToFrame(frame, { x: t.x, z: t.z, fx: f.x, fz: f.z, w: PLAYER_W, l: PLAYER_L, vx: v.x, vz: v.z }), id: PLAYER_BOX_ID, isPlayer: true };
     };
     let time = 0;

@@ -5,25 +5,35 @@ import { PlayerCar } from '../src/vehicles/playerCar';
 import { CARS } from '../src/vehicles/cars';
 import type { Brain } from '../src/ai/brain';
 import { selfStateOf } from '../src/ai/driver';
-import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
-import { lateralTurn, maxAccel, Plan, planAt, PLANNER } from '../src/ai/planner';
+import { baseSteer, netDrive } from '../src/ai/netTracker';
+import { type AccelTable, maxAccel, Plan, planAt, PLANNER } from '../src/ai/planner';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { planPedals, PlannerDriver } from '../src/ai/plannerDriver';
-import { PhysicsWorld } from '../src/physics/physicsWorld';
 import type { Rng } from '../src/ai/rng';
 import { openGround } from './openGround';
 
 /**
- * The tracker training's exams (training/tracker.train.ts): its settings, the open-ground scenarios, the crash
- * aftermath, the race - run in the training itself and in its worker threads (trackerWorker.ts) alike. Settings come
- * from the environment (a worker thread has the same).
+ * The tracker training's exams (training/tracker.train.ts): its settings, the open-ground scenarios, the race - run
+ * in the training itself and in its worker threads (trackerWorker.ts) alike. Settings come from the environment (a
+ * worker thread has the same).
  */
 
 /** Physics and the planner set up as the training has them (once a thread). */
 export async function initExams(): Promise<void> {
   await RAPIER.init();
-  Object.assign(PLANNER, { step: 0.25, cellsPerLane: 8, maxLateral: 6, latGrip: 1 });
   if (process.env.PLANNER_JSON) Object.assign(PLANNER, JSON.parse(process.env.PLANNER_JSON));
+}
+
+/**
+ * The open-ground scenarios' plans (movePlan): a point every `step` s on positions `cellsPerLane` a lane across, at
+ * most `maxLateral` cells a step sideways, the change in that from one step to the next what `latGrip` of the car's
+ * cornering grip allows; slowing at `softBrake` m/s².
+ */
+export const MOVE = { step: 0.25, cellsPerLane: 8, maxLateral: 6, latGrip: 1, softBrake: 3 };
+
+/** Most change in the sideways move from one step to the next (cells a step) at speed `v`: `latGrip` of the car's grip (at least 1). */
+function lateralTurn(v: number, cell: number, latAccel: AccelTable): number {
+  return Math.max(1, Math.floor((MOVE.latGrip * maxAccel(v, latAccel) * MOVE.step * MOVE.step) / cell + 1e-6));
 }
 
 export const SPEC = CARS[process.env.CAR ?? 'street-racer'];
@@ -36,20 +46,6 @@ export const VALIDATION = 8;
 export const CHATTER = 0.002; // cost per unit of wheel input change per step
 export const SPIN_SLIP = 0.35; // rad of body slip (cornering.train.ts) or...
 export const SPIN_YAW = 0.7; // ...heading off the road: spun
-export const RECOVERY = Number(process.env.RECOVERY ?? 1); // a generation
-export const RECOVERY_WEIGHT = Number(process.env.RECOVERY_WEIGHT ?? 0.3);
-export const RECOVERY_S = 8;
-export const RECOVERY_VALIDATION = (process.env.RECOVERY_VALIDATION ?? '60,-60,120,-120').split(',').map(Number); // deg off the road's heading
-/** ...each at each of these (x, m across: the lanes' centres +-1.875, +-5.625; the median's grass -10..-20). */
-export const RECOVERY_VALIDATION_X = (process.env.RECOVERY_VALIDATION_X ?? '1.875').split(',').map(Number);
-/** Where across a generation's crash leaves it (x, m, from..to): by default always the same lane's centre. */
-export const RECOVERY_X_FROM = Number(process.env.RECOVERY_X_FROM ?? 1.875);
-export const RECOVERY_X_TO = Number(process.env.RECOVERY_X_TO ?? RECOVERY_X_FROM);
-export const AWAY_YAW = (15 * Math.PI) / 180;
-export const AWAY_V = 40 * KMH;
-export const AWAY_HOLD = 1; // s
-export const DONUT = 4 * Math.PI; // rad turned in all
-export const NOT_AWAY = RECOVERY_S + 4;
 export const LAG_AFTER = 0.75; // s after a plan its position is checked (as the benchmark's tracking)
 export const LAG_WEIGHT = Number(process.env.LAG_WEIGHT ?? 1);
 export const DRIVE_GUARD = Number(process.env.DRIVE_GUARD ?? 20);
@@ -128,17 +124,16 @@ export const speedAt = (sc: Scenario, t: number) => {
 };
 
 /**
- * A plan from (s, d, vD) at speed v toward lateral `target` the way the planner moves: whole cells
- * a step, the change in sideways move each step within what the car's grip allows (`lateralTurn`),
- * as fast as it can while still able to stop on the target.
+ * A plan from (s, d, vD) at speed v toward lateral `target` (MOVE): whole cells a step, the change in sideways move
+ * each step within what the car's grip allows (`lateralTurn`), as fast as it can while still able to stop on the target.
  */
 export function movePlan(s: number, d: number, vD: number, v: number, target: number, vTarget = v): Plan {
-  const dt = PLANNER.step;
-  const cell = LANE_WIDTH / PLANNER.cellsPerLane;
-  const turn = Math.min(lateralTurn(v, dt, cell, SPEC.ai.latAccel), 6);
-  const maxLat = PLANNER.maxLateral;
+  const dt = MOVE.step;
+  const cell = LANE_WIDTH / MOVE.cellsPerLane;
+  const turn = Math.min(lateralTurn(v, cell, SPEC.ai.latAccel), 6);
+  const maxLat = MOVE.maxLateral;
   let lat = Math.max(-maxLat, Math.min(maxLat, (vD * dt) / cell));
-  const first = laneCenter(0) - 2 * cell * PLANNER.cellsPerLane; // any cell boundary works: positions are relative
+  const first = laneCenter(0) - 2 * cell * MOVE.cellsPerLane; // any cell boundary works: positions are relative
   let c = Math.round((d - first) / cell);
   const goal = Math.round((target - first) / cell);
   // Cells still covered while slowing from `m` a step to a stop.
@@ -151,10 +146,10 @@ export function movePlan(s: number, d: number, vD: number, v: number, target: nu
   let speed = v;
   let along = s;
   for (let k = 1; k <= Math.round(3 / dt); k++) {
-    // Toward the target speed: flat out up, the planner's soft brake down.
+    // Toward the target speed: flat out up, softBrake down.
     const dv = vTarget - speed;
     const was = speed;
-    speed += dv > 0 ? Math.min(dv, maxAccel(speed, SPEC.ai.accel) * dt) : Math.max(dv, -PLANNER.softBrake * dt);
+    speed += dv > 0 ? Math.min(dv, maxAccel(speed, SPEC.ai.accel) * dt) : Math.max(dv, -MOVE.softBrake * dt);
     along += ((was + speed) / 2) * dt;
     const rest = goal - c;
     let best = NaN;
@@ -236,7 +231,6 @@ export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepEr
           const net = netDrive(r.brain, r.plan, age, self, r.car.params, pedals.throttle);
           steer = net.steer;
           pedals.throttle = net.throttle;
-          if (net.across) pedals.brake = 0; // (as PlannerDriver)
         } else steer = baseSteer(r.plan, age, self, r.car.params);
         r.car.prePhysics({ steer, ...pedals }, PHYSICS_DT);
         r.cost += CHATTER * Math.abs(steer - r.lastSteer);
@@ -249,7 +243,7 @@ export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepEr
         const age = t + PHYSICS_DT - r.madeAt;
         const pts = r.plan!.points;
         // Off the plan now (linear between its points).
-        const k = Math.min(pts.length - 2, Math.floor(age / PLANNER.step));
+        const k = Math.min(pts.length - 2, Math.floor(age / MOVE.step));
         const u = Math.min(1, (age - pts[k].t) / (pts[k + 1].t - pts[k].t));
         const err = r.car.d - (pts[k].d + (pts[k + 1].d - pts[k].d) * u);
         const w = sc.v === 0 && t < LAUNCH_S ? LAUNCH_WEIGHT : 1; // (a launch's first seconds)
@@ -279,88 +273,12 @@ export function evaluate(brains: (Brain | null)[], scenarios: Scenario[], keepEr
   return { cost: runs.map((r) => r.cost / scenarios.length), errs: runs.map((r) => r.errs), lags: runs.map((r) => r.lags), launch: runs.map((r) => r.launch / scenarios.length) };
 }
 
-/** A crash's aftermath: how far off the road's heading (rad, either way) it stands. */
-export const recoveryHeading = (rng: Rng) => ((rng() < 0.5 ? -1 : 1) * (30 + rng() * 120) * Math.PI) / 180;
-
-/** Where a crash left it: heading off the road's (rad) and where across the road (x, m). */
-export interface RecoveryStart {
-  yaw: number;
-  x: number;
-}
-
-/** A generation's crash: a heading, and somewhere between RECOVERY_X_FROM and _TO. */
-export function recoveryStart(rng: Rng): RecoveryStart {
-  const yaw = recoveryHeading(rng);
-  return { yaw, x: RECOVERY_X_TO > RECOVERY_X_FROM ? RECOVERY_X_FROM + rng() * (RECOVERY_X_TO - RECOVERY_X_FROM) : RECOVERY_X_FROM };
-}
-
-/**
- * Every brain (and the plain tracker for null) driving off from standing across the road at each of `starts`
- * (a heading, a place across), on the road with its rails, with the game's planner (PlannerDriver): its cost per
- * brain, the mean of the starts'.
- */
-export function recoveryCost(brains: (Brain | null)[], starts: RecoveryStart[]): number[] {
-  const physics = PhysicsWorld.createSync();
-  physics.timestep = PHYSICS_DT;
-  const cars = brains.map(() => new PlayerCar(physics, null, { spec: SPEC }));
-  const cap = SPEC.params.maxSpeed;
-  const cost = brains.map(() => 0);
-  const lane = Math.floor(LANE_COUNT / 2);
-  for (const { yaw: a, x } of starts) {
-    for (const car of cars) {
-      car.body.setEnabled(true);
-      car.resetTo(100, lane, 0);
-      car.body.setTranslation({ ...car.body.translation(), x }, true);
-      car.body.setRotation({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) }, true);
-      car.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    }
-    for (let i = 0; i < Math.round(0.5 / PHYSICS_DT); i++) { // settled on its springs, standing
-      for (const car of cars) car.prePhysics({ steer: 0, throttle: 0, brake: 1 }, PHYSICS_DT);
-      physics.step(() => {});
-      for (const car of cars) car.postPhysics();
-    }
-    const runs = brains.map((brain, k) => {
-      const driver = new PlannerDriver();
-      driver.accel = SPEC.ai.accel;
-      driver.latAccel = SPEC.ai.latAccel;
-      driver.tracker = brain;
-      return { car: cars[k], driver, start: cars[k].yaw, rotation: 0, overshoot: 0, awayAt: NaN, since: NaN, out: false };
-    });
-    for (let i = 0; i < Math.round(RECOVERY_S / PHYSICS_DT); i++) {
-      const t = i * PHYSICS_DT;
-      for (const r of runs) if (!r.out) r.car.prePhysics(r.driver.drive(selfStateOf(r.car, cap), [], r.car.params), PHYSICS_DT);
-      physics.step(() => {});
-      for (const r of runs) {
-        if (r.out) continue;
-        const c = r.car;
-        c.postPhysics();
-        r.rotation += Math.abs(c.yawRate) * PHYSICS_DT;
-        if (Math.sign(c.yaw) === -Math.sign(r.start)) r.overshoot = Math.max(r.overshoot, Math.abs(c.yaw));
-        const ok = Math.abs(c.yaw) < AWAY_YAW && c.vLong > AWAY_V;
-        if (!ok) r.since = NaN;
-        else if (Number.isNaN(r.since)) r.since = t;
-        if (!Number.isNaN(r.since) && t - r.since >= AWAY_HOLD) {
-          r.awayAt = r.since; // away: done
-          r.out = true;
-        } else if (r.rotation > DONUT) r.out = true; // round and round: done
-        if (r.out) c.body.setEnabled(false);
-      }
-    }
-    runs.forEach((r, k) => {
-      cost[k] += (Number.isNaN(r.awayAt) ? NOT_AWAY : r.awayAt) + Math.max(0, r.rotation - Math.abs(r.start)) / Math.PI + r.overshoot / (Math.PI / 2);
-    });
-  }
-  physics.free();
-  return cost.map((c) => c / starts.length);
-}
-
 /** One brain (null: the plain tracker) racing alone on `seed` for `seconds`, as in the game (traffic gives way to it). */
 function raceOnce(b: Brain | null, seed: number, seconds: number) {
   const driver = new PlannerDriver();
   driver.accel = SPEC.ai.accel;
   driver.latAccel = SPEC.ai.latAccel;
-  driver.brake = SPEC.ai.brake; // (its own brake table and recovery network, as in the game and the benchmark)
-  driver.recovery = trackerFrom(SPEC.ai.recovery);
+  driver.brake = SPEC.ai.brake; // (its own brake table, as in the game and the benchmark)
   driver.tracker = b;
   const stats = driver.measure();
   const sim = new TrainingSim([driver], seed, { spec: SPEC, speedCap: 300 * KMH, trafficSeesCars: true, resetOnCrash: 60 * KMH, timeLimit: seconds, gameContact: GAME_CONTACT });

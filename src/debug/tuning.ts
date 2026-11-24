@@ -20,12 +20,13 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   const gui = new GUI({ title: '調校面板（` 切換）' });
   const d = gui.addFolder('動力 / 轉向');
   d.add(car, 'power', 100_000, 800_000, 10_000).name('馬力 W');
-  d.add(car, 'maxDriveForce', 3_000, 20_000, 100).name('最大驅動力 N');
+  d.add(car, 'engineTorque', 150, 900, 5).name('引擎扭力 N·m');
   d.add(car, 'maxSpeed', 40, 110, 0.5).name('極速 m/s');
   d.add(car, 'throttleRise', 1, 30, 0.5).name('油門踩下速度');
   d.add(car, 'brakeForceMax', 5_000, 40_000, 500).name('煞車力 N');
   d.add(car, 'brakeFrontBias', 0.3, 0.9, 0.01).name('前輪煞車比例');
-  d.add(car, 'frontBrakeApart').name('重踩煞車前輪仍可轉向');  d.add(car, 'dragK', 0, 2, 0.01).name('風阻係數');
+  d.add(car, 'frontBrakeApart').name('重踩煞車前輪仍可轉向');
+  d.add(car, 'dragK', 0, 2, 0.01).name('風阻係數');
   d.add(car, 'downforceK', 0, 2, 0.01).name('下壓力係數');
   d.add(car, 'maxSteer', 0.1, 0.8, 0.01).name('前輪最大轉角');
   d.add(car, 'steerRise', 1, 20, 0.5).name('轉向上升速度');
@@ -53,7 +54,6 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   s.add(car, 'wheelInertia', 0.3, 5, 0.1).name('輪子慣量');
   s.add(car, 'slipFalloff', 1, 30, 0.5).name('滑動摩擦衰減 m/s');
   s.add(car, 'lsd', 0, 600, 10).name('限滑差速器');
-  d.add(car, 'engineTorque', 150, 900, 5).name('引擎扭力 N·m');
   const c = gui.addFolder('鏡頭');
   c.add(camera, 'distance', 4, 16, 0.1).name('距離');
   c.add(camera, 'height', 1, 8, 0.1).name('高度');
@@ -102,39 +102,11 @@ export function createTuningPanel(car: CarParams, camera: CameraParams, traffic:
   t.add(WRECK_TRIP, 'truck', 0.8, 4, 0.1).name('事故貨車橫滑翻車摩擦');
   const a = gui.addFolder('AI 駕駛');
   a.add(ai, 'speedCapKmh', 150, 300, 5).name('AI 最高時速 km/h（強度）');
-  a.add(PLANNER, 'gapAhead', 0, 10, 0.5).name('跟車：保險桿距離 m');
   a.add(PLANNER, 'headway', 0, 1.5, 0.05).name('跟車：再加車速 × 秒');
-  a.add(PLANNER, 'gapBehind', 0, 15, 0.5).name('切入：留給後車距離 m');
-  // How finely the plan is cut: S-lines and gaps against swinging past (all the AI cars, from their next plan).
-  // Each with the side room it was measured with (30 x 5 km, a crash putting it back at 60 km/h;
-  // hits judged by closing speed along the contact). maxLateralChange only counts with maxLateral > 1.
-  const old = { cellsPerLane: 4, latGrip: 0 };
-  const grids: Record<string, [Partial<typeof PLANNER>, boolean]> = {
-    '物理極限＋神經網路控制': [{ step: 0.25, cellsPerLane: 8, latGrip: 1, maxLateral: 6, sideMargin: 0.15, swingMargin: 0.1 }, true], // 98.3 s, 10 resets
-    '物理極限＋原本控制': [{ step: 0.25, cellsPerLane: 8, latGrip: 1, maxLateral: 6, sideMargin: 0.15, swingMargin: 0.1 }, false], // 100.2 s, 15
-    '細 0.25 秒・衝一半＋多留側距': [{ ...old, step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.15, swingMargin: 0.1 }, false], // 101.8 s, 25
-    '細 0.25 秒・衝一半': [{ ...old, step: 0.25, maxLateral: 1, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, false], // 102.6 s, 42
-    '細 0.25 秒＋猛（很衝）': [{ ...old, step: 0.25, maxLateral: 2, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.05 }, false], // 108.4 s, 153 (old rule: any 15 km/h)
-    '標準 0.5 秒（穩）': [{ ...old, step: 0.5, maxLateral: 3, maxLateralChange: 2, sideMargin: 0.05, swingMargin: 0.1 }, false], // 101.1 s, 2
-  };
-  const grid = { choice: Object.keys(grids)[0] };
-  a.add(grid, 'choice', Object.keys(grids))
-    .name('規劃格子')
-    .onChange((k: string) => {
-      Object.assign(PLANNER, grids[k][0]);
-      DRIVER_TUNING.netTracker = grids[k][1];
-      a.controllersRecursive().forEach((c) => c.updateDisplay());
-    });
-  a.add(DRIVER_TUNING, 'coursePlanner').name('新規劃器：行徑方向（關：原本的格子規劃）');
   a.add(DRIVER_TUNING, 'netTracker').name('方向盤用神經網路（關：原本的公式）');
   a.add(PLANNER, 'lookBehind').name('換道看後方（關：完全不管後車）');
-  a.add(PLANNER, 'diagonal').name('斜線換道（關：換道整步佔滿橫向寬度）');
   a.add(PLANNER, 'steerClear').name('閃開前車（開：靠轉向不靠煞車）');
-  a.add(PLANNER, 'cutInTime', 0, 1.5, 0.05).name('切入：再加後車追近速度 × 秒');
-  a.add(PLANNER, 'sideMargin', 0, 1, 0.05).name('並行：側向留距 m');
-  a.add(PLANNER, 'swingMargin', 0, 1, 0.05).name('橫移時往移動側再多留 m');
-  a.add(PLANNER, 'hardBrake', 4, 12, 0.5).name('規劃最大煞車 m/s²');
-  a.add(PLANNER, 'brakeCost', 0, 10, 0.1).name('不愛煞車（每減 1 m/s 扣 m）');
+  a.add(PLANNER, 'hardBrake', 4, 12, 0.5).name('規劃最大煞車 m/s²（沒有煞車表的車）');
   a.add(DRIVER_TUNING, 'emergencyFrom', 2, 12, 0.5).name('緊急煞車介入：需減速 m/s² 以上');
   const rl = gui.addFolder('對手車燈');
   rl.add(RIVAL_LIGHTS, 'real').name('真的車燈（關：全部畫在路面）');

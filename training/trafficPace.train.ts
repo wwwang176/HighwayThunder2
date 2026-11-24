@@ -2,7 +2,7 @@ import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { KMH } from '../src/config';
 import { surfaceGrip } from '../src/road/coords';
-import { DRIVER_TUNING, PlannerDriver } from '../src/ai/plannerDriver';
+import { PlannerDriver } from '../src/ai/plannerDriver';
 import { trackerFrom } from '../src/ai/netTracker';
 import { TrainingSim } from '../src/ai/trainingSim';
 import { CARS } from '../src/vehicles/cars';
@@ -22,7 +22,6 @@ const GRIP = Number(process.env.GRIP ?? 0.1);
 
 it('traffic pace', async () => {
   await RAPIER.init();
-  DRIVER_TUNING.coursePlanner = true; // (the game's rivals)
   const out: string[] = [];
   for (const id of CAR_IDS) {
     const spec = CARS[id];
@@ -35,7 +34,6 @@ it('traffic pace', async () => {
       driver.latAccel = spec.ai.latAccel;
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      driver.recovery = trackerFrom(spec.ai.recovery);
       driver.accelScale = 1 + ENGINE;
       const sim = new TrainingSim([driver], seed, { spec, speedCap: top, trafficSeesCars: true, resetOnCrash: 60 / 3.6, gameContact: true });
       const g = sim.ghosts[0];
@@ -43,7 +41,6 @@ it('traffic pace', async () => {
       c.surfaceGrip = (x) => surfaceGrip(x) * (1 + GRIP);
       c.params.power = spec.params.power * (1 + ENGINE);
       c.params.engineTorque = spec.params.engineTorque * (1 + ENGINE);
-      c.params.maxDriveForce = spec.params.maxDriveForce * (1 + ENGINE);
       let on = false, s0 = 0, t0 = 0, fast = 0, steps = 0;
       while (!sim.done) {
         sim.step();

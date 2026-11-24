@@ -5,10 +5,10 @@ import { laneAt, laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
 import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
-import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { TRAFFIC_PLAN_EVERY, TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
-import type { Brain } from './brain';
-import { AiDriver, Driver, selfStateOf } from './driver';
+import { Driver, selfStateOf } from './driver';
 import { endOn, FITNESS, isOffRoad, RunResult, touching } from './fitness';
 import { mulberry32 } from './rng';
 import type { TrafficBox } from './sensors';
@@ -52,6 +52,8 @@ export interface Ghost {
   slowSince: number | null;
   /** With gameContact: it has been up to STUCK_SPEED since the start. */
   rolling: boolean;
+  /** Its nitro by the rivals' rule, as the game's AI cars (null: TrainingSimOptions.nitro off). */
+  nitroAi: NitroAi | null;
 }
 
 /** Body slip angle (rad) that counts as sliding: cornering hard and changing lanes it stays near 6°. */
@@ -100,7 +102,7 @@ export function judgeContacts(
 }
 
 export interface TrainingSimOptions {
-  /** Top speed every car in this run is limited to (m/s); also a network input. */
+  /** Top speed every car in this run is limited to (m/s). */
   speedCap: number;
   timeLimit?: number;
   /**
@@ -120,11 +122,16 @@ export interface TrainingSimOptions {
   gameContact?: boolean;
   /** The car type every car in this run is (default the supercar); its own top speed holds if lower than `speedCap`. */
   spec?: CarSpec;
+  /**
+   * The AI cars use their nitro as in the game (NitroAi, its dice from the run's seed; default on). As the rivals': no
+   * near misses filling the tank, no rubber band making it eager.
+   */
+  nitro?: boolean;
 }
 
 /**
  * One generation's race: a fresh physics world, traffic from `seed`, and one
- * ghost car per brain (or driver), all starting together. Ghosts don't touch
+ * ghost car per driver, all starting together. Ghosts don't touch
  * each other or the traffic; one is out when it hits a vehicle hard, leaves our
  * pavement, stalls, or finishes. Traffic ignores the ghosts and is kept around
  * all of them.
@@ -147,7 +154,7 @@ export class TrainingSim {
   readonly wrecks: { ghost: number; time: number; box: TrafficBox | null; s: number; d: number; yaw: number; speed: number; closing: number; nx: number; nz: number }[] = [];
   private touched: TrafficBox[] = [];
 
-  constructor(drivers: (Brain | Driver)[], seed: number, opts: TrainingSimOptions) {
+  constructor(drivers: Driver[], seed: number, opts: TrainingSimOptions) {
     const spec = opts.spec ?? STREET_RACER;
     this.speedCap = aiTopSpeed(opts.speedCap, spec);
     this.timeLimit = opts.timeLimit ?? FITNESS.timeLimit;
@@ -156,17 +163,16 @@ export class TrainingSim {
     this.gameContact = opts.gameContact ?? false;
     this.physics = PhysicsWorld.createSync();
     this.physics.timestep = PHYSICS_DT;
-    this.traffic = new TrafficWorld(this.physics, mulberry32(seed), { oncoming: false });
+    this.traffic = new TrafficWorld(this.physics, mulberry32(seed), { oncoming: false, planEvery: TRAFFIC_PLAN_EVERY }); // (planned as often as the game's)
     for (const d of drivers) {
       const car = new PlayerCar(this.physics, null, { spec, ...(this.gameContact ? { entity: { type: 'rival' as const, id: this.ghosts.length } } : {}) });
       car.params.maxSpeed = this.speedCap;
       car.surfaceGrip = surfaceGrip; // same ground as the player's car in the game
       car.resetTo(0, START_LANE, 0);
-      const driver = 'weights' in d ? new AiDriver(d) : d;
-      driver.reset(car.d);
+      d.reset(car.d);
       this.ghosts.push({
         car,
-        driver,
+        driver: d,
         alive: true,
         result: { distance: 0, crashed: false, finishTime: null, contacts: 0 },
         progressS: 0,
@@ -177,6 +183,7 @@ export class TrainingSim {
         slidAt: -Infinity,
         slowSince: null,
         rolling: false,
+        nitroAi: opts.nitro === false ? null : new NitroAi(mulberry32(seed * 7919 + this.ghosts.length + 1)),
       });
     }
     this.traffic.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, (f) => this.occupants(f));
@@ -208,7 +215,8 @@ export class TrainingSim {
     const dt = PHYSICS_DT;
     for (const g of this.ghosts) {
       if (!g.alive) continue;
-      g.car.prePhysics(g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes, g.car.params), dt);
+      const input = g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes, g.car.params);
+      g.car.prePhysics(g.nitroAi ? { ...input, nitro: g.nitroAi.want(dt, input.throttle, g.car.nitro) } : input, dt);
     }
     this.traffic.stepAI(dt, this.time, (frame) => (this.trafficSeesCars ? this.carObstacles(frame) : []));
     if (this.gameContact)

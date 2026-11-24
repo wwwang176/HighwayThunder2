@@ -212,7 +212,6 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 .result .place .p { font-size: 5.73vw; font-weight: 700; }
 .result .place .lbl { display: block; text-align: center; margin-top: 0.63vw; }
 .result .time .v { display: block; width: max-content; margin-top: 0.42vw; font-size: 4.79vw; font-weight: 700; transform-origin: left; text-shadow: 0 0 1.35vw color-mix(in srgb, var(--accent) 45%, transparent); }
-.result .best { margin-left: 0.8vw; color: var(--accent); }
 .result .rows { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 1.35vw; border-top: 1px solid var(--line); }
 .result .rows > div { position: relative; display: flex; flex-direction: column; gap: 0.52vw; padding-top: 0.83vw; }
 .result .rows > div + div { padding-left: 1.25vw; }

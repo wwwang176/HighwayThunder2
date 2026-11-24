@@ -1,7 +1,7 @@
 import { Game } from './game/game';
+import { store } from './game/storage';
 import { loadSelection } from './game/carSelection';
 import { PhysicsWorld } from './physics/physicsWorld';
-import { DRIVER_TUNING } from './ai/plannerDriver';
 import { loadCarModels } from './vehicles/carModels';
 import { applyUiZoom } from './ui/uiScale';
 import { loadSettings, setLang } from './ui/i18n';
@@ -15,11 +15,8 @@ import { prefetchSoundBundles } from './audio/sound';
  * page - then the screen faded off the garage's title.
  */
 async function boot() {
-  // The AI plans by direction of travel, and across the road follows those plans plainly (the debug panel's switch;
-  // off for training and benchmarks).
-  DRIVER_TUNING.coursePlanner = true;
   applyUiZoom(document.getElementById('ui')!);
-  setLang(loadSettings(localStorage, navigator.language).lang); // (the loading screen's words in it too)
+  setLang(loadSettings(store, navigator.language).lang); // (the loading screen's words in it too)
   const loading = new LoadingScreen();
   loading.set('loading.physics', 0);
   await loading.hold();
@@ -45,7 +42,7 @@ async function boot() {
   // The course picked last in the garage (another picked there: built in place as its race is set up).
   // (?skidpad: the drift practice ground - on the mountain road's setup, its own world)
   const skidpad = new URLSearchParams(location.search).has('skidpad');
-  const mountain = skidpad || loadSelection(localStorage).course === 'mountain';
+  const mountain = skidpad || loadSelection(store).course === 'mountain';
   const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { mountain, skidpad });
   (window as unknown as { __game: Game }).__game = game;
   await loading.next('loading.shaders', 0.85);

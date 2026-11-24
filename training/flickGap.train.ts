@@ -1,6 +1,6 @@
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { PLANNER, planAt, type Plan } from '../src/ai/planner';
+import { planAt, type Plan } from '../src/ai/planner';
 import { planPedals } from '../src/ai/plannerDriver';
 import { makeDriver, planStats } from './drivers';
 import { baseSteer, netDrive, trackerFrom } from '../src/ai/netTracker';
@@ -9,7 +9,7 @@ import { PlayerCar } from '../src/vehicles/playerCar';
 import { KMH, LANE_WIDTH, PHYSICS_DT } from '../src/config';
 import { laneCenter } from '../src/road/coords';
 import type { TrafficBox } from '../src/ai/sensors';
-import { initExams, movePlan, SPEC } from './trackerEval';
+import { initExams, MOVE, movePlan, SPEC } from './trackerEval';
 import { openGround } from './openGround';
 
 /**
@@ -24,7 +24,7 @@ import { openGround } from './openGround';
  *   the earliest to the line without touching anything kept.
  * Per run: time to the line, the least room (m, body to body, the car's yaw counted) to the gap's two cars, to the
  * rest, sideways speed as its body enters lane 1's cars' band, speed then. MAXLAT=<cells a step>: the plans' sideways
- * cap raised (PLANNER.maxLateral: 6, 11 m/s).
+ * cap raised (MOVE.maxLateral: 6, 11 m/s).
  *   DVS=0,30,50,100 GAPS=5,6,8,10,15,20 npx vitest run --config training/vitest.config.ts training/flickGap.train.ts
  * The right-front car gone, swinging out into lane 3: HOLE=-5,40 SWINGS=0,2,4,6,8.
  */
@@ -49,12 +49,12 @@ const TOP = Number(env('TOP', '10'));
 const PLAN_MARGIN = Number(env('PLAN_MARGIN', '0.1'));
 const SIM_S = 16;
 const LEN = 4.6;
-const CELL = LANE_WIDTH / PLANNER.cellsPerLane;
+const CELL = LANE_WIDTH / MOVE.cellsPerLane;
 const HW = SPEC.params.width / 2;
 const HL = SPEC.params.length / 2;
 const CAP = SPEC.params.maxSpeed;
 const L0 = laneCenter(0), L1 = laneCenter(1), L2 = laneCenter(2);
-if (process.env.MAXLAT) PLANNER.maxLateral = Number(process.env.MAXLAT);
+if (process.env.MAXLAT) MOVE.maxLateral = Number(process.env.MAXLAT);
 
 interface Box extends TrafficBox {
   group: 'gap' | 'queue' | 'row';
@@ -128,7 +128,7 @@ function rollout(boxes: Box[], m: Move, v0: number): Result {
   const steps = new Steps(m);
   let s = 0, d = L2, vD = 0, v = v0;
   let gapRoom = Infinity, otherRoom = Infinity, entryVD = NaN, entryV = NaN, crossed = false;
-  for (let t = 0; t < SIM_S; t += PLANNER.step) {
+  for (let t = 0; t < SIM_S; t += MOVE.step) {
     const aim = steps.target(t, d, vD);
     const p = movePlan(s, d, vD, Math.max(5, v), aim.d, aim.v);
     for (let k = 1; k <= 5; k++) {
@@ -149,7 +149,7 @@ function rollout(boxes: Box[], m: Move, v0: number): Result {
       if (Math.min(gapRoom, otherRoom) < PLAN_MARGIN) return { time: Infinity, gapRoom, otherRoom, entryVD, entryV, crossed };
       if (q.s >= LINE) return { time: crossed ? tt : Infinity, gapRoom, otherRoom, entryVD, entryV, crossed };
     }
-    const q = planAt(p, PLANNER.step);
+    const q = planAt(p, MOVE.step);
     s = q.s;
     d = q.d;
     vD = q.dRate;
@@ -194,7 +194,7 @@ function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'
     let input;
     if (ai) input = ai.drive(self, boxes.map((b) => ({ ...b, s: b.s + b.v * t })), car.params);
     else {
-      if (!plan || t - madeAt >= PLANNER.step - 1e-9) {
+      if (!plan || t - madeAt >= MOVE.step - 1e-9) {
         const aim = steps!.target(t, self.d, vD);
         plan = movePlan(self.s, self.d, vD, Math.max(5, self.vLong), aim.d, aim.v);
         madeAt = t;
@@ -206,7 +206,6 @@ function drive(boxes: Box[], v0: number, how: { m: Move; plain: boolean } | 'ai'
         const net = netDrive(brain!, plan, age, self, car.params, pedals.throttle);
         steer = net.steer;
         pedals.throttle = net.throttle;
-        if (net.across) pedals.brake = 0;
       } else steer = baseSteer(plan, age, self, car.params);
       input = { steer, ...pedals };
     }
@@ -278,7 +277,7 @@ it('flick gap', async () => {
     say('traced ' + out.map((o) => `${o.label}: ${f(o.res.time)} s${touched(o.res) ? ' TOUCHED' : ''}`).join(', '));
     return;
   }
-  say(`${SPEC.id}: lane 1 at ${LANE1 / KMH} km/h, the gap's middle ${AT} m ahead, to the line ${LINE} m; swings in cells of ${CELL.toFixed(3)} m; plans' sideways cap ${((PLANNER.maxLateral * CELL) / PLANNER.step).toFixed(1)} m/s`);
+  say(`${SPEC.id}: lane 1 at ${LANE1 / KMH} km/h, the gap's middle ${AT} m ahead, to the line ${LINE} m; swings in cells of ${CELL.toFixed(3)} m; plans' sideways cap ${((MOVE.maxLateral * CELL) / MOVE.step).toFixed(1)} m/s`);
   for (const dv of DVS) {
     const v0 = LANE1 + dv * KMH;
     // Free: alone, flat out down lane 2.

@@ -105,11 +105,6 @@ export function wheelLoad(p: Pick<CarParams, 'mass' | 'comFwd' | 'wheelbase'>, f
   return (p.mass * (front ? frontShare : 1 - frontShare)) / 2;
 }
 
-/** Road-relative yaw from a Y-only quaternion (yaw = -rotation.y). */
-export function yawOf(q: { x: number; y: number; z: number; w: number }): number {
-  return -2 * Math.atan2(q.y, q.w);
-}
-
 export function quatFromYaw(yaw: number): { x: number; y: number; z: number; w: number } {
   return { x: 0, y: Math.sin(-yaw / 2), z: 0, w: Math.cos(-yaw / 2) };
 }
@@ -442,7 +437,7 @@ export class PlayerCar {
       muPeak: p.muPeak,
       muSlide: p.muSlide,
       slipAnglePeak: p.slipAnglePeak,
-      rollingResistance: 0.012 * (p.rollingRes ?? 1),
+      rollingResistance: 0.012,
       regripSpeed: 0.6,
       slipFalloff: p.slipFalloff,
       latGrip: (p.latGrip ?? 1) * pressureGripScale(speed, p), // (the pressure: cornering only)
@@ -484,7 +479,7 @@ export class PlayerCar {
     this.readBack();
     this.rollFriction();
 
-    this.steer = smoothSteer(this.steer, input.steer, p, dt, this.vLong);
+    this.steer = smoothSteer(this.steer, input.steer, p, dt);
     const slide = Math.atan2(this.vLat, Math.max(Math.abs(this.vLong), 1));
     const bodySlip = Math.abs(slide);
     // Drift assist (drift): the more it slides, the more the car the driver's - no switch; the handbrake only by the
@@ -781,6 +776,10 @@ export class PlayerCar {
     for (const c of this.colliders) physics.unregister(c);
     physics.world.removeRigidBody(this.body); // its colliders go with it
     this.flames?.dispose();
+    // What is its own on the GPU (not its file's shared parts): its lamps' and pipes' merged meshes, its headlights'
+    // shadow maps (three frees them only so).
+    this.mesh.traverse((o) => (o as THREE.Mesh).isMesh && o.userData.ownGeometry && (o as THREE.Mesh).geometry.dispose());
+    for (const hl of this.headlights) hl.dispose();
     this.mesh.removeFromParent();
   }
 
@@ -891,6 +890,10 @@ export class PlayerCar {
     this.backfire.reset();
     this.toe = null;
     this.gearbox.reset();
+    // (the revs from the idle: kept, a race restarted at speed wound down from them under the new intro)
+    this.rpm = this.baseRpm = p.idleRpm;
+    this.sinceBite = Infinity;
+    this.offThrottle = false;
     this.driveMode = 'D';
     this.discTemp.fill(BRAKE_HEAT.ambient); // (put back on the road: its discs cold)
     for (const w of this.wheels) {

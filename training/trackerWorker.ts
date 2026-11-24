@@ -1,6 +1,6 @@
 import { parentPort } from 'node:worker_threads';
 import type { Brain } from '../src/ai/brain';
-import { evaluate, initExams, race, raceCost, RecoveryStart, recoveryCost, Scenario } from './trackerEval';
+import { evaluate, initExams, race, raceCost, Scenario } from './trackerEval';
 
 /**
  * A worker thread of the tracker training (trackerPool.ts): runs the exams (trackerEval.ts) it is sent for a share
@@ -11,7 +11,6 @@ import { evaluate, initExams, race, raceCost, RecoveryStart, recoveryCost, Scena
 /** What the training asks of a worker. */
 export type ExamTask =
   | { op: 'drive'; brains: (Brain | null)[]; scenarios: Scenario[]; keepErrors: boolean }
-  | { op: 'recovery'; brains: (Brain | null)[]; starts: RecoveryStart[] }
   | { op: 'raceCost'; brains: (Brain | null)[]; seed: number }
   | { op: 'race'; brain: Brain | null; seeds: number[] };
 
@@ -21,8 +20,6 @@ function run(t: ExamTask): unknown {
   switch (t.op) {
     case 'drive':
       return evaluate(t.brains, t.scenarios, t.keepErrors);
-    case 'recovery':
-      return recoveryCost(t.brains, t.starts);
     case 'raceCost':
       return raceCost(t.brains, t.seed);
     case 'race':

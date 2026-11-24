@@ -95,7 +95,7 @@ const log: string[] = [];
 const TRACE = !!process.env.TRACE;
 /** TRACE=all: before every wall it meets. */
 const TRACE_ALL = process.env.TRACE === 'all';
-type TraceRow = { off: number; t: number; s: number; d: number; plan: number; yaw: number; rate: number; vLat: number; kmh: number; mode: string; base: number; steer: number; thr: number; brk: number; load: number; least: number; air: number };
+type TraceRow = { t: number; s: number; d: number; plan: number; yaw: number; rate: number; vLat: number; kmh: number; mode: string; base: number; steer: number; thr: number; brk: number; load: number; least: number; air: number };
 // (the driver's input before and after its driving network - the bench's own hook on it)
 const netSeen = { base: NaN, out: NaN };
 if (TRACE) {
@@ -250,7 +250,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
     if (TRACE) {
       const core = coreOf(playerAi);
       const mp = playerAi instanceof MountainPlannerDriver ? playerAi.mplan : null;
-      trace.push({ off: (() => { const at = (core as unknown as { alignTo: number | null }).alignTo; if (at === null) return NaN; const n = road.heading(player.s) + player.yaw; return Math.atan2(Math.sin(n - at), Math.cos(n - at)); })(), t: time, s: player.s, d: player.d, plan: core.pathRefAt(player.s) + (mp ? mp.offsetAt(player.s) : 0), yaw: player.yaw, rate: ownSelf.yawRate, vLat: ownSelf.vLat, kmh: player.speed / KMH, mode: core.mode, base: netSeen.base, steer: own.steer, thr: own.throttle, brk: own.brake, ...wheelLoads(player) });
+      trace.push({ t: time, s: player.s, d: player.d, plan: core.pathRefAt(player.s) + (mp ? mp.offsetAt(player.s) : 0), yaw: player.yaw, rate: ownSelf.yawRate, vLat: ownSelf.vLat, kmh: player.speed / KMH, mode: core.mode, base: netSeen.base, steer: own.steer, thr: own.throttle, brk: own.brake, ...wheelLoads(player) });
       if (trace.length > 3 / PHYSICS_DT) trace.shift();
     }
     player.prePhysics(STALL && time < STALL_S ? { throttle: 0, brake: 1, steer: 0 } : own, PHYSICS_DT);
@@ -295,7 +295,7 @@ function race(seed: number, playerSpec: CarSpec = STREET_RACER, alone = false): 
           trace.forEach((r, i) => {
             if (i % 5 !== 0 && i !== trace.length - 1) return;
             const f = (x: number, n = 2) => (Number.isFinite(x) ? x.toFixed(n) : '  -').padStart(6);
-            log.push(`  ${f(r.t, 1)} ${f(r.s, 0)} ${f(r.d)} ${f(r.plan)} ${f(r.yaw)} ${f(r.off)} ${f(r.rate)} ${f(r.vLat)} ${f(r.kmh, 0)} ${r.mode.padEnd(7)} ${f(r.base)} ${f(r.steer)} ${f(r.thr)} ${f(r.brk)} ${f(r.load)} ${f(r.least)} ${f(r.air, 0)}`);
+            log.push(`  ${f(r.t, 1)} ${f(r.s, 0)} ${f(r.d)} ${f(r.plan)} ${f(r.yaw)} ${f(r.rate)} ${f(r.vLat)} ${f(r.kmh, 0)} ${r.mode.padEnd(7)} ${f(r.base)} ${f(r.steer)} ${f(r.thr)} ${f(r.brk)} ${f(r.load)} ${f(r.least)} ${f(r.air, 0)}`);
           });
         }
         if (DEBUG && stats[k].walls <= 6) log.push(`  wall ${k ? `R${k}` : 'P'} t ${time.toFixed(1)} s ${car.s.toFixed(0)} d ${car.d.toFixed(2)} ${(car.speed / KMH).toFixed(0)} km/h k ${road.curvature(car.s).toFixed(3)} yaw ${car.yaw.toFixed(2)} ${coreOf(k === 0 ? playerAi : rivals.list[k - 1].driver).mode} pin ${pi} side ${side}${pi >= 0 ? ` past ${(car.s - runs[pi].to).toFixed(0)} m` : ''}`);

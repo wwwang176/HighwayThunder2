@@ -188,7 +188,7 @@ export function runOnce(brain: Brain | null, spec: CarSpec, seed: number, second
       if (time - lastWall > CONTACT_GAP) {
         res.walls++;
         if (!driver.inner.inDrift()) res.lineWalls++;
-        const exit = driver.inner.outOfDrift(); // (settling, or - drift.settle 0 - back on its line its first recover s)
+        const exit = driver.inner.outOfDrift(); // (back on its line its first recover s)
         if (exit) res.exitWalls++;
         hits.push({ v0, least: v0, t: time, exit });
       }

@@ -1,3 +1,4 @@
+import { easeOut } from '../math';
 import * as THREE from 'three';
 import { MEDIAN_NEAR_X, RAIL_D } from '../config';
 import type { PlayerCar } from '../vehicles/playerCar';
@@ -41,7 +42,6 @@ interface Shot {
   ease: (t: number) => number;
 }
 
-const easeOut = (t: number) => 1 - (1 - t) ** 3;
 const linear = (t: number) => t;
 
 /** The first shot (s): from the roadside past the gate, the car seen coming through it, slowed (FINISH_SLOW). */

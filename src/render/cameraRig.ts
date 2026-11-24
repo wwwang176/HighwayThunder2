@@ -114,6 +114,9 @@ export class CameraRig {
 
   snap(): void {
     this.initialized = false;
+    // (put back - a new race, a reset - not reversing: kept, a race restarted reversing looked back off the nose
+    // through its countdown)
+    this.reversing = false;
     this.shakes.stop();
     this.shaken = { right: 0, up: 0, roll: 0 };
   }

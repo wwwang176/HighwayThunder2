@@ -1,7 +1,7 @@
 import { PHYSICS_DT } from '../config';
 import type { Centerline } from '../road/centerline';
 import type { CarSpec } from '../vehicles/cars/types';
-import type { CarParams, HandlingInput } from '../vehicles/handling';
+import type { CarParams, DriveInput } from '../vehicles/handling';
 import type { Brain } from './brain';
 import type { RivalDriver } from './driver';
 import { MountainDriver } from './mountainDriver';
@@ -173,7 +173,7 @@ export class MountainPlannerDriver implements RivalDriver {
     this.inner.dispose();
   }
 
-  drive(self: SelfState, others: TrafficBox[], p?: CarParams): HandlingInput {
+  drive(self: SelfState, others: TrafficBox[], p?: CarParams): DriveInput {
     this.watch(others);
     this.launch(self.vLong);
     this.lastV = Math.hypot(self.vLong, self.vLat);
@@ -192,7 +192,7 @@ export class MountainPlannerDriver implements RivalDriver {
   }
 
   /** The driver's input with its driving network's correction (none, or no road or line yet: as it was). */
-  private withNet(self: SelfState, input: HandlingInput): HandlingInput {
+  private withNet(self: SelfState, input: DriveInput): DriveInput {
     if (!this.net || !this.inner.lastLine || !this.road) return input;
     const inner = this.inner;
     const plan = this.mplan;

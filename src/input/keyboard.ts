@@ -1,4 +1,4 @@
-import type { HandlingInput } from '../vehicles/handling';
+import type { DriveInput } from '../vehicles/handling';
 
 export class Keyboard {
   private down = new Set<string>();
@@ -23,7 +23,7 @@ export class Keyboard {
     return codes.some((c) => this.down.has(c));
   }
 
-  driving(): HandlingInput {
+  driving(): DriveInput {
     const right = this.isDown('KeyD', 'ArrowRight') ? 1 : 0;
     const left = this.isDown('KeyA', 'ArrowLeft') ? 1 : 0;
     return {

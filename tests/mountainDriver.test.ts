@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bend, Centerline, straight } from '../src/road/centerline';
-import { alignThrottle, driftTurnWant, hairpinRuns, MOUNTAIN_DRIVER, MountainDriver } from '../src/ai/mountainDriver';
+import { hairpinRuns, MOUNTAIN_DRIVER, MountainDriver } from '../src/ai/mountainDriver';
 import { lineAt } from '../src/ai/mountainLine';
 import type { SelfState, TrafficBox } from '../src/ai/sensors';
 import { STREET_RACER } from '../src/vehicles/cars';
@@ -170,14 +170,6 @@ describe('drifting round the hairpins (MOUNTAIN_DRIVER.drift)', () => {
     expect(hairpinRuns(ROAD, D.tight).length).toBe(0); // (R 40: not one)
   });
 
-  it('driftTurnWant: how fast its course should turn (rad/s) - round its line as the road bends there, toward it from where it is, damped by how fast it moves across', () => {
-    const W = { posGain: 1.5, velGain: 3 };
-    expect(driftTurnWant(1 / 20, 0, 0, 20, 0, W)).toBeCloseTo(1, 9); // (on its line, a R 20 bend at 20 m/s)
-    expect(driftTurnWant(1 / 20, 2, 2, 18, 0, W)).toBeCloseTo(1, 9); // (its line 2 m in: a tighter circle, R 18)
-    expect(driftTurnWant(0, 1, 0, 10, 0, W)).toBeCloseTo(0.15, 9); // (1 m off its line: turned toward it)
-    expect(driftTurnWant(0, 0, 0, 10, 1, W)).toBeCloseTo(-0.3, 9); // (moving across at 1 m/s: turned against it)
-  });
-
   it('pulls the handbrake coming into a hairpin at speed, turning in; not on the straight before, nor crawling', () => {
     const m = new MountainDriver();
     m.setRoad(PIN, STREET_RACER.ai);
@@ -191,46 +183,5 @@ describe('drifting round the hairpins (MOUNTAIN_DRIVER.drift)', () => {
     const slow = new MountainDriver();
     slow.setRoad(PIN, STREET_RACER.ai);
     expect(slow.drive(at(from - 1, 5), [], P).handbrake).toBeFalsy();
-  });
-
-  it('kicked into the next hairpin still settling out of the last: done with the last (its straight not held to after this one)', () => {
-    const m = new MountainDriver();
-    m.setRoad(PIN, STREET_RACER.ai);
-    const at = (s: number, v: number): SelfState => ({ s, d: lineAt(m.line!, s).d, yaw: 0, vLong: v, vLat: 0, yawRate: 0, speedCap: 300 * KMH });
-    const from = hairpinRuns(PIN, D.tight)[0].from;
-    const inner = m as unknown as { settling: boolean; alignTo: number | null };
-    inner.settling = true;
-    inner.alignTo = PIN.heading(from) + 2.4; // (the last hairpin's straight)
-    m.drive(at(from - 15 * D.kickEarly + 1, 15), [], P);
-    expect(inner.alignTo).toBeNull();
-    expect(inner.settling).toBe(false);
-  });
-});
-
-describe('alignThrottle', () => {
-  const D = { alignGas: 1, alignGasFrom: 0.05, alignGasSpan: 0.25, alignGasLeast: 0.3 };
-  it('its nose parallel to the straight: full', () => {
-    expect(alignThrottle(0, D)).toBe(1);
-    expect(alignThrottle(-0.05, D)).toBe(1);
-  });
-  it('its nose swung past it either way: less, to alignGasLeast at alignGasFrom + alignGasSpan', () => {
-    expect(alignThrottle(0.175, D)).toBeCloseTo(0.65, 5);
-    expect(alignThrottle(-0.3, D)).toBeCloseTo(0.3, 5);
-    expect(alignThrottle(0.6, D)).toBeCloseTo(0.3, 5);
-  });
-  it('alignGasSpan 0: alignGas throughout (as before)', () => {
-    expect(alignThrottle(0.6, { ...D, alignGasSpan: 0 })).toBe(1);
-  });
-});
-
-describe('alignThrottle, its slide', () => {
-  const D = { alignGas: 1, alignGasFrom: 0.05, alignGasSpan: 0.25, alignGasLeast: 0.3, alignSlideFrom: 0.15, alignSlideSpan: 0.3 };
-  it('its nose parallel, still sliding: less, to alignGasLeast at alignSlideFrom + alignSlideSpan', () => {
-    expect(alignThrottle(0, D, 0.1)).toBe(1);
-    expect(alignThrottle(0, D, -0.3)).toBeCloseTo(0.65, 5);
-    expect(alignThrottle(0, D, 0.8)).toBeCloseTo(0.3, 5);
-  });
-  it('the less of its nose and its slide', () => {
-    expect(alignThrottle(0.3, D, 0.3)).toBeCloseTo(0.3, 5);
   });
 });

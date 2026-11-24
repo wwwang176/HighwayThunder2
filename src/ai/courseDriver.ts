@@ -1,48 +1,13 @@
 import { PHYSICS_DT } from '../config';
-import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
+import { CarParams, DEFAULT_CAR, DriveInput } from '../vehicles/handling';
 import { followSteer, STANDING, tractionShare } from './courseFollow';
 import type { Driver } from './driver';
 import { coursePlan } from './coursePlanner';
-import { emergencyBrake, planPedals, REPLAN_EVERY, type PlanSource } from './plannerDriver';
-import { planAt, type AccelTable, type Plan, type PlanEgo, type PreviousPlan } from './planner';
+import { egoOf, emergencyBrake, planPedals, REPLAN_EVERY } from './plannerDriver';
+import { planAt, type AccelTable, type Plan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
 
-
-/** The state the planners plan from, the car's as it is. */
-export function egoOf(self: SelfState, p: CarParams, accel: AccelTable, latAccel: AccelTable, brake: AccelTable | null): PlanEgo {
-  return {
-    s: self.s,
-    d: self.d,
-    v: self.vLong,
-    speedCap: self.speedCap,
-    vD: self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw),
-    accel,
-    latAccel,
-    ...(brake ? { brake } : {}),
-    halfWidth: self.halfWidth,
-    halfLength: self.halfLength,
-    yaw: self.yaw,
-    vLat: self.vLat,
-    turnMax: Math.tan(p.maxSteer) / p.wheelbase,
-  };
-}
-
-/** Plans by direction of travel for PlannerDriver (its network steering, its emergency brake): made at once, here. */
-export function courseSource(): PlanSource {
-  let out: { stamp: number; plan: Plan } | null = null;
-  return {
-    busy: false,
-    request(stamp: number, ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null) {
-      out = { stamp, plan: coursePlan(ego, traffic, previous) };
-    },
-    take() {
-      const o = out;
-      out = null;
-      return o;
-    },
-  };
-}
 
 /**
  * Drives by the plans by direction of travel with a plain follower (followSteer, the plan's pedals) and the
@@ -55,7 +20,7 @@ export class CourseDriver implements Driver {
   private earlier: { plan: Plan; t: number }[] = [];
   accel: AccelTable = STREET_RACER.ai.accel;
   latAccel: AccelTable = STREET_RACER.ai.latAccel;
-  brake: AccelTable | null = null;
+  brake: AccelTable | null = STREET_RACER.ai.brake;
   /** Steps the emergency brake stepped in. */
   overrides = 0;
 
@@ -68,7 +33,7 @@ export class CourseDriver implements Driver {
     this.earlier = [];
   }
 
-  drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
+  drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): DriveInput {
     this.clock += PHYSICS_DT;
     if (!this.plan || this.planAge >= REPLAN_EVERY) {
       const previous = this.plan && { plan: this.plan, age: this.planAge };

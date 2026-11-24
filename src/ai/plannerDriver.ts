@@ -1,9 +1,10 @@
 import { PHYSICS_DT } from '../config';
-import { CarParams, DEFAULT_CAR, HandlingInput } from '../vehicles/handling';
+import { clamp01 } from '../math';
+import { CarParams, DEFAULT_CAR, DriveInput } from '../vehicles/handling';
 import type { Driver } from './driver';
 import type { Brain } from './brain';
 import { ACROSS_YAW, baseSteer, netDrive, trackerFrom } from './netTracker';
-import { AccelTable, maxAccel, maxBrake, plan, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
+import { AccelTable, maxAccel, maxBrake, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
 import { coursePlan } from './coursePlanner';
 import { followSteer, STANDING, tractionShare } from './courseFollow';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
@@ -15,12 +16,8 @@ export const REPLAN_EVERY = 0.25;
 const ACCEL_WINDOW = 0.3;
 /** 1/s: how hard it pulls back to the plan's speed when off it. */
 const SPEED_GAIN = 1.5;
-/** m/s² the car loses with no pedal (drag, rolling); and what full brake gives, with no brake table (CarSpec.ai.brake). */
+/** m/s² the car loses with no pedal (drag, rolling). */
 const COAST_DECEL = 1;
-const FULL_BRAKE_DECEL = 11;
-/** What full brake gives at speed v (m/s): the car's table, FULL_BRAKE_DECEL with none. */
-const fullBrake = (v: number, table?: AccelTable | null) => (table ? maxBrake(v, table) : FULL_BRAKE_DECEL);
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
 /**
  * Pedals for the acceleration the plan wants now (read straight off it, so a
@@ -33,8 +30,27 @@ export function planPedals(p: Plan, age: number, v: number, table?: AccelTable, 
   const a = (planAt(p, age + ACCEL_WINDOW).v - now.v) / ACCEL_WINDOW + SPEED_GAIN * (now.v - v);
   if (a >= 0) return { throttle: clamp01(a / (0.95 * maxAccel(v, table))), brake: 0 }; // near flat out is flat out
   if (a > -COAST_DECEL) return { throttle: 0, brake: 0 };
-  return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / fullBrake(v, brakeTable)) };
+  return { throttle: 0, brake: clamp01((-a - COAST_DECEL) / maxBrake(v, brakeTable)) };
 }
+/** The state the plans are made from, the car's as it is. */
+export function egoOf(self: SelfState, p: CarParams, accel: AccelTable, latAccel: AccelTable, brake: AccelTable | null): PlanEgo {
+  return {
+    s: self.s,
+    d: self.d,
+    v: self.vLong,
+    speedCap: self.speedCap,
+    vD: self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw),
+    accel,
+    latAccel,
+    ...(brake ? { brake } : {}),
+    halfWidth: self.halfWidth,
+    halfLength: self.halfLength,
+    yaw: self.yaw,
+    vLat: self.vLat,
+    turnMax: Math.tan(p.maxSteer) / p.wheelbase,
+  };
+}
+
 const HALF_LENGTH = 2.2; // the car's, unless its SelfState says (the street racer's)
 const HALF_WIDTH = 0.93;
 /** Bumper gap (m) the emergency brake keeps when it has to step in. */
@@ -72,22 +88,8 @@ export const DRIVER_TUNING = {
    * time it got there and clipped it.
    */
   pathLag: 0.3,
-  /**
-   * A car the plans take it past is no reason to brake only while stopping for it straight on would take at most this
-   * share of the car's full brake (its table at its speed): past that, if the pass fails no brake can save it, so it
-   * brakes anyway. Infinity: the plans are believed whatever it would take.
-   * Not used (Infinity): most of those passes come off. Muscle car, 60 game-contact races (wrecked / resets / time):
-   * Infinity 15 / 3 / 92.5 s; 1: 10 / 1, 2.2 +- 0.5 s slower; 0.8: 5 / 1, 3.4 +- 0.4 s slower.
-   */
-  trustUpTo: Infinity,
   /** Steer with the car type's trained network (PlannerDriver.tracker) where it has one; off: the plain tracker. */
   netTracker: true,
-  /**
-   * Plan by direction of travel (coursePlanner.ts) - and across the road (a crash) follow those plans plainly
-   * (courseFollow.ts) in place of the recovery network. Off: the lattice planner and the networks. Off here for the
-   * training and benchmarks (as they were measured); the game turns it on (main.ts).
-   */
-  coursePlanner: false,
 };
 /** m/s sideways that counts as getting out of the way. */
 const SWERVING = 0.5;
@@ -128,7 +130,7 @@ export function emergencyBrake(
   const lags = paths.map((p) => actualVD - planAt(p.plan, p.age).dRate);
   const onPlan = paths.length >= DRIVER_TUNING.pathAgree && Math.abs(self.yaw) < OFF_PLAN_YAW && offsets.every((o) => Math.abs(o) <= DRIVER_TUNING.pathTrust);
   // Sideways speed: what the car has, or what the plan is taking it to if more (the car lags the plan).
-  const actual = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
+  const actual = actualVD;
   const vD = Math.abs(plannedVD) > Math.abs(actual) && Math.sign(plannedVD) !== -Math.sign(actual) ? plannedVD : actual;
   const halfW = self.halfWidth ?? HALF_WIDTH;
   for (const t of traffic) {
@@ -139,8 +141,9 @@ export function emergencyBrake(
     const room = gap - STOP_GAP;
     const overlap = Math.min(t.dMax, self.d + halfW) - Math.max(t.dMin, self.d - halfW);
     const needHere = room <= 0.1 ? Infinity : (closing * closing) / (2 * room);
-    const trusted = needHere <= DRIVER_TUNING.trustUpTo * fullBrake(self.vLong, brakeTable);
-    if (trusted && onPlan && overlap <= DRIVER_TUNING.pathOverlap) {
+    // (the plans believed whatever stopping straight on would take: braking anyway past a share of the full brake, the
+    // muscle car's 60 game-contact races were 2-3 s slower for 5-10 fewer wrecks - most of those passes come off)
+    if (onPlan && overlap <= DRIVER_TUNING.pathOverlap) {
       const t0 = Math.max(0, gap) / closing, t1 = (t.s - self.s) / closing;
       const sides = paths.map((p, i) => passSide(p, offsets[i], lags[i], halfW, t, t0, t1));
       if (sides[0] !== 0 && sides.every((x) => x === sides[0])) continue;
@@ -153,9 +156,9 @@ export function emergencyBrake(
       const overlap = vD > 0 ? t.dMax - (self.d - halfW) : self.d + halfW - t.dMin;
       if (closing * (overlap / Math.abs(vD)) < room) continue;
     }
-    need = Math.max(need, room <= 0.1 ? Infinity : (closing * closing) / (2 * room));
+    need = Math.max(need, needHere);
   }
-  return need < from ? 0 : Math.min(1, need / fullBrake(self.vLong, brakeTable));
+  return need < from ? 0 : Math.min(1, need / maxBrake(self.vLong, brakeTable));
 }
 
 /**
@@ -191,10 +194,9 @@ export interface PlanSource {
 }
 
 /**
- * Drives by the planner with plain controllers: a new plan every
- * `REPLAN_EVERY` s, steering along it (the lane controller's tracker) and at
- * its speed, with an emergency brake for what is right ahead. The reference
- * for the network that is to learn the driving part.
+ * Drives by plans by direction of travel (coursePlanner): a new plan every `REPLAN_EVERY` s, steered along by the
+ * car type's network (or the plain tracker) at the plan's speed, with an emergency brake for what is right ahead;
+ * across the road (a crash) the plan followed plainly (courseFollow).
  *
  * Plans are made right here (training, benchmarks: repeatable), or by a
  * `PlanSource` (the game): then a plan is followed from the moment it was
@@ -216,14 +218,12 @@ export class PlannerDriver implements Driver {
   private clock = 0;
   /** The car's full-throttle acceleration (CarSpec.ai.accel). */
   accel: AccelTable = STREET_RACER.ai.accel;
-  /** The car's cornering grip (CarSpec.ai.latAccel): how hard its plans may turn (PLANNER.latGrip). */
+  /** The car's cornering grip (CarSpec.ai.latAccel): how hard its plans may turn. */
   latAccel: AccelTable = STREET_RACER.ai.latAccel;
   /** The car's full-brake deceleration by speed (CarSpec.ai.brake): plans, pedals and the emergency brake. None: 11 m/s² (PLANNER.hardBrake). */
-  brake: AccelTable | null = null;
+  brake: AccelTable | null = STREET_RACER.ai.brake;
   /** The car type's trained steering network (CarSpec.ai.tracker), used with DRIVER_TUNING.netTracker. */
   tracker: Brain | null = trackerFrom(STREET_RACER.ai.tracker);
-  /** Its network for standing across the road after a crash (CarSpec.ai.recovery); none: `tracker` there too. */
-  recovery: Brain | null = trackerFrom(STREET_RACER.ai.recovery);
   /** Engine boost on top (the rivals' rubber band): the plan and the pedals count on it. */
   accelScale = 1;
   /** Answers to requests made up to this clock time are thrown away (the car was moved since). */
@@ -255,28 +255,12 @@ export class PlannerDriver implements Driver {
     this.staleUpTo = this.clock; // answers for the car before it was moved are no use
   }
 
-  drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): HandlingInput {
+  drive(self: SelfState, traffic: TrafficBox[], p: CarParams = DEFAULT_CAR): DriveInput {
     this.clock += PHYSICS_DT;
     if (!this.plan || this.planAge >= REPLAN_EVERY) {
       const previous = this.plan && { plan: this.plan, age: this.planAge };
-      const vD = self.vLong * Math.sin(self.yaw) + self.vLat * Math.cos(self.yaw);
-      const ego: PlanEgo = {
-        s: self.s,
-        d: self.d,
-        v: self.vLong,
-        speedCap: self.speedCap,
-        vD,
-        accel: this.accelTable(),
-        latAccel: this.latAccel,
-        ...(this.brake ? { brake: this.brake } : {}),
-        halfWidth: self.halfWidth,
-        halfLength: self.halfLength,
-        // (for plans by direction of travel: the lattice planner goes by vD)
-        yaw: self.yaw,
-        vLat: self.vLat,
-        turnMax: Math.tan(p.maxSteer) / p.wheelbase,
-      };
-      if (!this.source) this.adopt((DRIVER_TUNING.coursePlanner ? coursePlan : plan)(ego, traffic, previous), this.clock);
+      const ego = egoOf(self, p, this.accelTable(), this.latAccel, this.brake);
+      if (!this.source) this.adopt(coursePlan(ego, traffic, previous), this.clock);
       else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);
     }
     const answer = this.source?.take();
@@ -284,27 +268,22 @@ export class PlannerDriver implements Driver {
     if (!this.plan) return { steer: 0, throttle: 0, brake: 0 }; // the first plan is on its way
     if (this.tracking) this.record(self);
     const age = this.planAge;
-    // Aims trackerLead s ahead on the plan (shorter than the lane controller's preview: that one leads on purpose;
-    // here it ran the car 0.7 m ahead of the plan's sideways moves, into what the plan was still waiting to clear).
+    // Aims trackerLead s ahead on the plan (a longer lead ran the car 0.7 m ahead of the plan's sideways moves, into
+    // what the plan was still waiting to clear).
     const aim = planAt(this.plan, age + PLANNER.trackerLead);
     const pedals = planPedals(this.plan, age, self.vLong, this.accelTable(), this.brake);
     // The car type's network steers, and takes back some of the throttle (wheelspin, a sliding tail).
     let steer: number;
-    let reverse = 0;
-    const brain = this.recovery && Math.abs(self.yaw) > ACROSS_YAW ? this.recovery : this.tracker;
-    if (DRIVER_TUNING.coursePlanner && Math.abs(self.yaw) > ACROSS_YAW) {
+    if (Math.abs(self.yaw) > ACROSS_YAW) {
       // Across the road (a crash): the plan by direction of travel followed plainly - the networks did not follow a
       // turn round (standing across the road 18/18 away so, 13-16/18 with the networks).
       steer = followSteer(this.plan, age, self, p);
       pedals.throttle *= tractionShare(self);
       if (pedals.brake > 0 && Math.abs(self.vLong) < STANDING) return { steer, throttle: 0, brake: 0, hold: true }; // (the brake would select reverse)
-    } else if (DRIVER_TUNING.netTracker && brain) {
-      const net = netDrive(brain, this.plan, age, self, p, pedals.throttle);
+    } else if (DRIVER_TUNING.netTracker && this.tracker) {
+      const net = netDrive(this.tracker, this.plan, age, self, p, pedals.throttle);
       steer = net.steer;
       pedals.throttle = net.throttle;
-      if (net.across) pedals.brake = 0; // (across the road the throttle is the network's: no plan brakes it - one that
-      // could not take its sideways move back before the road's edge was none, and the fallback braked: stop and go)
-      reverse = net.reverse; // (standing across the road after a crash: backing up to turn)
     } else steer = baseSteer(this.plan, age, self, p);
     // Sideways rate the plan has now, or (`steerClear`) where the steering already aims, if more: it is on its way out.
     const now = planAt(this.plan, age).dRate;
@@ -317,7 +296,6 @@ export class PlannerDriver implements Driver {
       this.tracking?.speedAtOverride.push(self.vLong - planAt(this.plan, age).v);
       return { steer, throttle: 0, brake };
     }
-    if (reverse > 0) return { steer, throttle: 0, brake: reverse }; // (the brake pedal, stopped: reverse)
     return { steer, ...pedals };
   }
 

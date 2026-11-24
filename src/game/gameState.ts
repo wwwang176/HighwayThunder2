@@ -1,11 +1,10 @@
-import { BEST_TIME_KEY, COUNTDOWN_SECONDS, RESET_COOLDOWN, ROAD_LENGTH } from '../config';
+import { COUNTDOWN_SECONDS, RESET_COOLDOWN, ROAD_LENGTH } from '../config';
 import { crossFraction } from '../vehicles/outline';
 
 /** `intro`: the cars on the grid, the camera showing them round (game/intro), before the countdown. */
 export type Phase = 'title' | 'intro' | 'countdown' | 'racing' | 'paused' | 'finished';
 
-type KV = Pick<Storage, 'getItem' | 'setItem'>;
-
+/** The race's phases and clock (no records kept: a best time was shown nowhere but as a "new best" mark). */
 export class GameFlow {
   phase: Phase = 'title';
   countdown = COUNTDOWN_SECONDS;
@@ -15,34 +14,12 @@ export class GameFlow {
   /** The race's top speed so far (km/h: noteSpeed). */
   topSpeed = 0;
   resetCooldown = 0;
-  best: number | null;
-  isBest = false;
   private pausedFrom: Phase = 'racing';
   /** The front of the player's body last step (update's `playerLead`; -Infinity: none yet). */
   private lastLead = -Infinity;
 
-  /** `bestKey`: where its best time is kept (the curved road's apart from the straight one's). */
-  constructor(
-    private storage: KV,
-    private bestKey = BEST_TIME_KEY,
-    /** The race's length (m): past it, finished. */
-    public length = ROAD_LENGTH,
-  ) {
-    this.best = this.readBest();
-  }
-
-  /** Another course (picked in the garage): its own record (kept under `bestKey`), its length. */
-  setCourse(bestKey: string, length: number): void {
-    this.bestKey = bestKey;
-    this.length = length;
-    this.best = this.readBest();
-    this.isBest = false;
-  }
-
-  private readBest(): number | null {
-    const raw = Number(this.storage.getItem(this.bestKey));
-    return Number.isFinite(raw) && raw > 0 ? raw : null;
-  }
+  /** `length`: the race's (m): past it, finished (another course's: useCourse sets it). */
+  constructor(public length = ROAD_LENGTH) {}
 
   /** Start (or restart) a race: its intro first (beginCountdown ends it). Valid from title, finished or paused. */
   start(): void {
@@ -54,7 +31,6 @@ export class GameFlow {
     this.nearMisses = 0;
     this.topSpeed = 0;
     this.resetCooldown = 0;
-    this.isBest = false;
     this.lastLead = -Infinity;
   }
 
@@ -82,6 +58,8 @@ export class GameFlow {
         this.phase = 'racing';
         this.raceTime = -this.countdown;
         this.countdown = 0;
+        // (no reset in the first RESET_COOLDOWN s: one at the green put the car back at RESET_SPEED from a standstill)
+        this.resetCooldown = RESET_COOLDOWN;
       }
       return;
     }
@@ -94,11 +72,6 @@ export class GameFlow {
   private finish(time: number): void {
     this.phase = 'finished';
     this.raceTime = this.finishTime = time;
-    if (this.best === null || time < this.best) {
-      this.best = time;
-      this.isBest = true;
-      this.storage.setItem(this.bestKey, String(time));
-    }
   }
 
   togglePause(): void {

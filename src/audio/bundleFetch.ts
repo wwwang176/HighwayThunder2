@@ -15,5 +15,7 @@ export async function fetchBundle(url: string): Promise<ArrayBuffer | null> {
     fetched.set(url, bytes);
   }
   const b = await bytes;
+  // (none had: asked again next time - the early fetch failing on a blip of the line left the sound silent all visit)
+  if (!b && fetched.get(url) === bytes) fetched.delete(url);
   return b && b.slice(0);
 }
