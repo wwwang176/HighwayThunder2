@@ -55,7 +55,6 @@ export function scrapeSparks(slide: number, dt: number): number {
 export function burstSparks(rel: number): number {
   return rel < SPARKS.minSlide ? 0 : Math.min(SPARKS.burstMax, Math.round(SPARKS.burst * rel));
 }
-
 const UNIT_Z = new THREE.Vector3(0, 0, 1);
 const M = new THREE.Matrix4();
 const P = new THREE.Vector3();
@@ -98,15 +97,21 @@ export class Sparks {
     scene.add(this.mesh);
   }
 
-  /** A pair touching after a physics step of `dt` s (PhysicsWorld.touches). */
+  /**
+   * A pair touching after a physics step of `dt` s (PhysicsWorld.touches). Two vehicles: by how hard they hit too
+   * (Touch.impact) - side by side at speed they hardly slide over each other, a hit's sparks a few that went nowhere;
+   * a hit throws as many as its force, as far (a hard shove while they touch, again).
+   */
   touch(t: Touch, dt: number): void {
     const slide = slideSpeed(t.va, t.vb, t.normal);
+    const hit = t.a.type !== 'static' && t.b.type !== 'static' ? t.impact : 0;
     let n = scrapeSparks(slide, dt);
-    if (t.fresh) n += burstSparks(Math.hypot(t.va.x - t.vb.x, t.va.y - t.vb.y, t.va.z - t.vb.z));
+    if (t.fresh) n += burstSparks(Math.max(hit, Math.hypot(t.va.x - t.vb.x, t.va.y - t.vb.y, t.va.z - t.vb.z)));
+    else n += burstSparks(hit);
     this.carry += n;
     const whole = Math.floor(this.carry);
     this.carry -= whole;
-    for (let k = 0; k < whole; k++) this.spawn(t, slide);
+    for (let k = 0; k < whole; k++) this.spawn(t, Math.max(slide, hit));
   }
 
   /** A spark of its own: at (x, y, z), going (vx, vy, vz), for `life` s (the finish's fountains). */
