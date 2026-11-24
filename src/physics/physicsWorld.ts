@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, RAIL_D } from '../config';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 
-export type EntityRef = { type: 'player' } | { type: 'rival'; id: number } | { type: 'npc'; id: number } | { type: 'static' };
+export type EntityRef = { type: 'player' } | { type: 'rival'; id: number } | { type: 'police'; id: number } | { type: 'npc'; id: number } | { type: 'static' };
 
 // Collision group bits (membership << 16 | filter).
 export const G_STATIC = 1;

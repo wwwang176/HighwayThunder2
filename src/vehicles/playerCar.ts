@@ -24,8 +24,8 @@ import { BRAKE_HEAT, discGlow, discHeatStep } from './brakeHeat';
 export interface PlayerCarOptions {
   /** Car type (default: the street racer). */
   spec?: CarSpec;
-  /** Who the collider is: the player (default) or a rival. Without a scene and without this: a ghost. */
-  entity?: Extract<EntityRef, { type: 'player' } | { type: 'rival' }>;
+  /** Who the collider is: the player (default), a rival or a police car. Without a scene and without this: a ghost. */
+  entity?: Extract<EntityRef, { type: 'player' } | { type: 'rival' } | { type: 'police' }>;
   /** Body colour (default: the spec's). */
   color?: number;
   /** Paint job, for a car with a model file (carModels.ts; default: its own). */
@@ -306,7 +306,7 @@ export class PlayerCar {
             .setFriction(BODY_FRICTION.upright)
             .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
             .setRestitution(0.05)
-            .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
+            .setCollisionGroups(entity.type === 'player' ? PLAYER_GROUPS : RIVAL_GROUPS) // (a police car: as a rival)
             .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
           this.body,
         );
