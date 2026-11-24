@@ -38,6 +38,9 @@ export interface EngineSet {
 
 export type EngineKind = 'super' | 'muscle' | 'jdm' | 'sedan' | 'truck' | 'container';
 
+/** A car body's engine: its own, the police SUV the muscle car's (a big engine; no set of its own). */
+export const engineOf = (style: 'super' | 'muscle' | 'jdm' | 'suv'): EngineKind => (style === 'suv' ? 'muscle' : style);
+
 /**
  * Every clip, by id (`<engine>-<rev>`; each `-limiter` its rev limiter, its rpm by its spectrum against its top
  * rev's; each `-startup` its start-up, a one-shot: no rpm).

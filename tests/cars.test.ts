@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CARS, STREET_RACER } from '../src/vehicles/cars';
+import { CARS, POLICE_SUV, specById, STREET_RACER } from '../src/vehicles/cars';
+import { PICKABLE } from '../src/game/carSelection';
 
 const ascending = (table: [number, number][]) => table.every(([kmh], i) => i === 0 || kmh > table[i - 1][0]);
 
@@ -19,6 +20,16 @@ describe('cars', () => {
       expect(ascending(spec.ai.accel)).toBe(true);
       expect(ascending(spec.ai.latAccel)).toBe(true);
     }
+  });
+
+  it('the police SUV: heavy, strong, not a car to pick', () => {
+    expect(POLICE_SUV.params.mass).toBeGreaterThanOrEqual(2500);
+    expect(POLICE_SUV.params.power).toBeGreaterThan(STREET_RACER.params.power);
+    expect(PICKABLE).not.toContain(POLICE_SUV.id);
+    expect(CARS[POLICE_SUV.id]).toBeUndefined();
+    expect(specById(POLICE_SUV.id)).toBe(POLICE_SUV);
+    expect(specById('jdm')).toBe(CARS.jdm);
+    expect(ascending(POLICE_SUV.ai.accel) && ascending(POLICE_SUV.ai.brake) && ascending(POLICE_SUV.ai.latAccel)).toBe(true);
   });
 
   it('the muscle car pulls harder but tops out lower than the supercar', () => {

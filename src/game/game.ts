@@ -95,7 +95,7 @@ import { DriftTimer } from './driftTimer';
 import { Blocker, computeResetSpot } from './reset';
 import type { EngineSource } from '../audio/otherEngines';
 import type { EarPose } from '../audio/pan';
-import type { EngineKind } from '../audio/engineCatalog';
+import { engineOf, type EngineKind } from '../audio/engineCatalog';
 import { trafficEngine, type TrafficGearing } from '../audio/spatial';
 
 /** The rivals' colours, for the HUD. */
@@ -660,7 +660,7 @@ export class Game {
     // (in the click or key itself: the browser lets the sound start only there; paused, the race's sound stays
     // stopped - silent through the fade and the loading - and comes back with the new race, setUpRace)
     if (this.flow.phase !== 'paused') this.sound.init();
-    if (fromGarage) this.sound.startup(specOf((cars ?? this.cars).player).style);
+    if (fromGarage) this.sound.startup(engineOf(specOf((cars ?? this.cars).player).style));
     this.music.change(); // (a new scene: the song faded out, a moment's quiet, the next one in)
     this.overlay.toBlack(START_FADE_OUT, () => void this.setUpRace(cars));
   }
@@ -1651,7 +1651,7 @@ export class Game {
       // (a car drawn through a bend in an intro: heard going as it is drawn going)
       const c = r.car, s = next(), p = c.mesh.position, v = c.showPose?.vel ?? c.body.linvel();
       s.key = -1 - r.index;
-      s.kind = c.style;
+      s.kind = engineOf(c.style);
       s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
       s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
       s.rpm = c.shownRpm;
@@ -1665,7 +1665,7 @@ export class Game {
     if (pose) {
       const s = next(), p = pc.mesh.position, v = pose.vel;
       s.key = PLAYER_DRAWN_KEY;
-      s.kind = pc.style;
+      s.kind = engineOf(pc.style);
       s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
       s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
       s.rpm = pc.shownRpm;
@@ -1890,7 +1890,7 @@ export class Game {
     // (drawn through a bend in an intro: heard there instead - heardEngines, heardSkids)
     const drawn = !!this.player.showPose;
     const own = this.player.gearbox.shifting ? 0 : this.lastInput.throttle;
-    this.sound.setEngine(this.player.style, this.player.shownRpm, car.idleRpm, car.redline,
+    this.sound.setEngine(engineOf(this.player.style), this.player.shownRpm, car.idleRpm, car.redline,
       rev ? rev.throttle : this.player.blipping ? Math.max(HEEL_TOE.throttle, own) : own, this.flow.phase !== 'title' && !drawn);
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);

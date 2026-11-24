@@ -140,6 +140,7 @@ const HOOD_EYE: Record<CarStyle, [y: number, z: number]> = {
   super: [0.6, -0.65], // (0.15 m over its hood: its short sloping hood seen at all)
   muscle: [0.68, -0.51],
   jdm: [0.78, -0.53],
+  suv: [1.0, -0.9], // (the police SUV's stand-in body: models.ts buildPoliceSuv)
 };
 
 /**
