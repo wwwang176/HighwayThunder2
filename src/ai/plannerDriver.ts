@@ -221,7 +221,7 @@ export class PlannerDriver implements Driver {
   /** The car's cornering grip (CarSpec.ai.latAccel): how hard its plans may turn. */
   latAccel: AccelTable = STREET_RACER.ai.latAccel;
   /** The car's full-brake deceleration by speed (CarSpec.ai.brake): plans, pedals and the emergency brake. None: 11 m/s² (PLANNER.hardBrake). */
-  brake: AccelTable | null = null;
+  brake: AccelTable | null = STREET_RACER.ai.brake;
   /** The car type's trained steering network (CarSpec.ai.tracker), used with DRIVER_TUNING.netTracker. */
   tracker: Brain | null = trackerFrom(STREET_RACER.ai.tracker);
   /** Engine boost on top (the rivals' rubber band): the plan and the pedals count on it. */

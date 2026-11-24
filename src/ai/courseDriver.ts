@@ -20,7 +20,7 @@ export class CourseDriver implements Driver {
   private earlier: { plan: Plan; t: number }[] = [];
   accel: AccelTable = STREET_RACER.ai.accel;
   latAccel: AccelTable = STREET_RACER.ai.latAccel;
-  brake: AccelTable | null = null;
+  brake: AccelTable | null = STREET_RACER.ai.brake;
   /** Steps the emergency brake stepped in. */
   overrides = 0;
 

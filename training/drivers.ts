@@ -19,11 +19,13 @@ export function makeDriver(spec: CarSpec, source: PlanSource | null = null): Sim
     const c = new CourseDriver();
     c.accel = spec.ai.accel;
     c.latAccel = spec.ai.latAccel;
+    c.brake = spec.ai.brake;
     return c;
   }
   const d = new PlannerDriver(source);
   d.accel = spec.ai.accel;
   d.latAccel = spec.ai.latAccel;
+  d.brake = spec.ai.brake;
   d.tracker = trackerFrom(spec.ai.tracker);
   d.reset();
   return d;
