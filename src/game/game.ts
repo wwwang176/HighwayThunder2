@@ -994,7 +994,8 @@ export class Game {
   }
 
   tryReset(): void {
-    if (!this.flow.canReset()) return;
+    // (busted: hands off till its own put-back - R in its slow motion put the car back twice)
+    if (!this.flow.canReset() || this.bust) return;
     this.putBack();
   }
 
@@ -1290,10 +1291,11 @@ export class Game {
     // The police after them (the racers where they are this step, the player first).
     if (this.police) {
       if (racing) {
-        const racers: Racer[] = [{ s: this.player.s, d: this.player.d, v: Math.max(0, this.player.speed), isPlayer: true }];
+        // (one past the line is nobody's target: the chase is over for it)
+        const racers: Racer[] = [{ s: this.player.s, d: this.player.d, v: Math.max(0, this.player.speed), isPlayer: true, done: this.flow.phase === 'finished' }];
         const racerBoxes: TrafficBox[] = [{ ...this.player.footprint(), id: PLAYER_BOX_ID, v: Math.max(0, this.player.speed) }];
         for (const b of this.rivals.boxes(this.rivalBoxes)) racerBoxes.push(b);
-        for (const r of this.rivals.list) racers.push({ s: r.car.s, d: r.car.d, v: Math.max(0, r.car.speed), isPlayer: false });
+        for (const r of this.rivals.list) racers.push({ s: r.car.s, d: r.car.d, v: Math.max(0, r.car.speed), isPlayer: false, done: r.finishTime !== null });
         this.police.drive(dt, racers, racerBoxes, view.traffic);
       } else this.police.hold(dt);
     }

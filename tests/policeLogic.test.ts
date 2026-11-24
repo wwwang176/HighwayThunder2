@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bustAllowed, guardD, isLost, lineClear, parkSpot, phaseOf, pickTarget, ramInput, type Racer } from '../src/game/policeLogic';
+import { bustAllowed, guardD, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, ramInput, type Racer } from '../src/game/policeLogic';
 import { RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
 import type { SelfState } from '../src/ai/sensors';
 import type { Plan } from '../src/ai/planner';
@@ -11,6 +11,19 @@ describe('policeLogic', () => {
     expect(pickTarget(1000, [P(1100), P(900, true)], 300)!.isPlayer).toBe(true);
     expect(pickTarget(1000, [P(1100), P(1500, true)], 300)!.s).toBe(1100);
     expect(pickTarget(1000, [P(1400), P(1500, true)], 300)).toBeNull();
+  });
+
+  it('a racer past the line is nobody\'s target', () => {
+    expect(pickTarget(1000, [P(1100), { ...P(1010, true), done: true }], 300)!.s).toBe(1100);
+    expect(pickTarget(1000, [{ ...P(1100), done: true }], 300)).toBeNull();
+  });
+
+  it('out of the player\'s sight: far behind it, or ahead past the fog', () => {
+    expect(outOfSight(600, 1000)).toBe(true); // (300+ m behind)
+    expect(outOfSight(800, 1000)).toBe(false);
+    expect(outOfSight(1400, 1000)).toBe(false); // (400 m ahead: in the fog, still seen)
+    expect(outOfSight(1000 + POLICE_TUNING.viewAhead + 1, 1000)).toBe(true);
+    expect(POLICE_TUNING.parkAhead).toBeGreaterThanOrEqual(POLICE_TUNING.viewAhead); // (parked again out of sight)
   });
 
   it('front or behind by s against the target', () => {

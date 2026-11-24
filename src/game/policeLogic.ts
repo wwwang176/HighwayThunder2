@@ -8,22 +8,24 @@ import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../veh
  * pulls out for a racer coming within `wake` m; one further than `lost` m from every racer has lost them, and is parked
  * again `parkAhead` m ahead of the leader (in the fog); a hit closing at `bustKmh` or more busts the player (a scrape
  * does not), not within `grace` s of being put back, and it is put back `bustSeconds` s (real) later. Ramming: the line
- * to the target clear within `laneWidth` m each side, aimed `aimAhead` s on.
+ * to the target clear within `laneWidth` m each side (about one SUV wide: narrower than the spec's "two cars"),
+ * aimed `aimAhead` s on. Seen by the player up to `viewAhead` m ahead (the highway's fog ends at 650 m): one is lost,
+ * and parked again, only out of its sight (outOfSight) - at 300 m ahead in the fog, it was seen to vanish.
  */
-export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, parkAhead: 500, bustKmh: 15, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
+export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, parkAhead: 700, viewAhead: 700, bustKmh: 15, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
 
-/** A racer as the police see it: where (along, across the road), how fast (m/s), the player or not. */
-export type Racer = { s: number; d: number; v: number; isPlayer: boolean };
+/** A racer as the police see it: where (along, across the road), how fast (m/s), the player or not, past the line (`done`). */
+export type Racer = { s: number; d: number; v: number; isPlayer: boolean; done?: boolean };
 
 /** The shoulder's middle (d): where a police car parks. */
 export const SHOULDER_D = (ROAD_HALF_WIDTH + RAIL_D) / 2;
 
 /** Who a police car at `suvS` goes for: the player within `range` m (either way), else the nearest racer within it; none: null. */
 export function pickTarget(suvS: number, racers: readonly Racer[], range: number): Racer | null {
-  const player = racers.find((r) => r.isPlayer && Math.abs(r.s - suvS) <= range);
+  const player = racers.find((r) => r.isPlayer && !r.done && Math.abs(r.s - suvS) <= range);
   if (player) return player;
   let best: Racer | null = null;
-  for (const r of racers) if (Math.abs(r.s - suvS) <= range && (!best || Math.abs(r.s - suvS) < Math.abs(best.s - suvS))) best = r;
+  for (const r of racers) if (!r.done && Math.abs(r.s - suvS) <= range && (!best || Math.abs(r.s - suvS) < Math.abs(best.s - suvS))) best = r;
   return best;
 }
 
@@ -47,6 +49,11 @@ export function lineClear(from: { s: number; d: number }, to: { s: number; d: nu
 /** Further than `lost` m from every racer. */
 export function isLost(suvS: number, racers: readonly Racer[], lost: number): boolean {
   return racers.every((r) => Math.abs(r.s - suvS) > lost);
+}
+
+/** Out of the player's sight: over `behind` m behind it (POLICE_TUNING.lost), or ahead past the fog (viewAhead). */
+export function outOfSight(suvS: number, playerS: number, behind = POLICE_TUNING.lost, ahead = POLICE_TUNING.viewAhead): boolean {
+  return suvS < playerS - behind || suvS > playerS + ahead;
 }
 
 /** Where a police car parks again: on the shoulder, `ahead` m ahead of the leading racer. */

@@ -590,6 +590,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
     const at = putBackAt(why, r.car.s, p);
     const all: Blocker[] = [...blockers, { ...p.footprint(), v: Math.max(0, p.speed) }];
     for (const o of this.list) if (o !== r) all.push({ ...o.car.footprint(), v: Math.max(0, o.car.speed) });
+    if (view.police) for (const b of view.police) all.push(b); // (a rival rammed by one is put back beside it)
     if (this.ownLanes) {
       this.putBackOnLanes(r, at, all);
       return;

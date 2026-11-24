@@ -14,7 +14,7 @@ import type { Obstacle } from '../traffic/trafficAI';
 import { POLICE_SUV } from '../vehicles/cars';
 import type { DriveInput } from '../vehicles/handling';
 import { PlayerCar } from '../vehicles/playerCar';
-import { guardD, isLost, lineClear, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
+import { guardD, isLost, lineClear, outOfSight, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
 import { coursePlan } from '../ai/coursePlanner';
 import type { Plan } from '../ai/planner';
 import type { Blocker } from './reset';
@@ -50,6 +50,8 @@ const BOOST = { most: 0.5, from: 30, full: 230 };
 const PULL_OVER = { speed: 40 * KMH, near: 0.4 };
 /** Parked again: this far (m) along from any other police car. */
 const PARK_APART = 40;
+/** With nobody to go for, still in the player's sight: on along the road this fast (m/s). */
+const CRUISE = 100 * KMH;
 /** Rams only a target at most this far ahead (m): further, it closes in by its plans. */
 const RAM_RANGE = 120;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
@@ -138,7 +140,9 @@ export class Police {
       p.ramming = false;
       // Lost: parked again ahead of them all (one parked behind them all too - left behind, the chase not on).
       const behindAll = racers.every((r) => r.s > c.s);
-      if (racers.length && isLost(c.s, racers, POLICE_TUNING.lost) && (p.state !== 'parked' || behindAll)) {
+      // (only out of the player's sight: lost 300 m ahead in the fog, it was seen to vanish)
+      const unseen = !player || outOfSight(c.s, player.s);
+      if (racers.length && unseen && isLost(c.s, racers, POLICE_TUNING.lost) && (p.state !== 'parked' || behindAll)) {
         this.parkAhead(p, racers);
         continue;
       }
@@ -162,7 +166,14 @@ export class Police {
       }
       const t = pickTarget(c.s, racers, POLICE_TUNING.lost);
       if (!t) {
-        this.parkAhead(p, racers);
+        // Nobody to go for: parked again ahead out of sight, else on along the road till it is.
+        if (unseen) this.parkAhead(p, racers);
+        else {
+          p.target = null;
+          p.driver.preferD = null;
+          this.boost(p, 1);
+          c.prePhysics(p.driver.drive(selfStateOf(c, CRUISE), this.seen(p, racerBoxes, traffic), c.params), dt);
+        }
         continue;
       }
       p.target = t;
