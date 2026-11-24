@@ -1,0 +1,17 @@
+Use only the image_gen tool to make the three images below, then copy each into the current folder with exactly the file name given (keep the format the tool produces; if it is not .png, use that extension instead). Make image 1 first; then make images 2 and 3 of THE SAME vehicle, giving image 1 to the tool as the reference image if it can take one. Check each image against the checklist below before copying it - the view, which end of the vehicle is shown, the same render style as image 1 (a shaded 3D render, never a flat 2D illustration or vector drawing), the same body shape, two-tone paint, light bar, push bar, lights and wheels in all three; if any differs, make it again. Do nothing else: no other tools, no other files.
+
+Subject (the same vehicle in all three, every detail identical): an ORIGINAL fictional police pursuit SUV (about 5.0 m long, 2.05 m wide, 1.85 m tall) for a night-time highway street-racing video game - big, heavy, square-shouldered and menacing, the car that chases the racers down. It must not resemble any real brand, model or police force: no logos, no badges, no crests, no stars, no brand-like grille or lights, and NO text, words, letters, numbers, stickers or markings anywhere (no "POLICE" lettering).
+Checklist (all three views):
+- body: a boxy, upright full-size SUV with four doors, a tall flat roof, a near-vertical tailgate, a long flat hood, flat squared-off panels and sharp creases, high ground clearance, chunky wheel arches;
+- paint: two-tone - dark navy blue (#1b1f2a family) body, the four doors white (only the door panels; the fenders, hood, roof, tailgate and bumpers navy), gloss black lower body, bumpers and side skirts;
+- light bar: one low, flat, wide light bar across the middle of the roof, in two halves - the LEFT half red, the RIGHT half blue (as seen from behind the vehicle), clear plastic lenses over the lamps, NOT lit (no glow, no flare), on a black base;
+- front: a heavy black push bar (bull bar) across the whole front bumper, a large black grille of plain horizontal bars, square headlights each side;
+- rear: square red tail lights at the rear corners, a plain tailgate with a rear window;
+- windows: dark tinted glass all round, black window frames;
+- wheels: plain black steel wheels with chunky all-terrain tyres;
+- side mirrors on black arms; a small black spotlight by the left front window pillar.
+Style (all three the same): a clean shaded 3D render of a low-poly game model, readable simple shapes and flat panels (as if it will be built as a low-poly 3D model), symmetric, soft studio lighting, plain dark neutral grey background, no scenery, whole vehicle in frame with margin.
+
+1. police-front34 - three-quarter FRONT view from slightly above (the nose, the push bar and the left side), headlights on, the light bar NOT lit.
+2. police-side - side view with the camera square to the vehicle's left side at mid height (a 3D render, lit like image 1, only the left side visible, no front or back faces), the front pointing left, all four wheels fully visible.
+3. police-rear34 - three-quarter REAR view from slightly above (the tailgate and the RIGHT side), tail lights lit, the light bar NOT lit; no headlights in view.
