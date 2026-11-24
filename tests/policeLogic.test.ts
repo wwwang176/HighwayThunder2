@@ -47,10 +47,10 @@ describe('policeLogic', () => {
     expect(parkSpot([P(900), P(1200, true)], 500)).toEqual({ s: 1700, d: (ROAD_HALF_WIDTH + RAIL_D) / 2 });
   });
 
-  it('a bust: racing, a hit (not a scrape), not just after a put-back', () => {
-    expect(bustAllowed('racing', 20, 5)).toBe(true);
-    expect(bustAllowed('racing', 10, 5)).toBe(false);
-    expect(bustAllowed('racing', 20, 1)).toBe(false);
+  it('a bust: racing, a hard hit (30 km/h closing; a knock under it not), not just after a put-back', () => {
+    expect(bustAllowed('racing', 30, 5)).toBe(true);
+    expect(bustAllowed('racing', 25, 5)).toBe(false); // (a knock: no bust)
+    expect(bustAllowed('racing', 35, 1)).toBe(false);
     expect(bustAllowed('finished', 40, 5)).toBe(false); // (past the line: the finish's show)
   });
 

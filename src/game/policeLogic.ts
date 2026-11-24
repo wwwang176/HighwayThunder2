@@ -7,12 +7,12 @@ import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../veh
  * The police cars' numbers (docs/superpowers/specs/2026-11-24-police-chase-design.md): `count` at once; a parked one
  * pulls out for a racer coming within `wake` m; one further than `lost` m from every racer has lost them, and is parked
  * again `parkAhead` m ahead of the leader (in the fog); a hit closing at `bustKmh` or more busts the player (a scrape
- * does not), not within `grace` s of being put back, and it is put back `bustSeconds` s (real) later. Ramming: the line
+ * or a knock does not: at 15 km/h a light touch did, the user found), not within `grace` s of being put back, and it is put back `bustSeconds` s (real) later. Ramming: the line
  * to the target clear within `laneWidth` m each side (about one SUV wide: narrower than the spec's "two cars"),
  * aimed `aimAhead` s on. Seen by the player up to `viewAhead` m ahead (the highway's fog ends at 650 m): one is lost,
  * and parked again, only out of its sight (outOfSight) - at 300 m ahead in the fog, it was seen to vanish.
  */
-export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, parkAhead: 700, viewAhead: 700, bustKmh: 15, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
+export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, parkAhead: 700, viewAhead: 700, bustKmh: 30, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
 
 /** A guard prediction's horizon (s): at least, at most (the planner's own), and past getting to the police car. */
 const GUARD_HORIZON = { least: 2, most: 8, more: 1 };
