@@ -109,15 +109,15 @@ const FLASH = {
 const BEACON = { intensity: 120, distance: 30, decay: 1.6, lift: 0.25, red: 0xff2020, blue: 0x2050ff };
 
 /**
- * The police (the highway's): POLICE_TUNING.count SUVs, parked on the shoulder. Any racer driving past a parked one
- * sets the chase off (`triggered`); from then on each, by the racer it goes for (pickTarget: the player within 100 m first), guards
+ * The police (the highway's): POLICE_TUNING.count SUVs, parked on the shoulder. Any racer coming within 100 m of a
+ * parked one (chaseStarts) sets the chase off (`triggered`); from then on each, by the racer it goes for (pickTarget: the player within 100 m first), guards
  * the road ahead of it (front) or chases it (behind: its plans round the traffic, flat out at it once the line to it is
  * clear). Further than POLICE_TUNING.lost from every racer it has lost them: parked again ahead of them all, out of sight.
  * One that busted the player pulls over onto the shoulder and stays there till it too is lost.
  */
 export class Police {
   readonly list: PoliceCar[] = [];
-  /** A racer (the player or a rival) has driven past a parked police car: the chase is on (each race anew). */
+  /** A racer (the player or a rival) has come within 100 m of a parked police car: the chase is on (each race anew). */
   triggered = false;
   private readonly boxBuf: TrafficBox[] = [];
   /** Where the guarding cars' targets' lines are worked out (a Web Worker in the game; none in the sims: in line). */

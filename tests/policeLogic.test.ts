@@ -7,10 +7,11 @@ import type { Plan } from '../src/ai/planner';
 const P = (s: number, isPlayer = false): Racer => ({ s, d: 0, v: 50, isPlayer });
 
 describe('policeLogic', () => {
-  it('the chase starts as any racer drives past a parked police car - a rival too', () => {
-    expect(chaseStarts(400, [P(390, true), P(410)])).toBe(true); // (a rival past it)
-    expect(chaseStarts(400, [P(410, true)])).toBe(true);
-    expect(chaseStarts(400, [P(390, true), P(350)])).toBe(false);
+  it('the chase starts as any racer comes within POLICE_TUNING.notice of a parked police car - a rival too', () => {
+    expect(POLICE_TUNING.notice).toBe(100);
+    expect(chaseStarts(400, [P(250, true), P(310)])).toBe(true); // (a rival 90 m short of it)
+    expect(chaseStarts(400, [P(410, true)])).toBe(true); // (past it)
+    expect(chaseStarts(400, [P(250, true), P(299)])).toBe(false); // (both further off)
   });
 
   it('target: the player within POLICE_TUNING.playerFirst first, else the nearest racer in range', () => {
