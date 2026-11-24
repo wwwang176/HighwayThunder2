@@ -27,7 +27,7 @@ const box = (s: number, lane: number, kmh: number, length = 4.5, width = 1.85): 
 });
 
 /** The player car driven by a PlannerDriver for `seconds` through boxes moving at their own speeds (`cap` km/h its top; `setUp` the driver). */
-function drive(kmh: number, lane: number, boxes: TrafficBox[], seconds: number, cap: number | ((car: PlayerCar) => number) = 300, setUp?: (ai: PlannerDriver) => void) {
+function drive(kmh: number, lane: number, boxes: TrafficBox[], seconds: number, cap: number | ((car: PlayerCar) => number) = 300, setUp?: (ai: PlannerDriver) => void, each?: (car: PlayerCar) => void) {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   const car = new PlayerCar(physics, null);
@@ -44,6 +44,7 @@ function drive(kmh: number, lane: number, boxes: TrafficBox[], seconds: number, 
     for (const b of boxes) b.s += b.v * PHYSICS_DT;
     if (touching(car.s, car.d, car.yaw, boxes).length) touched++;
     maxD = Math.max(maxD, car.d);
+    each?.(car);
   }
   physics.free();
   return { car, touched, maxD };
@@ -127,6 +128,18 @@ describe('PlannerDriver', () => {
     // Right behind it: under 20 m centre to centre (~13 m bumper to bumper, 0.4 s at 110 km/h; the
     // plan keeps ~5 m, the car lags its speed changes a little).
     expect(boxes[2].s - car.s).toBeLessThan(20);
+  });
+
+  it('guarding (a police car): a slow car on its preferred line - goes round it, never into it, then back on the line', () => {
+    const boxes = [box(60, 1, 60)];
+    let offLine = 0;
+    const { car, touched } = drive(150, 1, boxes, 10, 150, (ai) => {
+      ai.preferD = laneCenter(1);
+    }, (c) => (offLine = Math.max(offLine, Math.abs(c.d - laneCenter(1)))));
+    expect(touched).toBe(0); // (it looks ahead: the car in the way)
+    expect(offLine).toBeGreaterThan(2); // (it left the line to get round it)
+    expect(car.s).toBeGreaterThan(boxes[0].s + 10);
+    expect(Math.abs(car.d - laneCenter(1))).toBeLessThan(0.5); // (and keeps to the line it is given: the racer behind it)
   });
 
   it('pulled over: its preferred line on the shoulder, the shoulder allowed, slow till there then 0 - stops there', () => {

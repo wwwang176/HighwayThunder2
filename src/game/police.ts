@@ -60,7 +60,7 @@ const RAM_RANGE = 120;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
 /** Guarding: the target's line worked out again every `every` s (only as far as it needs: guardHorizon - its 8 s took
  * 71 ms, a guard 0.4-0.5 s behind), as if it drove for at most `cap` m/s. */
-const GUARD = { every: 0.15, cap: 300 * KMH };
+const GUARD = { every: 0.3, cap: 300 * KMH };
 /** A prediction's stamp: its sequence number times this, plus the guarding car's index. */
 const STAMP_SLOTS = 8;
 /** The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glow` (emissive intensity). */

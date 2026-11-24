@@ -47,7 +47,7 @@ function race(seed: number) {
   };
   const occupants = (f: typeof OUR_FRAME) => [...rivals.occupants(f), ...police.occupants(f)];
   traffic.reset(focus(), occupants);
-  const stats = { busts: [] as number[], rivalHits: 0, lost: 0, finish: null as number | null, share: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, ram: 0 };
+  const stats = { npcHits: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, busts: [] as number[], rivalHits: 0, lost: 0, finish: null as number | null, share: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, ram: 0 };
   let bustLeft = 0;
   let putBackAt = -Infinity;
   const was = police.list.map((p) => p.state);
@@ -82,6 +82,7 @@ function race(seed: number) {
         } else if (other.type === 'rival' && closingSpeed(rv[other.id], sv[cop.id], n) * 3.6 >= POLICE_TUNING.bustKmh) stats.rivalHits++; // (a hit, not a scrape)
       }
       const npc = traffic.onNpcContact(a, b);
+      if (npc !== null && cop && !traffic.npcs.get(npc)?.wrecked) stats.npcHits[police.list[cop.id].state]++; // (a police car into the traffic, by what it was doing)
       if (npc !== null) traffic.wreck(npc);
     });
     player.postPhysics();
@@ -120,7 +121,7 @@ it('police chase', () => {
       const share = Object.entries(s.share).map(([k, v]) => `${k} ${((100 * v) / all).toFixed(0)}%`).join(', ');
       console.log(
         `seed ${seed}: busted ${s.busts.length}x (at ${s.busts.join(', ') || '-'} s), rivals hit ${s.rivalHits}, lost ${s.lost}, ` +
-          `ramming ${s.ram.toFixed(1)} s, ${share}, finish ${s.finish?.toFixed(1) ?? '-'} s`,
+          `ramming ${s.ram.toFixed(1)} s, ${share}, finish ${s.finish?.toFixed(1) ?? '-'} s; into traffic ${Object.entries(s.npcHits).map(([k, v]) => `${k} ${v}`).join(', ')}`,
       );
       r.physics.free();
     }
