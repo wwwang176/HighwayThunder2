@@ -8,8 +8,9 @@ Run (Blender 5.x, headless):
 Its own:
 - its LEFT half (-x) kept and mirrored (`mirror=-1`): the concept images showed its left side, the right one (its push
   bar's wrap-round) guessed;
-- its headlamps over the texture's white slits on the nose, its tail lights over the red C shapes on the tail (each
-  the texture's own shape: kit.cell_lamp); no indicators (the game shows none it hasn't);
+- its headlamps over the texture's white slits on the nose, an outline of their shape drawn smooth (HEAD_SHAPE: the
+  texture's white is ragged there, its cells a jagged lamp); its tail lights over the red C shapes on the tail (the
+  texture's own shape: kit.cell_lamp); no indicators (the game shows none it hasn't);
 - its roof light bar's lenses taken off the body as `lightbar-red` (its left, -x) and `lightbar-blue` (its right),
   their own materials, the game flashing them (src/game/police.ts); the bar's black middle and its feet stay body;
 - its paint a dark navy: a low saturation for paint (`paint_sat`), its windscreen and rear window a bluish tint
@@ -23,11 +24,12 @@ Its own:
   with them (its collider's kept by hand: moved too).
 """
 
+import math
 import os
 import sys
 
 import bmesh
-from mathutils import Vector
+from mathutils import Vector, geometry
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import carkit as kit  # noqa: E402
@@ -36,11 +38,15 @@ import carkit as kit  # noqa: E402
 BAR_Z = 1.49
 BAR_Y = (-0.40, -0.07)
 BAR_MID = 0.14
-# The headlamps' slits on the nose: up to |x| HEAD_X, between HEAD_Z (the front render: |x| 0.42..0.76, z 0.71..0.77).
-HEAD_X = 0.78
-HEAD_Z = (0.65, 0.86)
-# How far apart along the car a headlamp cell's corners may land (its slits lie in a slanted, stepped face).
-HEAD_SPREAD = 0.025
+# How far apart along the car a headlamp facet's corners may land: its face slants back steeply round the hook (3 cm
+# a cm); the steps (the hood's lip over it at z 0.80, 15 cm; a slot at |x| 0.40, 8 cm) the outline keeps clear of.
+HEAD_SPREAD = 0.05
+# The left headlamp's outline (x, z; seen from ahead, working frame), smooth where the texture's white is ragged (its
+# cells: a slit z ~0.76..0.79 under the hood's lip, deeper outboard, its inner end hooking down to 0.71): its top,
+# its inner end down the hook, the hook's foot, back up its inside, the slit's thin middle, outboard's deeper part,
+# its outer end.
+HEAD_SHAPE = [(-0.745, 0.791), (-0.428, 0.791), (-0.416, 0.712), (-0.436, 0.712), (-0.452, 0.767), (-0.598, 0.767),
+              (-0.622, 0.753), (-0.745, 0.755)]
 # The windscreen's outline on the texture, seen from above (its left half, x <= 0; y toward the nose): its top edge
 # straight across the middle, then back toward the corners; its sides; its lower corners cut off; its foot.
 SCREEN = [(0.0, 0.366), (-0.22, 0.366), (-0.60, 0.285), (-0.61, 0.30), (-0.68, 0.72), (-0.68, 0.75), (-0.605, 0.835),
@@ -150,19 +156,58 @@ def flat_lamp(name, s, body, cells, mat, back=False, spread=0.01):
     return ob
 
 
+def shape_lamp(name, s, body, outline, mat, spread, step=0.005, grid=0.01):
+    """A lamp of the outline (x, z) on the body seen from ahead: the outline (a point every `step`) and a `grid` of
+    points inside, triangulated, each laid on the body; a facet whose corners land more than `spread` apart along the
+    car (across a step in the surface) left out (flat_lamp's)."""
+    loop = []
+    for (x0, z0), (x1, z1) in zip(outline, outline[1:] + outline[:1]):
+        n = max(1, round(math.hypot(x1 - x0, z1 - z0) / step))
+        loop += [(x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n) for i in range(n)]
+
+    def inside(x, z):
+        c = False
+        for (x0, z0), (x1, z1) in zip(outline, outline[1:] + outline[:1]):
+            if (z0 > z) != (z1 > z) and x < x0 + (z - z0) * (x1 - x0) / (z1 - z0):
+                c = not c
+        return c
+
+    xs, zs = [p[0] for p in outline], [p[1] for p in outline]
+    pts = [(min(xs) + grid * i, min(zs) + grid * j) for i in range(round((max(xs) - min(xs)) / grid) + 1)
+           for j in range(round((max(zs) - min(zs)) / grid) + 1)]
+    pts = [p for p in pts if inside(*p) and min(math.hypot(p[0] - q[0], p[1] - q[1]) for q in loop) > step * 0.6]
+    co2 = [Vector(p) for p in loop + pts]
+    out = geometry.delaunay_2d_cdt(co2, [(i, (i + 1) % len(loop)) for i in range(len(loop))], [list(range(len(loop)))], 1, 1e-6)
+    d = Vector((0, -1, 0))
+    on = []
+    for v in out[0]:
+        p = s.tree.ray_cast(Vector((v.x, 0, v.y)) - d * 5, d)[0]
+        on.append(None if p is None else p - d * kit.LIFT)
+    verts, faces, skipped = [], [], 0
+    for f in out[2]:
+        ps = [on[i] for i in f]
+        if any(p is None for p in ps) or max(p.y for p in ps) - min(p.y for p in ps) > spread:
+            skipped += 1
+            continue
+        if (ps[1] - ps[0]).cross(ps[2] - ps[0]).y < 0:  # facing ahead
+            ps = ps[::-1]
+        faces.append(tuple(range(len(verts), len(verts) + 3)))
+        verts += [tuple(p) for p in ps]
+    print(f"[police_suv] {name}: {len(faces)} facets ({skipped} across a step left out)")
+    ob = kit.mesh_object(name, verts, faces, [mat])
+    kit.clear_of(ob, [body], -d)
+    return ob
+
+
 def lamps(body, px, s):
     out = []
-    # (the slits: past them, the rays from ahead graze the front wings onto the white doors)
-    white = [(x, z) for x, z in s.hits(False, "white") if HEAD_Z[0] <= z <= HEAD_Z[1] and abs(x) <= HEAD_X]
     red = s.hits(True, "red")
     for side, sx in (("L", -1), ("R", 1)):
-        head = [(x, z) for x, z in white if x * sx > 0.2]
         tail = [(x, z) for x, z in red if x * sx > 0.2]
-        print(f"[police_suv] head_{side}: {len(head)} cells, tail_{side}: {len(tail)} cells")
-        for nm, cells in (("head", head), ("tail", tail)):
-            xs, zs = [abs(x) for x, z in cells], [z for x, z in cells]
-            print(f"[police_suv]   {nm}_{side}: |x| {min(xs):.2f}..{max(xs):.2f}, z {min(zs):.2f}..{max(zs):.2f}; by |x|: " + " ".join(f"{k / 10:.1f}:{sum(1 for x in xs if round(x, 1) == k / 10)}" for k in range(2, 10)))
-        out.append(flat_lamp(f"head_{side}", s, body, head, "head", spread=HEAD_SPREAD))
+        xs, zs = [abs(x) for x, z in tail], [z for x, z in tail]
+        print(f"[police_suv] tail_{side}: {len(tail)} cells, |x| {min(xs):.2f}..{max(xs):.2f}, z {min(zs):.2f}..{max(zs):.2f}")
+        shape = [(-x * sx, z) for x, z in HEAD_SHAPE]
+        out.append(shape_lamp(f"head_{side}", s, body, shape if sx < 0 else shape[::-1], "head", HEAD_SPREAD))
         out.append(flat_lamp(f"tail_{side}", s, body, tail, "tail", back=True))
     return out + light_bar(body)
 
