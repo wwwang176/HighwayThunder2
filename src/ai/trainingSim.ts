@@ -6,6 +6,7 @@ import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
 import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { TRAFFIC_PLAN_EVERY, TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { NitroAi } from '../vehicles/nitro';
 import { PlayerCar } from '../vehicles/playerCar';
 import { Driver, selfStateOf } from './driver';
 import { endOn, FITNESS, isOffRoad, RunResult, touching } from './fitness';
@@ -51,6 +52,8 @@ export interface Ghost {
   slowSince: number | null;
   /** With gameContact: it has been up to STUCK_SPEED since the start. */
   rolling: boolean;
+  /** Its nitro by the rivals' rule, as the game's AI cars (null: TrainingSimOptions.nitro off). */
+  nitroAi: NitroAi | null;
 }
 
 /** Body slip angle (rad) that counts as sliding: cornering hard and changing lanes it stays near 6°. */
@@ -119,6 +122,11 @@ export interface TrainingSimOptions {
   gameContact?: boolean;
   /** The car type every car in this run is (default the supercar); its own top speed holds if lower than `speedCap`. */
   spec?: CarSpec;
+  /**
+   * The AI cars use their nitro as in the game (NitroAi, its dice from the run's seed; default on). As the rivals': no
+   * near misses filling the tank, no rubber band making it eager.
+   */
+  nitro?: boolean;
 }
 
 /**
@@ -175,6 +183,7 @@ export class TrainingSim {
         slidAt: -Infinity,
         slowSince: null,
         rolling: false,
+        nitroAi: opts.nitro === false ? null : new NitroAi(mulberry32(seed * 7919 + this.ghosts.length + 1)),
       });
     }
     this.traffic.reset({ sLead: 0, sTail: 0, vLead: 0, raceTime: 0 }, (f) => this.occupants(f));
@@ -206,7 +215,8 @@ export class TrainingSim {
     const dt = PHYSICS_DT;
     for (const g of this.ghosts) {
       if (!g.alive) continue;
-      g.car.prePhysics(g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes, g.car.params), dt);
+      const input = g.driver.drive(selfStateOf(g.car, this.speedCap), this.boxes, g.car.params);
+      g.car.prePhysics(g.nitroAi ? { ...input, nitro: g.nitroAi.want(dt, input.throttle, g.car.nitro) } : input, dt);
     }
     this.traffic.stepAI(dt, this.time, (frame) => (this.trafficSeesCars ? this.carObstacles(frame) : []));
     if (this.gameContact)
