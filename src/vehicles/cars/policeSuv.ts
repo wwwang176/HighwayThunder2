@@ -28,13 +28,14 @@ export const POLICE_SUV: CarSpec = {
     // Its model's (tools/models/police_suv.py): its body (not the mirrors), its axles, its 285/45 R22 tyres.
     width: 1.98,
     length: 4.96,
-    wheelbase: 2.83,
+    wheelbase: 2.868, // (its front wheels in the middle of their arches: the generated ones sat back)
     wheelRadius: 0.408,
   }, 2800),
   // training/measureCar.train.ts (CAR=police-suv; the 0 km/h point is the 50 one: from standstill it measures the
-  // throttle ramp), 2026-11-24, on its model's size. training/cornering.train.ts: 0-100 3.02 s, 0-200 6.10 s, top
-  // 310 km/h; power on in a turn 12 / 5 / 3 deg at 60 / 100 / 150 km/h; full lock at 200 km/h 1.78 g, tilting 5 deg
-  // (comY -0.1, the muscle car's: it rolled over there on the model's big wheels and short wheelbase).
+  // throttle ramp), 2026-11-24, on its model's size (at wheelbase 2.83: 2.868's 1 % longer left alone).
+  // training/cornering.train.ts (2.868): 0-100 3.02 s, 0-200 6.11 s, top 310 km/h; power on in
+  // a turn 12 / 6 / 3 deg at 60 / 100 / 150 km/h; full lock at 200 km/h 1.78 g, tilting 5 deg (comY -0.1, the muscle
+  // car's: it rolled over there on the model's big wheels and short wheelbase).
   ai: {
     accel: [
       [0, 9.5],

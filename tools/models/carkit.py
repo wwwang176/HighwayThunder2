@@ -101,6 +101,10 @@ class Car:
     well_out    how far (its normal's x, outward) a face in a wheel arch may face out of the car and still go black
                 with the wheel well (None: any; a car whose fender flares come in close round its tyres wants
                 them kept their paint: their parts facing the axle would go black, a jagged edge)
+    axles       (front y, back y) where our wheels go, in our frame before centring like `tyres` (None: where the
+                generated tyres were; a generation that set them off its arches' middles: there instead). The
+                finished car's origin is midway between these; the working frame (every y a Car gives) stays the
+                generated tyres'.
     paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
                 edge (the livery's darkened as much; a dark paint, a navy, wants it lower)
     trim        the faces whose texture isn't its paint (chassis, bumpers, grille) their own `trim` material,
@@ -121,7 +125,7 @@ class Car:
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
                  roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
-                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None):
+                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None, axles=None):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -136,9 +140,11 @@ class Car:
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
-        self.axle_mid = (tyres[0][0] + tyres[-1][0]) / 2  # the origin goes here, midway between the front and back axles
-        self.wheel_yf = tyres[0][0] - self.axle_mid
-        self.wheel_yr = tyres[-1][0] - self.axle_mid
+        self.axle_mid = (tyres[0][0] + tyres[-1][0]) / 2  # the working frame's origin: midway between the generated tyres
+        yf, yr = axles or (tyres[0][0], tyres[-1][0])
+        self.axle_shift = (yf + yr) / 2 - self.axle_mid  # the finished car's origin: midway between our axles, this far on
+        self.wheel_yf = yf - self.axle_mid - self.axle_shift
+        self.wheel_yr = yr - self.axle_mid - self.axle_shift
 
 
 CAR = None  # the car being built (run)
@@ -920,7 +926,7 @@ def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces)
     shown = []
     for x in (-spots["x"], spots["x"]):
         k = spots["front"] / CAR.wheel_yf  # (working frame to the finished size)
-        for y in (spots["rear"], *((t[0] - CAR.axle_mid) * k for t in CAR.tyres[1:-1]), spots["front"]):
+        for y in (spots["rear"], *((t[0] - CAR.axle_mid - CAR.axle_shift) * k for t in CAR.tyres[1:-1]), spots["front"]):
             w = wheel.copy()
             bpy.context.collection.objects.link(w)
             w.location = (x, y, spots["r"] - GROUND)
@@ -1128,11 +1134,11 @@ def run(car):
     flat_windows(body)
 
     # Up to the car's size (the ground and the axles' midpoint stay put), then down to the origin (GROUND
-    # above the ground).
+    # above the ground; and along to our axles' midpoint when they aren't the generated tyres': `axles`).
     g = car.width / (max(v.co.x for v in body.data.vertices) - min(v.co.x for v in body.data.vertices))
     for o in [body, *lamps]:
         o.data.transform(Matrix.Scale(g, 4))
-        o.data.transform(Matrix.Translation((0, 0, -GROUND)))
+        o.data.transform(Matrix.Translation((0, -car.axle_shift * g, -GROUND)))
         o.data.update()
     # The wheel, real size (centred on its axle), its tyres' outer faces where the generated ones' were.
     wheel, caliper, size = wheels.build_wheel(car.tyre, car.rim, car.caliper)

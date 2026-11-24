@@ -18,7 +18,9 @@ Its own:
   lenses and its middle (a triangle straddling an outline goes all one way: a jagged edge);
 - shaded by the generated body's own normals below the roof (`src_normals`: its hood smooth), its roof by its faces
   (the generation's ripples on it); the light bar's middle never window (`glass_not`);
-- its fender flares kept their paint, only the arches' insides black (`well_out`).
+- its fender flares kept their paint, only the arches' insides black (`well_out`);
+- its front wheels 0.032 ahead of the generated tyres, in the middle of their arches (`axles`): the origin moved
+  with them (its collider's kept by hand: moved too).
 """
 
 import os
@@ -193,6 +195,7 @@ CAR = kit.Car(
     tops_above=0.95,
     src_normals=lambda c: c.z < 1.35,  # (not the roof: the generation's ripples on it, flat by its faces)
     well_out=0.5,  # (its fender flares come in close round the tyres)
+    axles=(1.242, -1.21),  # (the generated front tyres sat 0.032 back in their arches; the back ones in the middle)
     glass_not=lambda c: c.z > BAR_Z - 0.05 and BAR_Y[0] - 0.05 < c.y < BAR_Y[1] + 0.05,  # the bar's black middle
 )
 
