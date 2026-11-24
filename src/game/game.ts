@@ -1295,10 +1295,10 @@ export class Game {
     if (this.police) {
       if (racing) {
         // (one past the line is nobody's target: the chase is over for it)
-        const racers: Racer[] = [{ s: this.player.s, d: this.player.d, v: Math.max(0, this.player.speed), isPlayer: true, done: this.flow.phase === 'finished', id: 0 }];
+        const racers: Racer[] = [{ s: this.player.s, d: this.player.d, v: Math.max(0, this.player.speed), isPlayer: true, done: this.flow.phase === 'finished', id: 0, plan: this.aiActive && this.aiDriver instanceof PlannerDriver ? this.aiDriver.plan : null }];
         const racerBoxes: TrafficBox[] = [{ ...this.player.footprint(), id: PLAYER_BOX_ID, v: Math.max(0, this.player.speed) }];
         for (const b of this.rivals.boxes(this.rivalBoxes)) racerBoxes.push(b);
-        for (const r of this.rivals.list) racers.push({ s: r.car.s, d: r.car.d, v: Math.max(0, r.car.speed), isPlayer: false, done: r.finishTime !== null, id: 1 + r.index });
+        for (const r of this.rivals.list) racers.push({ s: r.car.s, d: r.car.d, v: Math.max(0, r.car.speed), isPlayer: false, done: r.finishTime !== null, id: 1 + r.index, plan: r.driver instanceof PlannerDriver ? r.driver.plan : null });
         this.police.drive(dt, racers, racerBoxes, view.traffic);
       } else this.police.hold(dt);
     }

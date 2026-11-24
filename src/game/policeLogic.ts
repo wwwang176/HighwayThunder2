@@ -14,8 +14,14 @@ import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../veh
  */
 export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, parkAhead: 700, viewAhead: 700, bustKmh: 15, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
 
-/** A racer as the police see it: where (along, across the road), how fast (m/s), the player or not, past the line (`done`), who (`id`: the same each step). */
-export type Racer = { s: number; d: number; v: number; isPlayer: boolean; done?: boolean; id?: number };
+/** A guard prediction's horizon (s): at least, at most (the planner's own), and past getting to the police car. */
+const GUARD_HORIZON = { least: 2, most: 8, more: 1 };
+
+/**
+ * A racer as the police see it: where (along, across the road), how fast (m/s), the player or not, past the line
+ * (`done`), who (`id`: the same each step), and - driven by the AI - the plan it is following (`plan`: no guessing).
+ */
+export type Racer = { s: number; d: number; v: number; isPlayer: boolean; done?: boolean; id?: number; plan?: Plan | null };
 
 /** The shoulder's middle (d): where a police car parks. */
 export const SHOULDER_D = (ROAD_HALF_WIDTH + RAIL_D) / 2;
@@ -87,4 +93,10 @@ export function guardD(predicted: Plan, suvS: number, target: Racer): number {
     if (b.s >= suvS) return b.s > a.s ? a.d + ((b.d - a.d) * Math.max(0, suvS - a.s)) / (b.s - a.s) : b.d;
   }
   return pts[pts.length - 1].d;
+}
+
+/** How far (s) a guard prediction looks: as long as the target takes to get to the police car, and 1 s more; 2 to 8 s. */
+export function guardHorizon(suvS: number, target: Racer): number {
+  if (target.v <= 1) return GUARD_HORIZON.most;
+  return Math.max(GUARD_HORIZON.least, Math.min(GUARD_HORIZON.most, (suvS - target.s) / target.v + GUARD_HORIZON.more));
 }

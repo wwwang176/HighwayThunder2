@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bustAllowed, guardD, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, ramInput, type Racer } from '../src/game/policeLogic';
+import { bustAllowed, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, ramInput, type Racer } from '../src/game/policeLogic';
 import { RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
 import type { SelfState } from '../src/ai/sensors';
 import type { Plan } from '../src/ai/planner';
@@ -60,6 +60,13 @@ describe('policeLogic', () => {
     expect(guardD(plan, 975, { s: 900, d: 0, v: 50, isPlayer: true })).toBeCloseTo(2.875);
     expect(guardD(plan, 1300, { s: 900, d: 0, v: 50, isPlayer: true })).toBeCloseTo(3.75); // (past the plan: its end)
     expect(guardD(plan, 1000, { s: 900, d: 1, v: 0, isPlayer: true })).toBe(1); // (standing: where it is)
+  });
+
+  it('a guard prediction looks only as far as the target takes to get to the police car, and 1 s more', () => {
+    expect(guardHorizon(1100, P(1000))).toBeCloseTo(3); // (100 m at 50 m/s: 2 s, +1)
+    expect(guardHorizon(1010, P(1000))).toBe(2); // (at least 2 s)
+    expect(guardHorizon(2000, P(1000))).toBe(8); // (at most the planner's own)
+    expect(guardHorizon(1100, { ...P(1000), v: 0 })).toBe(8); // (standing: no telling)
   });
 
   it('ramming: full throttle, steering toward the aim', () => {

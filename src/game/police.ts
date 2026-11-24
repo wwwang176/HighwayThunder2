@@ -14,7 +14,7 @@ import type { Obstacle } from '../traffic/trafficAI';
 import { POLICE_SUV } from '../vehicles/cars';
 import type { DriveInput } from '../vehicles/handling';
 import { PlayerCar } from '../vehicles/playerCar';
-import { guardD, isLost, lineClear, outOfSight, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
+import { guardD, guardHorizon, isLost, lineClear, outOfSight, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
 import { coursePlan } from '../ai/coursePlanner';
 import type { Plan } from '../ai/planner';
 import type { Blocker } from './reset';
@@ -58,8 +58,9 @@ const CRUISE = 100 * KMH;
 /** Rams only a target at most this far ahead (m): further, it closes in by its plans. */
 const RAM_RANGE = 120;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
-/** Guarding: the target's line worked out again every `every` s, as if it drove for at most `cap` m/s. */
-const GUARD = { every: 0.3, cap: 300 * KMH };
+/** Guarding: the target's line worked out again every `every` s (only as far as it needs: guardHorizon - its 8 s took
+ * 71 ms, a guard 0.4-0.5 s behind), as if it drove for at most `cap` m/s. */
+const GUARD = { every: 0.15, cap: 300 * KMH };
 /** A prediction's stamp: its sequence number times this, plus the guarding car's index. */
 const STAMP_SLOTS = 8;
 /** The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glow` (emissive intensity). */
@@ -184,10 +185,12 @@ export class Police {
       const seen = this.seen(p, racerBoxes, traffic);
       if (p.state === 'front') {
         // On the line its target will take as it gets here (its plan as the planner would drive it, every GUARD.every s).
-        // (worked out in the predictor's worker, a request at a time; without one - the sims - here and now)
+        // (a racer on the AI: its own plan; else worked out in the predictor's worker, a request at a time - without one,
+        // the sims, here and now)
         p.guardClock -= dt;
-        if (p.guardClock <= 0 && !this.predictor?.busy) {
-          const ego = { s: t.s, d: t.d, v: t.v, speedCap: Math.max(t.v, GUARD.cap) };
+        if (t.plan) p.guardPlan = t.plan; // (an AI's: the line it really drives)
+        else if (p.guardClock <= 0 && !this.predictor?.busy) {
+          const ego = { s: t.s, d: t.d, v: t.v, speedCap: Math.max(t.v, GUARD.cap), horizon: guardHorizon(c.s, t) };
           if (this.predictor) {
             p.guardAsked = ++this.predictSeq * STAMP_SLOTS + p.index;
             p.guardFor = t.id;

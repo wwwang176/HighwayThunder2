@@ -97,7 +97,8 @@ export function coursePlan(ego: PlanEgo, traffic: TrafficBox[], previous: Previo
   const t0 = performance.now();
   const hl = ego.halfLength ?? 2.2;
   // Street racing does not look back (PLANNER.lookBehind): what is wholly behind brakes for us.
-  const reach = ego.s + Math.max(ego.v, ego.speedCap) * COURSE.horizon + 50;
+  const horizon = ego.horizon ?? COURSE.horizon;
+  const reach = ego.s + Math.max(ego.v, ego.speedCap) * horizon + 50;
   const boxes = traffic.filter((t) => t.s < reach && t.s > ego.s - 150 && (PLANNER.lookBehind || t.s + t.length / 2 >= ego.s - hl));
   const start = startNode(ego);
   let found = search(ego, start, boxes, previous, false);
@@ -110,7 +111,7 @@ export function coursePlan(ego: PlanEgo, traffic: TrafficBox[], previous: Previo
   // plan has the car now, if that one is recent (reuseAge) - its plans ride the edge of what is clear (the side room,
   // the room to brake), and a few cm or km/h off the last one the way it was on can be closed to it.
   const ends = (p: Plan | null) => (p ? p.points[p.points.length - 1].t : 0);
-  if (COURSE.reuseAge > 0 && previous && previous.age <= COURSE.reuseAge && ends(found) < COURSE.horizon - COURSE.reuseShort) {
+  if (COURSE.reuseAge > 0 && previous && previous.age <= COURSE.reuseAge && ends(found) < horizon - COURSE.reuseShort) {
     const at = planAt(previous.plan, previous.age);
     const pts = previous.plan.points;
     const k = Math.min(pts.length - 1, Math.floor(previous.age / COURSE.step));
@@ -164,7 +165,8 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   const P = PLANNER, K = COURSE;
   // The steps: fine ones first, then longer.
   const stepAt: number[] = [];
-  for (let t = 0; t < K.horizon - 1e-9; ) {
+  const horizon = ego.horizon ?? K.horizon;
+  for (let t = 0; t < horizon - 1e-9; ) {
     const dt = t < K.fine - 1e-9 ? K.step : K.longStep;
     stepAt.push(dt);
     t += dt;
@@ -323,7 +325,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     deepest = nodes;
   }
   // The best end, and the next best that go another way (another order of lanes along it): shown beside the plan.
-  const cut = deepest[0].t < K.horizon - 1e-6;
+  const cut = deepest[0].t < horizon - 1e-6;
   const slowest = (x: Node, y: Node) => Math.round(x.v / K.vCell) - Math.round(y.v / K.vCell) || y.val - x.val;
   const ends = [...deepest].sort(cut && K.deadEnd > 0 ? slowest : (x, y) => y.val - x.val);
   if (cut && K.deadEnd > 0 && ends.length && ends[0].parent) COURSE_STATS.deadEnd++;
