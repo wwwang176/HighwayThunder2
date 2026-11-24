@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bustAllowed, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, ramInput, type Racer } from '../src/game/policeLogic';
+import { bustAllowed, chaseStarts, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, ramInput, type Racer } from '../src/game/policeLogic';
 import { RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
 import type { SelfState } from '../src/ai/sensors';
 import type { Plan } from '../src/ai/planner';
@@ -7,6 +7,12 @@ import type { Plan } from '../src/ai/planner';
 const P = (s: number, isPlayer = false): Racer => ({ s, d: 0, v: 50, isPlayer });
 
 describe('policeLogic', () => {
+  it('the chase starts as any racer drives past a parked police car - a rival too', () => {
+    expect(chaseStarts(400, [P(390, true), P(410)])).toBe(true); // (a rival past it)
+    expect(chaseStarts(400, [P(410, true)])).toBe(true);
+    expect(chaseStarts(400, [P(390, true), P(350)])).toBe(false);
+  });
+
   it('target: the player in range first, else the nearest racer', () => {
     expect(pickTarget(1000, [P(1100), P(900, true)], 300)!.isPlayer).toBe(true);
     expect(pickTarget(1000, [P(1100), P(1500, true)], 300)!.s).toBe(1100);

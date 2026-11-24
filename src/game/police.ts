@@ -14,7 +14,7 @@ import type { Obstacle } from '../traffic/trafficAI';
 import { POLICE_SUV } from '../vehicles/cars';
 import type { DriveInput } from '../vehicles/handling';
 import { PlayerCar } from '../vehicles/playerCar';
-import { guardD, guardHorizon, isLost, lineClear, outOfSight, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
+import { chaseStarts, guardD, guardHorizon, isLost, lineClear, outOfSight, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
 import { coursePlan } from '../ai/coursePlanner';
 import type { Plan } from '../ai/planner';
 import type { Blocker } from './reset';
@@ -40,8 +40,8 @@ export interface PoliceCar {
   lightBar?: { red?: THREE.MeshStandardMaterial; blue?: THREE.MeshStandardMaterial };
 }
 
-/** The police cars' first spots (m along the road, on the shoulder): out of sight at the start, met as the race goes. */
-const FIRST_PARKED = [800, 1300, 1800];
+/** The police cars' first spots (m along the road, on the shoulder): the first met ~10 s into the race. */
+const FIRST_PARKED = [400, 900, 1400];
 /** Ids of their boxes (the planners', the traffic's): clear of the rivals' (-1_000_000 on) and the player's (-1). */
 const POLICE_BOX_ID = -2_000_000;
 /** How much slower than its target one ahead of it goes, how much faster one behind may (m/s). */
@@ -67,7 +67,7 @@ const STAMP_SLOTS = 8;
 const FLASH = { cycle: 0.6, red: [[0, 0.12], [0.2, 0.32]] as [number, number][], blue: [[0.5, 0.62], [0.7, 0.82]] as [number, number][], glow: 4 };
 
 /**
- * The police (the highway's): POLICE_TUNING.count SUVs, parked on the shoulder. The player driving past a parked one
+ * The police (the highway's): POLICE_TUNING.count SUVs, parked on the shoulder. Any racer driving past a parked one
  * sets the chase off (`triggered`); from then on each, by the racer it goes for (pickTarget: the player first), guards
  * the road ahead of it (front) or chases it (behind: its plans round the traffic, flat out at it once the line to it is
  * clear). Further than POLICE_TUNING.lost from every racer it has lost them: parked again ahead of them all, out of sight.
@@ -75,7 +75,7 @@ const FLASH = { cycle: 0.6, red: [[0, 0.12], [0.2, 0.32]] as [number, number][],
  */
 export class Police {
   readonly list: PoliceCar[] = [];
-  /** The player has driven past a parked police car: the chase is on (each race anew). */
+  /** A racer (the player or a rival) has driven past a parked police car: the chase is on (each race anew). */
   triggered = false;
   private readonly boxBuf: TrafficBox[] = [];
   /** Where the guarding cars' targets' lines are worked out (a Web Worker in the game; none in the sims: in line). */
@@ -135,10 +135,7 @@ export class Police {
       if (q?.state === 'front' && answer.stamp === q.guardAsked && q.target?.id === q.guardFor) q.guardPlan = answer.plan;
     }
     const player = racers.find((r) => r.isPlayer);
-    for (const p of this.list) {
-      const c = p.car;
-      if (p.state === 'parked' && player && player.s > c.s) this.triggered = true;
-    }
+    for (const p of this.list) if (p.state === 'parked' && chaseStarts(p.car.s, racers)) this.triggered = true;
     for (const p of this.list) {
       const c = p.car;
       p.ramming = false;

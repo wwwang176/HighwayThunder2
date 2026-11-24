@@ -26,6 +26,11 @@ export type Racer = { s: number; d: number; v: number; isPlayer: boolean; done?:
 /** The shoulder's middle (d): where a police car parks. */
 export const SHOULDER_D = (ROAD_HALF_WIDTH + RAIL_D) / 2;
 
+/** The chase starts: any racer (the player or a rival) has driven past a police car parked at `parkedS`. */
+export function chaseStarts(parkedS: number, racers: readonly Racer[]): boolean {
+  return racers.some((r) => r.s > parkedS);
+}
+
 /** Who a police car at `suvS` goes for: the player within `range` m (either way), else the nearest racer within it; none: null. */
 export function pickTarget(suvS: number, racers: readonly Racer[], range: number): Racer | null {
   const player = racers.find((r) => r.isPlayer && !r.done && Math.abs(r.s - suvS) <= range);
