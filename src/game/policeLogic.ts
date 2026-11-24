@@ -12,7 +12,7 @@ import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../veh
  * aimed `aimAhead` s on. Seen by the player up to `viewAhead` m ahead (the highway's fog ends at 650 m): one is lost,
  * and parked again, only out of its sight (outOfSight) - at 300 m ahead in the fog, it was seen to vanish.
  */
-export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, playerFirst: 100, parkAhead: 700, viewAhead: 700, bustKmh: 30, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
+export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, playerFirst: 100, parkAhead: 700, viewAhead: 700, bustKmh: 45, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
 
 /** A guard prediction's horizon (s): at least, at most (the planner's own), and past getting to the police car. */
 const GUARD_HORIZON = { least: 2, most: 8, more: 1 };
