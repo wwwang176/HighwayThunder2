@@ -91,8 +91,16 @@ function beaconSpot(mesh: THREE.Object3D, name: string, side: number): THREE.Vec
   return c;
 }
 
-/** The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glow` (emissive intensity). */
-const FLASH = { cycle: 0.6, red: [[0, 0.12], [0.2, 0.32]] as [number, number][], blue: [[0.5, 0.62], [0.7, 0.82]] as [number, number][], glow: 4 };
+/**
+ * The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glow` (emissive intensity). Six
+ * even beats - red, dark, red, blue, dark, blue: one colour's flashes straight into the other's, no gap between.
+ */
+const FLASH = {
+  cycle: 0.4,
+  red: [[0, 1 / 6], [2 / 6, 3 / 6]] as [number, number][],
+  blue: [[3 / 6, 4 / 6], [5 / 6, 1]] as [number, number][],
+  glow: 4,
+};
 /**
  * The light bars' real light: one for them all - they flash red or blue, never both, all in step - at the flashing
  * car nearest the player, `lift` m over the half lit, in its colour (candela; out to `distance` m, falling off by
