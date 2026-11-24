@@ -85,7 +85,9 @@ import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeKick, smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
-import { FINISHED_SPEED, GRID_REV, RaceView, RIVAL_COLORS, Rivals } from './rivals';
+import { FINISHED_SPEED, GRID_REV, PLAYER_BOX_ID, RaceView, RIVAL_COLORS, Rivals } from './rivals';
+import { Police } from './police';
+import type { Racer } from './policeLogic';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
@@ -280,6 +282,11 @@ export class Game {
   private rivalBoxes: TrafficBox[] = [];
   /** Velocities (world x/z) of the player [0] and the rivals [1..] going into the physics step. */
   private racerVelBefore: { x: number; z: number }[] = [];
+  /** The police (the highway's, when on: CarSelection.police); none: null. */
+  private police: Police | null = null;
+  private policeBoxes: TrafficBox[] = [];
+  /** The police cars' velocities going into the physics step (as racerVelBefore). */
+  private policeVelBefore: { x: number; z: number }[] = [];
   private aiTraffic: TrafficBox[] = [];
   /** The traffic's bodies, drawn instanced. */
   private bodies!: BodyInstances;
@@ -837,6 +844,15 @@ export class Game {
     }
     this.rivalCars = rivals;
     this.cars = { ...cars, rivals: [...cars.rivals], paint: { ...cars.paint } };
+    // The police: the highway's, when on (off, or another course: none).
+    const police = cars.police && !this.mountain && !this.skidpad;
+    if (police && !this.police) {
+      this.police = new Police(this.physics, this.scene, () => new WorkerPlanSource());
+      this.police.setRoad(this.roadLine);
+    } else if (!police && this.police) {
+      this.police.dispose();
+      this.police = null;
+    }
   }
 
   /** Back to the garage (from the pause or the finish). */
@@ -908,7 +924,7 @@ export class Game {
   private playerOccupants(frame: RoadFrame): Occupant[] {
     const p = this.playerBox(frame);
     const own = lanesOccupied(p.dMin, p.dMax).map((lane) => ({ s: p.s, lane, length: p.length, v: Math.max(0, p.v) }));
-    return [...own, ...this.rivals.occupants(frame)];
+    return [...own, ...this.rivals.occupants(frame), ...(this.police?.occupants(frame) ?? [])];
   }
 
   /** Clear traffic and wrecks, put the player on the start line, refill traffic ahead. */
@@ -931,6 +947,7 @@ export class Game {
     } else this.physics.setRoad(this.roadLine);
     this.player.road = this.roadLine;
     this.rivals.setRoad(this.roadLine);
+    this.police?.setRoad(this.roadLine);
     this.road.setRoad(this.roadLine);
     this.gate.setRoad(this.roadLine);
     this.minimap?.setRoad(this.roadLine, this.courseLength);
@@ -946,6 +963,7 @@ export class Game {
     this.playerNitroAi.reset();
     this.aiDriver?.reset(this.player.d);
     this.rivals.place();
+    this.police?.place();
     if (this.finishShow) {
       this.finishShow = null;
       this.overlay.show(false);
@@ -981,6 +999,7 @@ export class Game {
       }
     }
     blockers.push(...this.rivals.boxes(this.rivalBoxes));
+    if (this.police) blockers.push(...this.police.blockers());
     const spot = computeResetSpot(this.player.s, this.player.d, blockers, RESET_SPEED);
     this.player.resetTo(spot.s, spot.lane, RESET_SPEED);
     this.aiDriver?.reset(this.player.d);
@@ -1191,6 +1210,7 @@ export class Game {
     this.player.params.maxSpeed = cap;
     const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
     for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
+    if (this.police) for (const b of this.police.boxes(this.policeBoxes)) seen.push(b);
     const aim = coast ? Math.max(cap, this.player.speed) : cap;
     return ai.drive(selfStateOf(this.player, aim), seen, this.player.params);
   }
@@ -1232,14 +1252,29 @@ export class Game {
       speedCap: this.aiSettings.speedCapKmh / 3.6,
       topShare: this.rivalTopShare,
       raceTime: this.flow.raceTime,
+      ...(this.police ? { police: this.police.boxes(this.policeBoxes) } : {}),
     };
     if (racing) this.rivals.drive(dt, view);
     else this.rivals.hold(dt, this.flow.phase === 'countdown', this.flow.countdown, view);
+    // The police after them (the racers where they are this step, the player first).
+    if (this.police) {
+      if (racing) {
+        const racers: Racer[] = [{ s: this.player.s, d: this.player.d, v: Math.max(0, this.player.speed), isPlayer: true }];
+        const racerBoxes: TrafficBox[] = [{ ...this.player.footprint(), id: PLAYER_BOX_ID, v: Math.max(0, this.player.speed) }];
+        for (const b of this.rivals.boxes(this.rivalBoxes)) racerBoxes.push(b);
+        for (const r of this.rivals.list) racers.push({ s: r.car.s, d: r.car.d, v: Math.max(0, r.car.speed), isPlayer: false });
+        this.police.drive(dt, racers, racerBoxes, view.traffic);
+      } else this.police.hold(dt);
+    }
 
     // Traffic AI on both carriageways (the player, the rivals and every wreck are
     // obstacles to both), then drive the NPC bodies along the planned paths.
-    this.trafficWorld.rouse([{ s: this.player.s, reach: TRAFFIC_AWAKE }, ...this.rivals.list.map((r) => ({ s: r.car.s, reach: RIVAL_AWAKE }))]);
-    this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
+    this.trafficWorld.rouse([
+      { s: this.player.s, reach: TRAFFIC_AWAKE },
+      ...this.rivals.list.map((r) => ({ s: r.car.s, reach: RIVAL_AWAKE })),
+      ...(this.police?.list.filter((p) => p.state !== 'parked').map((p) => ({ s: p.car.s, reach: RIVAL_AWAKE })) ?? []), // (what a police car may hit)
+    ]);
+    this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame), ...(this.police?.obstacles(frame) ?? [])]);
 
     this.player.holdInPlace(this.flow.phase === 'countdown' || this.flow.phase === 'intro'); // (on the grid a burnout goes nowhere)
     this.player.prePhysics(input, dt);
@@ -1249,6 +1284,10 @@ export class Game {
     this.rivals.list.forEach((r, i) => {
       const v = r.car.body.linvel();
       this.racerVelBefore[i + 1] = { x: v.x, z: v.z };
+    });
+    this.police?.list.forEach((p, i) => {
+      const v = p.car.body.linvel();
+      this.policeVelBefore[i] = { x: v.x, z: v.z };
     });
     // The intro's arriving cars, drawn braking: the load on their bodies (held on the grid), on their own springs.
     if (this.introOn) for (const [car, decel] of this.intro!.braking()) car.brakeLoad(decel, dt);
@@ -1265,6 +1304,7 @@ export class Game {
     if (this.mountain && this.player.body.translation().y < this.roadLine.height(this.player.s) - FALLEN) this.putBackOnMountain();
     this.trafficWorld.afterPhysics();
     this.rivals.after(dt, view, this.trafficWorld.ourBoxes(this.rivalTraffic), racing);
+    this.police?.after();
     const pv = this.player.body.linvel();
     // Another car's tyre smokes only within SMOKE_RANGE of the player (the puffs are few: far off they'd crowd out
     // what is near, unseen).
@@ -1339,6 +1379,23 @@ export class Game {
   private onContact(a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null): void {
     const playerHit = a.type === 'player' || b.type === 'player';
     const rival = a.type === 'rival' ? a : b.type === 'rival' ? b : null;
+    const police = a.type === 'police' ? a : b.type === 'police' ? b : null;
+    if (police) {
+      const sv = this.policeVelBefore[police.id];
+      if (playerHit) {
+        // The player and a police car: felt and heard as a rival is.
+        const pv = this.racerVelBefore[0];
+        const rel = pv && sv ? closingSpeed(pv, sv, normal) : 0;
+        this.crashShake(rel, normal ?? (pv && sv ? { x: pv.x - sv.x, z: pv.z - sv.z } : null));
+        this.contactSound(`police ${police.id}`, rel);
+        return;
+      }
+      // A police car into a vehicle: a hit wrecks it, a scrape it drives on from (as a rival).
+      const id = this.trafficWorld.onNpcContact(a, b);
+      const npc = id === null ? undefined : this.npcs.get(id);
+      if (id !== null && npc && (!sv || knocksOut(sv, npc.parts[0].body.linvel(), normal))) this.trafficWorld.wreck(id);
+      return;
+    }
     if (playerHit && rival) {
       // Player and rival trading paint: feel it, the physics does the rest.
       const pv = this.player.body.linvel();
@@ -1800,6 +1857,7 @@ export class Game {
       for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
     }
     this.rivals.render(alpha, this.flares);
+    this.police?.render(alpha, this.flares);
     for (const car of this.lightRivals(play)) this.npcBeams.add(car.mesh, pp.x, pp.z); // (the rivals without a real lamp: their beams painted)
     this.flares.end();
     this.npcBeams.end();

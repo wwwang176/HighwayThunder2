@@ -308,6 +308,8 @@ export interface RaceView {
   /** And at most this share of their own car's top speed (the race's difficulty; none: all of it). */
   topShare?: number;
   raceTime: number;
+  /** The police cars (game/police: boxes()), seen as any car on the road; none: no police. */
+  police?: TrafficBox[];
 }
 
 /**
@@ -569,6 +571,7 @@ export class Rivals<D extends RivalDriver = PlannerDriver> {
     if (!r.blind) for (const t of view.traffic) if (!me || !near(me, t, 0, 0)) out.push(t);
     out.push({ ...view.player.footprint(), id: PLAYER_BOX_ID, v: Math.max(0, view.player.speed) });
     for (const o of this.list) if (o !== r) out.push({ ...o.car.footprint(), id: RIVAL_BOX_ID - o.index, v: Math.max(0, o.car.speed) });
+    if (view.police) for (const b of view.police) out.push(b);
     return out;
   }
 
