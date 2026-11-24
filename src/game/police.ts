@@ -28,6 +28,8 @@ export interface PoliceCar {
   target: Racer | null;
   /** Ramming its target this step (the line to it clear): steered at it, not by its plans. */
   ramming: boolean;
+  /** Its light bar's two halves' materials (found on its body at first draw; none: a body without one). */
+  lightBar?: { red?: THREE.MeshStandardMaterial; blue?: THREE.MeshStandardMaterial };
 }
 
 /** The police cars' first spots (m along the road, on the shoulder): out of sight at the start, met as the race goes. */
@@ -46,6 +48,8 @@ const PARK_APART = 40;
 /** Rams only a target at most this far ahead (m): further, it closes in by its plans. */
 const RAM_RANGE = 120;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
+/** The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glow` (emissive intensity). */
+const FLASH = { cycle: 0.6, red: [[0, 0.12], [0.2, 0.32]] as [number, number][], blue: [[0.5, 0.62], [0.7, 0.82]] as [number, number][], glow: 4 };
 
 /**
  * The police (the highway's): POLICE_TUNING.count SUVs, parked on the shoulder. The player driving past a parked one
@@ -59,6 +63,8 @@ export class Police {
   /** The player has driven past a parked police car: the chase is on (each race anew). */
   triggered = false;
   private readonly boxBuf: TrafficBox[] = [];
+  /** The race's time the light bars flash by. */
+  private flashTime = 0;
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -217,8 +223,26 @@ export class Police {
     return id !== undefined && id <= POLICE_BOX_ID && id > POLICE_BOX_ID - 1000 ? POLICE_BOX_ID - id : -1;
   }
 
-  render(alpha: number, flares?: LightFlares): void {
-    for (const p of this.list) p.car.render(alpha, flares);
+  /** Drawn: `play` s of the race's time on (the light bars' flashing: still when paused). */
+  render(alpha: number, play: number, flares?: LightFlares): void {
+    this.flashTime += play;
+    const x = (this.flashTime % FLASH.cycle) / FLASH.cycle;
+    const red = FLASH.red.some(([a, b]) => x >= a && x < b), blue = FLASH.blue.some(([a, b]) => x >= a && x < b);
+    for (const p of this.list) {
+      p.car.render(alpha, flares);
+      const on = this.triggered && p.state !== 'parked';
+      const bar = (p.lightBar ??= {
+        red: (p.car.mesh.getObjectByName('lightbar-red') as THREE.Mesh | undefined)?.material as THREE.MeshStandardMaterial | undefined,
+        blue: (p.car.mesh.getObjectByName('lightbar-blue') as THREE.Mesh | undefined)?.material as THREE.MeshStandardMaterial | undefined,
+      });
+      if (bar.red) bar.red.emissiveIntensity = on && red ? FLASH.glow : 0;
+      if (bar.blue) bar.blue.emissiveIntensity = on && blue ? FLASH.glow : 0;
+    }
+  }
+
+  /** The police cars with their lights on (chasing, guarding, pulled over): their sirens heard. */
+  sirens(): PoliceCar[] {
+    return this.triggered ? this.list.filter((p) => p.state !== 'parked') : [];
   }
 
   dispose(): void {

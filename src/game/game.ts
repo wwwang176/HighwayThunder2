@@ -178,6 +178,8 @@ const TRAILER_ROLL = { gain: 0.8, pitch: 0.75 };
 const ROLL_AT = new THREE.Vector3();
 /** The player's engine heard placed (drawn through a bend in an intro): its key among the others' (rivals -1, -2, ...). */
 const PLAYER_DRAWN_KEY = -1000;
+/** The police cars' engines' keys: this, less each one's index. */
+const POLICE_ENGINE_KEY = -2000;
 /** The traffic's engines: each kind's sound, its gearing (for its rpm by its speed), how loud against a rival's. */
 const TRAFFIC_ENGINE: Record<VehicleKind, { kind: EngineKind; gearing: TrafficGearing; gain: number }> = {
   car: { kind: 'sedan', gearing: { gears: 5, top: 55 }, gain: 0.6 },
@@ -1733,6 +1735,14 @@ export class Game {
    * The engines heard from outside this frame, into `this.engineSources` (its entries reused: none made a frame):
    * the rivals' (their own rpm and throttle; keys -1, -2, ...) and the traffic's (keys their ids). How many.
    */
+  /** The police cars with their lights on, where they are and how they move (their sirens). */
+  private sirenSources(): { pos: number[]; vel: number[] }[] {
+    return (this.police?.sirens() ?? []).map((q) => {
+      const p = q.car.mesh.position, v = q.car.body.linvel();
+      return { pos: [p.x, p.y + 1.6, p.z], vel: [v.x, v.y, v.z] };
+    });
+  }
+
   private heardEngines(): number {
     let n = 0;
     const next = (): EngineSource => (this.engineSources[n++] ??= {
@@ -1742,6 +1752,19 @@ export class Game {
       // (a car drawn through a bend in an intro: heard going as it is drawn going)
       const c = r.car, s = next(), p = c.mesh.position, v = c.showPose?.vel ?? c.body.linvel();
       s.key = -1 - r.index;
+      s.kind = engineOf(c.style);
+      s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.rpm = c.shownRpm;
+      s.idle = c.params.idleRpm;
+      s.redline = c.params.redline;
+      s.throttle = c.shownThrottle;
+      s.gain = 1;
+    }
+    for (const q of this.police?.list ?? []) {
+      if (q.state === 'parked') continue; // (parked: its engine off)
+      const c = q.car, s = next(), p = c.mesh.position, v = c.body.linvel();
+      s.key = POLICE_ENGINE_KEY - q.index;
       s.kind = engineOf(c.style);
       s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
       s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
@@ -1891,7 +1914,7 @@ export class Game {
       for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
     }
     this.rivals.render(alpha, this.flares);
-    this.police?.render(alpha, this.flares);
+    this.police?.render(alpha, play, this.flares);
     for (const car of this.lightRivals(play)) this.npcBeams.add(car.mesh, pp.x, pp.z); // (the rivals without a real lamp: their beams painted)
     this.flares.end();
     this.npcBeams.end();
@@ -1986,6 +2009,7 @@ export class Game {
     this.sound.setEngine(engineOf(this.player.style), this.player.shownRpm, car.idleRpm, car.redline,
       rev ? rev.throttle : this.player.blipping ? Math.max(HEEL_TOE.throttle, own) : own, this.flow.phase !== 'title' && !drawn);
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
+    this.sound.setSirens(this.sirenSources(), this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
     this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);
