@@ -33,6 +33,9 @@ export const POLICE_SUV: CarSpec = {
     length: 4.96,
     wheelbase: 2.868, // (its front wheels in the middle of their arches: the generated ones sat back)
     wheelRadius: 0.408,
+    // Its body down onto its wheels: its model has the wheels' centres 0.142 under its origin; on the muscle car's 0.42
+    // the springs held them 0.21-0.23 under (its tyres bigger), the body 8 cm up off them, gaps over the tyres.
+    suspensionRest: 0.34,
   }, 2800),
   // training/measureCar.train.ts (CAR=police-suv; the 0 km/h point is the 50 one: from standstill it measures the
   // throttle ramp; no 250 or 300: past its top speed), 2026-11-25.
