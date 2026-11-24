@@ -4,10 +4,11 @@ import { withMass } from './mass';
 import { POLICE_SUV_COLLIDER } from './policeSuvCollider';
 
 /**
- * The police SUV (src/game/police.ts): very heavy, a big engine, sure-footed - it runs the supercar down and shoves a
- * car out of its way. Not a car to pick (not in CARS: the garage, the tuning, the benches' "every car"); specById
- * finds it. Built on the muscle car's chassis (its big torque, launch control, automatic), every force scaled to its
- * weight, then more engine, more gears, more grip and a body an SUV's size.
+ * The police SUV (src/game/police.ts): very heavy, sure-footed, and slower than every sports car - away and flat out
+ * (it gets them by being in their way, not by running them down) - it shoves a car out of its way. Not a car to pick
+ * (not in CARS: the garage, the tuning, the benches' "every car"); specById finds it. Built on the muscle car's
+ * chassis (launch control, automatic), every force scaled to its weight, then a smaller engine, more grip and a body
+ * an SUV's size.
  */
 export const POLICE_SUV: CarSpec = {
   id: 'police-suv',
@@ -16,10 +17,12 @@ export const POLICE_SUV: CarSpec = {
   collider: POLICE_SUV_COLLIDER, // its model's body to the belt line, push bar to tail, and its cabin
   params: withMass({
     ...MUSCLE_CAR.params,
-    power: MUSCLE_CAR.params.power * 1.6,
-    engineTorque: MUSCLE_CAR.params.engineTorque * 1.4,
-    maxSpeed: 86, // ~310 km/h: past the supercar's 300
-    gearTops: [110, 170, 240, 320],
+    // Slower than the slowest sports car (the JDM: 0-100 4.28 s, 0-200 11.72 s, top 245 km/h): away it is grip-bound,
+    // only less torque slows it there.
+    power: MUSCLE_CAR.params.power * 0.72,
+    engineTorque: MUSCLE_CAR.params.engineTorque * 0.38,
+    maxSpeed: 65, // ~235 km/h
+    gearTops: [90, 140, 190, 250],
     muPeak: 1.3,
     rearGrip: 1.9, // (with its low centre of mass: less weight on the rear tyres pulling away; 1.75 slid 16 deg on power at 100 km/h)
     rearLongGrip: 1,
@@ -32,38 +35,35 @@ export const POLICE_SUV: CarSpec = {
     wheelRadius: 0.408,
   }, 2800),
   // training/measureCar.train.ts (CAR=police-suv; the 0 km/h point is the 50 one: from standstill it measures the
-  // throttle ramp), 2026-11-24, on its model's size (at wheelbase 2.83, comY -0.3, rearGrip 1.75: since, the
-  // wheelbase 1 % longer and the centre of mass lower, the cornering below near the same - left alone).
-  // training/cornering.train.ts (2.868, comY -0.4, rearGrip 1.9): 0-100 2.94 s, 0-200 5.99 s, top 310 km/h; power on
-  // in a turn 11 / 5 / 2 deg at 60 / 100 / 150 km/h; full lock at 200 km/h 1.79 g, tilting 4 deg, a lane change's
-  // most 3.9 deg (comY -0.1, the muscle car's: it rolled over there on the model's big wheels and short wheelbase).
+  // throttle ramp; no 250 or 300: past its top speed), 2026-11-25.
+  // training/cornering.train.ts: 0-100 4.48 s, 0-200 16.43 s, top 234 km/h; power on in a turn 1 / 1 / 2 deg at
+  // 60 / 100 / 150 km/h; full lock at 200 km/h 1.76 g, tilting 4 deg, a lane change's most 3.9 deg (comY -0.1, the
+  // muscle car's: it rolled over there on the model's big wheels and short wheelbase).
   ai: {
     accel: [
-      [0, 9.5],
-      [50, 9.5],
-      [100, 5.6],
-      [150, 6.9],
-      [200, 8.5],
-      [250, 5.5],
-      [300, 2.7],
+      [0, 6.9],
+      [50, 6.9],
+      [100, 4.2],
+      [150, 2.7],
+      [200, 1.4],
     ],
     brake: [
-      [0, 8.6],
-      [50, 8.6],
-      [100, 8.7],
-      [150, 9.8],
-      [200, 11.1],
-      [250, 12],
-      [300, 13.1],
+      [0, 8.4],
+      [50, 8.4],
+      [100, 8.5],
+      [150, 9.5],
+      [200, 10.8],
+      [250, 11.7],
+      [300, 12.8],
     ],
     latAccel: [
-      [0, 11],
-      [50, 11],
+      [0, 11.1],
+      [50, 11.1],
       [100, 12.8],
-      [150, 15.3],
-      [200, 17.5],
-      [250, 17.3],
-      [300, 18.4],
+      [150, 15],
+      [200, 17.2],
+      [250, 18.4],
+      [300, 19.6],
     ],
   },
 };
