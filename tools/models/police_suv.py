@@ -13,7 +13,11 @@ Its own:
 - its roof light bar's lenses taken off the body as `lightbar-red` (its left, -x) and `lightbar-blue` (its right),
   their own materials, the game flashing them (src/game/police.ts); the bar's black middle and its feet stay body;
 - its paint a dark navy: a low saturation for paint (`paint_sat`), its windscreen and rear window a bluish tint
-  (`glass_s`).
+  (`glass_s`);
+- its big triangles cut along the texture's outlines first (`mend`): round the windscreen, between the light bar's
+  lenses and its middle (a triangle straddling an outline goes all one way: a jagged edge);
+- shaded by the generated body's own normals below the roof (`src_normals`: its hood smooth), its roof by its faces
+  (the generation's ripples on it); the light bar's middle never window (`glass_not`).
 """
 
 import os
@@ -34,6 +38,60 @@ HEAD_X = 0.78
 HEAD_Z = (0.65, 0.86)
 # How far apart along the car a headlamp cell's corners may land (its slits lie in a slanted, stepped face).
 HEAD_SPREAD = 0.025
+# The windscreen's outline on the texture, seen from above (its left half, x <= 0; y toward the nose): its top edge
+# straight across the middle, then back toward the corners; its sides; its lower corners cut off; its foot.
+SCREEN = [(0.0, 0.366), (-0.22, 0.366), (-0.60, 0.285), (-0.61, 0.30), (-0.68, 0.72), (-0.68, 0.75), (-0.605, 0.835),
+          (-0.605, 0.848), (0.0, 0.848)]
+# Up here only (the screen's foot sits at z ~1.03, the hood's top below it).
+SCREEN_Z = 0.95
+
+
+def cut(bm, a, b, low_z, reach=0.03):
+    """Cut the faces up above `low_z` that the line from `a` to `b` (x, y: seen from above) crosses within its
+    length (and `reach` past either end) along it, with the upright plane through the line: an edge along it."""
+    a, b = Vector((*a, 0)), Vector((*b, 0))
+    d = (b - a).normalized()
+    n = Vector((-d.y, d.x, 0))
+    length = (b - a).length
+    faces = []
+    for f in bm.faces:
+        ps = [v.co for v in f.verts]
+        if min(p.z for p in ps) < low_z:
+            continue
+        side = [n.dot(p - a) for p in ps]
+        if min(side) > -1e-5 or max(side) < 1e-5:
+            continue
+        # where along the line the face crosses it: between its edges' crossings
+        ts = []
+        for i in range(len(ps)):
+            p, q, sp, sq = ps[i], ps[(i + 1) % len(ps)], side[i], side[(i + 1) % len(ps)]
+            if (sp < 0) != (sq < 0):
+                c = p + (q - p) * (sp / (sp - sq))
+                ts.append(d.dot(c - a))
+        if ts and max(ts) > -reach and min(ts) < length + reach:
+            faces.append(f)
+    if not faces:
+        return 0
+    geom = list({v for f in faces for v in f.verts}) + list({e for f in faces for e in f.edges}) + faces
+    bmesh.ops.bisect_plane(bm, geom=geom, plane_co=a, plane_no=n, dist=1e-5)
+    return len(faces)
+
+
+def mend(body, px):
+    """Edges along the texture's outlines where a face-by-face split needs them (this body's triangles are big:
+    one straddling an outline goes all one way, a jagged edge): round the windscreen, for `glass`; between the
+    light bar's lenses and its black middle (x = ±BAR_MID), for `light_bar`."""
+    bm = bmesh.new()
+    bm.from_mesh(body.data)
+    n = 0
+    for s in (1, -1):
+        pts = [(x * s, y) for x, y in SCREEN]
+        for a, b in zip(pts, pts[1:]):
+            n += cut(bm, a, b, SCREEN_Z)
+        n += cut(bm, (BAR_MID * s, BAR_Y[0] - 0.1), (BAR_MID * s, BAR_Y[1] + 0.1), BAR_Z - 0.05)
+    bm.to_mesh(body.data)
+    bm.free()
+    print(f"[police_suv] mend: {n} faces cut along the windscreen's and the light bar's outlines")
 
 
 def light_bar(body):
@@ -120,6 +178,7 @@ CAR = kit.Car(
     collider="POLICE_SUV_COLLIDER",
     collider_file="policeSuvCollider",
     lamps=lamps,
+    mend=mend,
     mirror=-1,
     paint_hue=(0.58, 0.68),
     paint_sat=0.2,
@@ -131,6 +190,8 @@ CAR = kit.Car(
     roof_above=1.40,
     roof_flat=0.9,
     tops_above=0.95,
+    src_normals=lambda c: c.z < 1.35,  # (not the roof: the generation's ripples on it, flat by its faces)
+    glass_not=lambda c: c.z > BAR_Z - 0.05 and BAR_Y[0] - 0.05 < c.y < BAR_Y[1] + 0.05,  # the bar's black middle
 )
 
 if __name__ == "__main__":

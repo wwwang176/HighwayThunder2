@@ -93,6 +93,11 @@ class Car:
     paint_grey  (lo, hi) brightness of its paint on the texture when it is a grey (None: a colour, by hue)
     paint_sat   saturation over which a texel of its paint's hue is paint (a dark navy's is low)
     glass_s     saturation under which a texel is its glass (a bluish tint's is higher)
+    src_normals its body shaded by the generated body's own normals (smooth over its big lumpy triangles: a hood),
+                not by its faces (the stretches of slivers some generations have streak with them); True: all of
+                it, or where(face centre, working frame) -> bool: there only (a rippled roof's flatter by its faces)
+    glass_not   where(face centre, working frame) -> bool: never window there, whatever grey the texture has (a
+                roof light bar's black middle; None: anywhere may be)
     paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
                 edge (the livery's darkened as much; a dark paint, a navy, wants it lower)
     trim        the faces whose texture isn't its paint (chassis, bumpers, grille) their own `trim` material,
@@ -113,7 +118,7 @@ class Car:
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
                  roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
-                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15):
+                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -123,7 +128,7 @@ class Car:
         self.paint_hue, self.tail, self.paint_grey, self.glass_bend = paint_hue, tail, paint_grey, glass_bend
         self.glass_fill, self.plain, self.paint_fade, self.trim = glass_fill, plain, paint_fade, trim
         self.exhaust, self.mirror = exhaust, mirror
-        self.paint_sat, self.glass_s = paint_sat, glass_s
+        self.paint_sat, self.glass_s, self.src_normals, self.glass_not = paint_sat, glass_s, src_normals, glass_not
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -209,8 +214,11 @@ def load_body():
     """The generated body in our frame, symmetric, its tyres gone; and its texture (pixels, H x W x 4)."""
     bpy.ops.import_scene.gltf(filepath=CAR.src, merge_vertices=True)
     ob = next(o for o in bpy.context.scene.objects if o.type == "MESH")
-    ob.data.transform(Matrix.Translation((0, -CAR.axle_mid, CAR.src_ground * LENGTH)) @ Matrix.Scale(LENGTH, 4)
-                      @ Matrix.Rotation(math.pi / 2, 4, "Z") @ ob.matrix_world)
+    m = (Matrix.Translation((0, -CAR.axle_mid, CAR.src_ground * LENGTH)) @ Matrix.Scale(LENGTH, 4)
+         @ Matrix.Rotation(math.pi / 2, 4, "Z") @ ob.matrix_world)
+    if CAR.src_normals:
+        keep_generated_normals(ob.data, m)
+    ob.data.transform(m)
     ob.matrix_world = Matrix.Identity(4)
     ob.name = ob.data.name = "body"
     bm = bmesh.new()
@@ -247,6 +255,59 @@ def load_body():
     w, h = img.size
     px = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)
     return ob, px
+
+
+GENERATED = None  # the generated body's kept half and its own normals (keep_generated_normals), for its shading
+
+
+def keep_generated_normals(me, m):
+    """The generated body's own normals (Tripo's, from the dense surface it was cut down from: smooth where our
+    few big triangles aren't), on its half `CAR.mirror` keeps, in our frame (`m` takes it there)."""
+    global GENERATED
+    rot = m.to_3x3().inverted().transposed()
+    corner = [(rot @ Vector(c.vector)).normalized() for c in me.corner_normals]
+    me.calc_loop_triangles()
+    co = [m @ v.co for v in me.vertices]
+    tris, normals = [], []
+    for t in me.loop_triangles:
+        ps = [co[i] for i in t.vertices]
+        if sum(p.x for p in ps) / 3 * CAR.mirror >= -0.01:  # (the faces over the middle too)
+            tris.append(ps)
+            normals.append([corner[i] for i in t.loops])
+    GENERATED = (BVHTree.FromPolygons([p for ps in tris for p in ps], [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(tris))]),
+                 tris, normals)
+
+
+def generated_shading(body, most=50):
+    """Each corner of the body takes the generated body's normal under it (at the point a little in from the
+    corner, its face's own side of a crease; mirrored on the half made by mirroring), unless that turns over
+    `most` degrees from the corner's face: there (where the body was mended, a hole filled) it keeps its own."""
+    tree, tris, normals = GENERATED
+    me = body.data
+    own = [Vector(c.vector) for c in me.corner_normals]
+    out = list(own)
+    took = 0
+    for p in me.polygons:
+        centre = Vector(p.center)
+        if callable(CAR.src_normals) and not CAR.src_normals(centre):
+            continue
+        for li in p.loop_indices:
+            q = me.vertices[me.loops[li].vertex_index].co.lerp(centre, 0.1)
+            flip = q.x * CAR.mirror < 0
+            if flip:
+                q = Vector((-q.x, q.y, q.z))
+            hit, _, i, _ = tree.find_nearest(q)
+            if hit is None:
+                continue
+            w = barycentric(hit, *tris[i])
+            n = sum((c * k for c, k in zip(normals[i], w)), Vector()).normalized()
+            if flip:
+                n.x = -n.x
+            if n.angle(p.normal, math.pi) < math.radians(most):
+                out[li] = n
+                took += 1
+    me.normals_split_custom_set(out)
+    print(f"[{CAR.log}] shading: {took} of {len(out)} corners the generated body's")
 
 
 def crossing_pairs(bm):
@@ -403,7 +464,8 @@ def split_glass(body, px):
         c = f.calc_center_median()
         roof = CAR.roof_above is not None and c.z > CAR.roof_above and f.normal.z > CAR.roof_flat
         along = CAR.glass_y is None or CAR.glass_y[0] <= c.y <= CAR.glass_y[1]
-        if c.z > CAR.glass_above and CAR.glass_v[0] < v < CAR.glass_v[1] and s < CAR.glass_s and along and not roof:
+        never = CAR.glass_not is not None and CAR.glass_not(c)
+        if c.z > CAR.glass_above and CAR.glass_v[0] < v < CAR.glass_v[1] and s < CAR.glass_s and along and not roof and not never:
             cand.add(f)
     glass = set()
     left = set(cand)
@@ -1055,6 +1117,8 @@ def run(car):
     wn.weight = 100
     wn.keep_sharp = True
     bpy.ops.object.modifier_apply(modifier="wn")
+    if car.src_normals:
+        generated_shading(body)
     flat_windows(body)
 
     # Up to the car's size (the ground and the axles' midpoint stay put), then down to the origin (GROUND
