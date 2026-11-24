@@ -119,9 +119,10 @@ it('police chase', () => {
       const s = r.stats;
       const all = Object.values(s.share).reduce((a, b) => a + b, 0);
       const share = Object.entries(s.share).map(([k, v]) => `${k} ${((100 * v) / all).toFixed(0)}%`).join(', ');
-      console.log(
+      // (written out, not console.log: the runner keeps a passing test's console to itself)
+      process.stdout.write(
         `seed ${seed}: busted ${s.busts.length}x (at ${s.busts.join(', ') || '-'} s), rivals hit ${s.rivalHits}, lost ${s.lost}, ` +
-          `ramming ${s.ram.toFixed(1)} s, ${share}, finish ${s.finish?.toFixed(1) ?? '-'} s; into traffic ${Object.entries(s.npcHits).map(([k, v]) => `${k} ${v}`).join(', ')}`,
+          `ramming ${s.ram.toFixed(1)} s, ${share}, finish ${s.finish?.toFixed(1) ?? '-'} s; into traffic ${Object.entries(s.npcHits).map(([k, v]) => `${k} ${v}`).join(', ')}\n`,
       );
       r.physics.free();
     }
