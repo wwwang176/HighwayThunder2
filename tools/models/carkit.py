@@ -45,7 +45,7 @@ import sys
 import bmesh
 import bpy
 import numpy as np
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Vector, geometry
 from mathutils.bvhtree import BVHTree
 
 import wheels
@@ -808,6 +808,52 @@ def cell_lamp(name, s, body, cells, mat, back=False, lift=LIFT, others=()):
         if len(corners) == 4:
             faces.append(tuple(range(len(verts), len(verts) + 4)))
             verts += corners
+    ob = mesh_object(name, verts, faces, [mat])
+    clear_of(ob, [body, *others], -d)
+    return ob
+
+
+def shape_lamp(name, s, body, outline, mat, spread, back=False, flip=False, lift=LIFT, others=(), step=0.005, grid=0.01):
+    """A lamp of an outline (x, z) drawn over the texture's (cell_lamp's cells are as ragged as a blurred or broken
+    texture: a jagged lamp), on the body seen from ahead (`back`: from behind; `flip`: mirrored across the middle,
+    the right one of the left's outline, facet for facet): the outline (a point every `step`) and a `grid` of points
+    inside, triangulated, each laid on the body `lift` off it, then clear of the body and `others`. A facet whose
+    corners land more than `spread` apart along the car (across a step in the surface: a facet through the body no
+    lift clears) is left out."""
+    loop = []
+    for (x0, z0), (x1, z1) in zip(outline, outline[1:] + outline[:1]):
+        n = max(1, round(math.hypot(x1 - x0, z1 - z0) / step))
+        loop += [(x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n) for i in range(n)]
+
+    def inside(x, z):
+        c = False
+        for (x0, z0), (x1, z1) in zip(outline, outline[1:] + outline[:1]):
+            if (z0 > z) != (z1 > z) and x < x0 + (z - z0) * (x1 - x0) / (z1 - z0):
+                c = not c
+        return c
+
+    xs, zs = [p[0] for p in outline], [p[1] for p in outline]
+    pts = [(min(xs) + grid * i, min(zs) + grid * j) for i in range(round((max(xs) - min(xs)) / grid) + 1)
+           for j in range(round((max(zs) - min(zs)) / grid) + 1)]
+    pts = [p for p in pts if inside(*p) and min(math.hypot(p[0] - q[0], p[1] - q[1]) for q in loop) > step * 0.6]
+    co2 = [Vector(p) for p in loop + pts]
+    out = geometry.delaunay_2d_cdt(co2, [(i, (i + 1) % len(loop)) for i in range(len(loop))], [list(range(len(loop)))], 1, 1e-6)
+    d = Vector((0, 1, 0)) if back else Vector((0, -1, 0))
+    on = []
+    for v in out[0]:
+        p = s.tree.ray_cast(Vector((-v.x if flip else v.x, 0, v.y)) - d * 5, d)[0]
+        on.append(None if p is None else p - d * lift)
+    verts, faces, skipped = [], [], 0
+    for f in out[2]:
+        ps = [on[i] for i in f]
+        if any(p is None for p in ps) or max(p.y for p in ps) - min(p.y for p in ps) > spread:
+            skipped += 1
+            continue
+        if (ps[1] - ps[0]).cross(ps[2] - ps[0]).dot(d) > 0:  # facing out (against the rays)
+            ps = ps[::-1]
+        faces.append(tuple(range(len(verts), len(verts) + 3)))
+        verts += [tuple(p) for p in ps]
+    print(f"[{CAR.log}] {name}: {len(faces)} facets ({skipped} across a step left out)")
     ob = mesh_object(name, verts, faces, [mat])
     clear_of(ob, [body, *others], -d)
     return ob
