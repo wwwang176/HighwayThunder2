@@ -107,6 +107,8 @@ class Car:
                 generated tyres'.
     livery_size its liveries' texture size (None: LIVERY_SIZE; a big body spreads the texture thin: up to the
                 generated 2048)
+    open_wheels the holes the tyres left not patched where the patch would lie in a wheel's room (a tyre grown
+                onto its well all round leaves a ring: its patch a panel across the wheel)
     paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
                 edge (the livery's darkened as much; a dark paint, a navy, wants it lower)
     trim        the faces whose texture isn't its paint (chassis, bumpers, grille) their own `trim` material,
@@ -127,7 +129,7 @@ class Car:
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
                  roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
-                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None, axles=None, livery_size=None):
+                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None, axles=None, livery_size=None, open_wheels=False):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -140,6 +142,7 @@ class Car:
         self.paint_sat, self.glass_s, self.src_normals, self.glass_not = paint_sat, glass_s, src_normals, glass_not
         self.well_out = well_out
         self.livery_size = livery_size or LIVERY_SIZE
+        self.open_wheels = open_wheels
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -255,6 +258,15 @@ def load_body():
     around = {v: next(l[uv].uv.copy() for l in v.link_loops) for e in bm.edges if e.is_boundary for v in e.verts}
     new = bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)["faces"]
     new = bmesh.ops.triangulate(bm, faces=new, quad_method="BEAUTY", ngon_method="EAR_CLIP")["faces"]
+    if CAR.open_wheels:  # (a fill across a wheel's room: a panel over the wheel, not a hole's patch)
+        def in_room(f):
+            c = f.calc_center_median()
+            return any(math.hypot(c.y - (wy - CAR.axle_mid), c.z - wz) < r * 0.95 and x0 - 0.03 <= abs(c.x) <= x1 + 0.04
+                       for wy, wz, r, x0, x1 in CAR.tyres)
+        over = [f for f in new if in_room(f)]
+        print(f"[{CAR.log}] fill over the wheels left open: {len(over)} faces, {sum(f.calc_area() for f in over):.3f} m2 (working)")
+        bmesh.ops.delete(bm, geom=over, context="FACES")
+        new = [f for f in new if f.is_valid]
     for f in new:
         for l in f.loops:
             l[uv].uv = around[l.vert]

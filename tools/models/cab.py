@@ -90,6 +90,7 @@ CAR = kit.Car(
     collider_file=None,
     lamps=lamps,
     mend=mend,
+    open_wheels=True,  # (its front tyres grew onto their wells all round: the patch was a panel over the wheel)
     paint_hue=(0.52, 0.65),  # its navy, hue 0.58
     paint_fade=0.2,  # its navy dark, 0.24 to 0.28 (fading into black only below that)
     trim=True,  # (its chassis and fifth wheel share the navy's texels)
