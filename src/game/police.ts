@@ -110,7 +110,7 @@ const BEACON = { intensity: 120, distance: 30, decay: 1.6, lift: 0.25, red: 0xff
 
 /**
  * The police (the highway's): POLICE_TUNING.count SUVs, parked on the shoulder. Any racer driving past a parked one
- * sets the chase off (`triggered`); from then on each, by the racer it goes for (pickTarget: the player first), guards
+ * sets the chase off (`triggered`); from then on each, by the racer it goes for (pickTarget: the player within 100 m first), guards
  * the road ahead of it (front) or chases it (behind: its plans round the traffic, flat out at it once the line to it is
  * clear). Further than POLICE_TUNING.lost from every racer it has lost them: parked again ahead of them all, out of sight.
  * One that busted the player pulls over onto the shoulder and stays there till it too is lost.
@@ -202,6 +202,7 @@ export class Police {
         }
         c.holdInPlace(false);
         p.driver.reset();
+        p.driver.shoulder = true; // (the police's own rule: out onto the shoulder too, round the traffic - the racers may not)
         p.state = phaseOf(c.s, t);
       }
       if (p.state === 'pullover') {
@@ -243,7 +244,6 @@ export class Police {
           p.guardClock = GUARD.every;
         }
         p.driver.preferD = p.guardPlan ? guardD(p.guardPlan, c.s, t) : null;
-        p.driver.shoulder = false;
         this.boost(p, 1);
         c.prePhysics(p.driver.drive(selfStateOf(c, Math.max(0, t.v - FRONT_SLOWER)), seen, c.params), dt);
         continue;

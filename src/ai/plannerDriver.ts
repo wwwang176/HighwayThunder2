@@ -228,7 +228,7 @@ export class PlannerDriver implements Driver {
   accelScale = 1;
   /** A line across the road (d) its plans would rather be on (PlanEgo.preferD: a police car's); null: none. */
   preferD: number | null = null;
-  /** Its plans may go out onto the shoulder (PlanEgo.shoulder: a police car's, parked there or pulling over). */
+  /** Its plans may go out onto the shoulder (PlanEgo.shoulder: a police car's, out on the road - its own rule). */
   shoulder = false;
   /** Answers to requests made up to this clock time are thrown away (the car was moved since). */
   private staleUpTo = -1;

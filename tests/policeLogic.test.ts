@@ -13,8 +13,11 @@ describe('policeLogic', () => {
     expect(chaseStarts(400, [P(390, true), P(350)])).toBe(false);
   });
 
-  it('target: the player in range first, else the nearest racer', () => {
-    expect(pickTarget(1000, [P(1100), P(900, true)], 300)!.isPlayer).toBe(true);
+  it('target: the player within POLICE_TUNING.playerFirst first, else the nearest racer in range', () => {
+    expect(POLICE_TUNING.playerFirst).toBe(100);
+    expect(pickTarget(1000, [P(1010), P(1090, true)], 300)!.isPlayer).toBe(true); // (the player near: it, a rival nearer)
+    expect(pickTarget(1000, [P(1050), P(1200, true)], 300)!.s).toBe(1050); // (the player 200 m off: the nearer rival)
+    expect(pickTarget(1000, [P(1250), P(1200, true)], 300)!.isPlayer).toBe(true); // (past 100 m: the nearest, the player)
     expect(pickTarget(1000, [P(1100), P(1500, true)], 300)!.s).toBe(1100);
     expect(pickTarget(1000, [P(1400), P(1500, true)], 300)).toBeNull();
   });
