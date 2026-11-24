@@ -35,6 +35,7 @@ const FILES: Partial<Record<ModelName, string>> = {
   super: 'models/supercar.glb',
   muscle: 'models/muscle-car.glb',
   jdm: 'models/jdm.glb',
+  suv: 'models/police-suv.glb',
   sedan: 'models/sedan.glb',
   truck: 'models/truck.glb',
   cab: 'models/cab.glb',
@@ -42,7 +43,7 @@ const FILES: Partial<Record<ModelName, string>> = {
 };
 
 /** The files whose tyres get a car tyre's tread (tyreTread; the trucks' stay plain). */
-const TREADED = new Set<ModelName>(['super', 'muscle', 'jdm', 'sedan']);
+const TREADED = new Set<ModelName>(['super', 'muscle', 'jdm', 'sedan', 'suv']);
 
 /**
  * Where each file's headlight glows (its flare sprite, render/lightFlares): the left lamp's, in the file's space

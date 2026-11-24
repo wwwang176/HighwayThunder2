@@ -63,6 +63,17 @@ const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
 const GUARD = { every: 0.3, cap: 300 * KMH };
 /** A prediction's stamp: its sequence number times this, plus the guarding car's index. */
 const STAMP_SLOTS = 8;
+/**
+ * A light bar half's material, its own (a model file's are shared by every car built from it: one car's flashing
+ * was every car's); none: no such part.
+ */
+function ownMaterial(o: THREE.Object3D | undefined): THREE.MeshStandardMaterial | undefined {
+  const m = o as THREE.Mesh | undefined;
+  if (!m?.isMesh) return undefined;
+  m.material = (m.material as THREE.MeshStandardMaterial).clone();
+  return m.material as THREE.MeshStandardMaterial;
+}
+
 /** The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glow` (emissive intensity). */
 const FLASH = { cycle: 0.6, red: [[0, 0.12], [0.2, 0.32]] as [number, number][], blue: [[0.5, 0.62], [0.7, 0.82]] as [number, number][], glow: 4 };
 
@@ -282,10 +293,7 @@ export class Police {
     for (const p of this.list) {
       p.car.render(alpha, flares);
       const on = this.triggered && p.state !== 'parked';
-      const bar = (p.lightBar ??= {
-        red: (p.car.mesh.getObjectByName('lightbar-red') as THREE.Mesh | undefined)?.material as THREE.MeshStandardMaterial | undefined,
-        blue: (p.car.mesh.getObjectByName('lightbar-blue') as THREE.Mesh | undefined)?.material as THREE.MeshStandardMaterial | undefined,
-      });
+      const bar = (p.lightBar ??= { red: ownMaterial(p.car.mesh.getObjectByName('lightbar-red')), blue: ownMaterial(p.car.mesh.getObjectByName('lightbar-blue')) });
       if (bar.red) bar.red.emissiveIntensity = on && red ? FLASH.glow : 0;
       if (bar.blue) bar.blue.emissiveIntensity = on && blue ? FLASH.glow : 0;
     }

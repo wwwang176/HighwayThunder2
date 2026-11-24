@@ -91,6 +91,8 @@ class Car:
     mend        mend(body, px): the car's own fixes to its generated body (or None)
     paint_hue   (lo, hi) hue range of its paint on the texture (lo > hi: it wraps past 1, a red)
     paint_grey  (lo, hi) brightness of its paint on the texture when it is a grey (None: a colour, by hue)
+    paint_sat   saturation over which a texel of its paint's hue is paint (a dark navy's is low)
+    glass_s     saturation under which a texel is its glass (a bluish tint's is higher)
     paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
                 edge (the livery's darkened as much; a dark paint, a navy, wants it lower)
     trim        the faces whose texture isn't its paint (chassis, bumpers, grille) their own `trim` material,
@@ -101,6 +103,8 @@ class Car:
                 texture shares the cab's white, which takes the livery)
     tail        tail(h, s, v): whether a texel is its tail lights' red (None: saturated red; a red car's
                 paint is red too, so it needs its own)
+    mirror      which half of the generated body is kept and mirrored onto the other: 1 its +x (right) half, -1
+                its -x half (when the concept images showed only its left side, the right one guessed)
     exhaust     its exhaust pipes (None: none): {"tips": [(x, height above the ground)], "back": how far behind
                 the axles' midpoint the tips are, and "r" (round, their radius) or "rect" (w, h: flat,
                 square-cut)}, in metres on the finished car
@@ -109,7 +113,7 @@ class Car:
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
                  roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
-                 exhaust=None):
+                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -118,7 +122,8 @@ class Car:
         self.roof_above = roof_above
         self.paint_hue, self.tail, self.paint_grey, self.glass_bend = paint_hue, tail, paint_grey, glass_bend
         self.glass_fill, self.plain, self.paint_fade, self.trim = glass_fill, plain, paint_fade, trim
-        self.exhaust = exhaust
+        self.exhaust, self.mirror = exhaust, mirror
+        self.paint_sat, self.glass_s = paint_sat, glass_s
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -210,8 +215,8 @@ def load_body():
     ob.name = ob.data.name = "body"
     bm = bmesh.new()
     bm.from_mesh(ob.data)
-    # The right half (+x) mirrored onto the left: exactly symmetric, the seam welded.
-    bmesh.ops.symmetrize(bm, input=bm.verts[:] + bm.edges[:] + bm.faces[:], direction="X", dist=1e-4)
+    # One half (the right, +x, unless the car says) mirrored onto the other: exactly symmetric, the seam welded.
+    bmesh.ops.symmetrize(bm, input=bm.verts[:] + bm.edges[:] + bm.faces[:], direction="X" if CAR.mirror > 0 else "-X", dist=1e-4)
 
     def in_tyre(v):
         for wy, wz, r, x0, x1 in CAR.tyres:
@@ -322,7 +327,7 @@ def colour_class(rgb):
         return "white"
     if CAR.tail(h, s, v) if CAR.tail else s > 0.6 and v > 0.45 and (h < 0.012 or h > 0.95):
         return "red"
-    if s > 0.45 and v > min(0.25, CAR.paint_fade) and in_paint_hue(h) or grey_paint(s, v):
+    if s > CAR.paint_sat and v > min(0.25, CAR.paint_fade) and in_paint_hue(h) or grey_paint(s, v):
         return "paint"
     return "dark" if v < 0.12 else "grey"
 
@@ -346,7 +351,7 @@ def hsv(px):
 def paint_mask(px):
     """The texture's paint pixels (colour_class "paint", vectorised) and every pixel's brightness."""
     hue, s, mx = hsv(px)
-    return (s > 0.45) & (mx > min(0.25, CAR.paint_fade)) & in_paint_hue(hue) | grey_paint(s, mx), mx
+    return (s > CAR.paint_sat) & (mx > min(0.25, CAR.paint_fade)) & in_paint_hue(hue) | grey_paint(s, mx), mx
 
 
 def paint_uv(px):
@@ -398,7 +403,7 @@ def split_glass(body, px):
         c = f.calc_center_median()
         roof = CAR.roof_above is not None and c.z > CAR.roof_above and f.normal.z > CAR.roof_flat
         along = CAR.glass_y is None or CAR.glass_y[0] <= c.y <= CAR.glass_y[1]
-        if c.z > CAR.glass_above and CAR.glass_v[0] < v < CAR.glass_v[1] and s < 0.15 and along and not roof:
+        if c.z > CAR.glass_above and CAR.glass_v[0] < v < CAR.glass_v[1] and s < CAR.glass_s and along and not roof:
             cand.add(f)
     glass = set()
     left = set(cand)
@@ -416,7 +421,7 @@ def split_glass(body, px):
         if sum(g.calc_area() for g in piece) > 0.02:
             glass |= piece
     dark = {f for f in bm.faces if f.calc_center_median().z > CAR.glass_above
-            and (lambda s, v: v < CAR.glass_v[1] and s < 0.15)(*colorsys.rgb_to_hsv(*face_colour(px, f, uv))[1:])}
+            and (lambda s, v: v < CAR.glass_v[1] and s < CAR.glass_s)(*colorsys.rgb_to_hsv(*face_colour(px, f, uv))[1:])}
     thin = {f for f in bm.faces if f.calc_center_median().z > CAR.glass_above
             and 2 * f.calc_area() / max(e.calc_length() for e in f.edges) < 0.02}
     while CAR.glass_fill:
@@ -436,7 +441,7 @@ def split_glass(body, px):
         trim.name = "trim"
         hue, s, _ = hsv(px)
         dark = px.copy()
-        dark[(s > 0.45) & in_paint_hue(hue), :3] = 0.04
+        dark[(s > CAR.paint_sat) & in_paint_hue(hue), :3] = 0.04
         img = bpy.data.images.new("trim", px.shape[1], px.shape[0], alpha=False)
         img.pixels.foreach_set(dark.astype(np.float32).ravel())
         img.scale(LIVERY_SIZE, LIVERY_SIZE)
