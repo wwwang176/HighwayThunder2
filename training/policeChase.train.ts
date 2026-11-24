@@ -1,7 +1,7 @@
 // The police chase without drawing: the player's car driven by the AI, the rivals, the traffic and the police, as in
 // the game's loop (src/game/game.ts fixedStep), to tune src/game/police.ts and POLICE_TUNING by.
 //   SEEDS=7001,7002,7003 npx vitest run --config training/vitest.config.ts training/policeChase.train.ts
-// Per race: when the player was first busted, how often, the rivals hit by a police car, the police cars lost (parked
+// Per race: when the player was first busted, how often, the rivals hit by a police car (closing as a bust would), the police cars lost (parked
 // again), each state's share of their time, the player's time to the line.
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
@@ -12,7 +12,7 @@ import type { TrafficBox } from '../src/ai/sensors';
 import { KMH, PHYSICS_DT, RESET_SPEED, ROAD_LENGTH } from '../src/config';
 import { closingSpeed } from '../src/game/contact';
 import { Police, type PoliceState } from '../src/game/police';
-import { bustAllowed, type Racer } from '../src/game/policeLogic';
+import { bustAllowed, POLICE_TUNING, type Racer } from '../src/game/policeLogic';
 import { bustTimeScale } from '../src/game/bustShow';
 import { PLAYER_BOX_ID, type RaceView, Rivals } from '../src/game/rivals';
 import { computeResetSpot } from '../src/game/reset';
@@ -67,6 +67,10 @@ function race(seed: number) {
       const v = p.car.body.linvel();
       return { x: v.x, z: v.z };
     });
+    const rv = rivals.list.map((r) => {
+      const v = r.car.body.linvel();
+      return { x: v.x, z: v.z };
+    });
     physics.step((a, b, n) => {
       const cop = a.type === 'police' ? a : b.type === 'police' ? b : null;
       if (cop) {
@@ -75,7 +79,7 @@ function race(seed: number) {
           stats.busts.push(+time.toFixed(1));
           bustLeft = BUST_RACE_TIME;
           police.pullOver(cop.id);
-        } else if (other.type === 'rival') stats.rivalHits++;
+        } else if (other.type === 'rival' && closingSpeed(rv[other.id], sv[cop.id], n) * 3.6 >= POLICE_TUNING.bustKmh) stats.rivalHits++; // (a hit, not a scrape)
       }
       const npc = traffic.onNpcContact(a, b);
       if (npc !== null) traffic.wreck(npc);

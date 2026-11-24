@@ -33,6 +33,9 @@ export interface PoliceCar {
   /** Guarding: its target's predicted line (null: none yet), and s till it is worked out again. */
   guardPlan: Plan | null;
   guardClock: number;
+  /** Its last prediction asked for (its stamp), and for which racer (Racer.id): an answer to anything else is dropped. */
+  guardAsked: number;
+  guardFor: number | undefined;
   /** Its light bar's two halves' materials (found on its body at first draw; none: a body without one). */
   lightBar?: { red?: THREE.MeshStandardMaterial; blue?: THREE.MeshStandardMaterial };
 }
@@ -95,7 +98,7 @@ export class Police {
       driver.latAccel = spec.ai.latAccel;
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, guardPlan: null, guardClock: 0 });
+      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, guardPlan: null, guardClock: 0, guardAsked: -1, guardFor: undefined });
     }
     this.place();
   }
@@ -128,7 +131,7 @@ export class Police {
     const answer = this.predictor?.take();
     if (answer) {
       const q = this.list[answer.stamp % STAMP_SLOTS];
-      if (q?.state === 'front') q.guardPlan = answer.plan;
+      if (q?.state === 'front' && answer.stamp === q.guardAsked && q.target?.id === q.guardFor) q.guardPlan = answer.plan;
     }
     const player = racers.find((r) => r.isPlayer);
     for (const p of this.list) {
@@ -185,7 +188,11 @@ export class Police {
         p.guardClock -= dt;
         if (p.guardClock <= 0 && !this.predictor?.busy) {
           const ego = { s: t.s, d: t.d, v: t.v, speedCap: Math.max(t.v, GUARD.cap) };
-          if (this.predictor) this.predictor.request(++this.predictSeq * STAMP_SLOTS + p.index, ego, traffic.slice(), null);
+          if (this.predictor) {
+            p.guardAsked = ++this.predictSeq * STAMP_SLOTS + p.index;
+            p.guardFor = t.id;
+            this.predictor.request(p.guardAsked, ego, traffic.slice(), null);
+          }
           else p.guardPlan = coursePlan(ego, traffic.slice(), null);
           p.guardClock = GUARD.every;
         }
@@ -222,6 +229,7 @@ export class Police {
     if (!p) return;
     p.state = 'pullover';
     p.target = null;
+    p.car.holdInPlace(false); // (busted on a parked one: it was held where it stood)
     p.driver.preferD = SHOULDER_D;
     p.driver.shoulder = true;
   }
@@ -335,6 +343,7 @@ export class Police {
     p.driver.preferD = null;
     p.driver.shoulder = false;
     p.guardPlan = null;
+    p.guardAsked = -1;
     this.boost(p, 1);
     p.car.resetAt(s, SHOULDER_D, 0);
     p.car.holdInPlace(true);

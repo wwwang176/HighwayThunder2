@@ -228,6 +228,8 @@ function buildPoliceSuv(w: number, h: number, l: number, color: number, withWhee
   const bar = (name: string, hex: number, x: number) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w * 0.38, 0.1, 0.28), new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 0, roughness: 0.3 }));
     m.name = name;
+    m.userData.ownGeometry = true; // (its own, not the shared boxes': freed with the car - PlayerCar.dispose)
+    m.userData.ownMaterial = true;
     m.position.set(x, barY + 0.03, l * 0.02);
     root.add(m);
   };

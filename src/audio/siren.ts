@@ -21,6 +21,7 @@ export class Siren {
   private readonly left: GainNode;
   private readonly right: GainNode;
   private readonly lr = new Float32Array(2);
+  private readonly merge: ChannelMergerNode;
 
   constructor(private readonly ctx: BaseAudioContext, out: AudioNode) {
     this.a = ctx.createOscillator();
@@ -37,7 +38,7 @@ export class Siren {
     this.left = ctx.createGain();
     this.right = ctx.createGain();
     this.left.gain.value = this.right.gain.value = 0;
-    const merge = ctx.createChannelMerger(2);
+    const merge = (this.merge = ctx.createChannelMerger(2));
     this.a.connect(mix);
     this.b.connect(mix);
     mix.connect(tone);
@@ -64,10 +65,14 @@ export class Siren {
     this.b.frequency.setTargetAtTime(f, now, 0.02);
   }
 
+  /** Stopped, and out of the graph (freed). */
   dispose(): void {
     this.a.stop();
     this.b.stop();
+    this.a.disconnect();
+    this.b.disconnect();
     this.left.disconnect();
     this.right.disconnect();
+    this.merge.disconnect();
   }
 }

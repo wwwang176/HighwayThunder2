@@ -14,8 +14,8 @@ import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../veh
  */
 export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, parkAhead: 700, viewAhead: 700, bustKmh: 15, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
 
-/** A racer as the police see it: where (along, across the road), how fast (m/s), the player or not, past the line (`done`). */
-export type Racer = { s: number; d: number; v: number; isPlayer: boolean; done?: boolean };
+/** A racer as the police see it: where (along, across the road), how fast (m/s), the player or not, past the line (`done`), who (`id`: the same each step). */
+export type Racer = { s: number; d: number; v: number; isPlayer: boolean; done?: boolean; id?: number };
 
 /** The shoulder's middle (d): where a police car parks. */
 export const SHOULDER_D = (ROAD_HALF_WIDTH + RAIL_D) / 2;

@@ -99,6 +99,7 @@ import { Blocker, computeResetSpot } from './reset';
 import type { EngineSource } from '../audio/otherEngines';
 import type { EarPose } from '../audio/pan';
 import { engineOf, type EngineKind } from '../audio/engineCatalog';
+import type { SirenSource } from '../audio/sound';
 import { trafficEngine, type TrafficGearing } from '../audio/spatial';
 
 /** The rivals' colours, for the HUD. */
@@ -253,6 +254,8 @@ export class Game {
   /** The background music (audio/music): from the first click or key in the garage on. */
   readonly music = new Music();
   private readonly nowPlaying: NowPlaying;
+  /** The police cars' sirens heard this frame (heardSirens; reused). */
+  private readonly sirenBuf: SirenSource[] = [];
   /** The engines heard from outside, this frame's (heardEngines; reused). */
   private readonly engineSources: EngineSource[] = [];
   /** The rivals' tyres as heard this frame (its entries reused). */
@@ -1292,10 +1295,10 @@ export class Game {
     if (this.police) {
       if (racing) {
         // (one past the line is nobody's target: the chase is over for it)
-        const racers: Racer[] = [{ s: this.player.s, d: this.player.d, v: Math.max(0, this.player.speed), isPlayer: true, done: this.flow.phase === 'finished' }];
+        const racers: Racer[] = [{ s: this.player.s, d: this.player.d, v: Math.max(0, this.player.speed), isPlayer: true, done: this.flow.phase === 'finished', id: 0 }];
         const racerBoxes: TrafficBox[] = [{ ...this.player.footprint(), id: PLAYER_BOX_ID, v: Math.max(0, this.player.speed) }];
         for (const b of this.rivals.boxes(this.rivalBoxes)) racerBoxes.push(b);
-        for (const r of this.rivals.list) racers.push({ s: r.car.s, d: r.car.d, v: Math.max(0, r.car.speed), isPlayer: false, done: r.finishTime !== null });
+        for (const r of this.rivals.list) racers.push({ s: r.car.s, d: r.car.d, v: Math.max(0, r.car.speed), isPlayer: false, done: r.finishTime !== null, id: 1 + r.index });
         this.police.drive(dt, racers, racerBoxes, view.traffic);
       } else this.police.hold(dt);
     }
@@ -1734,17 +1737,25 @@ export class Game {
   }
 
   /**
+   * The police cars with their lights on this frame, into `this.sirenBuf` (its entries reused): each one's index (its
+   * siren's key), where its light bar is and how it moves. How many.
+   */
+  private heardSirens(): number {
+    let n = 0;
+    for (const q of this.police?.sirens() ?? []) {
+      const s = (this.sirenBuf[n++] ??= { key: 0, pos: [0, 0, 0], vel: [0, 0, 0] });
+      const p = q.car.mesh.position, v = q.car.body.linvel();
+      s.key = q.index;
+      s.pos[0] = p.x; s.pos[1] = p.y + 1.6; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+    }
+    return n;
+  }
+
+  /**
    * The engines heard from outside this frame, into `this.engineSources` (its entries reused: none made a frame):
    * the rivals' (their own rpm and throttle; keys -1, -2, ...) and the traffic's (keys their ids). How many.
    */
-  /** The police cars with their lights on, where they are and how they move (their sirens). */
-  private sirenSources(): { pos: number[]; vel: number[] }[] {
-    return (this.police?.sirens() ?? []).map((q) => {
-      const p = q.car.mesh.position, v = q.car.body.linvel();
-      return { pos: [p.x, p.y + 1.6, p.z], vel: [v.x, v.y, v.z] };
-    });
-  }
-
   private heardEngines(): number {
     let n = 0;
     const next = (): EngineSource => (this.engineSources[n++] ??= {
@@ -2011,7 +2022,7 @@ export class Game {
     this.sound.setEngine(engineOf(this.player.style), this.player.shownRpm, car.idleRpm, car.redline,
       rev ? rev.throttle : this.player.blipping ? Math.max(HEEL_TOE.throttle, own) : own, this.flow.phase !== 'title' && !drawn);
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
-    this.sound.setSirens(this.sirenSources(), this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
+    this.sound.setSirens(this.sirenBuf, this.heardSirens(), this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
     this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);

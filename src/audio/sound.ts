@@ -14,6 +14,15 @@ import { dopplerFactor } from './spatial';
 // (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
 import limiterUrl from './limiter.worklet.js?url&no-inline';
 
+/** A police car's siren heard: its key (the car's), where it is and how it moves (world). */
+export interface SirenSource {
+  key: number;
+  pos: number[];
+  vel: number[];
+}
+/** s (the audio clock's) a siren whose car is no longer heard is kept, fading out, before it is freed. */
+const SIREN_GONE = 1;
+
 /**
  * The sound's bundles downloading now, before the first click wakes the sound (a download needs none): on a slow
  * line, begun at that click, the engines' came in 20 s on - a race started straight away silent. Decoded at the wake.
@@ -176,7 +185,7 @@ export class Sound {
   /** How fast the race's time runs (the finish's slow motion): every engine's rate by it. */
   private timeScale = 1;
   /** The police cars' sirens (setSirens), their wail's clock, the ear's motion for their Doppler shift. */
-  private readonly sirens: Siren[] = [];
+  private readonly sirens = new Map<number, { siren: Siren; heard: number }>();
   private sirenTime = 0;
   private readonly sirenEar = new EarMotion();
   private readonly sirenEarPos: [number, number, number] = [0, 0, 0];
@@ -368,23 +377,34 @@ export class Sound {
   }
 
   /**
-   * The police cars' sirens (made here: audio/siren.ts), one for each of `sources` (where it is, how it moves), each
-   * its wail a little apart from the others; `dt` s of the race's time on (the wail and the ear's motion), `active`
-   * false: all silent.
+   * The police cars' sirens (made here: audio/siren.ts): one voice for each of the first `count` `sources`, kept by its
+   * key (its car: never handed to another), its wail a little apart from the others'; `dt` s of the race's time on (the
+   * wail and the ear's motion), `active` false: all silent. A voice whose car is no longer heard fades out and is
+   * freed SIREN_GONE s later.
    */
-  setSirens(sources: readonly { pos: readonly number[]; vel: readonly number[] }[], ear: EarPose, dt: number, active: boolean): void {
+  setSirens(sources: readonly SirenSource[], count: number, ear: EarPose, dt: number, active: boolean): void {
     const ctx = this.ctx;
     if (!ctx || !this.running) return;
-    while (this.sirens.length < sources.length) this.sirens.push(new Siren(ctx, this.master));
     this.sirenEarPos[0] = ear.px; this.sirenEarPos[1] = ear.py; this.sirenEarPos[2] = ear.pz;
     this.sirenEar.update(this.sirenEarPos, dt);
     this.sirenTime += dt;
-    this.sirens.forEach((s, i) => {
+    const now = ctx.currentTime;
+    for (let i = 0; i < count; i++) {
       const src = sources[i];
-      const on = active && !!src;
-      const doppler = src ? dopplerFactor(src.pos, src.vel, this.sirenEarPos, this.sirenEar.velocity) : 1;
-      s.update(this.sirenTime + i * 1.1, src?.pos ?? this.sirenEarPos, ear, doppler, this.timeScale, on);
-    });
+      let voice = this.sirens.get(src.key);
+      if (!voice) this.sirens.set(src.key, (voice = { siren: new Siren(ctx, this.master), heard: now }));
+      voice.heard = now;
+      const doppler = dopplerFactor(src.pos, src.vel, this.sirenEarPos, this.sirenEar.velocity);
+      voice.siren.update(this.sirenTime + src.key * 1.1, src.pos, ear, doppler, this.timeScale, active);
+    }
+    for (const [key, voice] of this.sirens) {
+      if (voice.heard === now) continue;
+      voice.siren.update(this.sirenTime, this.sirenEarPos, ear, 1, this.timeScale, false); // (fading out)
+      if (now - voice.heard > SIREN_GONE) {
+        voice.siren.dispose();
+        this.sirens.delete(key);
+      }
+    }
   }
 
   /**

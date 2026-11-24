@@ -779,7 +779,11 @@ export class PlayerCar {
     this.flames?.dispose();
     // What is its own on the GPU (not its file's shared parts): its lamps' and pipes' merged meshes, its headlights'
     // shadow maps (three frees them only so).
-    this.mesh.traverse((o) => (o as THREE.Mesh).isMesh && o.userData.ownGeometry && (o as THREE.Mesh).geometry.dispose());
+    this.mesh.traverse((o) => {
+      if (!(o as THREE.Mesh).isMesh) return;
+      if (o.userData.ownGeometry) (o as THREE.Mesh).geometry.dispose();
+      if (o.userData.ownMaterial) ((o as THREE.Mesh).material as THREE.Material).dispose(); // (the police SUV's light bar)
+    });
     for (const hl of this.headlights) hl.dispose();
     this.mesh.removeFromParent();
   }
