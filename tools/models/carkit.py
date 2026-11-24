@@ -105,6 +105,8 @@ class Car:
                 generated tyres were; a generation that set them off its arches' middles: there instead). The
                 finished car's origin is midway between these; the working frame (every y a Car gives) stays the
                 generated tyres'.
+    livery_size its liveries' texture size (None: LIVERY_SIZE; a big body spreads the texture thin: up to the
+                generated 2048)
     paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
                 edge (the livery's darkened as much; a dark paint, a navy, wants it lower)
     trim        the faces whose texture isn't its paint (chassis, bumpers, grille) their own `trim` material,
@@ -125,7 +127,7 @@ class Car:
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
                  roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
-                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None, axles=None):
+                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None, axles=None, livery_size=None):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -137,6 +139,7 @@ class Car:
         self.exhaust, self.mirror = exhaust, mirror
         self.paint_sat, self.glass_s, self.src_normals, self.glass_not = paint_sat, glass_s, src_normals, glass_not
         self.well_out = well_out
+        self.livery_size = livery_size or LIVERY_SIZE
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -440,7 +443,7 @@ def paint_uv(px):
 
 # ---------------------------------------------------------------- materials and liveries
 
-LIVERY_SIZE = 1024
+LIVERY_SIZE = 1024  # a livery's texture, square (the generated one's 2048; a car may keep more: Car.livery_size)
 
 
 def face_points(f, uv):
@@ -516,7 +519,7 @@ def split_glass(body, px):
         dark[(s > CAR.paint_sat) & in_paint_hue(hue), :3] = 0.04
         img = bpy.data.images.new("trim", px.shape[1], px.shape[0], alpha=False)
         img.pixels.foreach_set(dark.astype(np.float32).ravel())
-        img.scale(LIVERY_SIZE, LIVERY_SIZE)
+        img.scale(CAR.livery_size, CAR.livery_size)
         img.pack()
         trim.node_tree.nodes["Image Texture"].image = img
         mats.append(trim)
@@ -698,7 +701,7 @@ def livery_textures(px, tops_roof):
         full = np.concatenate([img_px, np.ones((h, w, 1), np.float32)], axis=2)
         img = bpy.data.images.new(f"livery-{name}", w, h, alpha=False)
         img.pixels.foreach_set(full.astype(np.float32).ravel())
-        img.scale(LIVERY_SIZE, LIVERY_SIZE)
+        img.scale(CAR.livery_size, CAR.livery_size)
         out[name] = img
     return out
 

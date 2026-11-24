@@ -195,6 +195,7 @@ CAR = kit.Car(
     tops_above=0.95,
     src_normals=lambda c: c.z < 1.35,  # (not the roof: the generation's ripples on it, flat by its faces)
     well_out=0.5,  # (its fender flares come in close round the tyres)
+    livery_size=2048,  # (the biggest body: at 1024, 111 texels a metre, the cars' 120-170)
     axles=(1.242, -1.21),  # (the generated front tyres sat 0.032 back in their arches; the back ones in the middle)
     glass_not=lambda c: c.z > BAR_Z - 0.05 and BAR_Y[0] - 0.05 < c.y < BAR_Y[1] + 0.05,  # the bar's black middle
 )
