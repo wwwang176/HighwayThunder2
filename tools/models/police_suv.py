@@ -53,6 +53,9 @@ TAIL_SHAPE = [(-0.578, 0.977), (-0.685, 0.977), (-0.696, 0.973), (-0.700, 0.962)
               (-0.682, 0.725), (-0.578, 0.725), (-0.578, 0.758), (-0.660, 0.758), (-0.666, 0.764), (-0.666, 0.938),
               (-0.660, 0.944), (-0.578, 0.944)]
 TAIL_SPREAD = 0.025
+# The third brake light: a bar across the rear window's top, under the roof's spoiler lip (the texture's red is on
+# the lip's underside, facing down: unseen from behind; the window starts under the lip at z ~1.345, y -1.751).
+BRAKE3_SHAPE = [(-0.25, 1.300), (0.25, 1.300), (0.25, 1.335), (-0.25, 1.335)]
 # The windscreen's outline on the texture, seen from above (its left half, x <= 0; y toward the nose): its top edge
 # straight across the middle, then back toward the corners; its sides; its lower corners cut off; its foot.
 SCREEN = [(0.0, 0.366), (-0.22, 0.366), (-0.60, 0.285), (-0.61, 0.30), (-0.68, 0.72), (-0.68, 0.75), (-0.605, 0.835),
@@ -143,6 +146,7 @@ def lamps(body, px, s):
     for side, sx in (("L", -1), ("R", 1)):
         for nm, outline, spread, back in (("head", HEAD_SHAPE, HEAD_SPREAD, False), ("tail", TAIL_SHAPE, TAIL_SPREAD, True)):
             out.append(kit.shape_lamp(f"{nm}_{side}", s, body, outline, nm, spread, back, flip=sx > 0))
+    out.append(kit.shape_lamp("brake_C", s, body, BRAKE3_SHAPE, "brake", TAIL_SPREAD, back=True))
     return out + light_bar(body)
 
 
