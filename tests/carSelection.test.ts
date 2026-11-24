@@ -22,8 +22,15 @@ const memory = () => {
 };
 
 describe('carSelection', () => {
-  it('by default: the player on the supercar, five rivals on cars at random, hard, a clear night', () => {
-    expect(defaultSelection()).toEqual({ player: 'street-racer', rivals: Array(5).fill('street-racer'), rivalMode: 'random', difficulty: 2, weather: 'clear', course: 'highway', paint: {}, tuning: {} });
+  it('by default: the player on the supercar, five rivals on cars at random, hard, a clear night, the police on', () => {
+    expect(defaultSelection()).toEqual({ player: 'street-racer', rivals: Array(5).fill('street-racer'), rivalMode: 'random', difficulty: 2, weather: 'clear', course: 'highway', paint: {}, tuning: {}, police: true });
+  });
+
+  it('police on by default, kept off when saved off', () => {
+    expect(defaultSelection().police).toBe(true);
+    expect(sanitize({}).police).toBe(true);
+    expect(sanitize({ police: 'yes' }).police).toBe(true);
+    expect(sanitize({ police: false }).police).toBe(false);
   });
 
   it('anything it does not know becomes the default; between 0 and 5 rivals', () => {
@@ -36,6 +43,7 @@ describe('carSelection', () => {
       course: 'highway',
       paint: {},
       tuning: {},
+      police: true,
     });
     expect(sanitize({ player: 'jdm', rivals: [], rivalMode: 'random' }).rivalMode).toBe('random');
     expect(sanitize({ player: 'jdm', rivals: [], rivalMode: 'chaos' }).rivalMode).toBe('custom');
@@ -47,7 +55,7 @@ describe('carSelection', () => {
 
   it('an old save (cars only) keeps its cars and gets the defaults for the rest', () => {
     const old = { player: 'muscle-car', rivals: ['jdm', 'jdm', 'muscle-car', 'street-racer', 'jdm'] };
-    expect(sanitize(old)).toEqual({ ...old, rivalMode: 'custom', difficulty: 2, weather: 'clear', course: 'highway', paint: {}, tuning: {} });
+    expect(sanitize(old)).toEqual({ ...old, rivalMode: 'custom', difficulty: 2, weather: 'clear', course: 'highway', paint: {}, tuning: {}, police: true });
   });
 
   it('keeps a paint job (by name) per pickable car, nothing else', () => {
@@ -58,7 +66,7 @@ describe('carSelection', () => {
 
   it('is kept between visits; a broken saved value is the default', () => {
     const s = memory();
-    const picked = { player: 'muscle-car', rivals: ['jdm', 'street-racer'], rivalMode: 'same' as const, difficulty: 2, weather: 'clear' as const, course: 'mountain' as const, paint: { 'muscle-car': 'black' }, tuning: { 'muscle-car': { wing: 2, springs: -1 } } };
+    const picked = { player: 'muscle-car', rivals: ['jdm', 'street-racer'], rivalMode: 'same' as const, difficulty: 2, weather: 'clear' as const, course: 'mountain' as const, paint: { 'muscle-car': 'black' }, tuning: { 'muscle-car': { wing: 2, springs: -1 } }, police: false };
     saveSelection(s, picked);
     expect(loadSelection(s)).toEqual(picked);
     s.setItem('ht2.cars', '{not json');

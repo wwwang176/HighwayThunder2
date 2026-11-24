@@ -62,6 +62,11 @@ export const STRINGS = {
   'weather.rain': { zh: '雨夜', en: 'Rainy night' },
   'weather.fog': { zh: '霧夜', en: 'Foggy night' },
   'weather.soon': { zh: '即將推出', en: 'Coming soon' },
+  'setup.police.kicker': { zh: 'Police', en: '' },
+  'setup.police': { zh: '警察', en: 'Police' },
+  'police.on': { zh: '開', en: 'On' },
+  'police.off': { zh: '關', en: 'Off' },
+  'police.help': { zh: '路肩的警車　經過就開始追　被撞飛會放回賽道', en: 'Police on the shoulder: drive past and the chase is on; rammed hard, you are put back' },
   'setup.course.kicker': { zh: 'Course', en: '' },
   'setup.course': { zh: '路線', en: 'Course' },
   'course.highway': { zh: '高速公路', en: 'Highway' },
@@ -218,7 +223,7 @@ export type Key = keyof typeof STRINGS;
 /** The small caps over a title in Chinese: the title itself in English, so left empty there (the dash stays). */
 export const KICKERS: Key[] = [
   'tag.street-racer', 'tag.muscle-car', 'tag.jdm', 'setup.kicker', 'setup.rivals.kicker', 'setup.difficulty.kicker',
-  'setup.weather.kicker', 'setup.course.kicker', 'settings.kicker', 'pause.kicker', 'finish.kicker', 'tune.kicker',
+  'setup.weather.kicker', 'setup.course.kicker', 'setup.police.kicker', 'settings.kicker', 'pause.kicker', 'finish.kicker', 'tune.kicker',
 ];
 
 /** The language every screen is in now (setLang). */
