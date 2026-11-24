@@ -23,6 +23,8 @@ import uuid
 BASE = "https://api.tripo3d.ai/v2/openapi"
 MODEL = "v3.1-20260211"
 FACES = 5000  # smart low poly's face limit (500 to 20000); it lands a little over
+# A client name of its own: Python's default one is refused by the API's front (HTTP 403, error 1010).
+UA = "Mozilla/5.0 (compatible; tripo-client/1.0)"
 
 
 def key():
@@ -40,7 +42,7 @@ def key():
 def call(method, path, body=None, ctype="application/json"):
     data = body if isinstance(body, (bytes, type(None))) else json.dumps(body).encode()
     req = urllib.request.Request(BASE + path, data=data, method=method,
-                                 headers={"Authorization": "Bearer " + key(), "Content-Type": ctype})
+                                 headers={"Authorization": "Bearer " + key(), "Content-Type": ctype, "User-Agent": UA})
     try:
         with urllib.request.urlopen(req, timeout=120) as r:
             return json.load(r)
@@ -83,7 +85,9 @@ def wait(task, out):
         url = item.get("url") if isinstance(item, dict) else None
         if url:
             ext = ".glb" if name == "model" else "." + item.get("type", "bin")
-            urllib.request.urlretrieve(url, os.path.join(out, name + ext))
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=300) as r, open(os.path.join(out, name + ext), "wb") as f:
+                f.write(r.read())
             print("saved", os.path.join(out, name + ext))
 
 
