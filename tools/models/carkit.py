@@ -98,6 +98,9 @@ class Car:
                 it, or where(face centre, working frame) -> bool: there only (a rippled roof's flatter by its faces)
     glass_not   where(face centre, working frame) -> bool: never window there, whatever grey the texture has (a
                 roof light bar's black middle; None: anywhere may be)
+    well_out    how far (its normal's x, outward) a face in a wheel arch may face out of the car and still go black
+                with the wheel well (None: any; a car whose fender flares come in close round its tyres wants
+                them kept their paint: their parts facing the axle would go black, a jagged edge)
     paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
                 edge (the livery's darkened as much; a dark paint, a navy, wants it lower)
     trim        the faces whose texture isn't its paint (chassis, bumpers, grille) their own `trim` material,
@@ -118,7 +121,7 @@ class Car:
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
                  roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
-                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None):
+                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -129,6 +132,7 @@ class Car:
         self.glass_fill, self.plain, self.paint_fade, self.trim = glass_fill, plain, paint_fade, trim
         self.exhaust, self.mirror = exhaust, mirror
         self.paint_sat, self.glass_s, self.src_normals, self.glass_not = paint_sat, glass_s, src_normals, glass_not
+        self.well_out = well_out
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -561,6 +565,8 @@ def wheel_wells(body, reach=1.7, facing=0.3, ring=1.25):
         if p.material_index == glass:
             continue
         c = p.center
+        if CAR.well_out is not None and p.normal.x * math.copysign(1, c.x) > CAR.well_out:
+            continue
         for wy, wz, r, x0, x1 in CAR.tyres:
             to_axle = Vector((0, wy - CAR.axle_mid - c.y, wz - c.z))
             if (to_axle.length < r * reach and x0 - 0.15 <= abs(c.x) <= x1 + 0.02 and p.normal.dot(to_axle.normalized()) > facing

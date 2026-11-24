@@ -17,7 +17,8 @@ Its own:
 - its big triangles cut along the texture's outlines first (`mend`): round the windscreen, between the light bar's
   lenses and its middle (a triangle straddling an outline goes all one way: a jagged edge);
 - shaded by the generated body's own normals below the roof (`src_normals`: its hood smooth), its roof by its faces
-  (the generation's ripples on it); the light bar's middle never window (`glass_not`).
+  (the generation's ripples on it); the light bar's middle never window (`glass_not`);
+- its fender flares kept their paint, only the arches' insides black (`well_out`).
 """
 
 import os
@@ -191,6 +192,7 @@ CAR = kit.Car(
     roof_flat=0.9,
     tops_above=0.95,
     src_normals=lambda c: c.z < 1.35,  # (not the roof: the generation's ripples on it, flat by its faces)
+    well_out=0.5,  # (its fender flares come in close round the tyres)
     glass_not=lambda c: c.z > BAR_Z - 0.05 and BAR_Y[0] - 0.05 < c.y < BAR_Y[1] + 0.05,  # the bar's black middle
 )
 
