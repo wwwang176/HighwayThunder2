@@ -2,7 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { KMH, LANE_COUNT, LANE_WIDTH, PHYSICS_DT } from '../src/config';
 import { laneCenter } from '../src/road/coords';
 import { PlayerCar } from '../src/vehicles/playerCar';
-import { CARS } from '../src/vehicles/cars';
+import { CARS, specById } from '../src/vehicles/cars';
 import type { Brain } from '../src/ai/brain';
 import { selfStateOf } from '../src/ai/driver';
 import { baseSteer, netDrive } from '../src/ai/netTracker';
@@ -36,8 +36,9 @@ function lateralTurn(v: number, cell: number, latAccel: AccelTable): number {
   return Math.max(1, Math.floor((MOVE.latGrip * maxAccel(v, latAccel) * MOVE.step * MOVE.step) / cell + 1e-6));
 }
 
-export const SPEC = CARS[process.env.CAR ?? 'street-racer'];
-if (!SPEC) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
+// (specById: the police SUV too, not a car to pick)
+export const SPEC = specById(process.env.CAR ?? 'street-racer')!;
+if (!SPEC) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')}, police-suv)`);
 /** Fastest a scenario runs (km/h): the car's own top speed, at most 300. */
 export const TOP_KMH = Math.min(300, SPEC.params.maxSpeed / KMH);
 export const SCENARIO_S = 8; // s each
