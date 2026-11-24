@@ -14,7 +14,9 @@ import type { Obstacle } from '../traffic/trafficAI';
 import { POLICE_SUV } from '../vehicles/cars';
 import type { DriveInput } from '../vehicles/handling';
 import { PlayerCar } from '../vehicles/playerCar';
-import { isLost, lineClear, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
+import { guardD, isLost, lineClear, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
+import { coursePlan } from '../ai/coursePlanner';
+import type { Plan } from '../ai/planner';
 import type { Blocker } from './reset';
 
 /** Parked on the shoulder; ahead of its target (on its way); behind it (chasing, ramming); done, pulling over. */
@@ -28,6 +30,9 @@ export interface PoliceCar {
   target: Racer | null;
   /** Ramming its target this step (the line to it clear): steered at it, not by its plans. */
   ramming: boolean;
+  /** Guarding: its target's predicted line (null: none yet), and s till it is worked out again. */
+  guardPlan: Plan | null;
+  guardClock: number;
   /** Its light bar's two halves' materials (found on its body at first draw; none: a body without one). */
   lightBar?: { red?: THREE.MeshStandardMaterial; blue?: THREE.MeshStandardMaterial };
 }
@@ -48,6 +53,10 @@ const PARK_APART = 40;
 /** Rams only a target at most this far ahead (m): further, it closes in by its plans. */
 const RAM_RANGE = 120;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
+/** Guarding: the target's line worked out again every `every` s, as if it drove for at most `cap` m/s. */
+const GUARD = { every: 0.3, cap: 300 * KMH };
+/** A prediction's stamp: its sequence number times this, plus the guarding car's index. */
+const STAMP_SLOTS = 8;
 /** The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glow` (emissive intensity). */
 const FLASH = { cycle: 0.6, red: [[0, 0.12], [0.2, 0.32]] as [number, number][], blue: [[0.5, 0.62], [0.7, 0.82]] as [number, number][], glow: 4 };
 
@@ -63,6 +72,9 @@ export class Police {
   /** The player has driven past a parked police car: the chase is on (each race anew). */
   triggered = false;
   private readonly boxBuf: TrafficBox[] = [];
+  /** Where the guarding cars' targets' lines are worked out (a Web Worker in the game; none in the sims: in line). */
+  private readonly predictor: PlanSource | null;
+  private predictSeq = 0;
   /** The race's time the light bars flash by. */
   private flashTime = 0;
 
@@ -71,6 +83,7 @@ export class Police {
     scene: THREE.Scene | null,
     makeSource: () => PlanSource | null,
   ) {
+    this.predictor = makeSource();
     const spec = POLICE_SUV;
     for (let i = 0; i < POLICE_TUNING.count; i++) {
       const car = new PlayerCar(physics, scene, { spec, entity: { type: 'police', id: i }, realLights: false });
@@ -80,7 +93,7 @@ export class Police {
       driver.latAccel = spec.ai.latAccel;
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false });
+      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, guardPlan: null, guardClock: 0 });
     }
     this.place();
   }
@@ -109,6 +122,12 @@ export class Police {
    * same order); `traffic` our carriageway's.
    */
   drive(dt: number, racers: readonly Racer[], racerBoxes: readonly TrafficBox[], traffic: readonly TrafficBox[]): void {
+    // A predicted line back from the worker: the guarding car it was asked for (by its stamp), if it guards still.
+    const answer = this.predictor?.take();
+    if (answer) {
+      const q = this.list[answer.stamp % STAMP_SLOTS];
+      if (q?.state === 'front') q.guardPlan = answer.plan;
+    }
     const player = racers.find((r) => r.isPlayer);
     for (const p of this.list) {
       const c = p.car;
@@ -150,10 +169,23 @@ export class Police {
       p.state = phaseOf(c.s, t);
       const seen = this.seen(p, racerBoxes, traffic);
       if (p.state === 'front') {
+        // On the line its target will take as it gets here (its plan as the planner would drive it, every GUARD.every s).
+        // (worked out in the predictor's worker, a request at a time; without one - the sims - here and now)
+        p.guardClock -= dt;
+        if (p.guardClock <= 0 && !this.predictor?.busy) {
+          const ego = { s: t.s, d: t.d, v: t.v, speedCap: Math.max(t.v, GUARD.cap) };
+          if (this.predictor) this.predictor.request(++this.predictSeq * STAMP_SLOTS + p.index, ego, traffic.slice(), null);
+          else p.guardPlan = coursePlan(ego, traffic.slice(), null);
+          p.guardClock = GUARD.every;
+        }
+        p.driver.preferD = p.guardPlan ? guardD(p.guardPlan, c.s, t) : null;
+        p.driver.shoulder = false;
         this.boost(p, 1);
         c.prePhysics(p.driver.drive(selfStateOf(c, Math.max(0, t.v - FRONT_SLOWER)), seen, c.params), dt);
         continue;
       }
+      p.driver.preferD = null; // (behind: its plans its own)
+      p.guardPlan = null;
       // Behind: boosted the further back it is; flat out at it once the line to it is clear.
       const gap = t.s - c.s;
       this.boost(p, 1 + BOOST.most * Math.max(0, Math.min(1, (gap - BOOST.from) / (BOOST.full - BOOST.from))));
@@ -250,6 +282,7 @@ export class Police {
       p.car.dispose(this.physics);
       p.driver.dispose();
     }
+    this.predictor?.dispose?.();
     this.list.length = 0;
   }
 
@@ -290,6 +323,7 @@ export class Police {
     p.ramming = false;
     p.driver.preferD = null;
     p.driver.shoulder = false;
+    p.guardPlan = null;
     this.boost(p, 1);
     p.car.resetAt(s, SHOULDER_D, 0);
     p.car.holdInPlace(true);

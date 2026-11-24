@@ -1,4 +1,5 @@
 import { KMH, RAIL_D, ROAD_HALF_WIDTH } from '../config';
+import type { Plan } from '../ai/planner';
 import type { SelfState, TrafficBox } from '../ai/sensors';
 import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../vehicles/handling';
 
@@ -65,4 +66,18 @@ export function ramInput(self: SelfState, aim: { s: number; d: number }, p: CarP
   const want = Math.atan2(aim.d - self.d, Math.max(aim.s - self.s, 1));
   const steer = Math.max(-1, Math.min(1, (want - course) / steerRange(Math.max(self.vLong, 10 * KMH), p)));
   return { steer, throttle: 1, brake: 0 };
+}
+
+/**
+ * Guarding: where across the road (d) the target's predicted line (`predicted`: its plan, as the planner would drive it)
+ * is as it gets to `suvS` - between its points by s; past its end, its end's. A target standing: where it is.
+ */
+export function guardD(predicted: Plan, suvS: number, target: Racer): number {
+  const pts = predicted.points;
+  if (target.v <= 1 || !pts.length) return target.d;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if (b.s >= suvS) return b.s > a.s ? a.d + ((b.d - a.d) * Math.max(0, suvS - a.s)) / (b.s - a.s) : b.d;
+  }
+  return pts[pts.length - 1].d;
 }

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { bustAllowed, isLost, lineClear, parkSpot, phaseOf, pickTarget, ramInput, type Racer } from '../src/game/policeLogic';
+import { bustAllowed, guardD, isLost, lineClear, parkSpot, phaseOf, pickTarget, ramInput, type Racer } from '../src/game/policeLogic';
 import { RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
 import type { SelfState } from '../src/ai/sensors';
+import type { Plan } from '../src/ai/planner';
 
 const P = (s: number, isPlayer = false): Racer => ({ s, d: 0, v: 50, isPlayer });
 
@@ -38,6 +39,14 @@ describe('policeLogic', () => {
     expect(bustAllowed('racing', 10, 5)).toBe(false);
     expect(bustAllowed('racing', 20, 1)).toBe(false);
     expect(bustAllowed('finished', 40, 5)).toBe(false); // (past the line: the finish's show)
+  });
+
+  it('guarding: the predicted line\'s d where the target gets to the police car', () => {
+    const plan: Plan = { points: [{ t: 0, s: 900, d: 0, v: 50 }, { t: 1, s: 950, d: 2, v: 50 }, { t: 2, s: 1000, d: 3.75, v: 50 }] };
+    expect(guardD(plan, 1000, { s: 900, d: 0, v: 50, isPlayer: true })).toBeCloseTo(3.75);
+    expect(guardD(plan, 975, { s: 900, d: 0, v: 50, isPlayer: true })).toBeCloseTo(2.875);
+    expect(guardD(plan, 1300, { s: 900, d: 0, v: 50, isPlayer: true })).toBeCloseTo(3.75); // (past the plan: its end)
+    expect(guardD(plan, 1000, { s: 900, d: 1, v: 0, isPlayer: true })).toBe(1); // (standing: where it is)
   });
 
   it('ramming: full throttle, steering toward the aim', () => {
