@@ -29,7 +29,7 @@ import { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
 import { CameraRig, type Look } from '../render/cameraRig';
 import { TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
-import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { TRAFFIC_PLAN_EVERY, TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
 import { pixelRatioFor, readQuality } from '../render/quality';
 import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
@@ -118,8 +118,6 @@ const TRAFFIC_AWAKE = 120;
  * 200 m each kept some 46 cars in full.
  */
 const RIVAL_AWAKE = 60;
-/** The traffic planned every this many physics steps (60 Hz: its drivers' choices; the bodies driven at 120). */
-const TRAFFIC_PLAN_EVERY = 2;
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };

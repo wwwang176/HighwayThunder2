@@ -5,7 +5,7 @@ import { laneAt, laneCenter, lanesOccupied, surfaceGrip } from '../road/coords';
 import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
 import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
-import { TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { TRAFFIC_PLAN_EVERY, TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
 import { PlayerCar } from '../vehicles/playerCar';
 import { Driver, selfStateOf } from './driver';
 import { endOn, FITNESS, isOffRoad, RunResult, touching } from './fitness';
@@ -155,7 +155,7 @@ export class TrainingSim {
     this.gameContact = opts.gameContact ?? false;
     this.physics = PhysicsWorld.createSync();
     this.physics.timestep = PHYSICS_DT;
-    this.traffic = new TrafficWorld(this.physics, mulberry32(seed), { oncoming: false });
+    this.traffic = new TrafficWorld(this.physics, mulberry32(seed), { oncoming: false, planEvery: TRAFFIC_PLAN_EVERY }); // (planned as often as the game's)
     for (const d of drivers) {
       const car = new PlayerCar(this.physics, null, { spec, ...(this.gameContact ? { entity: { type: 'rival' as const, id: this.ghosts.length } } : {}) });
       car.params.maxSpeed = this.speedCap;
