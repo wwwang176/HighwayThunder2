@@ -226,6 +226,10 @@ export class PlannerDriver implements Driver {
   tracker: Brain | null = trackerFrom(STREET_RACER.ai.tracker);
   /** Engine boost on top (the rivals' rubber band): the plan and the pedals count on it. */
   accelScale = 1;
+  /** A line across the road (d) its plans would rather be on (PlanEgo.preferD: a police car's); null: none. */
+  preferD: number | null = null;
+  /** Its plans may go out onto the shoulder (PlanEgo.shoulder: a police car's, parked there or pulling over). */
+  shoulder = false;
   /** Answers to requests made up to this clock time are thrown away (the car was moved since). */
   private staleUpTo = -1;
 
@@ -260,6 +264,8 @@ export class PlannerDriver implements Driver {
     if (!this.plan || this.planAge >= REPLAN_EVERY) {
       const previous = this.plan && { plan: this.plan, age: this.planAge };
       const ego = egoOf(self, p, this.accelTable(), this.latAccel, this.brake);
+      if (this.preferD !== null) ego.preferD = this.preferD;
+      if (this.shoulder) ego.shoulder = true;
       if (!this.source) this.adopt(coursePlan(ego, traffic, previous), this.clock);
       else if (!this.source.busy) this.source.request(this.clock, ego, traffic, previous);
     }

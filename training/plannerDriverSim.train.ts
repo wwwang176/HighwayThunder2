@@ -8,7 +8,7 @@ import { coursePlan } from '../src/ai/coursePlanner';
 import { planAt, Plan, PlanEgo, PreviousPlan } from '../src/ai/planner';
 import { emergencyBrake, PlannerDriver, PlanSource } from '../src/ai/plannerDriver';
 import type { TrafficBox } from '../src/ai/sensors';
-import { KMH, PHYSICS_DT } from '../src/config';
+import { KMH, PHYSICS_DT, RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { laneAt, laneCenter } from '../src/road/coords';
 import { PlayerCar } from '../src/vehicles/playerCar';
@@ -26,18 +26,19 @@ const box = (s: number, lane: number, kmh: number, length = 4.5, width = 1.85): 
   length,
 });
 
-/** The player car driven by a PlannerDriver for `seconds` through boxes moving at their own speeds. */
-function drive(kmh: number, lane: number, boxes: TrafficBox[], seconds: number) {
+/** The player car driven by a PlannerDriver for `seconds` through boxes moving at their own speeds (`cap` km/h its top; `setUp` the driver). */
+function drive(kmh: number, lane: number, boxes: TrafficBox[], seconds: number, cap: number | ((car: PlayerCar) => number) = 300, setUp?: (ai: PlannerDriver) => void) {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   const car = new PlayerCar(physics, null);
   car.params.maxSpeed = 300 * KMH;
   car.resetTo(0, lane, kmh * KMH);
   const ai = new PlannerDriver();
+  setUp?.(ai);
   let touched = 0;
   let maxD = -Infinity;
   for (let i = 0; i < Math.round(seconds / PHYSICS_DT); i++) {
-    car.prePhysics(ai.drive(selfStateOf(car, 300 * KMH), boxes, car.params), PHYSICS_DT);
+    car.prePhysics(ai.drive(selfStateOf(car, (typeof cap === 'number' ? cap : cap(car)) * KMH), boxes, car.params), PHYSICS_DT);
     physics.step(() => {});
     car.postPhysics();
     for (const b of boxes) b.s += b.v * PHYSICS_DT;
@@ -126,5 +127,16 @@ describe('PlannerDriver', () => {
     // Right behind it: under 20 m centre to centre (~13 m bumper to bumper, 0.4 s at 110 km/h; the
     // plan keeps ~5 m, the car lags its speed changes a little).
     expect(boxes[2].s - car.s).toBeLessThan(20);
+  });
+
+  it('pulled over: its preferred line on the shoulder, the shoulder allowed, slow till there then 0 - stops there', () => {
+    const shoulder = (ROAD_HALF_WIDTH + RAIL_D) / 2;
+    // (its top speed 0 at once, it stood before it got there: standing, it cannot move across)
+    const { car } = drive(100, 3, [], 12, (c) => (Math.abs(c.d - shoulder) < 0.4 ? 0 : 40), (ai) => {
+      ai.preferD = shoulder;
+      ai.shoulder = true;
+    });
+    expect(Math.abs(car.d - shoulder)).toBeLessThan(0.6);
+    expect(car.speed).toBeLessThan(1);
   });
 });

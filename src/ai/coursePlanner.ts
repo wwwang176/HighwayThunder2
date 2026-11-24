@@ -78,6 +78,9 @@ const TURN_COST = 20;
 const TURN_FREE = 0.5;
 /** m of progress a plan point on the shoulder costs (past the paved road's edge: allowed up to the rail). */
 const OFF_ROAD = 5;
+/** PlanEgo.preferD's cost by default: m of progress a plan point costs per m off that line - on the paved road's edge,
+ * the shoulder's middle 1.25 m out, over OFF_ROAD (3: it stood on the edge, short of the shoulder it was pulling onto). */
+const PREFER_COST = 6;
 /** m of progress a plan point costs per m it is outside where it may go (it heads back in). */
 const OUT_COST = 2;
 /** The ground's grip at d (the median's grass) as a share of the road's. */
@@ -175,7 +178,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   // How far out its centre may go: the paved road's edge, or - off it already, or across the
   // road (a crash: ACROSS) - up to the rail, the shoulder at a cost (OFF_ROAD). (Allowed always, it passed a car on
   // the shoulder rather than take the gap.)
-  const edge = Math.abs(start.d) > ROAD_HALF_WIDTH || Math.abs(start.psi + start.beta) > ACROSS ? RAIL_D - hw : ROAD_HALF_WIDTH;
+  const edge = ego.shoulder || Math.abs(start.d) > ROAD_HALF_WIDTH || Math.abs(start.psi + start.beta) > ACROSS ? RAIL_D - hw : ROAD_HALF_WIDTH;
   // Outside that (on the median's grass, say) it still plans - going out further only to turn back in, at a cost the
   // further out (OUT_COST); once in it never goes out again. (Outside, every move out was refused: heading away from
   // the road it could not even start turning back, and stood braking.) Never past our rails: the right one, the
@@ -275,6 +278,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
           else if (Math.abs(d - laneCenter(laneAt(d))) > ON_CENTRE) score -= P.lineCost * w;
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus * w;
           if (P.passCost > 0) score -= passShort(local, s, d, hl, hw, tA + dt) * w;
+          if (ego.preferD !== undefined) score -= (ego.preferCost ?? PREFER_COST) * Math.abs(d - ego.preferD) * w;
           const key = (Math.round(d / K.dCell) * 1000 + Math.round(v / K.vCell)) * 1000 + Math.round(wrap(psi) / K.psiCell) + 500;
           const old = next.get(key);
           if (old && old.score >= score) continue; // (the same state: the same speed and turn left)
