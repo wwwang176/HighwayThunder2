@@ -87,7 +87,8 @@ import { smokeKick, smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
 import { FINISHED_SPEED, GRID_REV, PLAYER_BOX_ID, RaceView, RIVAL_COLORS, Rivals } from './rivals';
 import { Police } from './police';
-import type { Racer } from './policeLogic';
+import { bustAllowed, type Racer } from './policeLogic';
+import { BustShow } from './bustShow';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
@@ -124,6 +125,8 @@ const RIVAL_AWAKE = 60;
 const SMOKE_RANGE = 100;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
 const ROLL_OUT: DriveInput = { throttle: 0, brake: 0.35, steer: 0 };
+/** Busted (its slow motion): hands off. */
+const BUSTED: DriveInput = { throttle: 0, brake: 0, steer: 0 };
 /** Every lamp state a traffic vehicle shows (brake lights dim and on, indicators off and on): for prewarm. */
 const PREWARM_LAMPS: VehicleLights[] = [
   { left: [], right: [], brake: [new THREE.Mesh(undefined, BRAKE_DIM)], third: [] },
@@ -287,6 +290,10 @@ export class Game {
   private policeBoxes: TrafficBox[] = [];
   /** The police cars' velocities going into the physics step (as racerVelBefore). */
   private policeVelBefore: { x: number; z: number }[] = [];
+  /** Busted by a police car: its slow motion round the car, then put back on the road (none: not busted). */
+  private bust: BustShow | null = null;
+  /** When (simTime) the player was last put back after a bust: none again for POLICE_TUNING.grace s. */
+  private bustPutBackAt = -Infinity;
   private aiTraffic: TrafficBox[] = [];
   /** The traffic's bodies, drawn instanced. */
   private bodies!: BodyInstances;
@@ -931,6 +938,8 @@ export class Game {
   resetWorld(): void {
     this.prevRelS.clear();
     this.touched.clear();
+    this.bust = null; // (a new race, or back to the garage, mid-bust: no put-back left to come)
+    this.bustPutBackAt = -Infinity;
     this.contactSoundAt.clear();
     // A new road each race (and on the title's road too).
     this.roadLine = this.skidpad ? skidpadRoad() : this.mountain ? mountainRoad(Math.random) : randomRoad(Math.random, ROAD_LENGTH);
@@ -977,8 +986,18 @@ export class Game {
     this.trafficWorld.reset(this.focus(), (f) => this.playerOccupants(f), !this.mountain); // (the mountain road: no traffic)
   }
 
+  /** A bust's slow motion on (or paused in it: its camera held where it is). */
+  private get busting(): boolean {
+    return this.bust !== null && (this.flow.phase === 'racing' || this.flow.phase === 'paused');
+  }
+
   tryReset(): void {
     if (!this.flow.canReset()) return;
+    this.putBack();
+  }
+
+  /** The player put back on the road (R; a bust's end): somewhere clear, at RESET_SPEED. */
+  private putBack(): void {
     if (this.mountain) {
       this.putBackOnMountain();
       this.flow.markReset();
@@ -1154,7 +1173,16 @@ export class Game {
     // whole picture; only the menus, and the finish's show (what sets how slow), run on real time.
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     show?.step(dt);
-    const play = dt * (show ? show.timeScale : (TIME_SCALE[this.flow.phase] ?? 1));
+    // Busted: slowed down round the car on real time while the race is on (a pause holds it), then put back.
+    const bust = this.flow.phase === 'racing' ? this.bust : null;
+    bust?.step(dt);
+    if (bust?.done) {
+      this.bust = null;
+      this.putBack();
+      this.bustPutBackAt = this.simTime;
+    }
+    const busted = bust && !bust.done ? bust : null;
+    const play = dt * (show ? show.timeScale : busted ? busted.timeScale : (TIME_SCALE[this.flow.phase] ?? 1));
     this.sound.setTimeScale(dt > 0 ? play / dt : 1); // (the engines slow with it; a pause leaves it as it was)
     if (play > 0 && !this.freeze) {
       this.accumulator += play;
@@ -1218,6 +1246,7 @@ export class Game {
   private currentInput(): DriveInput {
     switch (this.flow.phase) {
       case 'racing':
+        if (this.bust) return BUSTED; // (the AI's too)
         if (this.aiActive && this.aiDriver && !this.inputOverride) return this.aiInput(this.aiDriver, Infinity);
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
@@ -1388,6 +1417,11 @@ export class Game {
         const rel = pv && sv ? closingSpeed(pv, sv, normal) : 0;
         this.crashShake(rel, normal ?? (pv && sv ? { x: pv.x - sv.x, z: pv.z - sv.z } : null));
         this.contactSound(`police ${police.id}`, rel);
+        // A hit (not a scrape) busts the player: slow motion round the car, then put back; that police car pulls over.
+        if (!this.bust && bustAllowed(this.flow.phase, rel * 3.6, this.simTime - this.bustPutBackAt)) {
+          this.bust = new BustShow(this.camera, this.player);
+          this.police?.pullOver(police.id);
+        }
         return;
       }
       // A police car into a vehicle: a hit wrecks it, a scrape it drives on from (as a rival).
@@ -1499,7 +1533,7 @@ export class Game {
     const yaw = Math.atan2(BLUR_V.x, BLUR_V.z);
     if (look !== this.blurLook) this.camYaw = null; // (the cut: no turn)
     this.blurLook = look;
-    const shot = this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null);
+    const shot = this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null) || this.busting;
     if (play > 0) {
       const v = this.player.body.linvel();
       let share = 1;
@@ -1905,6 +1939,7 @@ export class Game {
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     if (this.introOn) this.intro!.placeCamera();
     else if (show) show.placeCamera();
+    else if (this.busting) this.bust!.placeCamera();
     else if (this.hoodCam && look === 'ahead') this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
     else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
     // The camera kept clear of the scenery's ground (Scenery.groundAt: the mountain's rock and hillside, the highway's
@@ -1915,7 +1950,7 @@ export class Game {
     // instead, the side looks were pulled in to the edge on the narrow road where no rock was too.)
     const scene = this.road;
     if (scene.groundAt) {
-      const shot = this.introOn || !!show;
+      const shot = this.introOn || !!show || this.busting;
       const A = shot ? CAMERA_SHOT : CAMERA_ARM;
       const c = this.player.body.translation();
       const pivot = { x: c.x, y: c.y + A.pivot, z: c.z };
