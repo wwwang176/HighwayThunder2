@@ -107,6 +107,9 @@ class Car:
                 generated tyres'.
     livery_size its liveries' texture size (None: LIVERY_SIZE; a big body spreads the texture thin: up to the
                 generated 2048)
+    well_ring   how far round the axle (tyre radii) the flat faces facing out across the tyre go black with the
+                wheel well (the fill round the generated tyre's wall); a car whose arches hug its tyres wants it
+                smaller (else its flares' faces beside the tread go black: wedges by the wheels)
     open_wheels the holes the tyres left not patched where the patch would lie in a wheel's room (a tyre grown
                 onto its well all round leaves a ring: its patch a panel across the wheel)
     paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
@@ -129,7 +132,7 @@ class Car:
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
                  roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
-                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None, axles=None, livery_size=None, open_wheels=False):
+                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None, axles=None, livery_size=None, open_wheels=False, well_ring=1.25):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -142,7 +145,7 @@ class Car:
         self.paint_sat, self.glass_s, self.src_normals, self.glass_not = paint_sat, glass_s, src_normals, glass_not
         self.well_out = well_out
         self.livery_size = livery_size or LIVERY_SIZE
-        self.open_wheels = open_wheels
+        self.open_wheels, self.well_ring = open_wheels, well_ring
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
@@ -568,7 +571,7 @@ def split_glass(body, px):
     return tops, roof
 
 
-def wheel_wells(body, reach=1.7, facing=0.3, ring=1.25):
+def wheel_wells(body, reach=1.7, facing=0.3, ring=None):
     """The wheel wells' faces near black (`wheel_well`, as the underside), whatever the texture has there (the
     holes the tyres left were filled with the paint beside them):
     - round each axle within `reach` tyre radii of it, between the tyre's inner side and the arch's outer edge,
@@ -577,6 +580,7 @@ def wheel_wells(body, reach=1.7, facing=0.3, ring=1.25):
       edge (the fill round the generated tyre's wall).
     (Above, the generated wells are open: one sees the shell's inside, its faces' backs. The game draws the
     backs dark.)"""
+    ring = CAR.well_ring if ring is None else ring
     me = body.data
     me.materials.append(material("wheel_well", srgb(0x0B0B0C), 0.9))
     k = len(me.materials) - 1

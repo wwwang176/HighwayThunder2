@@ -73,6 +73,7 @@ CAR = kit.Car(
     collider_file="jdmCollider",
     exhaust={"tips": [(-0.55, 0.22), (0.55, 0.22)], "back": 2.08, "r": 0.048},  # either side of its diffuser
     lamps=lamps,
+    well_ring=1.08,  # (its arches hug the tyres: its flares' faces by the tread 1.15-1.3 radii out, the fill within 1)
     paint_hue=(0.52, 0.68),
     glass_above=0.78,
     glass_v=(0.06, 0.14),  # its windows came near black, as its trim: between the windscreen's foot and the rear window's
