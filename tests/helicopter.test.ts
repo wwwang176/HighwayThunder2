@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, beamGlare, BEAM, HELI, heliAttitude, heliHeight, heliOrbit, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
+import { arrivalAhead, arrivalRise, searchlight, beamGlare, BEAM, HELI, heliAttitude, heliHeight, heliOrbit, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -31,6 +31,22 @@ describe('police helicopter', () => {
     expect(arrivalAhead(HELI.arrive)).toBeCloseTo(0);
     expect(arrivalAhead(HELI.arrive + 5)).toBe(0);
     for (let t = 0; t < HELI.arrive; t += 0.1) expect(arrivalAhead(t + 0.1)).toBeGreaterThanOrEqual(arrivalAhead(t));
+  });
+
+  it('flies in high, coming down to its height as it comes', () => {
+    expect(HELI.arriveRise).toBeGreaterThanOrEqual(60); // (high over the city at first)
+    expect(arrivalRise(0)).toBeCloseTo(HELI.arriveRise);
+    expect(arrivalRise(HELI.arrive)).toBe(0);
+    expect(arrivalRise(HELI.arrive + 3)).toBe(0);
+    for (let t = 0; t < HELI.arrive; t += 0.1) expect(arrivalRise(t + 0.1)).toBeLessThanOrEqual(arrivalRise(t));
+  });
+
+  it('its searchlight off coming in, on once at its height (over HELI.lightOn s): seen and heard before the light', () => {
+    for (let t = 0; t <= HELI.arrive; t += 0.5) expect(searchlight(t)).toBe(0);
+    expect(searchlight(HELI.arrive + HELI.lightOn / 2)).toBeGreaterThan(0);
+    expect(searchlight(HELI.arrive + HELI.lightOn / 2)).toBeLessThan(1);
+    expect(searchlight(HELI.arrive + HELI.lightOn)).toBe(1);
+    expect(searchlight(HELI.arrive + 60)).toBe(1);
   });
 
   it('picks the player (0) on a roll under HELI.playerShare, else a rival near the player', () => {

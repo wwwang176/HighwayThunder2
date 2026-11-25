@@ -6,8 +6,10 @@ import { depthBias } from '../render/shadowBias';
  * - round the car it lights, loosely: an ellipse along the road `orbitAhead` +- `orbitLong` m from it (behind it some
  *   of the time, ahead the rest - the chase camera sees it there), `orbitSide` m to either side, once in about
  *   `orbitPeriod` s, its pace wandering (`wobble` of a turn, every `wobblePeriod` s); `height` +- `rise` m up;
- * - flown in from far behind (`arriveFrom` m along the road from its circling) over `arrive` s - catching up
- *   with the car at 200 km/h and over it into its circle ahead (from 350 m ahead over 6 s at first);
+ * - flown in from far behind and high (`arriveFrom` m along the road from its circling, `arriveRise` m over its
+ *   height) over `arrive` s - catching up with the car at 200 km/h, coming down, over it into its circle ahead - its
+ *   searchlight off till then, on over `lightOn` s: seen and heard first, then its light (from 350 m ahead over 6 s,
+ *   the light on, at first: sudden);
  * - its car: the player on a roll under `playerShare`, else a rival within `otherWithin` m of the player (in their
  *   sight); another roll every `targetEvery` s (+-25%); a rival further than `otherLost` m off, or the player
  *   busted: the player again. To a new car its light (its operator) swings over in `retarget` s, the helicopter
@@ -29,8 +31,10 @@ export const HELI = {
   orbitPeriod: 45,
   wobble: 0.5,
   wobblePeriod: 17,
-  arrive: 10,
-  arriveFrom: -300,
+  arrive: 14,
+  arriveFrom: -450,
+  arriveRise: 90,
+  lightOn: 0.6,
   playerShare: 0.5,
   otherWithin: 150,
   otherLost: 250,
@@ -151,6 +155,16 @@ export function repositionTime(distance: number): number {
   return Math.max(HELI.reposition, Math.sqrt((6 * Math.abs(distance)) / HELI.repositionAcc));
 }
 
+/** How much higher than its height it still is, `t` s after it set off to come (flying in). */
+export function arrivalRise(t: number): number {
+  return t >= HELI.arrive ? 0 : HELI.arriveRise * (1 - smooth(t / HELI.arrive));
+}
+
+/** Its searchlight's share of its light (0 off .. 1 on), `t` s after it set off to come: on once it is down. */
+export function searchlight(t: number): number {
+  return t <= HELI.arrive ? 0 : t >= HELI.arrive + HELI.lightOn ? 1 : smooth((t - HELI.arrive) / HELI.lightOn);
+}
+
 /** How much further along the road it still is (-: behind), `t` s after it set off to come (flying in). */
 export function arrivalAhead(t: number): number {
   return t >= HELI.arrive ? 0 : HELI.arriveFrom * (1 - smooth(t / HELI.arrive));
@@ -236,6 +250,9 @@ const TO_CAM = new THREE.Vector3();
 const VIEW = new THREE.Vector3();
 /** Where the lamp hangs, under its nose (the body's space: the nose toward -z). */
 const LAMP_AT = new THREE.Vector3(0, -0.9, -2.2);
+/** The lamp's face off and on. */
+const LAMP_OFF = new THREE.Color(0x2a2d33);
+const LAMP_ON = new THREE.Color(0xf2f6ff);
 
 /**
  * The police helicopter (src/game/police.ts's chase; docs/superpowers/specs/2026-11-25-police-helicopter-design.md):
@@ -249,6 +266,9 @@ export class Helicopter {
   private readonly rotor = new THREE.Group();
   private readonly tailRotor = new THREE.Group();
   private readonly strobe: THREE.Mesh;
+  /** The lamp's face (lit with the searchlight), and how much of the searchlight is on (searchlight: 0..1). */
+  private readonly lampMat: THREE.MeshBasicMaterial;
+  private lit = 0;
   private readonly beam: THREE.Mesh;
   private readonly glare: THREE.Sprite;
   private readonly veil: THREE.Mesh;
@@ -319,8 +339,9 @@ export class Helicopter {
     add(new THREE.SphereGeometry(0.12, 8, 6), lit(0xff2a20), body, -1.1, 0, 0.2);
     add(new THREE.SphereGeometry(0.12, 8, 6), lit(0x20ff50), body, 1.1, 0, 0.2);
     this.strobe = add(new THREE.SphereGeometry(0.16, 8, 6), lit(0xffffff), body, 0, -0.1, 6.9);
-    // The lamp itself.
-    add(new THREE.CylinderGeometry(0.25, 0.3, 0.35, 10), lit(0xf2f6ff), body, LAMP_AT.x, LAMP_AT.y, LAMP_AT.z);
+    // The lamp itself (its face lit with it: update).
+    this.lampMat = lit(0x2a2d33);
+    add(new THREE.CylinderGeometry(0.25, 0.3, 0.35, 10), this.lampMat, body, LAMP_AT.x, LAMP_AT.y, LAMP_AT.z);
     this.object.add(body);
     this.disposables.push(dark, glassy, blade, disc);
 
@@ -469,6 +490,7 @@ export class Helicopter {
     this.clock = 0;
     this.since = -1;
     this.flying = false;
+    this.lit = 0;
     this.target = 0;
     this.nextPick = HELI.targetEvery;
     this.sinceSwitch = HELI.reposition;
@@ -485,7 +507,7 @@ export class Helicopter {
 
   /** Its searchlight while it flies (a light whose shadow shows: the game's shadowLights), else null. */
   get shadowLight(): THREE.SpotLight | null {
-    return this.flying ? this.light : null;
+    return this.flying && this.lit > 0 ? this.light : null;
   }
 
   /** Its car now: `targets[i]` (0 the player), a new roll when due, back to the player when lost or `player`. */
@@ -530,10 +552,11 @@ export class Helicopter {
     this.centreS = car.s + this.centreOff.x * flight;
     this.centreD = car.d + this.centreOff.y * flight;
     const t = this.clock;
-    const o = heliOrbit(t);
+    // (its circle's start as it comes down: ahead of the car, in the chase camera's view, as its light comes on)
+    const o = heliOrbit(t - HELI.arrive);
     place(this.centreS + o.ahead + arrivalAhead(this.since), this.centreD + o.side, A);
     const prev = B.copy(this.position);
-    this.position.set(A.x, A.y + heliHeight(t), A.z);
+    this.position.set(A.x, A.y + heliHeight(t) + arrivalRise(this.since), A.z);
     // Its motion (smoothed: the cars' shakes not in it), and how it hangs by it.
     if (!this.flying) {
       this.velocity.set(0, 0, 0);
@@ -575,11 +598,15 @@ export class Helicopter {
     u.lamp.value.copy(this.lamp);
     u.axis.value.copy(DIR);
     u.len.value = len;
-    this.beam.visible = true;
+    // (off coming in, on once it is down: the lamp, its light, the lit air, its glare, its shadow all by it)
+    const lit = (this.lit = searchlight(this.since));
+    this.lampMat.color.lerpColors(LAMP_OFF, LAMP_ON, lit);
+    u.density.value = BEAM.density * lit;
+    this.beam.visible = lit > 0;
     this.light.position.copy(this.lamp);
     this.light.target.position.copy(this.lamp).addScaledVector(DIR, len);
     this.light.angle = Math.atan((BEAM.groundRadius * 1.1) / len);
-    this.light.intensity = BEAM.light;
+    this.light.intensity = BEAM.light * lit;
     // Its shadow: over the stretch where traffic can be in the beam (shadowSpan); the lit air in the beam by it too.
     const span = shadowSpan(len, this.lamp.y - this.aim.y, this.light.angle);
     const sc = this.light.shadow.camera;
@@ -590,7 +617,7 @@ export class Helicopter {
     }
     this.light.shadow.bias = -depthBias(BEAM.shadowOffset, len, span.near, span.far);
     u.beamShadowBias.value = this.light.shadow.bias;
-    this.light.shadow.autoUpdate = true;
+    this.light.shadow.autoUpdate = lit > 0;
     const map = this.light.shadow.map?.depthTexture ?? null;
     u.beamShadow.value = map;
     u.beamShadowMatrix.value = this.light.shadow.matrix; // (made with the map, before the beam is drawn)
@@ -603,7 +630,7 @@ export class Helicopter {
     const radial = Math.sqrt(Math.max(0, dist * dist - axial * axial));
     camera.getWorldDirection(VIEW);
     const facing = -VIEW.dot(TO_CAM) / Math.max(1e-6, dist);
-    const g = beamGlare(axial, radial, len, facing);
+    const g = beamGlare(axial, radial, len, facing) * lit;
     this.glare.visible = g > 0;
     if (g > 0) {
       this.glare.position.copy(this.lamp);
@@ -611,7 +638,7 @@ export class Helicopter {
       this.glare.scale.set(size * BEAM.glareWide, size, 1);
       this.glare.material.opacity = g;
     }
-    const v = beamGlare(axial, radial, len, facing, 1);
+    const v = beamGlare(axial, radial, len, facing, 1) * lit;
     this.veil.visible = v > 0;
     (this.veil.material as THREE.ShaderMaterial).uniforms.strength.value = BEAM.veil * v;
   }

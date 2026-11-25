@@ -38,7 +38,11 @@ it never touches anything and does not change the chase (the police's own logic 
   in 4 s at first, then 2 s: the helicopter lurched up to 150 m in it).
 - **Veil** only with the camera inside the beam (up to the lit car); the flare a little further (the chase camera
   behind the car looking up the beam) - the veil there greyed the whole view.
-- **When**: from the chase's start (Police.triggered), flying in from far behind (the user's call; 300 m back over 10 s - from ahead at first); then the rest of
+- **Coming in** (the user's call, 2026-11-25): from far behind and high - 450 m back, 90 m over its height (~120 m
+  up) - over 14 s, catching up and coming down over the car into its circle ahead; its searchlight off till it is
+  down, on over 0.6 s: seen and heard first, then the light. Its circle starts as it comes down (ahead of the car).
+- **Busted**: the slow-motion orbit 66% slower (0.306 rad/s), the rotor half as loud while it lasts.
+- **When**: from the chase's start (Police.triggered), flying in as above (300 m back over 10 s; from ahead before that); then the rest of
   the race. Highway, police on only (it lives and dies with Police).
 - Moves on the race's time (`play`): still when paused.
 
