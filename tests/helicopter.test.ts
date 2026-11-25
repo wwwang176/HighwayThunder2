@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, beamGlare, BEAM, HELI, heliAttitude, heliHeight, heliOrbit, pickHeliTarget } from '../src/game/helicopter';
+import { arrivalAhead, beamGlare, BEAM, HELI, heliAttitude, heliHeight, heliOrbit, pickHeliTarget, repositionTime, switchFade } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -41,6 +41,26 @@ describe('police helicopter', () => {
     expect([...picked].sort()).toEqual([1, 3]); // (not the one 400 m off: out of the player's sight)
     expect(pickHeliTarget([0, 400], 0.99)).toBe(0); // (none near: the player)
     expect(pickHeliTarget([0], 0.99)).toBe(0);
+  });
+
+  it('to a new car: the light (its operator) swings over fast, the helicopter (its pilot) follows slowly', () => {
+    expect(switchFade(0, HELI.retarget)).toBeCloseTo(1); // (all the old car's offset, at first)
+    expect(switchFade(HELI.retarget, HELI.retarget)).toBe(0); // (the light on the new car)
+    expect(switchFade(HELI.retarget + 1, HELI.retarget)).toBe(0);
+    for (let t = 0; t < HELI.reposition; t += 0.1) expect(switchFade(t + 0.1, HELI.reposition)).toBeLessThanOrEqual(switchFade(t, HELI.reposition));
+    expect(switchFade(HELI.retarget, HELI.reposition)).toBeGreaterThan(0.7); // (the light there, the helicopter mostly not yet)
+    expect(switchFade(HELI.reposition, HELI.reposition)).toBe(0);
+  });
+
+  it('its pilot takes longer to a car further off: never pulling harder than HELI.repositionAcc', () => {
+    expect(repositionTime(0)).toBe(HELI.reposition);
+    expect(repositionTime(30)).toBe(HELI.reposition); // (near: the least)
+    for (const d of [100, 250, 500]) {
+      const t = repositionTime(d);
+      expect(t).toBeGreaterThanOrEqual(HELI.reposition);
+      expect((6 * d) / (t * t)).toBeLessThanOrEqual(HELI.repositionAcc + 1e-9); // (a smoothstep's hardest pull)
+    }
+    expect(repositionTime(250)).toBeGreaterThan(repositionTime(100));
   });
 
   it('pitches nose down speeding up, up slowing; banks into a turn; never past its limits', () => {

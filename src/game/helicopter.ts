@@ -9,7 +9,10 @@ import * as THREE from 'three';
  *   with the car at 200 km/h and over it into its circle ahead (from 350 m ahead over 6 s at first);
  * - its car: the player on a roll under `playerShare`, else a rival within `otherWithin` m of the player (in their
  *   sight); another roll every `targetEvery` s (+-25%); a rival further than `otherLost` m off, or the player
- *   busted: the player again. Its light swings over to a new car in `retarget` s, the helicopter with it;
+ *   busted: the player again. To a new car its light (its operator) swings over in `retarget` s, the helicopter
+ *   (its pilot) follows in `reposition` s, longer to one further off - never pulling harder than `repositionAcc`
+ *   m/s^2 (both in `retarget` s, it lurched 150 m in 2 s; in a fixed 8 s, 250 m back to the player, nose at its
+ *   limit);
  * - flown as a helicopter flies (by its path, no physics): its nose along its way, turning to it over `turn` s;
  *   nose down `cruiseTilt` at `cruiseAt` m/s and on, `pitchPerAcc` more a m/s^2 speeding up (up slowing), banked
  *   `rollPerAcc` a m/s^2 into a turn - its motion smoothed over `smooth` s; never past `maxPitch`, `maxRoll`;
@@ -32,6 +35,8 @@ export const HELI = {
   otherLost: 250,
   targetEvery: 20,
   retarget: 2,
+  reposition: 8,
+  repositionAcc: 5,
   turn: 0.6,
   cruiseTilt: 0.12,
   cruiseAt: 60,
@@ -119,6 +124,19 @@ export interface HeliTarget {
   readonly s: number;
   readonly d: number;
   readonly pos: THREE.Vector3;
+}
+
+/** How much of the old car's offset is left (1..0), `since` s after a switch to a new car, gone over `over` s. */
+export function switchFade(since: number, over: number): number {
+  return since >= over ? 0 : 1 - smooth(since / over);
+}
+
+/**
+ * How long its pilot takes (s) to fly over to a new car `distance` m off (its circling's centre): HELI.reposition at
+ * least, longer as its smoothstep's hardest pull (6 distance / time^2) would pass HELI.repositionAcc.
+ */
+export function repositionTime(distance: number): number {
+  return Math.max(HELI.reposition, Math.sqrt((6 * Math.abs(distance)) / HELI.repositionAcc));
 }
 
 /** How much further along the road it still is (-: behind), `t` s after it set off to come (flying in). */
@@ -213,7 +231,9 @@ export class Helicopter {
   /** Its car (an index into update's targets: 0 the player), the next roll for one (s), since it last changed. */
   private target = 0;
   private nextPick = HELI.targetEvery;
-  private sinceSwitch = HELI.retarget;
+  private sinceSwitch = HELI.reposition;
+  /** How long its pilot takes to the car it last switched to (repositionTime). */
+  private flightTime = HELI.reposition;
   /** The centre of its circling (along the road) and where its light is aimed; their offsets from a new car, fading. */
   private centreS = 0;
   private centreD = 0;
@@ -395,7 +415,7 @@ export class Helicopter {
     this.flying = false;
     this.target = 0;
     this.nextPick = HELI.targetEvery;
-    this.sinceSwitch = HELI.retarget;
+    this.sinceSwitch = HELI.reposition;
     this.centreOff.set(0, 0);
     this.aimOff.set(0, 0, 0);
     this.hide();
@@ -425,6 +445,7 @@ export class Helicopter {
     const to = targets[next];
     this.centreOff.set(this.centreS - to.s, this.centreD - to.d);
     this.aimOff.copy(this.aim).sub(to.pos);
+    this.flightTime = repositionTime(Math.hypot(this.centreOff.x, this.centreOff.y));
     this.sinceSwitch = 0;
     this.target = next;
   }
@@ -442,9 +463,10 @@ export class Helicopter {
     this.sinceSwitch += play;
     this.choose(play, targets, player);
     const car = targets[this.target];
-    const fade = 1 - smooth(this.sinceSwitch / HELI.retarget);
-    this.centreS = car.s + this.centreOff.x * fade;
-    this.centreD = car.d + this.centreOff.y * fade;
+    // (its pilot slower to a new car than its light's operator)
+    const flight = switchFade(this.sinceSwitch, this.flightTime);
+    this.centreS = car.s + this.centreOff.x * flight;
+    this.centreD = car.d + this.centreOff.y * flight;
     const t = this.clock;
     const o = heliOrbit(t);
     place(this.centreS + o.ahead + arrivalAhead(this.since), this.centreD + o.side, A);
@@ -480,7 +502,7 @@ export class Helicopter {
     // The beam, from the lamp to the car (a little off it: a hand on the lamp, not a servo; swinging over to a new one).
     this.object.updateMatrixWorld();
     this.lamp.copy(LAMP_AT).applyMatrix4(this.object.matrixWorld);
-    this.aim.copy(car.pos).addScaledVector(this.aimOff, fade);
+    this.aim.copy(car.pos).addScaledVector(this.aimOff, switchFade(this.sinceSwitch, HELI.retarget));
     DIR.set(this.aim.x + 0.6 * Math.sin(t * 1.3), this.aim.y, this.aim.z + 0.8 * Math.sin(t * 0.8 + 1)).sub(this.lamp);
     const len = DIR.length();
     DIR.divideScalar(len);
