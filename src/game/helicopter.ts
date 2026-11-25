@@ -57,7 +57,11 @@ export const HELI = {
  * from `near[1]`); a real spot light (`light` candela, falling off by `decay`) lighting the ground there. Glare (a cross-flare
  * `glareSize` of the view high, `glareWide` times that across, and a veil of `veil` over the whole view) with the camera in the light - the cone
  * `glareWiden` times as wide, on to `glareBeyond` times its length past the car (the chase camera behind and over
- * the lit car) - and looking into the lamp: from `faceFrom` (the cosine of the angle off it) full at 1.
+ * the lit car) - and looking into the lamp: from `faceFrom` (the cosine of the angle off it) full at 1. Its light
+ * shadowed (a `shadowMap` px map, `shadowBias`, `shadowNormalBias`) by what is within `shadowReach` m of the lit
+ * car up the beam (traffic under it: a truck by the car, the beam as low as 7 degrees over the road, 4.5 m up 37 m
+ * from the car) to `shadowAfter` m past it (the car's own shadow on the road); the lit air in the beam shadowed by
+ * the same map (a truck's shadow cut out of the shaft, as much of it as it blocks).
  */
 export const BEAM = {
   lampRadius: 0.3,
@@ -74,6 +78,11 @@ export const BEAM = {
   glareWiden: 1.3,
   glareBeyond: 1.5,
   faceFrom: 0.8,
+  shadowReach: 40,
+  shadowAfter: 3,
+  shadowMap: 512,
+  shadowBias: -0.0003,
+  shadowNormalBias: 0.02,
 };
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
@@ -156,6 +165,11 @@ export function beamGlare(axial: number, radial: number, length: number, facing:
   if (radial >= r) return 0;
   const t = radial / r;
   return (1 - t * t * t * t) * clamp01((facing - BEAM.faceFrom) / (1 - BEAM.faceFrom));
+}
+
+/** Its light's shadow camera's near and far (m from the lamp), the lit car `length` m down the beam. See BEAM. */
+export function shadowSpan(length: number): { near: number; far: number } {
+  return { near: Math.max(0.5, length - BEAM.shadowReach), far: length + BEAM.shadowAfter };
 }
 
 /** The flare's light (linear, 0..): at (u, v) from its middle (-1..1 across the texture). See glareTexture. */
@@ -319,6 +333,18 @@ export class Helicopter {
         uniform vec3 axis;
         uniform float len;
         uniform vec2 radii;
+        uniform sampler2DShadow beamShadow;
+        uniform mat4 beamShadowMatrix;
+        uniform float beamShadowOn;
+        uniform float beamShadowBias;
+        // (lit at a point of the beam: 1, or 0 in a shadow of its light's map - what is between it and the lamp)
+        float litAt(vec3 world) {
+          if (beamShadowOn < 0.5) return 1.0;
+          vec4 c = beamShadowMatrix * vec4(world, 1.0);
+          c.xyz /= c.w;
+          if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
+          return texture(beamShadow, vec3(c.xy, c.z + beamShadowBias));
+        }
         varying vec3 vWorld;
         const int STEPS = ${BEAM.steps};
         void main() {
@@ -365,7 +391,7 @@ export class Helicopter {
             float a = dot(p, axis);
             float r = length(p - axis * a) / (radii.x + k * a);
             float soft = clamp(1.0 - r * r, 0.0, 1.0);
-            sum += soft * soft * mix(1.0, 0.3, a / len) * smoothstep(near.x, near.y, t);
+            sum += soft * soft * mix(1.0, 0.3, a / len) * smoothstep(near.x, near.y, t) * litAt(lamp + p);
           }
           float light = 1.0 - exp(-density * sum * dt);
           gl_FragColor = vec4(color * light, 1.0);
@@ -378,6 +404,10 @@ export class Helicopter {
         axis: { value: new THREE.Vector3(0, -1, 0) },
         len: { value: 1 },
         radii: { value: new THREE.Vector2(BEAM.lampRadius, BEAM.groundRadius) },
+        beamShadow: { value: null as THREE.Texture | null },
+        beamShadowMatrix: { value: new THREE.Matrix4() },
+        beamShadowOn: { value: 0 },
+        beamShadowBias: { value: BEAM.shadowBias },
       },
       blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.BackSide,
     });
@@ -404,6 +434,14 @@ export class Helicopter {
     this.veil.renderOrder = 1000;
     this.disposables.push(veilGeo, veilMat);
     this.light = new THREE.SpotLight(BEAM.color, 0, 0, 0.12, 0.45, BEAM.decay);
+    // Shadowed throughout (a shadowed light coming and going recompiles every lit material), its map drawn only
+    // while it flies (shadow.autoUpdate) - of what is in its narrow cone (render/bodyInstances: the traffic only
+    // where a shadowed light's frustum reaches; see shadowLight).
+    this.light.castShadow = true;
+    this.light.shadow.mapSize.set(BEAM.shadowMap, BEAM.shadowMap);
+    this.light.shadow.bias = BEAM.shadowBias;
+    this.light.shadow.normalBias = BEAM.shadowNormalBias;
+    this.light.shadow.autoUpdate = false;
     scene.add(this.object, this.beam, this.glare, this.veil, this.light, this.light.target);
     this.hide();
   }
@@ -424,6 +462,12 @@ export class Helicopter {
   private hide(): void {
     this.object.visible = this.beam.visible = this.glare.visible = this.veil.visible = false;
     this.light.intensity = 0;
+    this.light.shadow.autoUpdate = false;
+  }
+
+  /** Its searchlight while it flies (a light whose shadow shows: the game's shadowLights), else null. */
+  get shadowLight(): THREE.SpotLight | null {
+    return this.flying ? this.light : null;
   }
 
   /** Its car now: `targets[i]` (0 the player), a new roll when due, back to the player when lost or `player`. */
@@ -518,6 +562,19 @@ export class Helicopter {
     this.light.target.position.copy(this.lamp).addScaledVector(DIR, len);
     this.light.angle = Math.atan((BEAM.groundRadius * 1.1) / len);
     this.light.intensity = BEAM.light;
+    // Its shadow: over the stretch where traffic can be in the beam (shadowSpan); the lit air in the beam by it too.
+    const span = shadowSpan(len);
+    const sc = this.light.shadow.camera;
+    if (sc.near !== span.near || sc.far !== span.far) {
+      sc.near = span.near;
+      sc.far = span.far;
+      sc.updateProjectionMatrix();
+    }
+    this.light.shadow.autoUpdate = true;
+    const map = this.light.shadow.map?.depthTexture ?? null;
+    u.beamShadow.value = map;
+    u.beamShadowMatrix.value = this.light.shadow.matrix; // (made with the map, before the beam is drawn)
+    u.beamShadowOn.value = map ? 1 : 0;
     // The glare and the veil: the camera in the light, looking into the lamp.
     TO_CAM.copy(camera.position).sub(this.lamp);
     const dist = TO_CAM.length();

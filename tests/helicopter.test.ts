@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, beamGlare, BEAM, HELI, heliAttitude, heliHeight, heliOrbit, pickHeliTarget, repositionTime, switchFade } from '../src/game/helicopter';
+import { arrivalAhead, beamGlare, BEAM, HELI, heliAttitude, heliHeight, heliOrbit, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -74,6 +74,18 @@ describe('police helicopter', () => {
     const wild = heliAttitude(-100, 100, 50);
     expect(Math.abs(wild.pitch)).toBeLessThanOrEqual(HELI.maxPitch + 1e-9);
     expect(Math.abs(wild.roll)).toBeLessThanOrEqual(HELI.maxRoll + 1e-9);
+  });
+
+  it('its light\'s shadow: from the lamp down to just past the lit car, only the stretch traffic can be in', () => {
+    for (const len of [35, 60, 120, 260]) {
+      const { near, far } = shadowSpan(len);
+      expect(far).toBeGreaterThan(len); // (the car's own shadow on the road under it)
+      expect(near).toBeGreaterThanOrEqual(0.5);
+      // (a truck by the car, under the beam: in it - all from the lamp on a beam shorter than that)
+      expect(len - near).toBeGreaterThanOrEqual(Math.min(BEAM.shadowReach, len - 0.5));
+    }
+    // (no further from the car than that: its depth over the stretch that matters, sharp)
+    expect(shadowSpan(120).near).toBeCloseTo(120 - BEAM.shadowReach);
   });
 
   it('glare: only with the camera in the light (the cone widened, past the car) AND looking into the lamp', () => {

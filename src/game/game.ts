@@ -1533,9 +1533,13 @@ export class Game {
     return painted;
   }
 
-  /** The lights whose shadows show this frame: the player's headlights, and the rivals' pool's near ones. */
+  /**
+   * The lights whose shadows show this frame: the player's headlights, the rivals' pool's near ones, and the police
+   * helicopter's searchlight while it flies (the traffic under it shadowing what it lights).
+   */
   private shadowLights(): THREE.SpotLight[] {
-    return [...this.player.headlights, ...this.rivalShadows];
+    const heli = this.helicopter?.shadowLight;
+    return heli ? [...this.player.headlights, ...this.rivalShadows, heli] : [...this.player.headlights, ...this.rivalShadows];
   }
 
   /**
