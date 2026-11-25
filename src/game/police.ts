@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { KMH } from '../config';
-import { selfStateOf } from '../ai/driver';
+import { selfStateOf, speedPedals } from '../ai/driver';
 import { trackerFrom } from '../ai/netTracker';
 import { PlannerDriver, type PlanSource } from '../ai/plannerDriver';
 import type { TrafficBox } from '../ai/sensors';
@@ -13,8 +13,8 @@ import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { POLICE_SUV } from '../vehicles/cars';
 import type { DriveInput } from '../vehicles/handling';
-import { PlayerCar } from '../vehicles/playerCar';
-import { chaseStarts, guardD, guardHorizon, isLost, lineClear, outOfSight, parkSpot, phaseOf, pickTarget, POLICE_TUNING, ramInput, type Racer, SHOULDER_D } from './policeLogic';
+import { PLAYER_L, PlayerCar } from '../vehicles/playerCar';
+import { BLOCK, blockClear, blockD, blockSteer, chaseStarts, guardD, guardHorizon, isLost, lineClear, outOfSight, parkSpot, phaseOf, pickTarget, POLICE_TUNING, racerVD, ramInput, type Racer, reachTime, SHOULDER_D, Sighting } from './policeLogic';
 import { coursePlan } from '../ai/coursePlanner';
 import type { Plan } from '../ai/planner';
 import type { Blocker } from './reset';
@@ -30,6 +30,11 @@ export interface PoliceCar {
   target: Racer | null;
   /** Ramming its target this step (the line to it clear): steered at it, not by its plans. */
   ramming: boolean;
+  /** Blocking its target this step (BLOCK: about to pass it, no traffic in the way): steered across, not by its plans. */
+  blocking: boolean;
+  /** What it has seen of its target (for its reaction, BLOCK.react), and which racer that is (Racer.id). */
+  sighting: Sighting;
+  sightingFor: number | undefined;
   /** Guarding: its target's predicted line (null: none yet), and s till it is worked out again. */
   guardPlan: Plan | null;
   guardClock: number;
@@ -123,8 +128,9 @@ export class Police {
   /** Where the guarding cars' targets' lines are worked out (a Web Worker in the game; none in the sims: in line). */
   private readonly predictor: PlanSource | null;
   private predictSeq = 0;
-  /** The race's time the light bars flash by. */
+  /** The race's time the light bars flash by; the race's time they drive by (their sightings'). */
   private flashTime = 0;
+  private clock = 0;
   /** The light bars' real light (BEACON; none without a scene: the sims). */
   private readonly beacon: THREE.PointLight | null;
 
@@ -145,7 +151,7 @@ export class Police {
       driver.latAccel = spec.ai.latAccel;
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, guardPlan: null, guardClock: 0, guardAsked: -1, guardFor: undefined });
+      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, blocking: false, sighting: new Sighting(), sightingFor: undefined, guardPlan: null, guardClock: 0, guardAsked: -1, guardFor: undefined });
     }
     this.place();
   }
@@ -174,6 +180,7 @@ export class Police {
    * same order); `traffic` our carriageway's.
    */
   drive(dt: number, racers: readonly Racer[], racerBoxes: readonly TrafficBox[], traffic: readonly TrafficBox[]): void {
+    this.clock += dt;
     // A predicted line back from the worker: the guarding car it was asked for (by its stamp), if it guards still.
     const answer = this.predictor?.take();
     if (answer) {
@@ -185,6 +192,7 @@ export class Police {
     for (const p of this.list) {
       const c = p.car;
       p.ramming = false;
+      p.blocking = false;
       // Lost: parked again ahead of them all (one parked behind them all too - left behind, the chase not on).
       const behindAll = racers.every((r) => r.s > c.s);
       // (only out of the player's sight: lost 300 m ahead in the fog, it was seen to vanish)
@@ -234,7 +242,8 @@ export class Police {
         p.guardClock -= dt;
         if (t.plan) p.guardPlan = t.plan; // (an AI's: the line it really drives)
         else if (p.guardClock <= 0 && !this.predictor?.busy) {
-          const ego = { s: t.s, d: t.d, v: t.v, speedCap: Math.max(t.v, GUARD.cap), horizon: guardHorizon(c.s, t) };
+          // (heading and sideways speed too: without them it was seen going straight, swerving - 1.1 s late moving over)
+          const ego = { s: t.s, d: t.d, v: t.v, vD: racerVD(t), yaw: t.yaw ?? 0, vLat: t.vLat ?? 0, speedCap: Math.max(t.v, GUARD.cap), horizon: guardHorizon(c.s, t) };
           if (this.predictor) {
             p.guardAsked = ++this.predictSeq * STAMP_SLOTS + p.index;
             p.guardFor = t.id;
@@ -245,7 +254,15 @@ export class Police {
         }
         p.driver.preferD = p.guardPlan ? guardD(p.guardPlan, c.s, t) : null;
         this.boost(p, 1);
-        c.prePhysics(p.driver.drive(selfStateOf(c, Math.max(0, t.v - FRONT_SLOWER)), seen, c.params), dt);
+        const speed = Math.max(0, t.v - FRONT_SLOWER);
+        const self = selfStateOf(c, speed);
+        const planned = p.driver.drive(self, seen, c.params); // (its plans kept up while it blocks: back on them after)
+        const toD = this.blockAt(p, t, seen.filter((b) => !this.isTargetBox(b, t, racers, racerBoxes)));
+        if (toD === null) c.prePhysics(planned, dt);
+        else {
+          p.blocking = true;
+          c.prePhysics({ steer: blockSteer(self, toD, c.params), ...speedPedals(speed, c.vLong) }, dt);
+        }
         continue;
       }
       p.driver.preferD = null; // (behind: its plans its own)
@@ -383,6 +400,27 @@ export class Police {
   private isTargetBox(b: TrafficBox, t: Racer, racers: readonly Racer[], racerBoxes: readonly TrafficBox[]): boolean {
     const i = racers.indexOf(t);
     return i >= 0 && racerBoxes[i] !== undefined && b.id === racerBoxes[i].id;
+  }
+
+  /**
+   * Guarding: where across the road (d) it blocks its target `t` (seen, BLOCK.react s late) as they come to its tail
+   * within BLOCK.within s, with nothing of `others` in its way (blockClear); null: not now (by its plans).
+   */
+  private blockAt(p: PoliceCar, t: Racer, others: readonly TrafficBox[]): number | null {
+    const c = p.car;
+    if (p.sightingFor !== t.id) {
+      p.sighting.clear();
+      p.sightingFor = t.id;
+    }
+    p.sighting.see(this.clock, t.d, racerVD(t));
+    const v = Math.max(0, c.speed);
+    const reach = reachTime(c.s, v, c.length / 2, t, PLAYER_L / 2);
+    if (reach <= 0 || reach > BLOCK.within) return null;
+    const seen = p.sighting.at(this.clock);
+    if (!seen) return null;
+    const toD = blockD(seen.d, seen.vD, reach + BLOCK.react, c.width / 2);
+    const self = { s: c.s, d: c.d, v, halfWidth: c.width / 2, halfLength: c.length / 2 };
+    return blockClear(self, toD, reach + BLOCK.after, others) ? toD : null;
   }
 
   /** Its engine (and its plans' acceleration) times `k`. */

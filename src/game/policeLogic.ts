@@ -1,4 +1,4 @@
-import { KMH, RAIL_D, ROAD_HALF_WIDTH } from '../config';
+import { KMH, LANE_WIDTH, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 import type { Plan } from '../ai/planner';
 import type { SelfState, TrafficBox } from '../ai/sensors';
 import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../vehicles/handling';
@@ -19,9 +19,91 @@ const GUARD_HORIZON = { least: 2, most: 8, more: 1 };
 
 /**
  * A racer as the police see it: where (along, across the road), how fast (m/s), the player or not, past the line
- * (`done`), who (`id`: the same each step), and - driven by the AI - the plan it is following (`plan`: no guessing).
+ * (`done`), who (`id`: the same each step), and - driven by the AI - the plan it is following (`plan`: no guessing);
+ * `yaw` its nose off the road's heading (rad, + toward +d), `vLat` its sideways speed off its nose (m/s, + to its
+ * right) - none: straight down the road.
  */
-export type Racer = { s: number; d: number; v: number; isPlayer: boolean; done?: boolean; id?: number; plan?: Plan | null };
+export type Racer = { s: number; d: number; v: number; isPlayer: boolean; done?: boolean; id?: number; plan?: Plan | null; yaw?: number; vLat?: number };
+
+/** How fast (m/s, + toward +d) a racer moves across the road (as PlannerDriver's egoOf). */
+export function racerVD(r: Racer): number {
+  return r.v * Math.sin(r.yaw ?? 0) + (r.vLat ?? 0) * Math.cos(r.yaw ?? 0);
+}
+
+/**
+ * Blocking (the user's call, 2026-11-26): a guarding police car its target will be at the tail of within `within` s
+ * steers straight across to where they will be then (not by its plans: their line predicted every 0.3 s, in a worker,
+ * its own plans every 0.25 s and soft on it - it moved over 0.6-1 s after a racer pulled out to pass it, too late;
+ * within 2 s, pulled out further back it still took 0.95 s), training/policeBlock.train.ts,
+ * by what it saw of them `react` s before (the user's: a driver's reaction, passable pulled out late enough), their
+ * sideways speed on - a lane change: `reach` m over at most. Only with no traffic in its way (blockClear: beside it,
+ * or ahead or behind closing in within `after` s past its target's coming, nearer than `gap` m; `margin` m to the
+ * side) - else by its plans, round the traffic. Steered at a point `look` s on (`lookLeast` m at least).
+ */
+export const BLOCK = { within: 4, react: 0.3, reach: LANE_WIDTH, after: 1, gap: 5, margin: 0.5, look: 0.5, lookLeast: 8 };
+
+/** How soon (s) racer `t` (half `tHalfL` long) is at the tail of a police car at `suvS` (half `suvHalfL`) going `suvV`: 0 alongside or past, never (Infinity) not closing in. */
+export function reachTime(suvS: number, suvV: number, suvHalfL: number, t: Racer, tHalfL: number): number {
+  const gap = suvS - suvHalfL - (t.s + tHalfL);
+  if (gap <= 0) return 0;
+  const closing = t.v - suvV;
+  return closing > 0 ? gap / closing : Infinity;
+}
+
+/** What a police car has seen of its target (where across the road, how fast across), for BLOCK.react s on. */
+export class Sighting {
+  private readonly seen: { t: number; d: number; vD: number }[] = [];
+
+  see(time: number, d: number, vD: number): void {
+    this.seen.push({ t: time, d, vD });
+    // (kept only as far back as the newest one BLOCK.react s old)
+    while (this.seen.length > 1 && this.seen[1].t <= time - BLOCK.react) this.seen.shift();
+  }
+
+  /** At `time`: what it saw BLOCK.react s before (none that old yet: null). */
+  at(time: number): { d: number; vD: number } | null {
+    let found: { d: number; vD: number } | null = null;
+    for (const x of this.seen) if (x.t <= time - BLOCK.react + 1e-9) found = x;
+    return found;
+  }
+
+  clear(): void {
+    this.seen.length = 0;
+  }
+}
+
+/** Where (d) a racer seen at `seenD` moving across at `seenVD` m/s will be `ahead` s on: BLOCK.reach m over at most, on the road (a car `halfWidth` wide there). */
+export function blockD(seenD: number, seenVD: number, ahead: number, halfWidth: number): number {
+  const over = Math.max(-BLOCK.reach, Math.min(BLOCK.reach, seenVD * ahead));
+  const edge = ROAD_HALF_WIDTH - halfWidth;
+  return Math.max(-edge, Math.min(edge, seenD + over));
+}
+
+/**
+ * No traffic (`boxes`) in the way of a police car (`self`) moving across to `toD` for `horizon` s: nothing beside it
+ * in the band it sweeps (BLOCK.margin m more to each side), nothing ahead of it or behind it there it would close in on
+ * (or that would on it) within BLOCK.gap m in that time.
+ */
+export function blockClear(self: { s: number; d: number; v: number; halfWidth: number; halfLength: number }, toD: number, horizon: number, boxes: readonly TrafficBox[]): boolean {
+  const lo = Math.min(self.d, toD) - self.halfWidth - BLOCK.margin, hi = Math.max(self.d, toD) + self.halfWidth + BLOCK.margin;
+  const front = self.s + self.halfLength, rear = self.s - self.halfLength;
+  for (const b of boxes) {
+    if (b.dMax <= lo || b.dMin >= hi) continue;
+    const bRear = b.s - b.length / 2, bFront = b.s + b.length / 2;
+    if (bRear > front) {
+      if (bRear - front < Math.max(0, self.v - b.v) * horizon + BLOCK.gap) return false;
+    } else if (bFront < rear) {
+      if (rear - bFront < Math.max(0, b.v - self.v) * horizon + BLOCK.gap) return false;
+    } else return false;
+  }
+  return true;
+}
+
+/** Blocking: its steering (-1..1) toward `toD`, at a point BLOCK.look s on (BLOCK.lookLeast m at least). */
+export function blockSteer(self: SelfState, toD: number, p: CarParams = DEFAULT_CAR): number {
+  const look = Math.max(BLOCK.lookLeast, self.vLong * BLOCK.look);
+  return ramInput(self, { s: self.s + look, d: toD }, p).steer;
+}
 
 /** The shoulder's middle (d): where a police car parks. */
 export const SHOULDER_D = (ROAD_HALF_WIDTH + RAIL_D) / 2;
