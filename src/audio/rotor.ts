@@ -4,12 +4,12 @@ import { azimuthDeg, type EarPose, equalPowerMono, inverseDistanceGain } from '.
  * The police helicopter's rotor, made here (no recording): its blades' slap - `blades` x `rotorHz` beats a second
  * (src/game/helicopter.ts HELI.rotorHz), the sound gated by each from silence - of noise between `noiseBand` Hz
  * (`noise` loud) over a low `thumpHz` buzz (`thump` loud) with its first `thumpHarmonics` harmonics: low, the ear
- * hearing its pitch from them where a small speaker has no 60 Hz. Heard as loud as `volume` at `ref` m, quieter by
+ * hearing its pitch from them where a small speaker has none that low. Heard as loud as `volume` at `ref` m, quieter by
  * inverse distance (`rolloff`), none past `range` m. (A 55 Hz sine under noise below 420 Hz at first: almost all of
  * it under 150 Hz, unheard on a laptop's speakers; then noise to 1600 Hz and a 1150 Hz whine: shrill.)
  */
 export const ROTOR = {
-  blades: 2, rotorHz: 5.5, noiseBand: [80, 500] as const, noise: 3, thumpHz: 60, thumpHarmonics: 6, thump: 0.5,
+  blades: 2, rotorHz: 5.5, noiseBand: [60, 400] as const, noise: 3.5, thumpHz: 48, thumpHarmonics: 6, thump: 0.5,
   volume: 1, ref: 40, rolloff: 1, range: 900,
 };
 
