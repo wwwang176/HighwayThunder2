@@ -5,7 +5,7 @@ import { azimuthDeg, type EarPose, equalPowerMono, inverseDistanceGain } from '.
  * second (src/game/helicopter.ts HELI.rotorHz) - beating a low rumble: dull noise (low-passed at `noiseHz`) and a
  * `thumpHz` tone. Heard as loud as `volume` at `ref` m, quieter by inverse distance (`rolloff`), none past `range` m.
  */
-export const ROTOR = { blades: 2, rotorHz: 5.5, noiseHz: 420, thumpHz: 55, volume: 0.32, ref: 30, rolloff: 1, range: 900 };
+export const ROTOR = { blades: 2, rotorHz: 5.5, noiseHz: 420, thumpHz: 55, volume: 0.65, ref: 40, rolloff: 1, range: 900 };
 
 /** The blades' beat (Hz): its pulse train's rate, at the race's `timeScale` and a Doppler factor. */
 export function rotorBeat(doppler: number, timeScale: number): number {
