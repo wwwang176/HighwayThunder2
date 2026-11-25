@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { depthBias } from '../render/shadowBias';
 
 /** Half angle of the headlight's projection (rad). */
 export const HALF_ANGLE = 0.75;
@@ -283,17 +284,26 @@ export function lowBeamCookie(size = 256, soft = EDGE): THREE.CanvasTexture {
 }
 
 /**
+ * A headlamp's shadow: its camera from `near` to `far` m; its bias `offset` m behind what is `at` m ahead
+ * (render/shadowBias - a depth bias is ever more metres the further off: a few millimetres a few metres ahead, some
+ * centimetres past `at`). (Near 0.3 m and a bias of -0.0004 at first: the car ahead's shadow starting 13 cm behind it
+ * 10 m ahead, half a metre 20 m ahead, 2 m 40 m ahead - come loose.)
+ */
+export const HEADLIGHT_SHADOW = { near: 1, far: 120, offset: 0.03, at: 30, normalBias: 0.02 };
+
+/**
  * One low-beam headlamp: a spot light shaped as a low beam in the shaders (its decay HEADLIGHT_DECAY:
  * installLowBeamShader), casting shadows - the car ahead throws a shadow into your beam (a rival's lamp casts
- * them only near the player: Rivals.headlights).
+ * them only near the player: Rivals.headlights). See HEADLIGHT_SHADOW.
  */
 export function createHeadlight(intensity: number): THREE.SpotLight {
-  const l = new THREE.SpotLight(0xfff4e6, intensity, 120, HALF_ANGLE, PENUMBRA, HEADLIGHT_DECAY);
+  const S = HEADLIGHT_SHADOW;
+  const l = new THREE.SpotLight(0xfff4e6, intensity, S.far, HALF_ANGLE, PENUMBRA, HEADLIGHT_DECAY);
   l.castShadow = true;
   l.shadow.mapSize.set(1024, 1024);
-  l.shadow.camera.near = 0.3;
-  l.shadow.camera.far = 120;
-  l.shadow.bias = -0.0004;
-  l.shadow.normalBias = 0.02;
+  l.shadow.camera.near = S.near;
+  l.shadow.camera.far = S.far;
+  l.shadow.bias = -depthBias(S.offset, S.at, S.near, S.far);
+  l.shadow.normalBias = S.normalBias;
   return l;
 }

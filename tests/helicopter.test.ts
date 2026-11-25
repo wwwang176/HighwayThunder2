@@ -76,16 +76,23 @@ describe('police helicopter', () => {
     expect(Math.abs(wild.roll)).toBeLessThanOrEqual(HELI.maxRoll + 1e-9);
   });
 
-  it('its light\'s shadow: from the lamp down to just past the lit car, only the stretch traffic can be in', () => {
-    for (const len of [35, 60, 120, 260]) {
-      const { near, far } = shadowSpan(len);
-      expect(far).toBeGreaterThan(len); // (the car's own shadow on the road under it)
-      expect(near).toBeGreaterThanOrEqual(0.5);
-      // (a truck by the car, under the beam: in it - all from the lamp on a beam shorter than that)
-      expect(len - near).toBeGreaterThanOrEqual(Math.min(BEAM.shadowReach, len - 0.5));
+  it('its light\'s shadow: all of the light on the road (its cone\'s low edge too), nothing above traffic', () => {
+    for (const [len, drop] of [[35, 28], [50, 30], [120, 32], [260, 30]] as const) {
+      const half = Math.atan((BEAM.groundRadius * 1.1) / len);
+      const { near, far } = shadowSpan(len, drop, half);
+      expect(near).toBeGreaterThan(0.5);
+      expect(far).toBeGreaterThan(len + BEAM.shadowAfter - 1e-9); // (the car's own shadow under it)
+      // (the cone's low edge on the road, 0.5 m under the lit point: in it - the shadows long at a low beam, not cut)
+      const e = Math.asin(drop / len);
+      if (e - half > 0.02) expect(far).toBeGreaterThanOrEqual(((drop + 0.5) / Math.sin(e - half)) * Math.cos(half) - 1e-6);
+      // (its high edge BEAM.shadowAbove m over the lit point: in it - traffic on the near side of the light)
+      expect(near).toBeLessThanOrEqual(((drop - BEAM.shadowAbove) / Math.sin(e + half)) * Math.cos(half) + 1e-6);
     }
-    // (no further from the car than that: its depth over the stretch that matters, sharp)
-    expect(shadowSpan(120).near).toBeCloseTo(120 - BEAM.shadowReach);
+    expect(shadowSpan(10, BEAM.shadowAbove - 1, 0.2).near).toBe(0.5); // (a lamp that low: all of it)
+    // (a beam so low its cone's low edge never meets the road: as far as BEAM.shadowFarthest times the car's)
+    expect(shadowSpan(250, 10, 0.05).far).toBeCloseTo(250 * BEAM.shadowFarthest);
+    // (the near plane far out: 2 cm of bias 2 cm there - not the half metre and more it was, the near plane at 0.5 m)
+    expect(shadowSpan(40, 30, Math.atan(4 / 40)).near).toBeGreaterThan(25);
   });
 
   it('glare: only with the camera in the light (the cone widened, past the car) AND looking into the lamp', () => {

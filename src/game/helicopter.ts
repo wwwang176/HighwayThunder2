@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { depthBias } from '../render/shadowBias';
 
 /**
  * The police helicopter's flight (scripted: no planner, it never touches anything):
@@ -58,10 +59,11 @@ export const HELI = {
  * `glareSize` of the view high, `glareWide` times that across, and a veil of `veil` over the whole view) with the camera in the light - the cone
  * `glareWiden` times as wide, on to `glareBeyond` times its length past the car (the chase camera behind and over
  * the lit car) - and looking into the lamp: from `faceFrom` (the cosine of the angle off it) full at 1. Its light
- * shadowed (a `shadowMap` px map, `shadowBias`, `shadowNormalBias`) by what is within `shadowReach` m of the lit
- * car up the beam (traffic under it: a truck by the car, the beam as low as 7 degrees over the road, 4.5 m up 37 m
- * from the car) to `shadowAfter` m past it (the car's own shadow on the road); the lit air in the beam shadowed by
- * the same map (a truck's shadow cut out of the shaft, as much of it as it blocks).
+ * shadowed (a `shadowMap` px map, `shadowNormalBias` m) by what is in the beam up to `shadowAbove` m over the lit
+ * car (no traffic higher) to `shadowAfter` m past it (the car's own shadow on the road), its bias `shadowOffset` m
+ * at the car (render/shadowBias: in depth, with the near plane 0.5 m from the lamp, half a metre and more - the
+ * shadows came loose); the lit air in the beam shadowed by the same map (a truck's shadow cut out of the shaft, as
+ * much of it as it blocks).
  */
 export const BEAM = {
   lampRadius: 0.3,
@@ -78,10 +80,11 @@ export const BEAM = {
   glareWiden: 1.3,
   glareBeyond: 1.5,
   faceFrom: 0.8,
-  shadowReach: 40,
+  shadowAbove: 5.5,
   shadowAfter: 3,
+  shadowFarthest: 3,
   shadowMap: 512,
-  shadowBias: -0.0003,
+  shadowOffset: 0.02,
   shadowNormalBias: 0.02,
 };
 
@@ -167,9 +170,22 @@ export function beamGlare(axial: number, radial: number, length: number, facing:
   return (1 - t * t * t * t) * clamp01((facing - BEAM.faceFrom) / (1 - BEAM.faceFrom));
 }
 
-/** Its light's shadow camera's near and far (m from the lamp), the lit car `length` m down the beam. See BEAM. */
-export function shadowSpan(length: number): { near: number; far: number } {
-  return { near: Math.max(0.5, length - BEAM.shadowReach), far: length + BEAM.shadowAfter };
+/**
+ * Its light's shadow camera's near and far (m from the lamp, along the beam), the lit car `length` m down the beam and
+ * `drop` m under the lamp, the cone `half` rad to its edge: from where the cone's high edge is BEAM.shadowAbove m over
+ * the lit point (no traffic higher), to where its low edge meets the road (0.5 m under the lit point) - a low beam's
+ * light reaches far past the car, its shadows long (to BEAM.shadowAfter m past the car first: cut off there); as
+ * far as BEAM.shadowFarthest times the car's when that edge never meets the road. See BEAM.
+ */
+export function shadowSpan(length: number, drop: number, half: number): { near: number; far: number } {
+  const e = Math.asin(Math.max(-1, Math.min(1, drop / length)));
+  const high = e + half, low = e - half;
+  const near = drop > BEAM.shadowAbove && high > 0 ? ((drop - BEAM.shadowAbove) / Math.sin(high)) * Math.cos(half) : 0;
+  const ground = low > 0.02 ? ((drop + 0.5) / Math.sin(low)) * Math.cos(half) : Infinity;
+  return {
+    near: Math.max(0.5, Math.min(near, length - 1)),
+    far: Math.min(length * BEAM.shadowFarthest, Math.max(length + BEAM.shadowAfter, ground + BEAM.shadowAfter)),
+  };
 }
 
 /** The flare's light (linear, 0..): at (u, v) from its middle (-1..1 across the texture). See glareTexture. */
@@ -409,7 +425,7 @@ export class Helicopter {
         beamShadow: { value: null as THREE.Texture | null },
         beamShadowMatrix: { value: new THREE.Matrix4() },
         beamShadowOn: { value: 0 },
-        beamShadowBias: { value: BEAM.shadowBias },
+        beamShadowBias: { value: 0 },
         beamShadowFrom: { value: 0 },
       },
       blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.BackSide,
@@ -442,7 +458,6 @@ export class Helicopter {
     // where a shadowed light's frustum reaches; see shadowLight).
     this.light.castShadow = true;
     this.light.shadow.mapSize.set(BEAM.shadowMap, BEAM.shadowMap);
-    this.light.shadow.bias = BEAM.shadowBias;
     this.light.shadow.normalBias = BEAM.shadowNormalBias;
     this.light.shadow.autoUpdate = false;
     scene.add(this.object, this.beam, this.glare, this.veil, this.light, this.light.target);
@@ -566,13 +581,15 @@ export class Helicopter {
     this.light.angle = Math.atan((BEAM.groundRadius * 1.1) / len);
     this.light.intensity = BEAM.light;
     // Its shadow: over the stretch where traffic can be in the beam (shadowSpan); the lit air in the beam by it too.
-    const span = shadowSpan(len);
+    const span = shadowSpan(len, this.lamp.y - this.aim.y, this.light.angle);
     const sc = this.light.shadow.camera;
     if (sc.near !== span.near || sc.far !== span.far) {
       sc.near = span.near;
       sc.far = span.far;
       sc.updateProjectionMatrix();
     }
+    this.light.shadow.bias = -depthBias(BEAM.shadowOffset, len, span.near, span.far);
+    u.beamShadowBias.value = this.light.shadow.bias;
     this.light.shadow.autoUpdate = true;
     const map = this.light.shadow.map?.depthTexture ?? null;
     u.beamShadow.value = map;
