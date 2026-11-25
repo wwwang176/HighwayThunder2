@@ -42,6 +42,15 @@ it never touches anything and does not change the chase (the police's own logic 
   the race. Highway, police on only (it lives and dies with Police).
 - Moves on the race's time (`play`): still when paused.
 
+## Shadows (added 2026-11-25, the user's call)
+
+- The searchlight's spot light casts shadows: the traffic in its narrow cone (trucks, containers, cars) shadows the
+  road; the lit air in the shaft reads the same map (a truck cuts a gap in it, as much as it blocks). Its map: 512
+  px over the 40 m of the beam above the lit car, drawn only while it flies; the shaft reads it only there.
+- Vehicles' bodies receive no shadows (as before, for every light): a car in a truck's shadow is still lit by the
+  searchlight. The user kept it so rather than let every shadowed light (headlights too) shadow the cars' bodies.
+- Cost, one paused frame at 2402x1350: within the measurement's noise (~6-7 ms a frame either way).
+
 ## Build
 
 - `src/game/helicopter.ts`: the pure schedule (`heliOffset(t)`: ahead and side at time t; `beamGlare(axial,
