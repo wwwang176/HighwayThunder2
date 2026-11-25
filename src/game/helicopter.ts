@@ -337,9 +337,11 @@ export class Helicopter {
         uniform mat4 beamShadowMatrix;
         uniform float beamShadowOn;
         uniform float beamShadowBias;
-        // (lit at a point of the beam: 1, or 0 in a shadow of its light's map - what is between it and the lamp)
-        float litAt(vec3 world) {
-          if (beamShadowOn < 0.5) return 1.0;
+        uniform float beamShadowFrom;
+        // (lit at a point of the beam, a m down it: 1, or 0 in a shadow of its light's map - what is between it and
+        // the lamp; above where traffic can be, none: not looked up - most of the shaft, half its cost)
+        float litAt(vec3 world, float a) {
+          if (beamShadowOn < 0.5 || a < beamShadowFrom) return 1.0;
           vec4 c = beamShadowMatrix * vec4(world, 1.0);
           c.xyz /= c.w;
           if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
@@ -391,7 +393,7 @@ export class Helicopter {
             float a = dot(p, axis);
             float r = length(p - axis * a) / (radii.x + k * a);
             float soft = clamp(1.0 - r * r, 0.0, 1.0);
-            sum += soft * soft * mix(1.0, 0.3, a / len) * smoothstep(near.x, near.y, t) * litAt(lamp + p);
+            sum += soft * soft * mix(1.0, 0.3, a / len) * smoothstep(near.x, near.y, t) * litAt(lamp + p, a);
           }
           float light = 1.0 - exp(-density * sum * dt);
           gl_FragColor = vec4(color * light, 1.0);
@@ -408,6 +410,7 @@ export class Helicopter {
         beamShadowMatrix: { value: new THREE.Matrix4() },
         beamShadowOn: { value: 0 },
         beamShadowBias: { value: BEAM.shadowBias },
+        beamShadowFrom: { value: 0 },
       },
       blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.BackSide,
     });
@@ -575,6 +578,7 @@ export class Helicopter {
     u.beamShadow.value = map;
     u.beamShadowMatrix.value = this.light.shadow.matrix; // (made with the map, before the beam is drawn)
     u.beamShadowOn.value = map ? 1 : 0;
+    u.beamShadowFrom.value = span.near; // (its map's own start: nothing nearer the lamp is in it)
     // The glare and the veil: the camera in the light, looking into the lamp.
     TO_CAM.copy(camera.position).sub(this.lamp);
     const dist = TO_CAM.length();
