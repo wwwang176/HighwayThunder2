@@ -84,26 +84,41 @@ export function beamGlare(axial: number, radial: number, length: number, facing:
   return (1 - t * t * t * t) * clamp01((facing - BEAM.faceFrom) / (1 - BEAM.faceFrom));
 }
 
-/** A cross-flare (a glow, two thin rays), drawn on a canvas (the browser only: the game makes the helicopter). */
-function glareTexture(size = 256): THREE.Texture {
+/** The flare's light (linear, 0..): at (u, v) from its middle (-1..1 across the texture). See glareTexture. */
+function flareLight(u: number, v: number): number {
+  const r2 = u * u + v * v;
+  const halo = 0.45 * Math.exp(-r2 / (0.4 * 0.4));
+  const core = Math.exp(-r2 / (0.14 * 0.14));
+  const ray = (along: number, across: number) => {
+    const fade = Math.max(0, 1 - Math.abs(along));
+    return 0.9 * Math.exp(-(across * across) / (0.03 * 0.03)) * fade * fade;
+  };
+  return halo + core + ray(u, v) + ray(v, u);
+}
+
+/**
+ * A cross-flare (the browser only: the game makes the helicopter): a faint wide halo, a bright core, two thin rays
+ * - every one a smooth falloff worked out per pixel (a canvas's gradients, straight between their stops, showed a
+ * ring at each; rays drawn as bars, hard edges), stored sRGB-encoded (its dim fringe without bands).
+ */
+function glareTexture(size = 512): THREE.Texture {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
-  const c = size / 2;
-  const core = ctx.createRadialGradient(c, c, 0, c, c, size * 0.18);
-  core.addColorStop(0, 'rgba(255,255,255,1)');
-  core.addColorStop(0.4, 'rgba(255,250,235,0.55)');
-  core.addColorStop(1, 'rgba(255,250,235,0)');
-  ctx.fillStyle = core;
-  ctx.fillRect(0, 0, size, size);
-  for (const [w, h] of [[size, size * 0.05], [size * 0.05, size]] as const) {
-    const g = w > h ? ctx.createLinearGradient(0, c, size, c) : ctx.createLinearGradient(c, 0, c, size);
-    g.addColorStop(0, 'rgba(255,255,255,0)');
-    g.addColorStop(0.5, 'rgba(255,255,255,0.9)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(c - w / 2, c - h / 2, w, h);
+  const img = ctx.createImageData(size, size);
+  const tint = [1, 0.985, 0.95];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const light = Math.min(1, flareLight(((x + 0.5) / size) * 2 - 1, ((y + 0.5) / size) * 2 - 1));
+      const i = (y * size + x) * 4;
+      for (let k = 0; k < 3; k++) {
+        const l = light * tint[k];
+        img.data[i + k] = Math.round(255 * (l <= 0.0031308 ? 12.92 * l : 1.055 * Math.pow(l, 1 / 2.4) - 0.055));
+      }
+      img.data[i + 3] = 255; // (added: its colour is its light)
+    }
   }
+  ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
