@@ -23,7 +23,7 @@ const PLAYER_V = 200 * KMH;
 const START = 3000;
 const LANE = 1;
 
-function run(closingKmh: number, gap: number, side: -1 | 1) {
+function run(closingKmh0: number, gap: number, side: -1 | 1) {
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;
   const player = new PlayerCar(physics, null, { entity: { type: 'player' } });
@@ -31,9 +31,9 @@ function run(closingKmh: number, gap: number, side: -1 | 1) {
   const police = new Police(physics, null, () => null);
   police.triggered = true;
   const cop = police.list[0];
-  const copV = PLAYER_V - closingKmh * KMH;
+  const copV = PLAYER_V - closingKmh0 * KMH;
   // (settled in its lane first: 1.5 s before the player pulls out)
-  const lead = gap + closingKmh * KMH * 1.5 + (player.length + cop.car.length) / 2;
+  const lead = gap + closingKmh0 * KMH * 1.5 + (player.length + cop.car.length) / 2;
   cop.car.resetAt(START + lead, laneCenter(LANE), copV);
   cop.car.holdInPlace(false);
   cop.state = 'front';
@@ -46,6 +46,8 @@ function run(closingKmh: number, gap: number, side: -1 | 1) {
   let halfLane: number | null = null;
   let outcome = '-';
   let across = 0;
+  let closingKmh = 0;
+  let braked = false;
   const toD = laneCenter(LANE + side);
   let wantD = laneCenter(LANE);
   for (let i = 0; i < 12 / PHYSICS_DT && outcome === '-'; i++) {
@@ -66,17 +68,19 @@ function run(closingKmh: number, gap: number, side: -1 | 1) {
       if (outcome === '-' && ((a.type === 'police' && b.type === 'player') || (a.type === 'player' && b.type === 'police'))) {
         outcome = 'hit';
         across = player.d - cop.car.d;
+        closingKmh = (player.speed - cop.car.speed) * 3.6;
       }
     });
     player.postPhysics();
     police.after();
+    if (cop.braking) braked = true;
     time += PHYSICS_DT;
     if (pulledAt !== null && reaction === null && (cop.car.d - copDAt) * side >= 0.3) reaction = time - pulledAt;
     if (pulledAt !== null && halfLane === null && (cop.car.d - copDAt) * side >= 1.875) halfLane = time - pulledAt;
     if (outcome === '-' && player.s - player.length / 2 > cop.car.s + cop.car.length / 2) outcome = 'passed';
   }
   physics.free();
-  return { reaction, halfLane, outcome, across, reach: gap / (closingKmh * KMH) };
+  return { reaction, halfLane, outcome, across, closing: closingKmh, braked, reach: gap / (closingKmh0 * KMH) };
 }
 
 it('police block', () => {
@@ -88,7 +92,7 @@ it('police block', () => {
           const r = run(closing, gap, side);
           process.stdout.write(
             `closing ${String(closing).padStart(3)} km/h, out ${String(gap).padStart(2)} m behind (${r.reach.toFixed(1)} s), ${side < 0 ? 'left ' : 'right'}: ` +
-              `moves 0.3 m ${f(r.reaction)} s, half a lane ${f(r.halfLane)} s, ${r.outcome}${r.outcome === 'hit' ? ` (${r.across.toFixed(1)} m across)` : ''}\n`,
+              `moves 0.3 m ${f(r.reaction)} s, half a lane ${f(r.halfLane)} s, ${r.outcome}${r.outcome === 'hit' ? ` (${r.across.toFixed(1)} m across, closing ${r.closing.toFixed(0)} km/h${r.closing >= 45 ? ' BUST' : ''})` : ''}${r.braked ? ', brake-checked' : ''}\n`,
           );
         }
       }

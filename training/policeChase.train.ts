@@ -54,7 +54,7 @@ function race(seed: number) {
   };
   const occupants = (f: typeof OUR_FRAME) => [...rivals.occupants(f), ...police.occupants(f)];
   traffic.reset(focus(), occupants);
-  const stats = { npcHits: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, busts: [] as number[], rivalHits: 0, lost: 0, finish: null as number | null, share: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, ram: 0, block: 0, npcBlocking: 0, awake: 0, into: { player: 0, rival: 0, police: 0 } };
+  const stats = { npcHits: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, busts: [] as number[], rivalHits: 0, lost: 0, finish: null as number | null, share: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, ram: 0, block: 0, brakeCheck: 0, npcBlocking: 0, awake: 0, into: { player: 0, rival: 0, police: 0 } };
   let bustLeft = 0;
   let putBackAt = -Infinity;
   const was = police.list.map((p) => p.state);
@@ -134,6 +134,7 @@ function race(seed: number) {
       stats.share[p.state] += PHYSICS_DT;
       if (p.ramming) stats.ram += PHYSICS_DT;
       if (p.blocking) stats.block += PHYSICS_DT;
+      if (p.braking) stats.brakeCheck += PHYSICS_DT;
       if (p.state === 'parked' && was[i] !== 'parked') stats.lost++;
       was[i] = p.state;
     });
@@ -155,7 +156,7 @@ it('police chase', () => {
       // (written out, not console.log: the runner keeps a passing test's console to itself)
       process.stdout.write(
         `seed ${seed}: busted ${s.busts.length}x (at ${s.busts.join(', ') || '-'} s), rivals hit ${s.rivalHits}, lost ${s.lost}, ` +
-          `ramming ${s.ram.toFixed(1)} s, blocking ${s.block.toFixed(1)} s, ${share}, finish ${s.finish?.toFixed(1) ?? '-'} s; ` +
+          `ramming ${s.ram.toFixed(1)} s, blocking ${s.block.toFixed(1)} s, brake checks ${s.brakeCheck.toFixed(1)} s,${share}, finish ${s.finish?.toFixed(1) ?? '-'} s; ` +
           `into traffic ${Object.entries(s.npcHits).map(([k, v]) => `${k} ${v}`).join(', ')} (blocking ${s.npcBlocking}); ` +
           `[wake ${WAKE_MODE}] traffic hit by the player ${s.into.player}, rivals ${s.into.rival}, police ${s.into.police}; ` +
           `awake ${(s.awake / r.time()).toFixed(1)} on average; rivals at ${r.rivalsAt().map((x) => x.toFixed(0)).join('/')} m; ${wall.toFixed(0)} s to run\n`,

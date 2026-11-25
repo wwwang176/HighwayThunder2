@@ -13,8 +13,8 @@ import type { Occupant } from '../traffic/spawner';
 import type { Obstacle } from '../traffic/trafficAI';
 import { POLICE_SUV } from '../vehicles/cars';
 import type { DriveInput } from '../vehicles/handling';
-import { PLAYER_L, PlayerCar } from '../vehicles/playerCar';
-import { BLOCK, blockClear, blockD, blockSteer, chaseStarts, guardD, guardHorizon, isLost, lineClear, outOfSight, parkSpot, phaseOf, pickTarget, POLICE_TUNING, racerVD, ramInput, type Racer, reachTime, SHOULDER_D, Sighting } from './policeLogic';
+import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
+import { BLOCK, blockClear, blockD, blockSteer, BRAKE_CHECK, brakeCheckDue, chaseStarts, guardD, guardHorizon, inLine, isLost, lineClear, noseAhead, outOfSight, parkSpot, passD, phaseOf, pickTarget, POLICE_TUNING, racerVD, ramAllowed, ramInput, type Racer, reachTime, SHOULDER_D, Sighting } from './policeLogic';
 import { coursePlan } from '../ai/coursePlanner';
 import type { Plan } from '../ai/planner';
 import type { Blocker } from './reset';
@@ -32,6 +32,10 @@ export interface PoliceCar {
   ramming: boolean;
   /** Blocking its target this step (BLOCK: about to pass it, no traffic in the way): steered across, not by its plans. */
   blocking: boolean;
+  /** A brake check (BRAKE_CHECK): s of it left (0: none), s till another may be; on this step. */
+  brakeLeft: number;
+  brakeCooldown: number;
+  braking: boolean;
   /** What it has seen of its target (for its reaction, BLOCK.react), and which racer that is (Racer.id). */
   sighting: Sighting;
   sightingFor: number | undefined;
@@ -151,7 +155,7 @@ export class Police {
       driver.latAccel = spec.ai.latAccel;
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, blocking: false, sighting: new Sighting(), sightingFor: undefined, guardPlan: null, guardClock: 0, guardAsked: -1, guardFor: undefined });
+      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, blocking: false, brakeLeft: 0, brakeCooldown: 0, braking: false, sighting: new Sighting(), sightingFor: undefined, guardPlan: null, guardClock: 0, guardAsked: -1, guardFor: undefined });
     }
     this.place();
   }
@@ -193,6 +197,8 @@ export class Police {
       const c = p.car;
       p.ramming = false;
       p.blocking = false;
+      p.braking = false;
+      p.brakeCooldown = Math.max(0, p.brakeCooldown - dt);
       // Lost: parked again ahead of them all (one parked behind them all too - left behind, the chase not on).
       const behindAll = racers.every((r) => r.s > c.s);
       // (only out of the player's sight: lost 300 m ahead in the fog, it was seen to vanish)
@@ -257,27 +263,35 @@ export class Police {
         const speed = Math.max(0, t.v - FRONT_SLOWER);
         const self = selfStateOf(c, speed);
         const planned = p.driver.drive(self, seen, c.params); // (its plans kept up while it blocks: back on them after)
-        const toD = this.blockAt(p, t, seen.filter((b) => !this.isTargetBox(b, t, racers, racerBoxes)));
-        if (toD === null) c.prePhysics(planned, dt);
-        else {
-          p.blocking = true;
-          c.prePhysics({ steer: blockSteer(self, toD, c.params), ...speedPedals(speed, c.vLong) }, dt);
-        }
+        const others = seen.filter((b) => !this.isTargetBox(b, t, racers, racerBoxes));
+        const toD = this.blockAt(p, t, others);
+        const steer = toD === null ? planned.steer : blockSteer(self, toD, c.params);
+        p.blocking = toD !== null;
+        if (this.brakeCheck(p, t, others, dt)) {
+          p.braking = true;
+          c.prePhysics({ steer, throttle: 0, brake: 1 }, dt);
+        } else if (toD === null) c.prePhysics(planned, dt);
+        else c.prePhysics({ steer, ...speedPedals(speed, c.vLong) }, dt);
         continue;
       }
-      p.driver.preferD = null; // (behind: its plans its own)
       p.guardPlan = null;
-      // Behind: boosted the further back it is; flat out at it once the line to it is clear.
+      p.brakeLeft = 0;
+      // Behind: boosted the further back it is; past them in the lane beside theirs to get in front of them (passD) -
+      // flat out at them only slowed (RAM_BELOW), the line to them clear.
       const gap = t.s - c.s;
       this.boost(p, 1 + BOOST.most * Math.max(0, Math.min(1, (gap - BOOST.from) / (BOOST.full - BOOST.from))));
       const aim = { s: t.s + t.v * POLICE_TUNING.aimAhead, d: t.d };
       const others = seen.filter((b) => !this.isTargetBox(b, t, racers, racerBoxes));
       const cap = Math.min(POLICE_SUV.params.maxSpeed, t.v + BEHIND_FASTER);
       c.params.maxSpeed = cap;
-      if (gap < RAM_RANGE && lineClear({ s: c.s, d: c.d }, aim, others, POLICE_TUNING.laneWidth)) {
+      if (ramAllowed(t.v) && gap < RAM_RANGE && lineClear({ s: c.s, d: c.d }, aim, others, POLICE_TUNING.laneWidth)) {
         p.ramming = true;
+        p.driver.preferD = null;
         c.prePhysics(ramInput(selfStateOf(c, cap), aim, c.params), dt);
-      } else c.prePhysics(p.driver.drive(selfStateOf(c, cap), seen, c.params), dt);
+      } else {
+        p.driver.preferD = passD({ s: c.s, d: c.d, halfWidth: c.width / 2, halfLength: c.length / 2 }, t, others);
+        c.prePhysics(p.driver.drive(selfStateOf(c, cap), seen, c.params), dt);
+      }
     }
   }
 
@@ -415,12 +429,36 @@ export class Police {
     p.sighting.see(this.clock, t.d, racerVD(t));
     const v = Math.max(0, c.speed);
     const reach = reachTime(c.s, v, c.length / 2, t, PLAYER_L / 2);
-    if (reach <= 0 || reach > BLOCK.within) return null;
+    // (alongside them: squeezed into their lane, its nose BLOCK.noseAhead m ahead of theirs or more)
+    if (reach <= 0 && noseAhead(c.s, c.length / 2, t.s, PLAYER_L / 2) < BLOCK.noseAhead) return null;
+    if (reach > BLOCK.within) return null;
     const seen = p.sighting.at(this.clock);
     if (!seen) return null;
     const toD = blockD(seen.d, seen.vD, reach + BLOCK.react, c.width / 2);
     const self = { s: c.s, d: c.d, v, halfWidth: c.width / 2, halfLength: c.length / 2 };
     return blockClear(self, toD, reach + BLOCK.after, others) ? toD : null;
+  }
+
+  /**
+   * Guarding: a brake check on its target `t` this step (BRAKE_CHECK): begun with them right behind it in its lane at
+   * its tail within BRAKE_CHECK.within s, nothing of `others` between them; held BRAKE_CHECK.hold s at most - over as
+   * they are out of its lane or by it - then none for BRAKE_CHECK.cooldown s.
+   */
+  private brakeCheck(p: PoliceCar, t: Racer, others: readonly TrafficBox[], dt: number): boolean {
+    const c = p.car;
+    const suv = { s: c.s, d: c.d, halfWidth: c.width / 2, halfLength: c.length / 2 };
+    if (p.brakeLeft > 0) {
+      p.brakeLeft -= dt;
+      if (p.brakeLeft > 0 && inLine(suv, t, PLAYER_W / 2)) return true;
+      p.brakeLeft = 0;
+      p.brakeCooldown = BRAKE_CHECK.cooldown;
+      return false;
+    }
+    if (p.brakeCooldown > 0) return false;
+    const reach = reachTime(c.s, Math.max(0, c.speed), c.length / 2, t, PLAYER_L / 2);
+    if (!brakeCheckDue(suv, t, reach, PLAYER_W / 2) || !lineClear({ s: t.s, d: t.d }, { s: c.s, d: c.d }, others, PLAYER_W / 2)) return false;
+    p.brakeLeft = BRAKE_CHECK.hold;
+    return true;
   }
 
   /** Its engine (and its plans' acceleration) times `k`. */
@@ -443,6 +481,8 @@ export class Police {
     p.state = 'parked';
     p.target = null;
     p.ramming = false;
+    p.brakeLeft = 0;
+    p.brakeCooldown = 0;
     p.driver.preferD = null;
     p.driver.shoulder = false;
     p.guardPlan = null;

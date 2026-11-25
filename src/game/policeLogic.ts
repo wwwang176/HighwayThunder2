@@ -40,7 +40,52 @@ export function racerVD(r: Racer): number {
  * or ahead or behind closing in within `after` s past its target's coming, nearer than `gap` m; `margin` m to the
  * side) - else by its plans, round the traffic. Steered at a point `look` s on (`lookLeast` m at least).
  */
-export const BLOCK = { within: 4, react: 0.3, reach: LANE_WIDTH, after: 1, gap: 5, margin: 0.5, look: 0.5, lookLeast: 8 };
+export const BLOCK = { within: 4, react: 0.3, reach: LANE_WIDTH, after: 1, gap: 5, margin: 0.5, look: 0.5, lookLeast: 8, noseAhead: 1 };
+
+/**
+ * Every police car after the front of its racer (the user's call, 2026-11-26): alongside it, its nose `BLOCK.noseAhead`
+ * m ahead of theirs or more, it squeezes into their lane (blockAt: no traffic in the way) - their way across shut, or
+ * their nose shoved round; behind them, it passes them in the lane beside them (passD) to get there, ramming only a
+ * racer slowed under RAM_BELOW (stuck in traffic: the line to them clear). In front of them with them right behind it
+ * in its lane, at its tail within `within` s: a brake check - full brakes, no warning (the user's), for `hold` s at
+ * most (till they are out of its lane, by it, or into it), not again for `cooldown` s; `overlap` m of the two cars'
+ * widths in line at least.
+ */
+export const BRAKE_CHECK = { within: 1, hold: 1, cooldown: 4, overlap: 0.5 };
+export const RAM_BELOW = 120 * KMH;
+
+/** A brake check due (BRAKE_CHECK): `t` (half `tHalfW` wide) behind the police car `suv`, in line with it, at its tail in `reach` s (reachTime). */
+export function brakeCheckDue(suv: { s: number; d: number; halfWidth: number; halfLength: number }, t: Racer, reach: number, tHalfW: number): boolean {
+  return reach > 0 && reach <= BRAKE_CHECK.within && inLine(suv, t, tHalfW);
+}
+
+/** `t` (half `tHalfW` wide) behind the police car `suv`, BRAKE_CHECK.overlap m of their widths in line at least. */
+export function inLine(suv: { s: number; d: number; halfWidth: number }, t: Racer, tHalfW: number): boolean {
+  return t.s < suv.s && suv.halfWidth + tHalfW - Math.abs(t.d - suv.d) >= BRAKE_CHECK.overlap;
+}
+
+/** How far (m) the police car's nose (at `suvS`, half `suvHalfL` long) is ahead of racer's (at `tS`, half `tHalfL`). */
+export function noseAhead(suvS: number, suvHalfL: number, tS: number, tHalfL: number): number {
+  return suvS + suvHalfL - (tS + tHalfL);
+}
+
+/** Behind its target: rams them only slowed under RAM_BELOW (else passes them to get in front). */
+export function ramAllowed(targetV: number): boolean {
+  return targetV < RAM_BELOW;
+}
+
+/**
+ * Behind its target: the line (d) it passes them on - a lane beside theirs on the road, clear of traffic (`boxes`)
+ * from it to 30 m past them; of those (else of both) the nearer its own.
+ */
+export function passD(suv: { s: number; d: number; halfWidth: number; halfLength: number }, t: Racer, boxes: readonly TrafficBox[]): number {
+  const edge = ROAD_HALF_WIDTH - suv.halfWidth;
+  const sides = [t.d - LANE_WIDTH, t.d + LANE_WIDTH].filter((d) => Math.abs(d) <= edge);
+  if (!sides.length) return t.d;
+  const clear = sides.filter((d) => lineClear({ s: suv.s, d }, { s: t.s + 30, d }, boxes, suv.halfWidth + 0.3));
+  const from = clear.length ? clear : sides;
+  return from.reduce((a, b) => (Math.abs(b - suv.d) < Math.abs(a - suv.d) ? b : a));
+}
 
 /** How soon (s) racer `t` (half `tHalfL` long) is at the tail of a police car at `suvS` (half `suvHalfL`) going `suvV`: 0 alongside or past, never (Infinity) not closing in. */
 export function reachTime(suvS: number, suvV: number, suvHalfL: number, t: Racer, tHalfL: number): number {

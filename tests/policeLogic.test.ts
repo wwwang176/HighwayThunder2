@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BLOCK, blockClear, blockD, blockSteer, bustAllowed, chaseStarts, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, racerVD, ramInput, reachTime, Sighting, type Racer } from '../src/game/policeLogic';
+import { BLOCK, BRAKE_CHECK, blockClear, blockD, blockSteer, brakeCheckDue, noseAhead, passD, ramAllowed, bustAllowed, chaseStarts, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, racerVD, ramInput, reachTime, Sighting, type Racer } from '../src/game/policeLogic';
 import { LANE_WIDTH, RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
 import type { SelfState, TrafficBox } from '../src/ai/sensors';
 import type { Plan } from '../src/ai/planner';
@@ -131,6 +131,35 @@ describe('policeLogic', () => {
     expect(blockClear(self, 1.875, 3, [box(1002, 5.625, 30)])).toBe(true); // (two lanes over: not in its way)
     expect(blockClear(self, 1.875, 3, [box(970, 1.875, 30)])).toBe(true); // (behind, slower)
     expect(blockClear(self, 1.875, 3, [box(970, 1.875, 70)])).toBe(false); // (behind, faster: there in 1.5 s)
+  });
+
+  it('brake check: its target right behind it in its lane, at its tail within BRAKE_CHECK.within s', () => {
+    const suv = { s: 1020, d: 1.875, halfWidth: 1, halfLength: 2.5 };
+    const t = (s: number, d: number) => ({ s, d, v: 55, isPlayer: true });
+    expect(brakeCheckDue(suv, t(1005, 1.875), 0.8, 0.93)).toBe(true);
+    expect(brakeCheckDue(suv, t(1005, 1.875), BRAKE_CHECK.within + 0.1, 0.93)).toBe(false); // (not that soon)
+    expect(brakeCheckDue(suv, t(1005, 1.875 + 2.5), 0.8, 0.93)).toBe(false); // (most of a lane over: going by)
+    expect(brakeCheckDue(suv, t(1005, 1.875 + 1.2), 0.8, 0.93)).toBe(true); // (half a car over: into its back)
+    expect(brakeCheckDue(suv, t(1025, 1.875), 0, 0.93)).toBe(false); // (ahead of it)
+    expect(BRAKE_CHECK.hold).toBe(1);
+    expect(BRAKE_CHECK.cooldown).toBe(4);
+  });
+
+  it('squeezing: alongside its target, its nose BLOCK.noseAhead m ahead of theirs or more', () => {
+    expect(noseAhead(1003, 2.5, 1000, 2.2)).toBeCloseTo(3.3);
+    expect(noseAhead(1000, 2.5, 1000, 2.2)).toBeCloseTo(0.3);
+    expect(BLOCK.noseAhead).toBe(1);
+  });
+
+  it('behind: rams only a target slowed under RAM_BELOW; else passes it, in the lane beside it nearer, the less busy', () => {
+    expect(ramAllowed(100 / 3.6)).toBe(true);
+    expect(ramAllowed(150 / 3.6)).toBe(false);
+    const suv = { s: 960, d: -1.875, halfWidth: 1, halfLength: 2.5 };
+    const t = { s: 1000, d: 1.875, v: 55, isPlayer: true };
+    expect(passD(suv, t, [])).toBeCloseTo(1.875 - LANE_WIDTH); // (the one beside it on its side)
+    const busy: TrafficBox[] = [{ s: 1010, dMin: -2.8, dMax: -0.9, v: 25, length: 4.5 }];
+    expect(passD(suv, t, busy)).toBeCloseTo(1.875 + LANE_WIDTH); // (that one taken: the other)
+    expect(passD({ ...suv, d: 5.625 }, { ...t, d: 5.625 }, [])).toBeCloseTo(1.875); // (on the road's edge: inside it)
   });
 
   it('blocking: steered across to where its target will be', () => {
