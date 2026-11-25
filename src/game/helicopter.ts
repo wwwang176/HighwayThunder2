@@ -28,7 +28,7 @@ export const HELI = {
  * Its searchlight: a cone `lampRadius` m across at the lamp, `groundRadius` at the lit car, lit air of `color`
  * (`density` a metre on its axis, summed in `steps` along a sight line; none within `near[0]` m of the camera, all
  * from `near[1]`); a real spot light (`light` candela, falling off by `decay`) lighting the ground there. Glare (a cross-flare
- * `glareSize` of the view across, and a veil of `veil` over the whole view) with the camera in the light - the cone
+ * `glareSize` of the view high, `glareWide` times that across, and a veil of `veil` over the whole view) with the camera in the light - the cone
  * `glareWiden` times as wide, on to `glareBeyond` times its length past the car (the chase camera behind and over
  * the lit car) - and looking into the lamp: from `faceFrom` (the cosine of the angle off it) full at 1.
  */
@@ -41,7 +41,8 @@ export const BEAM = {
   color: 0xdfe8ff,
   light: 14000,
   decay: 1.6,
-  glareSize: 0.09,
+  glareSize: 0.14,
+  glareWide: 2,
   veil: 0.17,
   glareWiden: 1.3,
   glareBeyond: 1.5,
@@ -379,7 +380,7 @@ export class Helicopter {
     if (g > 0) {
       this.glare.position.copy(this.lamp);
       const size = dist * BEAM.glareSize;
-      this.glare.scale.set(size, size, 1);
+      this.glare.scale.set(size * BEAM.glareWide, size, 1);
       this.glare.material.opacity = g;
     }
     const v = beamGlare(axial, radial, len, facing, 1);
