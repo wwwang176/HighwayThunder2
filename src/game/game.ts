@@ -2053,7 +2053,8 @@ export class Game {
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSirens(this.sirenBuf, this.heardSirens(), this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
     const heli = this.helicopter?.flying ? this.helicopter : null;
-    this.sound.setRotor(heli?.position ?? null, heli?.velocity ?? STILL, this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
+    // (half as loud in a bust's slow motion: the user's call)
+    this.sound.setRotor(heli?.position ?? null, heli?.velocity ?? STILL, this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished', this.busting ? 0.5 : 1);
     this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);

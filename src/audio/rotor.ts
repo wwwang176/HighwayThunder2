@@ -18,6 +18,11 @@ export function rotorBeat(doppler: number, timeScale: number): number {
   return ROTOR.blades * ROTOR.rotorHz * doppler * timeScale;
 }
 
+/** Its loudness `distance` m off, times `loud` (the game's: half in a bust's slow motion). See ROTOR. */
+export function rotorGain(distance: number, loud: number): number {
+  return distance < ROTOR.range ? loud * ROTOR.volume * inverseDistanceGain(distance, ROTOR.ref, ROTOR.rolloff) : 0;
+}
+
 /** The rotor's voice: placed by hand (pan.ts), beating at rotorBeat. */
 export class Rotor {
   private readonly noise: AudioBufferSourceNode;
@@ -82,11 +87,14 @@ export class Rotor {
     this.beat.start();
   }
 
-  /** Now: at `pos` (world), `doppler` its Doppler factor, the race at `timeScale` of its speed; `on` false: silent. */
-  update(pos: readonly number[], ear: EarPose, doppler: number, timeScale: number, on: boolean): void {
+  /**
+   * Now: at `pos` (world), `doppler` its Doppler factor, the race at `timeScale` of its speed, `loud` times as loud
+   * (rotorGain); `on` false: silent.
+   */
+  update(pos: readonly number[], ear: EarPose, doppler: number, timeScale: number, on: boolean, loud = 1): void {
     const now = this.ctx.currentTime;
     const d = Math.hypot(pos[0] - ear.px, pos[1] - ear.py, pos[2] - ear.pz);
-    const gain = on && d < ROTOR.range && timeScale > 0 ? ROTOR.volume * inverseDistanceGain(d, ROTOR.ref, ROTOR.rolloff) : 0;
+    const gain = on && timeScale > 0 ? rotorGain(d, loud) : 0;
     equalPowerMono(azimuthDeg(pos[0], pos[1], pos[2], ear), gain, this.lr);
     this.left.gain.setTargetAtTime(this.lr[0], now, 0.08);
     this.right.gain.setTargetAtTime(this.lr[1], now, 0.08);

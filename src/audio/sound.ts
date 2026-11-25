@@ -416,9 +416,9 @@ export class Sound {
 
   /**
    * The police helicopter's rotor (made here: audio/rotor.ts), at `pos` going `vel` (world; null: not flying - silent),
-   * heard from `ear`; `dt` s of the race's time on (the ear's motion), `active` false: silent.
+   * heard from `ear`; `dt` s of the race's time on (the ear's motion), `active` false: silent; `loud` times as loud.
    */
-  setRotor(pos: { x: number; y: number; z: number } | null, vel: { x: number; y: number; z: number }, ear: EarPose, dt: number, active: boolean): void {
+  setRotor(pos: { x: number; y: number; z: number } | null, vel: { x: number; y: number; z: number }, ear: EarPose, dt: number, active: boolean, loud = 1): void {
     const ctx = this.ctx;
     if (!ctx || !this.running) return;
     if (!pos && !this.rotor) return;
@@ -430,7 +430,7 @@ export class Sound {
       this.rotorVel[0] = vel.x; this.rotorVel[1] = vel.y; this.rotorVel[2] = vel.z;
     }
     const doppler = pos ? dopplerFactor(this.rotorPos, this.rotorVel, this.rotorEarPos, this.rotorEar.velocity) : 1;
-    this.rotor.update(this.rotorPos, ear, doppler, this.timeScale, active && !!pos);
+    this.rotor.update(this.rotorPos, ear, doppler, this.timeScale, active && !!pos, loud);
   }
 
   /**
