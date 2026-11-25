@@ -49,14 +49,21 @@ describe('police helicopter', () => {
     expect(searchlight(HELI.arrive + 60)).toBe(1);
   });
 
-  it('picks the player (0) on a roll under HELI.playerShare, else a rival near the player', () => {
-    const gaps = [0, 40, 400, 120]; // (how far each is from the player: 0 the player)
-    expect(pickHeliTarget(gaps, 0)).toBe(0);
-    expect(pickHeliTarget(gaps, HELI.playerShare - 0.01)).toBe(0);
-    const picked = new Set(Array.from({ length: 50 }, (_, i) => pickHeliTarget(gaps, HELI.playerShare + ((1 - HELI.playerShare) * i) / 50)));
-    expect([...picked].sort()).toEqual([1, 3]); // (not the one 400 m off: out of the player's sight)
-    expect(pickHeliTarget([0, 400], 0.99)).toBe(0); // (none near: the player)
-    expect(pickHeliTarget([0], 0.99)).toBe(0);
+  it('picks any racer but the one it lights, each as likely', () => {
+    const rolls = Array.from({ length: 400 }, (_, i) => (i + 0.5) / 400);
+    for (const lit of [0, 2]) {
+      const counts = [0, 0, 0, 0];
+      for (const r of rolls) counts[pickHeliTarget(4, lit, r)]++;
+      expect(counts[lit]).toBe(0); // (never the car it lights already)
+      for (let i = 0; i < 4; i++) if (i !== lit) expect(counts[i]).toBeCloseTo(400 / 3, -1);
+    }
+    expect(pickHeliTarget(1, 0, 0.7)).toBe(0); // (the player alone: the player)
+    expect(pickHeliTarget(3, 1, 0.9999)).toBeLessThan(3);
+  });
+
+  it('a new car every HELI.targetEvery s or so: more often than the 20 s it was', () => {
+    expect(HELI.targetEvery).toBeLessThan(20);
+    expect(HELI.targetEvery).toBeGreaterThanOrEqual(HELI.retarget * 3); // (the light settled on a car a while)
   });
 
   it('to a new car: the light (its operator) swings over fast, the helicopter (its pilot) follows slowly', () => {

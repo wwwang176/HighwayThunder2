@@ -10,9 +10,9 @@ import { depthBias } from '../render/shadowBias';
  *   height) over `arrive` s - catching up with the car at 200 km/h, coming down, over it into its circle ahead - its
  *   searchlight off till then, on over `lightOn` s: seen and heard first, then its light (from 350 m ahead over 6 s,
  *   the light on, at first: sudden);
- * - its car: the player on a roll under `playerShare`, else a rival within `otherWithin` m of the player (in their
- *   sight); another roll every `targetEvery` s (+-25%); a rival further than `otherLost` m off, or the player
- *   busted: the player again. To a new car its light (its operator) swings over in `retarget` s, the helicopter
+ * - its car: the player first; every `targetEvery` s (+-25%; the first that long after its light comes on) another
+ *   racer, any but the one it lights, each as likely (the player half the time, a rival only within 150 m of them,
+ *   every 20 s: it seemed never to change); the player busted: the player. To a new car its light (its operator) swings over in `retarget` s, the helicopter
  *   (its pilot) follows in `reposition` s, longer to one further off - never pulling harder than `repositionAcc`
  *   m/s^2 (both in `retarget` s, it lurched 150 m in 2 s; in a fixed 8 s, 250 m back to the player, nose at its
  *   limit);
@@ -35,10 +35,7 @@ export const HELI = {
   arriveFrom: -450,
   arriveRise: 90,
   lightOn: 0.6,
-  playerShare: 0.5,
-  otherWithin: 150,
-  otherLost: 250,
-  targetEvery: 20,
+  targetEvery: 10,
   retarget: 2,
   reposition: 8,
   repositionAcc: 5,
@@ -110,16 +107,13 @@ export function heliHeight(t: number): number {
 }
 
 /**
- * Its car, on a `roll` (0..1): 0 the player (a roll under HELI.playerShare), else one of the rivals within
- * HELI.otherWithin m of the player - `gaps` how far each is from the player (0: the player's own) - the player if none.
+ * Its next car, on a `roll` (0..1): any of the `count` racers (0 the player) but the one it lights (`lit`), each as
+ * likely - the player if alone.
  */
-export function pickHeliTarget(gaps: readonly number[], roll: number): number {
-  if (roll < HELI.playerShare) return 0;
-  const near: number[] = [];
-  for (let i = 1; i < gaps.length; i++) if (gaps[i] <= HELI.otherWithin) near.push(i);
-  if (!near.length) return 0;
-  const k = Math.floor(((roll - HELI.playerShare) / (1 - HELI.playerShare)) * near.length);
-  return near[Math.min(near.length - 1, k)];
+export function pickHeliTarget(count: number, lit: number, roll: number): number {
+  if (count < 2) return 0;
+  const k = Math.min(count - 2, Math.floor(roll * (count - 1)));
+  return k < lit ? k : k + 1;
 }
 
 /**
@@ -280,7 +274,7 @@ export class Helicopter {
   private since = -1;
   /** Its car (an index into update's targets: 0 the player), the next roll for one (s), since it last changed. */
   private target = 0;
-  private nextPick = HELI.targetEvery;
+  private nextPick = HELI.arrive + HELI.targetEvery;
   private sinceSwitch = HELI.reposition;
   /** How long its pilot takes to the car it last switched to (repositionTime). */
   private flightTime = HELI.reposition;
@@ -290,7 +284,6 @@ export class Helicopter {
   private readonly centreOff = new THREE.Vector2();
   private readonly aim = new THREE.Vector3();
   private readonly aimOff = new THREE.Vector3();
-  private readonly gaps: number[] = [];
   /** Its heading (rad, as a rotation about y: the nose toward -z) and acceleration (world, smoothed). */
   private yaw = 0;
   private readonly accel = new THREE.Vector3();
@@ -492,7 +485,7 @@ export class Helicopter {
     this.flying = false;
     this.lit = 0;
     this.target = 0;
-    this.nextPick = HELI.targetEvery;
+    this.nextPick = HELI.arrive + HELI.targetEvery;
     this.sinceSwitch = HELI.reposition;
     this.centreOff.set(0, 0);
     this.aimOff.set(0, 0, 0);
@@ -510,18 +503,14 @@ export class Helicopter {
     return this.flying && this.lit > 0 ? this.light : null;
   }
 
-  /** Its car now: `targets[i]` (0 the player), a new roll when due, back to the player when lost or `player`. */
+  /** Its car now: `targets[i]` (0 the player), another when due; the player's only when `player`. */
   private choose(play: number, targets: readonly HeliTarget[], player: boolean): void {
     if (this.target >= targets.length) this.target = 0;
     this.nextPick -= play;
     let next = this.target;
-    const you = targets[0];
     if (player) next = 0;
-    else if (next > 0 && Math.abs(targets[next].s - you.s) > HELI.otherLost) next = 0;
     else if (this.nextPick <= 0) {
-      this.gaps.length = 0;
-      for (const t of targets) this.gaps.push(Math.abs(t.s - you.s));
-      next = pickHeliTarget(this.gaps, Math.random());
+      next = pickHeliTarget(targets.length, this.target, Math.random());
       this.nextPick = HELI.targetEvery * (0.75 + 0.5 * Math.random());
     }
     if (next === this.target) return;

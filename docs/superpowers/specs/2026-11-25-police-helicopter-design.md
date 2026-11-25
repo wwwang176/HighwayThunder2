@@ -32,8 +32,10 @@ it never touches anything and does not change the chase (the police's own logic 
   speeds up, slows and turns (scripted from the path, no physics); it lights the AI racers too.
 - **Where**: an ellipse round its car along the road, -45..95 m along, +-28 m across, a lap in ~45 s (its pace
   wandering), 25-35 m up (HELI in src/game/helicopter.ts).
-- **Whose car** (my call): the player half the time, else a rival within 150 m of the player (in their sight), a
-  new roll every ~20 s; back to the player when that rival is 250 m off, and when busted. The light and the circling
+- **Whose car** (the user's call, 2026-11-25): the player first; every ~10 s (7.5-12.5 s, the first 10 s after the
+  light comes on) another racer, any but the one it lights, each as likely; the player when busted. (My call before:
+  the player half the time, else a rival within 150 m of them, a roll every ~20 s - it seemed never to change.) The
+  light and the circling
   swing over to a new car apart, as two people's (the user's call): the light in 2 s, the helicopter in 8 s (both
   in 4 s at first, then 2 s: the helicopter lurched up to 150 m in it).
 - **Veil** only with the camera inside the beam (up to the lit car); the flare a little further (the chase camera
