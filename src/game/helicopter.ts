@@ -30,7 +30,7 @@ export const HELI = {
   otherWithin: 150,
   otherLost: 250,
   targetEvery: 20,
-  retarget: 4,
+  retarget: 2,
   turn: 0.6,
   cruiseTilt: 0.12,
   cruiseAt: 60,

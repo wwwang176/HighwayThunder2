@@ -10,7 +10,7 @@ import { azimuthDeg, type EarPose, equalPowerMono, inverseDistanceGain } from '.
  */
 export const ROTOR = {
   blades: 2, rotorHz: 5.5, noiseBand: [60, 400] as const, noise: 3.5, thumpHz: 48, thumpHarmonics: 6, thump: 0.5,
-  volume: 0.6, ref: 40, rolloff: 1, range: 900,
+  volume: 0.45, ref: 40, rolloff: 1, range: 900,
 };
 
 /** The blades' beat (Hz): its pulse train's rate, at the race's `timeScale` and a Doppler factor. */

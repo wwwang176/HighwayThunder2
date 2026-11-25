@@ -34,7 +34,7 @@ it never touches anything and does not change the chase (the police's own logic 
   wandering), 25-35 m up (HELI in src/game/helicopter.ts).
 - **Whose car** (my call): the player half the time, else a rival within 150 m of the player (in their sight), a
   new roll every ~20 s; back to the player when that rival is 250 m off, and when busted. The light and the circling
-  swing over to a new car in 4 s.
+  swing over to a new car in 2 s (the user's call; 4 s at first).
 - **Veil** only with the camera inside the beam (up to the lit car); the flare a little further (the chase camera
   behind the car looking up the beam) - the veil there greyed the whole view.
 - **When**: from the chase's start (Police.triggered), flying in from far ahead over a few seconds; then the rest of
