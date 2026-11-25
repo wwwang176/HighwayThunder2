@@ -27,10 +27,14 @@ it never touches anything and does not change the chase (the police's own logic 
 
 ## My calls (stated to the user)
 
-- The light is on the **player** (the impact is for the player).
-- **Where**: ahead of and above the player (the chase camera looks ahead): 30 m up, 60-110 m ahead (fore/aft
-  slide), 15 m to a side, the side changing every so often; along the road (Centerline.toWorld). (Tried 40 m up,
-  20-60 m ahead first: over the camera's view, out of sight.)
+- ~~The light on the player only; sliding 60-110 m ahead of them.~~ Changed by the user (2026-11-25): it circles
+  its car loosely (behind it at times, ahead at others), its height wandering; pitched and banked as its path
+  speeds up, slows and turns (scripted from the path, no physics); it lights the AI racers too.
+- **Where**: an ellipse round its car along the road, -45..95 m along, +-28 m across, a lap in ~45 s (its pace
+  wandering), 25-35 m up (HELI in src/game/helicopter.ts).
+- **Whose car** (my call): the player half the time, else a rival within 150 m of the player (in their sight), a
+  new roll every ~20 s; back to the player when that rival is 250 m off, and when busted. The light and the circling
+  swing over to a new car in 4 s.
 - **Veil** only with the camera inside the beam (up to the lit car); the flare a little further (the chase camera
   behind the car looking up the beam) - the veil there greyed the whole view.
 - **When**: from the chase's start (Police.triggered), flying in from far ahead over a few seconds; then the rest of

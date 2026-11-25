@@ -1,24 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, beamGlare, BEAM, HELI, heliOffset } from '../src/game/helicopter';
+import { arrivalAhead, beamGlare, BEAM, HELI, heliAttitude, heliHeight, heliOrbit, pickHeliTarget } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
-  it('slides fore and aft between HELI.ahead[0] and [1] m ahead of the player', () => {
-    const aheads = Array.from({ length: 400 }, (_, i) => heliOffset(i * 0.1).ahead);
-    expect(Math.min(...aheads)).toBeGreaterThanOrEqual(HELI.ahead[0] - 1e-9);
-    expect(Math.max(...aheads)).toBeLessThanOrEqual(HELI.ahead[1] + 1e-9);
-    expect(Math.min(...aheads)).toBeLessThan(HELI.ahead[0] + 1); // (it goes all the way, both ways)
-    expect(Math.max(...aheads)).toBeGreaterThan(HELI.ahead[1] - 1);
+  const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
+
+  it('circles its car loosely: sometimes behind it, sometimes ahead, to both sides', () => {
+    const at = times.map(heliOrbit);
+    const aheads = at.map((o) => o.ahead), sides = at.map((o) => o.side);
+    expect(Math.min(...aheads)).toBeLessThan(-20); // (behind)
+    expect(Math.max(...aheads)).toBeGreaterThan(60); // (ahead)
+    expect(Math.min(...aheads)).toBeGreaterThanOrEqual(HELI.orbitAhead - HELI.orbitLong - 1e-9);
+    expect(Math.max(...aheads)).toBeLessThanOrEqual(HELI.orbitAhead + HELI.orbitLong + 1e-9);
+    expect(Math.min(...sides)).toBeLessThan(-HELI.orbitSide * 0.9);
+    expect(Math.max(...sides)).toBeGreaterThan(HELI.orbitSide * 0.9);
+    expect(aheads.filter((a) => a < 0).length / aheads.length).toBeGreaterThan(0.15); // (not just a moment)
+    // (smoothly: no jump)
+    for (let i = 1; i < at.length; i++) expect(Math.hypot(at[i].ahead - at[i - 1].ahead, at[i].side - at[i - 1].side)).toBeLessThan(3);
   });
 
-  it('holds a side HELI.sideEvery s, then crosses smoothly over HELI.sideTurn s to the other', () => {
-    const e = HELI.sideEvery, turn = HELI.sideTurn;
-    expect(heliOffset(e / 2).side).toBeCloseTo(-HELI.side); // (first on the left)
-    expect(heliOffset(e + turn + 1).side).toBeCloseTo(HELI.side);
-    expect(heliOffset(2 * e + turn + 1).side).toBeCloseTo(-HELI.side);
-    expect(heliOffset(e).side).toBeCloseTo(-HELI.side); // (the crossing starts where it was)
-    expect(heliOffset(e + turn / 2).side).toBeCloseTo(0); // (halfway over)
-    // (no jump anywhere)
-    for (let t = 0; t < 4 * e; t += 0.05) expect(Math.abs(heliOffset(t + 0.05).side - heliOffset(t).side)).toBeLessThan(1);
+  it('its height wanders a little around HELI.height', () => {
+    const hs = times.map(heliHeight);
+    expect(Math.min(...hs)).toBeGreaterThanOrEqual(HELI.height - HELI.rise - 1e-9);
+    expect(Math.max(...hs)).toBeLessThanOrEqual(HELI.height + HELI.rise + 1e-9);
+    expect(Math.max(...hs) - Math.min(...hs)).toBeGreaterThan(HELI.rise); // (it does change)
   });
 
   it('flies in from HELI.arriveFrom m further ahead over HELI.arrive s', () => {
@@ -26,6 +30,29 @@ describe('police helicopter', () => {
     expect(arrivalAhead(HELI.arrive)).toBeCloseTo(0);
     expect(arrivalAhead(HELI.arrive + 5)).toBe(0);
     for (let t = 0; t < HELI.arrive; t += 0.1) expect(arrivalAhead(t + 0.1)).toBeLessThanOrEqual(arrivalAhead(t));
+  });
+
+  it('picks the player (0) on a roll under HELI.playerShare, else a rival near the player', () => {
+    const gaps = [0, 40, 400, 120]; // (how far each is from the player: 0 the player)
+    expect(pickHeliTarget(gaps, 0)).toBe(0);
+    expect(pickHeliTarget(gaps, HELI.playerShare - 0.01)).toBe(0);
+    const picked = new Set(Array.from({ length: 50 }, (_, i) => pickHeliTarget(gaps, HELI.playerShare + ((1 - HELI.playerShare) * i) / 50)));
+    expect([...picked].sort()).toEqual([1, 3]); // (not the one 400 m off: out of the player's sight)
+    expect(pickHeliTarget([0, 400], 0.99)).toBe(0); // (none near: the player)
+    expect(pickHeliTarget([0], 0.99)).toBe(0);
+  });
+
+  it('pitches nose down speeding up, up slowing; banks into a turn; never past its limits', () => {
+    const cruise = heliAttitude(0, 0, 50);
+    expect(cruise.pitch).toBeLessThan(0); // (flying forward: nose a little down)
+    expect(cruise.pitch).toBeLessThan(heliAttitude(0, 0, 0).pitch + 1e-9);
+    expect(heliAttitude(5, 0, 50).pitch).toBeLessThan(cruise.pitch); // (speeding up: further down)
+    expect(heliAttitude(-5, 0, 50).pitch).toBeGreaterThan(cruise.pitch); // (braking: nose up)
+    expect(heliAttitude(0, 5, 50).roll).toBeLessThan(0); // (pulled right: its right side down)
+    expect(heliAttitude(0, -5, 50).roll).toBeGreaterThan(0);
+    const wild = heliAttitude(-100, 100, 50);
+    expect(Math.abs(wild.pitch)).toBeLessThanOrEqual(HELI.maxPitch + 1e-9);
+    expect(Math.abs(wild.roll)).toBeLessThanOrEqual(HELI.maxRoll + 1e-9);
   });
 
   it('glare: only with the camera in the light (the cone widened, past the car) AND looking into the lamp', () => {

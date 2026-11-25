@@ -89,7 +89,7 @@ import { FINISHED_SPEED, GRID_REV, PLAYER_BOX_ID, RaceView, RIVAL_COLORS, Rivals
 import { Police } from './police';
 import { bustAllowed, type Racer } from './policeLogic';
 import { BustShow } from './bustShow';
-import { Helicopter } from './helicopter';
+import { Helicopter, type HeliTarget } from './helicopter';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
@@ -295,11 +295,13 @@ export class Game {
   private police: Police | null = null;
   /** The police helicopter over the player once the chase is on (made and freed with the police). */
   private helicopter: Helicopter | null = null;
-  /** Where the helicopter flies along the road: `ahead` m on from the player, `side` m across (Helicopter.update). */
-  private readonly heliPlace = (ahead: number, side: number, out: THREE.Vector3): THREE.Vector3 => {
-    const w = this.roadLine.toWorld(this.player.s + ahead, side);
+  /** Where the helicopter flies along the road: at `s`, `d` (Helicopter.update). */
+  private readonly heliPlace = (s: number, d: number, out: THREE.Vector3): THREE.Vector3 => {
+    const w = this.roadLine.toWorld(s, d);
     return out.set(w.x, this.player.mesh.position.y, w.z);
   };
+  /** The cars the helicopter may light (the player first), made again each frame into the same list. */
+  private readonly heliTargets: HeliTarget[] = [];
   private policeBoxes: TrafficBox[] = [];
   /** The police cars' velocities going into the physics step (as racerVelBefore). */
   private policeVelBefore: { x: number; z: number }[] = [];
@@ -2010,8 +2012,15 @@ export class Game {
       const at = armPlace(pivot, want, this.armShare, ground, A);
       this.camera.position.set(at.x, at.y, at.z);
     }
-    // The helicopter, once the chase is on: over the player, its searchlight on them (its glare by the camera: placed).
-    this.helicopter?.update(play, !!this.police?.triggered, this.player.mesh.position, this.heliPlace, this.camera);
+    // The helicopter, once the chase is on: circling a racer (the player, now and then a rival near them), its
+    // searchlight on them - the player's only, busted (its glare by the camera: placed).
+    if (this.helicopter) {
+      const ts = this.heliTargets;
+      ts.length = 0;
+      ts.push({ s: this.player.s, d: this.player.d, pos: this.player.mesh.position });
+      for (const r of this.rivals.list) ts.push({ s: r.car.s, d: r.car.d, pos: r.car.mesh.position });
+      this.helicopter.update(play, !!this.police?.triggered, ts, this.busting, this.heliPlace, this.camera);
+    }
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
       this.hud.revealFinish();

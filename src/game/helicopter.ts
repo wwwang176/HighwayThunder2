@@ -1,27 +1,48 @@
 import * as THREE from 'three';
 
 /**
- * The police helicopter's flight (scripted: no planner, it never touches anything): `height` m over the road,
- * sliding fore and aft between `ahead` m ahead of the player (once every `aheadPeriod` s), `side` m to a side - the
- * left first - for `sideEvery` s, crossing to the other over `sideTurn` s. It flies in from `arriveFrom` m further
- * ahead over `arrive` s. Its main rotor `rotorHz` turns a second, its tail rotor `tailHz`; its white strobe flashes
- * `strobeOn` s every `strobeEvery` s; it bobs `sway` m.
+ * The police helicopter's flight (scripted: no planner, it never touches anything):
+ * - round the car it lights, loosely: an ellipse along the road `orbitAhead` +- `orbitLong` m from it (behind it some
+ *   of the time, ahead the rest - the chase camera sees it there), `orbitSide` m to either side, once in about
+ *   `orbitPeriod` s, its pace wandering (`wobble` of a turn, every `wobblePeriod` s); `height` +- `rise` m up;
+ * - flown in from `arriveFrom` m further ahead over `arrive` s;
+ * - its car: the player on a roll under `playerShare`, else a rival within `otherWithin` m of the player (in their
+ *   sight); another roll every `targetEvery` s (+-25%); a rival further than `otherLost` m off, or the player
+ *   busted: the player again. Its light swings over to a new car in `retarget` s, the helicopter with it;
+ * - flown as a helicopter flies (by its path, no physics): its nose along its way, turning to it over `turn` s;
+ *   nose down `cruiseTilt` at `cruiseAt` m/s and on, `pitchPerAcc` more a m/s^2 speeding up (up slowing), banked
+ *   `rollPerAcc` a m/s^2 into a turn - its motion smoothed over `smooth` s; never past `maxPitch`, `maxRoll`;
+ * - its main rotor `rotorHz` turns a second, its tail rotor `tailHz`; its white strobe flashes `strobeOn` s every
+ *   `strobeEvery` s.
  */
 export const HELI = {
-  // (low and far enough ahead to be in the chase camera's view, near its top; 40 m up 20-60 m ahead was over it)
   height: 30,
-  ahead: [60, 110] as const,
-  aheadPeriod: 23,
-  side: 15,
-  sideEvery: 12,
-  sideTurn: 3,
+  rise: 5,
+  orbitAhead: 25,
+  orbitLong: 70,
+  orbitSide: 28,
+  orbitPeriod: 45,
+  wobble: 0.5,
+  wobblePeriod: 17,
   arrive: 6,
   arriveFrom: 350,
+  playerShare: 0.5,
+  otherWithin: 150,
+  otherLost: 250,
+  targetEvery: 20,
+  retarget: 4,
+  turn: 0.6,
+  cruiseTilt: 0.12,
+  cruiseAt: 60,
+  pitchPerAcc: 0.02, // (0.03: the AI's braking and pulling away in traffic at its limit most of the time)
+  rollPerAcc: 0.05,
+  smooth: 0.35,
+  maxPitch: 0.35,
+  maxRoll: 0.5,
   rotorHz: 5.5,
   tailHz: 24,
   strobeEvery: 1.1,
   strobeOn: 0.06,
-  sway: 0.6,
 };
 
 /**
@@ -55,14 +76,48 @@ const smooth = (x: number) => {
   return u * u * (3 - 2 * u);
 };
 
-/** Where it is `t` s into its flight: `ahead` m along the road from the player, `side` m across (+: right). */
-export function heliOffset(t: number): { ahead: number; side: number } {
-  const [a0, a1] = HELI.ahead;
-  const ahead = (a0 + a1) / 2 - ((a1 - a0) / 2) * Math.cos((2 * Math.PI * t) / HELI.aheadPeriod);
-  const k = Math.floor(t / HELI.sideEvery);
-  const sign = (n: number) => (n % 2 === 0 ? -1 : 1);
-  const s = k === 0 ? sign(0) : sign(k - 1) + (sign(k) - sign(k - 1)) * smooth((t - k * HELI.sideEvery) / HELI.sideTurn);
-  return { ahead, side: HELI.side * s };
+/** Where it is `t` s into its flight: `ahead` m along the road from its car (-: behind), `side` m across (+: right). */
+export function heliOrbit(t: number): { ahead: number; side: number } {
+  const turn = (2 * Math.PI * t) / HELI.orbitPeriod + HELI.wobble * Math.sin((2 * Math.PI * t) / HELI.wobblePeriod);
+  return { ahead: HELI.orbitAhead + HELI.orbitLong * Math.cos(turn), side: HELI.orbitSide * Math.sin(turn) };
+}
+
+/** How high over the road it is `t` s into its flight. */
+export function heliHeight(t: number): number {
+  return HELI.height + HELI.rise * (0.7 * Math.sin((2 * Math.PI * t) / 19) + 0.3 * Math.sin((2 * Math.PI * t) / 7.3 + 1));
+}
+
+/**
+ * Its car, on a `roll` (0..1): 0 the player (a roll under HELI.playerShare), else one of the rivals within
+ * HELI.otherWithin m of the player - `gaps` how far each is from the player (0: the player's own) - the player if none.
+ */
+export function pickHeliTarget(gaps: readonly number[], roll: number): number {
+  if (roll < HELI.playerShare) return 0;
+  const near: number[] = [];
+  for (let i = 1; i < gaps.length; i++) if (gaps[i] <= HELI.otherWithin) near.push(i);
+  if (!near.length) return 0;
+  const k = Math.floor(((roll - HELI.playerShare) / (1 - HELI.playerShare)) * near.length);
+  return near[Math.min(near.length - 1, k)];
+}
+
+/**
+ * How it hangs (rad; the rotation's x and z, the nose toward -z): speeding up `accFwd` m/s^2 along its nose (-:
+ * slowing), pulled `accLat` m/s^2 to its right, going `speed` m/s. See HELI.
+ */
+export function heliAttitude(accFwd: number, accLat: number, speed: number): { pitch: number; roll: number } {
+  const clamp = (x: number, m: number) => Math.max(-m, Math.min(m, x));
+  const cruise = HELI.cruiseTilt * Math.min(1, Math.abs(speed) / HELI.cruiseAt);
+  return {
+    pitch: clamp(-cruise - accFwd * HELI.pitchPerAcc, HELI.maxPitch),
+    roll: clamp(-accLat * HELI.rollPerAcc, HELI.maxRoll),
+  };
+}
+
+/** A car it may light: where it is along the road (`s`, `d`) and in the world. */
+export interface HeliTarget {
+  readonly s: number;
+  readonly d: number;
+  readonly pos: THREE.Vector3;
 }
 
 /** How much further ahead it still is, `t` s after it set off to come (flying in). */
@@ -135,7 +190,8 @@ const LAMP_AT = new THREE.Vector3(0, -0.9, -2.2);
 
 /**
  * The police helicopter (src/game/police.ts's chase; docs/superpowers/specs/2026-11-25-police-helicopter-design.md):
- * primitives the eye reads as one from far below, flown by heliOffset over the player, its searchlight on them.
+ * primitives the eye reads as one from far below, circling a racer (heliOrbit; pickHeliTarget), its searchlight on
+ * them.
  * In the scene throughout, shown once the chase is on (its spot light kept: a light coming and going rebuilds every
  * material).
  */
@@ -153,9 +209,21 @@ export class Helicopter {
   /** Its flight's clock (s, the race's time), and since it set off to come (-1: not yet). */
   private clock = 0;
   private since = -1;
-  private lastSide = 0;
-  private lastAhead = 0;
-  /** Where it is and how it moves (world): its rotor heard from there. */
+  /** Its car (an index into update's targets: 0 the player), the next roll for one (s), since it last changed. */
+  private target = 0;
+  private nextPick = HELI.targetEvery;
+  private sinceSwitch = HELI.retarget;
+  /** The centre of its circling (along the road) and where its light is aimed; their offsets from a new car, fading. */
+  private centreS = 0;
+  private centreD = 0;
+  private readonly centreOff = new THREE.Vector2();
+  private readonly aim = new THREE.Vector3();
+  private readonly aimOff = new THREE.Vector3();
+  private readonly gaps: number[] = [];
+  /** Its heading (rad, as a rotation about y: the nose toward -z) and acceleration (world, smoothed). */
+  private yaw = 0;
+  private readonly accel = new THREE.Vector3();
+  /** Where it is and how it moves (world, smoothed): its rotor heard from there. */
   readonly position = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
   /** Out and flying (the chase on). */
@@ -324,6 +392,11 @@ export class Helicopter {
     this.clock = 0;
     this.since = -1;
     this.flying = false;
+    this.target = 0;
+    this.nextPick = HELI.targetEvery;
+    this.sinceSwitch = HELI.retarget;
+    this.centreOff.set(0, 0);
+    this.aimOff.set(0, 0, 0);
     this.hide();
   }
 
@@ -332,43 +405,82 @@ export class Helicopter {
     this.light.intensity = 0;
   }
 
+  /** Its car now: `targets[i]` (0 the player), a new roll when due, back to the player when lost or `player`. */
+  private choose(play: number, targets: readonly HeliTarget[], player: boolean): void {
+    if (this.target >= targets.length) this.target = 0;
+    this.nextPick -= play;
+    let next = this.target;
+    const you = targets[0];
+    if (player) next = 0;
+    else if (next > 0 && Math.abs(targets[next].s - you.s) > HELI.otherLost) next = 0;
+    else if (this.nextPick <= 0) {
+      this.gaps.length = 0;
+      for (const t of targets) this.gaps.push(Math.abs(t.s - you.s));
+      next = pickHeliTarget(this.gaps, Math.random());
+      this.nextPick = HELI.targetEvery * (0.75 + 0.5 * Math.random());
+    }
+    if (next === this.target) return;
+    // Swinging over: from where it was (its centre, its light) to the new car's, as offsets from that car fading out.
+    const to = targets[next];
+    this.centreOff.set(this.centreS - to.s, this.centreD - to.d);
+    this.aimOff.copy(this.aim).sub(to.pos);
+    this.sinceSwitch = 0;
+    this.target = next;
+  }
+
   /**
-   * A frame: `play` s of the race's time on; `on` the chase (it sets off the first time); over `car` (the lit car's
-   * position), along the road: `place(ahead, side, out)` the road's point `ahead` m on from the player and `side` m
-   * across (its height the player's); the glare by `camera` (placed for this frame).
+   * A frame: `play` s of the race's time on; `on` the chase (it sets off the first time); the cars it may light
+   * (`targets`, 0 the player; `player`: the player's only - busted), along the road: `place(s, d, out)` the road's
+   * point at `s`, `d` (its height the player's); the glare by `camera` (placed for this frame).
    */
-  update(play: number, on: boolean, car: THREE.Vector3, place: (ahead: number, side: number, out: THREE.Vector3) => THREE.Vector3, camera: THREE.Camera): void {
+  update(play: number, on: boolean, targets: readonly HeliTarget[], player: boolean, place: (s: number, d: number, out: THREE.Vector3) => THREE.Vector3, camera: THREE.Camera): void {
     if (on && this.since < 0) this.since = 0;
-    if (this.since < 0) return;
-    this.flying = true;
+    if (this.since < 0 || !targets.length) return;
     this.clock += play;
     this.since += play;
-    const off = heliOffset(this.clock);
-    const ahead = off.ahead + arrivalAhead(this.since);
-    place(ahead, off.side, A);
-    place(ahead + 5, off.side, B);
-    const was = B.copy(B).sub(A); // (along the road there)
-    const yaw = Math.atan2(-was.x, -was.z);
+    this.sinceSwitch += play;
+    this.choose(play, targets, player);
+    const car = targets[this.target];
+    const fade = 1 - smooth(this.sinceSwitch / HELI.retarget);
+    this.centreS = car.s + this.centreOff.x * fade;
+    this.centreD = car.d + this.centreOff.y * fade;
     const t = this.clock;
-    const y = A.y + HELI.height + HELI.sway * Math.sin(t * 0.9) + 0.3 * Math.sin(t * 2.3);
-    const prev = TO_CAM.copy(this.position);
-    this.position.set(A.x, y, A.z);
-    if (play > 0) this.velocity.copy(this.position).sub(prev).divideScalar(play);
-    // Banked into its sideways slide, nose down a little more as it pulls ahead.
-    const sideRate = play > 0 ? (off.side - this.lastSide) / play : 0;
-    const aheadRate = play > 0 ? (ahead - this.lastAhead) / play : 0;
-    this.lastSide = off.side;
-    this.lastAhead = ahead;
+    const o = heliOrbit(t);
+    place(this.centreS + o.ahead + arrivalAhead(this.since), this.centreD + o.side, A);
+    const prev = B.copy(this.position);
+    this.position.set(A.x, A.y + heliHeight(t), A.z);
+    // Its motion (smoothed: the cars' shakes not in it), and how it hangs by it.
+    if (!this.flying) {
+      this.velocity.set(0, 0, 0);
+      this.accel.set(0, 0, 0);
+    } else if (play > 0) {
+      const k = 1 - Math.exp(-play / HELI.smooth);
+      const v = TO_CAM.copy(this.position).sub(prev).divideScalar(play);
+      const was = DIR.copy(this.velocity);
+      this.velocity.lerp(v, k);
+      this.accel.lerp(was.subVectors(this.velocity, was).divideScalar(play), k);
+    }
+    this.flying = true;
+    const speed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (speed > 3) {
+      const want = Math.atan2(-this.velocity.x, -this.velocity.z);
+      let turn = want - this.yaw;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      this.yaw += turn * (1 - Math.exp(-play / HELI.turn));
+    }
+    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
+    const att = heliAttitude(-this.accel.x * sin - this.accel.z * cos, this.accel.x * cos - this.accel.z * sin, speed);
     this.object.position.copy(this.position);
-    this.object.rotation.set(-0.06 - Math.max(-0.15, Math.min(0.15, aheadRate * 0.01)), yaw, Math.max(-0.35, Math.min(0.35, -sideRate * 0.05)), 'YXZ');
+    this.object.rotation.set(att.pitch, this.yaw, att.roll, 'YXZ');
     this.rotor.rotation.y += play * 2 * Math.PI * HELI.rotorHz;
     this.tailRotor.rotation.x += play * 2 * Math.PI * HELI.tailHz;
     this.strobe.visible = t % HELI.strobeEvery < HELI.strobeOn;
     this.object.visible = true;
-    // The beam, from the lamp to the car (a little off it: a hand on the lamp, not a servo).
+    // The beam, from the lamp to the car (a little off it: a hand on the lamp, not a servo; swinging over to a new one).
     this.object.updateMatrixWorld();
     this.lamp.copy(LAMP_AT).applyMatrix4(this.object.matrixWorld);
-    DIR.set(car.x + 0.6 * Math.sin(t * 1.3), car.y, car.z + 0.8 * Math.sin(t * 0.8 + 1)).sub(this.lamp);
+    this.aim.copy(car.pos).addScaledVector(this.aimOff, fade);
+    DIR.set(this.aim.x + 0.6 * Math.sin(t * 1.3), this.aim.y, this.aim.z + 0.8 * Math.sin(t * 0.8 + 1)).sub(this.lamp);
     const len = DIR.length();
     DIR.divideScalar(len);
     this.beam.position.copy(this.lamp);
