@@ -577,7 +577,8 @@ export class Helicopter {
     this.object.updateMatrixWorld();
     this.lamp.copy(LAMP_AT).applyMatrix4(this.object.matrixWorld);
     this.aim.copy(car.pos).addScaledVector(this.aimOff, switchFade(this.sinceSwitch, HELI.retarget));
-    DIR.set(this.aim.x + 0.6 * Math.sin(t * 1.3), this.aim.y, this.aim.z + 0.8 * Math.sin(t * 0.8 + 1)).sub(this.lamp);
+    // (its hand's wander: 1.2 / 1.6 m at 2.6 / 1.6 rad/s - 0.6 / 0.8 m at 1.3 / 0.8 at first, too steady)
+    DIR.set(this.aim.x + 1.2 * Math.sin(t * 2.6), this.aim.y, this.aim.z + 1.6 * Math.sin(t * 1.6 + 1)).sub(this.lamp);
     const len = DIR.length();
     DIR.divideScalar(len);
     this.beam.position.copy(this.lamp);
