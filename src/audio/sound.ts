@@ -9,6 +9,7 @@ import { ROLLS } from './rolling';
 import { windLevel, windRate, WINDS } from './wind';
 import { azimuthDeg, equalPowerMono, inverseDistanceGain, type EarPose } from './pan';
 import { Siren } from './siren';
+import { Rotor } from './rotor';
 import { EarMotion } from './earMotion';
 import { dopplerFactor } from './spatial';
 // (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
@@ -189,6 +190,12 @@ export class Sound {
   private sirenTime = 0;
   private readonly sirenEar = new EarMotion();
   private readonly sirenEarPos: [number, number, number] = [0, 0, 0];
+  /** The police helicopter's rotor (setRotor; made at its first flight), the ear's motion for its Doppler shift. */
+  private rotor: Rotor | null = null;
+  private readonly rotorEar = new EarMotion();
+  private readonly rotorEarPos: [number, number, number] = [0, 0, 0];
+  private readonly rotorPos: [number, number, number] = [0, 0, 0];
+  private readonly rotorVel: [number, number, number] = [0, 0, 0];
   muted = false;
   /** The player's volume for it all (settings: 0..1 on top of MASTER). */
   private sfx = 1;
@@ -405,6 +412,25 @@ export class Sound {
         this.sirens.delete(key);
       }
     }
+  }
+
+  /**
+   * The police helicopter's rotor (made here: audio/rotor.ts), at `pos` going `vel` (world; null: not flying - silent),
+   * heard from `ear`; `dt` s of the race's time on (the ear's motion), `active` false: silent.
+   */
+  setRotor(pos: { x: number; y: number; z: number } | null, vel: { x: number; y: number; z: number }, ear: EarPose, dt: number, active: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.running) return;
+    if (!pos && !this.rotor) return;
+    this.rotorEarPos[0] = ear.px; this.rotorEarPos[1] = ear.py; this.rotorEarPos[2] = ear.pz;
+    this.rotorEar.update(this.rotorEarPos, dt);
+    this.rotor ??= new Rotor(ctx, this.master);
+    if (pos) {
+      this.rotorPos[0] = pos.x; this.rotorPos[1] = pos.y; this.rotorPos[2] = pos.z;
+      this.rotorVel[0] = vel.x; this.rotorVel[1] = vel.y; this.rotorVel[2] = vel.z;
+    }
+    const doppler = pos ? dopplerFactor(this.rotorPos, this.rotorVel, this.rotorEarPos, this.rotorEar.velocity) : 1;
+    this.rotor.update(this.rotorPos, ear, doppler, this.timeScale, active && !!pos);
   }
 
   /**

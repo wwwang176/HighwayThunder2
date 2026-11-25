@@ -89,6 +89,7 @@ import { FINISHED_SPEED, GRID_REV, PLAYER_BOX_ID, RaceView, RIVAL_COLORS, Rivals
 import { Police } from './police';
 import { bustAllowed, type Racer } from './policeLogic';
 import { BustShow } from './bustShow';
+import { Helicopter } from './helicopter';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
@@ -292,6 +293,13 @@ export class Game {
   private racerVelBefore: { x: number; z: number }[] = [];
   /** The police (the highway's, when on: CarSelection.police); none: null. */
   private police: Police | null = null;
+  /** The police helicopter over the player once the chase is on (made and freed with the police). */
+  private helicopter: Helicopter | null = null;
+  /** Where the helicopter flies along the road: `ahead` m on from the player, `side` m across (Helicopter.update). */
+  private readonly heliPlace = (ahead: number, side: number, out: THREE.Vector3): THREE.Vector3 => {
+    const w = this.roadLine.toWorld(this.player.s + ahead, side);
+    return out.set(w.x, this.player.mesh.position.y, w.z);
+  };
   private policeBoxes: TrafficBox[] = [];
   /** The police cars' velocities going into the physics step (as racerVelBefore). */
   private policeVelBefore: { x: number; z: number }[] = [];
@@ -862,9 +870,12 @@ export class Game {
     if (police && !this.police) {
       this.police = new Police(this.physics, this.scene, () => new WorkerPlanSource());
       this.police.setRoad(this.roadLine);
+      this.helicopter = new Helicopter(this.scene);
     } else if (!police && this.police) {
       this.police.dispose();
       this.police = null;
+      this.helicopter?.dispose();
+      this.helicopter = null;
     }
   }
 
@@ -979,6 +990,7 @@ export class Game {
     this.aiDriver?.reset(this.player.d);
     this.rivals.place();
     this.police?.place();
+    this.helicopter?.reset();
     if (this.finishShow) {
       this.finishShow = null;
       this.overlay.show(false);
@@ -1998,6 +2010,8 @@ export class Game {
       const at = armPlace(pivot, want, this.armShare, ground, A);
       this.camera.position.set(at.x, at.y, at.z);
     }
+    // The helicopter, once the chase is on: over the player, its searchlight on them (its glare by the camera: placed).
+    this.helicopter?.update(play, !!this.police?.triggered, this.player.mesh.position, this.heliPlace, this.camera);
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
       this.hud.revealFinish();
@@ -2025,6 +2039,8 @@ export class Game {
       rev ? rev.throttle : this.player.blipping ? Math.max(HEEL_TOE.throttle, own) : own, this.flow.phase !== 'title' && !drawn);
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSirens(this.sirenBuf, this.heardSirens(), this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
+    const heli = this.helicopter?.flying ? this.helicopter : null;
+    this.sound.setRotor(heli?.position ?? null, heli?.velocity ?? STILL, this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
     this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);

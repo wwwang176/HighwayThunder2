@@ -28,8 +28,11 @@ it never touches anything and does not change the chase (the police's own logic 
 ## My calls (stated to the user)
 
 - The light is on the **player** (the impact is for the player).
-- **Where**: ahead of and above the player (the chase camera looks ahead): ~40 m up, 20-60 m ahead (fore/aft
-  slide), ~15 m to a side, the side changing every so often; along the road (Centerline.toWorld).
+- **Where**: ahead of and above the player (the chase camera looks ahead): 30 m up, 60-110 m ahead (fore/aft
+  slide), 15 m to a side, the side changing every so often; along the road (Centerline.toWorld). (Tried 40 m up,
+  20-60 m ahead first: over the camera's view, out of sight.)
+- **Veil** only with the camera inside the beam (up to the lit car); the flare a little further (the chase camera
+  behind the car looking up the beam) - the veil there greyed the whole view.
 - **When**: from the chase's start (Police.triggered), flying in from far ahead over a few seconds; then the rest of
   the race. Highway, police on only (it lives and dies with Police).
 - Moves on the race's time (`play`): still when paused.
