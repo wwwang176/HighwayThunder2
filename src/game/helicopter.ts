@@ -25,8 +25,9 @@ export const HELI = {
 };
 
 /**
- * Its searchlight: a cone `lampRadius` m across at the lamp, `groundRadius` at the lit car (`opacity` of `color`,
- * added); a real spot light (`light` candela, falling off by `decay`) lighting the ground there. Glare (a cross-flare
+ * Its searchlight: a cone `lampRadius` m across at the lamp, `groundRadius` at the lit car, lit air of `color`
+ * (`density` a metre on its axis, summed in `steps` along a sight line; none within `near[0]` m of the camera, all
+ * from `near[1]`); a real spot light (`light` candela, falling off by `decay`) lighting the ground there. Glare (a cross-flare
  * `glareSize` of the view across, and a veil of `veil` over the whole view) with the camera in the light - the cone
  * `glareWiden` times as wide, on to `glareBeyond` times its length past the car (the chase camera behind and over
  * the lit car) - and looking into the lamp: from `faceFrom` (the cosine of the angle off it) full at 1.
@@ -34,7 +35,9 @@ export const HELI = {
 export const BEAM = {
   lampRadius: 0.3,
   groundRadius: 3.5, // (5: the chase camera in the cone, the view hazed over by its far wall)
-  opacity: 0.07,
+  density: 0.09,
+  steps: 16,
+  near: [4, 14] as const,
   color: 0xdfe8ff,
   light: 14000,
   decay: 1.6,
@@ -186,16 +189,92 @@ export class Helicopter {
     this.object.add(body);
     this.disposables.push(dark, glassy, blade, disc);
 
-    // The beam: a cone along +y from the lamp (0) to the lit car (1, scaled to its length), its light thinning down
-    // it (vertex colours, added: black is no light) - the spot on the ground the real light's.
-    const cone = new THREE.CylinderGeometry(BEAM.groundRadius, BEAM.lampRadius, 1, 20, 1, true).translate(0, 0.5, 0);
-    const pos = cone.getAttribute('position');
-    const col = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) col.fill(1 - 0.65 * pos.getY(i), i * 3, i * 3 + 3);
-    cone.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    const beamMat = new THREE.MeshBasicMaterial({
-      color: BEAM.color, vertexColors: true, transparent: true, opacity: BEAM.opacity, blending: THREE.AdditiveBlending,
-      depthWrite: false, side: THREE.DoubleSide, fog: false, forceSinglePass: true, toneMapped: false,
+    // The beam: lit air in a cone from the lamp to the lit car, added (black is no light). Each pixel as bright as
+    // the light its sight line goes through: where that line is in the cone (worked out exactly: a cone, cut at the
+    // lamp and the car), summed in `BEAM.steps` steps - the light thickest on its axis, none at its edge (soft, no
+    // hard rim), thinning down it (the spot on the ground the real light's), none near the camera (`near`). Seen
+    // along it (the chase camera behind the lit car) a bright shaft; from the side, a soft one. (A thin-walled cone
+    // drawn translucent instead: from behind the car its open end a dome over the view; its walls faded by how they
+    // faced the camera, nothing - seen along the beam, every wall is side-on.) Drawn on the bounding cone's far side:
+    // once a pixel, its sight line ending there (or at what is in front).
+    const cone = new THREE.CylinderGeometry(BEAM.groundRadius * 1.06, BEAM.lampRadius * 1.06, 1, 32, 1, false).translate(0, 0.5, 0);
+    const beamMat = new THREE.ShaderMaterial({
+      vertexShader: `
+        varying vec3 vWorld;
+        void main() {
+          vec4 w = modelMatrix * vec4(position, 1.0);
+          vWorld = w.xyz;
+          gl_Position = projectionMatrix * viewMatrix * w;
+        }`,
+      fragmentShader: `
+        uniform vec3 color;
+        uniform float density;
+        uniform vec2 near;
+        uniform vec3 lamp;
+        uniform vec3 axis;
+        uniform float len;
+        uniform vec2 radii;
+        varying vec3 vWorld;
+        const int STEPS = ${BEAM.steps};
+        void main() {
+          vec3 o = cameraPosition;
+          vec3 toEnd = vWorld - o;
+          float tEnd = length(toEnd);
+          vec3 d = toEnd / tEnd;
+          vec3 w = o - lamp;
+          float da = dot(d, axis);
+          float oa = dot(w, axis);
+          // Between the lamp (a = 0) and the car (a = len).
+          float t0 = 0.0, t1 = tEnd;
+          if (abs(da) > 1e-5) {
+            float ta = -oa / da, tb = (len - oa) / da;
+            t0 = max(t0, min(ta, tb));
+            t1 = min(t1, max(ta, tb));
+          } else if (oa < 0.0 || oa > len) discard;
+          // In the cone: radius r0 + k a = k (a - aV), its apex aV behind the lamp. f(t) = A t^2 + B t + C <= 0.
+          float k = (radii.y - radii.x) / len;
+          float aV = -radii.x / k;
+          float k2 = k * k;
+          float A = 1.0 - da * da - k2 * da * da;
+          float B = 2.0 * (dot(w, d) - oa * da - k2 * (oa - aV) * da);
+          float C = dot(w, w) - oa * oa - k2 * (oa - aV) * (oa - aV);
+          float disc = B * B - 4.0 * A * C;
+          if (disc < 0.0) { if (A > 0.0) discard; }
+          else {
+            float q = sqrt(disc);
+            float r1 = (-B - q) / (2.0 * A), r2 = (-B + q) / (2.0 * A);
+            float lo = min(r1, r2), hi = max(r1, r2);
+            if (A > 0.0) { t0 = max(t0, lo); t1 = min(t1, hi); }
+            else {
+              // (outside the roots: one side the other nappe, cut off by the lamp's end - keep the longer)
+              float s0 = t0, s1 = min(t1, lo), u0 = max(t0, hi), u1 = t1;
+              if (s1 - s0 >= u1 - u0) { t0 = s0; t1 = s1; } else { t0 = u0; t1 = u1; }
+            }
+          }
+          if (t1 <= t0) discard;
+          float dt = (t1 - t0) / float(STEPS);
+          float sum = 0.0;
+          for (int i = 0; i < STEPS; i++) {
+            float t = t0 + (float(i) + 0.5) * dt;
+            vec3 p = w + d * t;
+            float a = dot(p, axis);
+            float r = length(p - axis * a) / (radii.x + k * a);
+            float soft = clamp(1.0 - r * r, 0.0, 1.0);
+            sum += soft * soft * mix(1.0, 0.3, a / len) * smoothstep(near.x, near.y, t);
+          }
+          float light = 1.0 - exp(-density * sum * dt);
+          gl_FragColor = vec4(color * light, 1.0);
+        }`,
+      uniforms: {
+        color: { value: new THREE.Color(BEAM.color) },
+        density: { value: BEAM.density },
+        near: { value: new THREE.Vector2(BEAM.near[0], BEAM.near[1]) },
+        lamp: { value: new THREE.Vector3() },
+        axis: { value: new THREE.Vector3(0, -1, 0) },
+        len: { value: 1 },
+        radii: { value: new THREE.Vector2(BEAM.lampRadius, BEAM.groundRadius) },
+      },
+      blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.BackSide,
     });
     this.beam = new THREE.Mesh(cone, beamMat);
     this.beam.frustumCulled = false; // (scaled each frame: its bounds are the unit cone's)
@@ -279,6 +358,10 @@ export class Helicopter {
     this.beam.position.copy(this.lamp);
     this.beam.quaternion.setFromUnitVectors(UP, DIR);
     this.beam.scale.set(1, len, 1);
+    const u = (this.beam.material as THREE.ShaderMaterial).uniforms;
+    u.lamp.value.copy(this.lamp);
+    u.axis.value.copy(DIR);
+    u.len.value = len;
     this.beam.visible = true;
     this.light.position.copy(this.lamp);
     this.light.target.position.copy(this.lamp).addScaledVector(DIR, len);
