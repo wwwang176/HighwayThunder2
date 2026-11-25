@@ -25,11 +25,12 @@ describe('police helicopter', () => {
     expect(Math.max(...hs) - Math.min(...hs)).toBeGreaterThan(HELI.rise); // (it does change)
   });
 
-  it('flies in from HELI.arriveFrom m further ahead over HELI.arrive s', () => {
+  it('flies in from far behind (HELI.arriveFrom m) over HELI.arrive s', () => {
+    expect(HELI.arriveFrom).toBeLessThan(-200); // (from behind, out of the chase camera's view)
     expect(arrivalAhead(0)).toBeCloseTo(HELI.arriveFrom);
     expect(arrivalAhead(HELI.arrive)).toBeCloseTo(0);
     expect(arrivalAhead(HELI.arrive + 5)).toBe(0);
-    for (let t = 0; t < HELI.arrive; t += 0.1) expect(arrivalAhead(t + 0.1)).toBeLessThanOrEqual(arrivalAhead(t));
+    for (let t = 0; t < HELI.arrive; t += 0.1) expect(arrivalAhead(t + 0.1)).toBeGreaterThanOrEqual(arrivalAhead(t));
   });
 
   it('picks the player (0) on a roll under HELI.playerShare, else a rival near the player', () => {

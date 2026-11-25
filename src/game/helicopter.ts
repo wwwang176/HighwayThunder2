@@ -5,7 +5,8 @@ import * as THREE from 'three';
  * - round the car it lights, loosely: an ellipse along the road `orbitAhead` +- `orbitLong` m from it (behind it some
  *   of the time, ahead the rest - the chase camera sees it there), `orbitSide` m to either side, once in about
  *   `orbitPeriod` s, its pace wandering (`wobble` of a turn, every `wobblePeriod` s); `height` +- `rise` m up;
- * - flown in from `arriveFrom` m further ahead over `arrive` s;
+ * - flown in from far behind (`arriveFrom` m along the road from its circling) over `arrive` s - catching up
+ *   with the car at 200 km/h and over it into its circle ahead (from 350 m ahead over 6 s at first);
  * - its car: the player on a roll under `playerShare`, else a rival within `otherWithin` m of the player (in their
  *   sight); another roll every `targetEvery` s (+-25%); a rival further than `otherLost` m off, or the player
  *   busted: the player again. Its light swings over to a new car in `retarget` s, the helicopter with it;
@@ -24,8 +25,8 @@ export const HELI = {
   orbitPeriod: 45,
   wobble: 0.5,
   wobblePeriod: 17,
-  arrive: 6,
-  arriveFrom: 350,
+  arrive: 10,
+  arriveFrom: -300,
   playerShare: 0.5,
   otherWithin: 150,
   otherLost: 250,
@@ -120,9 +121,9 @@ export interface HeliTarget {
   readonly pos: THREE.Vector3;
 }
 
-/** How much further ahead it still is, `t` s after it set off to come (flying in). */
+/** How much further along the road it still is (-: behind), `t` s after it set off to come (flying in). */
 export function arrivalAhead(t: number): number {
-  return HELI.arriveFrom * (1 - smooth(t / HELI.arrive));
+  return t >= HELI.arrive ? 0 : HELI.arriveFrom * (1 - smooth(t / HELI.arrive));
 }
 
 /**
