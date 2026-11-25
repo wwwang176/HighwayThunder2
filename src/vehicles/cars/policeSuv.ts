@@ -2,6 +2,7 @@ import type { CarSpec } from './types';
 import { MUSCLE_CAR } from './muscleCar';
 import { withMass } from './mass';
 import { POLICE_SUV_COLLIDER } from './policeSuvCollider';
+import { POLICE_SUV_TRACKER } from './policeSuvTracker';
 
 /**
  * The police SUV (src/game/police.ts): very heavy, sure-footed, and slower than every sports car - away and flat out
@@ -68,5 +69,8 @@ export const POLICE_SUV: CarSpec = {
       [250, 18.4],
       [300, 19.6],
     ],
+    // Its own steering network (from the muscle car's, police-r1 g24): on 40 scenarios + 12 races new to it, lag behind
+    // its plans p50 0.124 m (the muscle car's 0.195, none 0.352), 0 resets.
+    tracker: POLICE_SUV_TRACKER,
   },
 };
