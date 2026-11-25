@@ -7,16 +7,20 @@ import { BEHIND_DESPAWN, DEFAULT_SPACING, FAR_DESPAWN, Occupant, planSpawns, sho
 import { NpcVehicle } from '../vehicles/npcVehicle';
 import type { TrafficBox } from '../ai/sensors';
 import type { Rng } from '../ai/rng';
+import { type Mover, onCourse, WAKE, type Wakeable } from '../traffic/wake';
 
 const SPAWN_INTERVAL = 0.25;
 /** Asleep NPCs wake within a racer's reach (rouse); awake ones sleep only this much farther out (no flicking to and fro). */
 const SLEEP_MARGIN = 40;
 
-/** A racer as rouse sees it: where it is along our carriageway (s), and how far round it the traffic is awake (m). */
+/** A racer as rouse sees it: where it is along our carriageway (s), and how far round it the traffic is awake (m) - on our carriageway only (`oursOnly`), or both. */
 export interface Rouser {
   s: number;
   reach: number;
+  oursOnly?: boolean;
 }
+/** A car further along than this (m) from a vehicle is not checked for its course to it (closing at 110 m/s for WAKE.ahead s, a truck's length and more). */
+const COURSE_NEAR = 80;
 const ONCOMING_FIRST_ID = 1_000_000;
 /** The game's traffic planned every this many physics steps (60 Hz: its drivers' choices; the bodies driven at 120) - the sims' too. */
 export const TRAFFIC_PLAN_EVERY = 2;
@@ -64,6 +68,8 @@ export class TrafficWorld {
     return this.opts.bothWays ? this.ahead : BEHIND_DESPAWN;
   }
   private readonly side = new Map<number, TrafficSide>();
+  /** When (rouse's `time`) each vehicle was last needed awake (a racer's reach, a car's course to it). */
+  private readonly needed = new Map<number, number>();
   private spawnTimer = 0;
   /** The time, and the steps, since the traffic was last planned (stepAI). */
   private sincePlan = 0;
@@ -84,6 +90,7 @@ export class TrafficWorld {
     for (const npc of this.npcs.values()) npc.dispose();
     this.npcs.clear();
     this.side.clear();
+    this.needed.clear();
     this.sides = [{ name: 'ours', frame: OUR_FRAME, facing: 1, sim: new TrafficSim() }];
     if (this.opts.oncoming) this.sides.push({ name: 'oncoming', frame: ONCOMING_FRAME, facing: -1, sim: new TrafficSim(ONCOMING_FIRST_ID) });
     this.spawnTimer = SPAWN_INTERVAL;
@@ -135,20 +142,44 @@ export class TrafficWorld {
   }
 
   /**
-   * Wake the NPCs within a racer's reach, put those out of every racer's reach (and SLEEP_MARGIN past it) to sleep
-   * (call before stepAI). Never called (training): all stay awake.
+   * Wake the NPCs within a racer's reach, or one of `movers` would touch within WAKE.ahead s (wake.ts); put those
+   * out of every racer's reach (and SLEEP_MARGIN past it), not needed for WAKE.keep s (`time`: the race's), to sleep
+   * (call before stepAI). Never called (training, unless asked): all stay awake.
    */
-  rouse(racers: readonly Rouser[]): void {
+  rouse(racers: readonly Rouser[], movers: readonly Mover[], time: number): void {
     for (const npc of this.npcs.values()) {
       if (npc.wrecked) continue;
       const s = npc.s;
+      const side = this.side.get(npc.id);
+      const ours = side?.name !== 'oncoming';
       // How far inside the nearest reach it is (negative: out of every one).
       let inside = -Infinity;
-      for (const r of racers) inside = Math.max(inside, r.reach - Math.abs(r.s - s));
+      for (const r of racers) if (ours || !r.oursOnly) inside = Math.max(inside, r.reach - Math.abs(r.s - s));
       const agent = this.agentOf(npc.id);
-      if (npc.asleep && inside > 0) npc.wake(agent);
-      else if (!npc.asleep && agent && inside < -SLEEP_MARGIN) npc.sleep(agent);
+      // (a car about to touch it: awake for it - wake.ts)
+      const course = !!agent && !!side && this.onAnyCourse(agent, side, s, movers);
+      if (inside > 0 || course) this.needed.set(npc.id, time);
+      if (npc.asleep && (inside > 0 || course)) npc.wake(agent);
+      else if (!npc.asleep && agent && inside < -SLEEP_MARGIN && time - (this.needed.get(npc.id) ?? -Infinity) >= WAKE.keep) npc.sleep(agent);
     }
+  }
+
+  /** Any of `movers` about to touch the vehicle of `agent` (on `side`; `s` its cab's, along our carriageway). */
+  private onAnyCourse(agent: Agent, side: TrafficSide, s: number, movers: readonly Mover[]): boolean {
+    let b: Wakeable | null = null;
+    for (const m of movers) {
+      if (Math.abs(m.s - s) > COURSE_NEAR) continue;
+      if (!b) {
+        if (side.name === 'ours') b = { s: agent.s, d: agent.d, vS: agent.v, halfLength: agent.length / 2, halfWidth: agent.width / 2 };
+        else {
+          const w = side.frame.toWorld(agent.s, agent.d);
+          const p = OUR_FRAME.fromWorld(w.x, w.z, s);
+          b = { s: p.s, d: p.d, vS: side.facing * agent.v, halfLength: agent.length / 2, halfWidth: agent.width / 2 };
+        }
+      }
+      if (onCourse(m, b)) return true;
+    }
+    return false;
   }
 
   /** Call after the physics step. */
@@ -223,6 +254,7 @@ export class TrafficWorld {
   private removeNpc(npc: NpcVehicle): void {
     npc.dispose();
     this.npcs.delete(npc.id);
+    this.needed.delete(npc.id);
     this.side.get(npc.id)?.sim.removeAgent(npc.id);
     this.side.delete(npc.id);
   }

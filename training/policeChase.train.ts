@@ -19,11 +19,14 @@ import { computeResetSpot } from '../src/game/reset';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { boxToFrame, OUR_FRAME } from '../src/road/frame';
 import { TrafficWorld, TRAFFIC_PLAN_EVERY } from '../src/sim/trafficWorld';
+import { wakers } from '../src/traffic/wake';
 import { PLAYER_L, PLAYER_W, PlayerCar } from '../src/vehicles/playerCar';
 
 /** OLD=1: the police as before 2026-11-26 (no blocking; its target's line guessed without its heading). */
 const OLD = process.env.OLD === '1';
 if (OLD) BLOCK.within = 0;
+/** WAKE=old / new: the traffic woken as the game does (before / since 2026-11-26); all (the default): every car awake. */
+const WAKE_MODE = process.env.WAKE ?? 'all';
 
 /** The race's time a bust's slow motion takes (its 3 s of real time, slowed: bustTimeScale). */
 const BUST_RACE_TIME = Array.from({ length: 300 }, (_, i) => bustTimeScale((i + 0.5) / 100) / 100).reduce((a, b) => a + b, 0);
@@ -51,7 +54,7 @@ function race(seed: number) {
   };
   const occupants = (f: typeof OUR_FRAME) => [...rivals.occupants(f), ...police.occupants(f)];
   traffic.reset(focus(), occupants);
-  const stats = { npcHits: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, busts: [] as number[], rivalHits: 0, lost: 0, finish: null as number | null, share: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, ram: 0, block: 0, npcBlocking: 0 };
+  const stats = { npcHits: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, busts: [] as number[], rivalHits: 0, lost: 0, finish: null as number | null, share: { parked: 0, front: 0, behind: 0, pullover: 0 } as Record<PoliceState, number>, ram: 0, block: 0, npcBlocking: 0, awake: 0, into: { player: 0, rival: 0, police: 0 } };
   let bustLeft = 0;
   let putBackAt = -Infinity;
   const was = police.list.map((p) => p.state);
@@ -69,6 +72,17 @@ function race(seed: number) {
     police.drive(PHYSICS_DT, racers, racerBoxes, boxes);
     const input = bustLeft > 0 ? { throttle: 0, brake: 0, steer: 0 } : playerAi.drive(selfStateOf(player, 300 * KMH), [...boxes, ...rivals.boxes(), ...police.boxes()], player.params);
     player.prePhysics(input, PHYSICS_DT);
+    // Waking the traffic (WAKE=old / new: as the game - before / since 2026-11-26; all, the default: every car awake)
+    if (WAKE_MODE === 'old') {
+      const out = police.list.filter((p) => p.state !== 'parked');
+      traffic.rouse([{ s: player.s, reach: 120 }, ...rivals.list.map((r) => ({ s: r.car.s, reach: 60 })), ...out.map((p) => ({ s: p.car.s, reach: 60 }))], [], time);
+    } else if (WAKE_MODE === 'new') {
+      const w = wakers(player, [...rivals.list.map((r) => r.car), ...police.list.filter((p) => p.state !== 'parked').map((p) => p.car)], 120);
+      traffic.rouse(w.rousers, w.movers, time);
+    }
+    let awake = 0;
+    for (const n of traffic.npcs.values()) if (!n.asleep) awake++;
+    stats.awake += awake * PHYSICS_DT;
     traffic.stepAI(PHYSICS_DT, time, (frame) => [playerObstacle(frame), ...rivals.obstacles(frame), ...police.obstacles(frame)]);
     const pv0 = player.body.linvel();
     const pv = { x: pv0.x, z: pv0.z };
@@ -91,6 +105,10 @@ function race(seed: number) {
         } else if (other.type === 'rival' && closingSpeed(rv[other.id], sv[cop.id], n) * 3.6 >= POLICE_TUNING.bustKmh) stats.rivalHits++; // (a hit, not a scrape)
       }
       const npc = traffic.onNpcContact(a, b);
+      if (npc !== null && !traffic.npcs.get(npc)?.wrecked) {
+        const by = a.type === 'npc' ? b.type : a.type;
+        if (by === 'player' || by === 'rival' || by === 'police') stats.into[by]++;
+      }
       if (npc !== null && cop && !traffic.npcs.get(npc)?.wrecked) {
         stats.npcHits[police.list[cop.id].state]++; // (a police car into the traffic, by what it was doing)
         if (police.list[cop.id].blocking) stats.npcBlocking++;
@@ -121,14 +139,16 @@ function race(seed: number) {
     });
     if (stats.finish === null && player.lead >= ROAD_LENGTH) stats.finish = time;
   };
-  return { physics, step, stats, time: () => time, done: () => stats.finish !== null || time > 150 };
+  return { physics, step, stats, time: () => time, done: () => stats.finish !== null || time > 150, rivalsAt: () => rivals.list.map((r) => r.car.lead) };
 }
 
 it('police chase', () => {
   return RAPIER.init().then(() => {
     for (const seed of (process.env.SEEDS ?? '7001').split(',').map(Number)) {
       const r = race(seed);
+      const t0 = performance.now();
       while (!r.done()) r.step();
+      const wall = (performance.now() - t0) / 1000;
       const s = r.stats;
       const all = Object.values(s.share).reduce((a, b) => a + b, 0);
       const share = Object.entries(s.share).map(([k, v]) => `${k} ${((100 * v) / all).toFixed(0)}%`).join(', ');
@@ -136,7 +156,9 @@ it('police chase', () => {
       process.stdout.write(
         `seed ${seed}: busted ${s.busts.length}x (at ${s.busts.join(', ') || '-'} s), rivals hit ${s.rivalHits}, lost ${s.lost}, ` +
           `ramming ${s.ram.toFixed(1)} s, blocking ${s.block.toFixed(1)} s, ${share}, finish ${s.finish?.toFixed(1) ?? '-'} s; ` +
-          `into traffic ${Object.entries(s.npcHits).map(([k, v]) => `${k} ${v}`).join(', ')} (blocking ${s.npcBlocking})\n`,
+          `into traffic ${Object.entries(s.npcHits).map(([k, v]) => `${k} ${v}`).join(', ')} (blocking ${s.npcBlocking}); ` +
+          `[wake ${WAKE_MODE}] traffic hit by the player ${s.into.player}, rivals ${s.into.rival}, police ${s.into.police}; ` +
+          `awake ${(s.awake / r.time()).toFixed(1)} on average; rivals at ${r.rivalsAt().map((x) => x.toFixed(0)).join('/')} m; ${wall.toFixed(0)} s to run\n`,
       );
       r.physics.free();
     }

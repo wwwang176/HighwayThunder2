@@ -30,6 +30,7 @@ import { CameraRig, type Look } from '../render/cameraRig';
 import { TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
 import { TRAFFIC_PLAN_EVERY, TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { wakers } from '../traffic/wake';
 import { pixelRatioFor, readQuality } from '../render/quality';
 import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
@@ -111,18 +112,14 @@ const TRAFFIC_EDGE: [number, number] = [500, 580];
 /** Traffic gone this far out (m), either way: just past where it appears (none kept out in the fog unseen). */
 const TRAFFIC_GONE = 600;
 /**
- * The traffic farther than this from the player (m), and RIVAL_AWAKE from every rival, moved by its planner alone,
+ * The traffic farther than this from the player (m) on our carriageway, and no car about to touch it (wakers), moved by its planner alone,
  * its bodies kinematic (NpcVehicle asleep): nobody near to touch it (an oncoming car closing at 95 m/s: over a
  * second to settle on its springs), its springs' play under a pixel that far (its wheels drawn rolling on still).
  * Simulated in full it was over half the physics' time.
  */
 const TRAFFIC_AWAKE = 120;
-/**
- * A rival wakes only the traffic this near (m): what it may hit next (closing at 45 m/s, a second and more to
- * settle on its springs). What is seen is woken by the player's TRAFFIC_AWAKE; around rivals spread down the road,
- * 200 m each kept some 46 cars in full.
- */
-const RIVAL_AWAKE = 60;
+// (a rival, a police car: only what it is about to touch, near the player - traffic/wake.ts; 60 m round each before,
+// 200 m before that: some 46 cars in full)
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
@@ -303,6 +300,8 @@ export class Game {
   /** The cars the helicopter may light (the player first), made again each frame into the same list. */
   private readonly heliTargets: HeliTarget[] = [];
   private policeBoxes: TrafficBox[] = [];
+  /** The cars but the player's that may wake the traffic this step (wakers; reused). */
+  private readonly wakeOthers: PlayerCar[] = [];
   /** The police cars' velocities going into the physics step (as racerVelBefore). */
   private policeVelBefore: { x: number; z: number }[] = [];
   /** Busted by a police car: its slow motion round the car, then put back on the road (none: not busted). */
@@ -1320,11 +1319,13 @@ export class Game {
 
     // Traffic AI on both carriageways (the player, the rivals and every wreck are
     // obstacles to both), then drive the NPC bodies along the planned paths.
-    this.trafficWorld.rouse([
-      { s: this.player.s, reach: TRAFFIC_AWAKE },
-      ...this.rivals.list.map((r) => ({ s: r.car.s, reach: RIVAL_AWAKE })),
-      ...(this.police?.list.filter((p) => p.state !== 'parked').map((p) => ({ s: p.car.s, reach: RIVAL_AWAKE })) ?? []), // (what a police car may hit)
-    ]);
+    // (round the player all of it; the rivals and the police out only what they are about to touch, near the player)
+    const others = this.wakeOthers;
+    others.length = 0;
+    for (const r of this.rivals.list) others.push(r.car);
+    for (const p of this.police?.list ?? []) if (p.state !== 'parked') others.push(p.car);
+    const w = wakers(this.player, others, TRAFFIC_AWAKE);
+    this.trafficWorld.rouse(w.rousers, w.movers, this.simTime);
     this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame), ...(this.police?.obstacles(frame) ?? [])]);
 
     this.player.holdInPlace(this.flow.phase === 'countdown' || this.flow.phase === 'intro'); // (on the grid a burnout goes nowhere)
