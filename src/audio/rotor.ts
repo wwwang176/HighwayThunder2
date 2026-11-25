@@ -3,14 +3,14 @@ import { azimuthDeg, type EarPose, equalPowerMono, inverseDistanceGain } from '.
 /**
  * The police helicopter's rotor, made here (no recording): its blades' slap - `blades` x `rotorHz` beats a second
  * (src/game/helicopter.ts HELI.rotorHz), the sound gated by each from silence - of noise between `noiseBand` Hz
- * (`noise` loud) over a `thumpHz` tone (`thump` loud), with its turbine's steady `whineHz` whine (`whine` loud).
- * Heard as loud as `volume` at `ref` m, quieter by inverse distance (`rolloff`), none past `range` m. (A rumble under
- * 420 Hz and a 55 Hz tone at first: almost all of it under 150 Hz, unheard on a laptop's speakers or most headphones
- * however loud.)
+ * (`noise` loud) over a low `thumpHz` buzz (`thump` loud) with its first `thumpHarmonics` harmonics: low, the ear
+ * hearing its pitch from them where a small speaker has no 60 Hz. Heard as loud as `volume` at `ref` m, quieter by
+ * inverse distance (`rolloff`), none past `range` m. (A 55 Hz sine under noise below 420 Hz at first: almost all of
+ * it under 150 Hz, unheard on a laptop's speakers; then noise to 1600 Hz and a 1150 Hz whine: shrill.)
  */
 export const ROTOR = {
-  blades: 2, rotorHz: 5.5, noiseBand: [180, 1600] as const, noise: 3, thumpHz: 70, thump: 0.25, whineHz: 1150, whine: 0.035,
-  volume: 0.65, ref: 40, rolloff: 1, range: 900,
+  blades: 2, rotorHz: 5.5, noiseBand: [80, 500] as const, noise: 3, thumpHz: 60, thumpHarmonics: 6, thump: 0.5,
+  volume: 1, ref: 40, rolloff: 1, range: 900,
 };
 
 /** The blades' beat (Hz): its pulse train's rate, at the race's `timeScale` and a Doppler factor. */
@@ -23,7 +23,6 @@ export class Rotor {
   private readonly noise: AudioBufferSourceNode;
   private readonly thump: OscillatorNode;
   private readonly beat: OscillatorNode;
-  private readonly whine: OscillatorNode;
   private readonly left: GainNode;
   private readonly right: GainNode;
   private readonly merge: ChannelMergerNode;
@@ -49,6 +48,10 @@ export class Rotor {
     noiseLevel.gain.value = ROTOR.noise;
     this.thump = ctx.createOscillator();
     this.thump.frequency.value = ROTOR.thumpHz;
+    const tr = new Float32Array(ROTOR.thumpHarmonics + 1);
+    const ti = new Float32Array(ROTOR.thumpHarmonics + 1);
+    for (let n = 1; n <= ROTOR.thumpHarmonics; n++) ti[n] = 1 / n;
+    this.thump.setPeriodicWave(ctx.createPeriodicWave(tr, ti));
     const thumpLevel = ctx.createGain();
     thumpLevel.gain.value = ROTOR.thump;
     // The beat: a pulse train (a blade going by: sharp up, slow down) gating the slap from silence (0..1).
@@ -63,29 +66,20 @@ export class Rotor {
     const level = ctx.createGain();
     level.gain.value = 0.5;
     this.beat.connect(depth).connect(level.gain);
-    // The turbine's whine, steady (not gated).
-    this.whine = ctx.createOscillator();
-    this.whine.frequency.value = ROTOR.whineHz;
-    const whineLevel = ctx.createGain();
-    whineLevel.gain.value = ROTOR.whine;
     this.left = ctx.createGain();
     this.right = ctx.createGain();
     this.left.gain.value = this.right.gain.value = 0;
     const merge = (this.merge = ctx.createChannelMerger(2));
     this.noise.connect(low).connect(high).connect(noiseLevel).connect(level);
     this.thump.connect(thumpLevel).connect(level);
-    this.whine.connect(whineLevel);
-    for (const src of [level, whineLevel]) {
-      src.connect(this.left);
-      src.connect(this.right);
-    }
+    level.connect(this.left);
+    level.connect(this.right);
     this.left.connect(merge, 0, 0);
     this.right.connect(merge, 0, 1);
     merge.connect(out);
     this.noise.start();
     this.thump.start();
     this.beat.start();
-    this.whine.start();
   }
 
   /** Now: at `pos` (world), `doppler` its Doppler factor, the race at `timeScale` of its speed; `on` false: silent. */
@@ -99,7 +93,6 @@ export class Rotor {
     const rate = Math.max(0.05, doppler * timeScale);
     this.beat.frequency.setTargetAtTime(rotorBeat(doppler, timeScale), now, 0.05);
     this.thump.frequency.setTargetAtTime(ROTOR.thumpHz * rate, now, 0.05);
-    this.whine.frequency.setTargetAtTime(ROTOR.whineHz * rate, now, 0.05);
     this.noise.playbackRate.setTargetAtTime(rate, now, 0.05);
   }
 
@@ -108,11 +101,9 @@ export class Rotor {
     this.noise.stop();
     this.thump.stop();
     this.beat.stop();
-    this.whine.stop();
     this.noise.disconnect();
     this.thump.disconnect();
     this.beat.disconnect();
-    this.whine.disconnect();
     this.left.disconnect();
     this.right.disconnect();
     this.merge.disconnect();
