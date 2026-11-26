@@ -6,9 +6,10 @@ import { POLICE_TUNING } from './policeLogic';
  * The bust's slow motion: the race eased down from full speed to `scale` of it over `ease` s (real time), and held
  * there. (0.4 s at first: at its slowest at once - the user's call, slowed down gradually from full speed.) Put
  * back, eased back up to full speed over `back` s (real time; at once at first - the user's call, ~1 s). (`scale`
- * 0.15 at first, as the finish's: too slow, the user's call.)
+ * 0.15 at first, as the finish's: too slow; then 0.4 - the user's calls.) The sound (not the music) quieter with it,
+ * down to `volume` at its slowest (the user's call: slowed down it sounds ugly).
  */
-export const BUST_SLOW = { scale: 0.4, ease: 1.5, back: 1 };
+export const BUST_SLOW = { scale: 0.3, ease: 1.5, back: 1, volume: 0.5 };
 /**
  * The camera's orbit round the car (rad/s, real time; 0.9 at first: too fast, the user's call 66% less), how far out
  * (m), how high (m), its field of view (deg).
@@ -23,6 +24,12 @@ export function bustTimeScale(t: number): number {
 /** How fast the race runs `t` s (real) after the bust's put-back: from its slow motion back up to full speed. */
 export function bustRecoverScale(t: number): number {
   return THREE.MathUtils.lerp(BUST_SLOW.scale, 1, THREE.MathUtils.smoothstep(t, 0, BUST_SLOW.back));
+}
+
+/** The sound's level with the race at `timeScale` in a bust (or easing back from one): BUST_SLOW.volume at its slowest. */
+export function bustVolume(timeScale: number): number {
+  const k = THREE.MathUtils.clamp((1 - timeScale) / (1 - BUST_SLOW.scale), 0, 1);
+  return THREE.MathUtils.lerp(1, BUST_SLOW.volume, k);
 }
 
 /**

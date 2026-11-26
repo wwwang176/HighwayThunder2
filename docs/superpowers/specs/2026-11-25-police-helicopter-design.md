@@ -55,7 +55,7 @@ it never touches anything and does not change the chase (the police's own logic 
   circles sideways, watching it); between the two in between. It leans the way it goes, sideways too.
 - **Rotors** (2026-11-26): blurred blades on a disc each (render/rotorBlur), the pattern at its own pace (the
   rotor's own beats with the frame rate); the body grey-white (dark, it was not to be seen at night).
-- **Busted**: the slow-motion orbit 66% slower (0.306 rad/s), the rotor half as loud while it lasts.
+- **Busted**: the slow-motion orbit 66% slower (0.306 rad/s), the rotor half as loud while it lasts (since 2026-11-26 with all the race's sound: docs/sound.md).
 - **When**: from the chase's start (Police.triggered), flying in as above (300 m back over 10 s; from ahead before that); then the rest of
   the race. Highway, police on only (it lives and dies with Police).
 - Moves on the race's time (`play`): still when paused.

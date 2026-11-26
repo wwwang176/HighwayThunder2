@@ -89,7 +89,7 @@ import { GameFlow, picksCars, type Phase } from './gameState';
 import { FINISHED_SPEED, GRID_REV, PLAYER_BOX_ID, RaceView, RIVAL_COLORS, Rivals } from './rivals';
 import { Police } from './police';
 import { bustAllowed, type Racer } from './policeLogic';
-import { BustShow, bustRecoverScale } from './bustShow';
+import { BustShow, bustRecoverScale, bustVolume } from './bustShow';
 import { Helicopter, type HeliTarget } from './helicopter';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
@@ -1212,6 +1212,8 @@ export class Game {
     const recovering = racing && !busted ? bustRecoverScale(this.bustRecover) : 1;
     const play = dt * (show ? show.timeScale : busted ? busted.timeScale : (TIME_SCALE[this.flow.phase] ?? 1) * recovering);
     this.sound.setTimeScale(dt > 0 ? play / dt : 1); // (the engines slow with it; a pause leaves it as it was)
+    // (and quieter with a bust's slow motion, down to half - slowed down it sounds ugly; a pause leaves it as it was)
+    if (this.flow.phase !== 'paused') this.sound.setDuck(busted ? bustVolume(busted.timeScale) : racing ? bustVolume(recovering) : 1);
     if (play > 0 && !this.freeze) {
       this.accumulator += play;
       let steps = 0;
@@ -2082,8 +2084,8 @@ export class Game {
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
     this.sound.setSirens(this.sirenBuf, this.heardSirens(), this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
     const heli = this.helicopter?.flying ? this.helicopter : null;
-    // (half as loud in a bust's slow motion: the user's call)
-    this.sound.setRotor(heli?.position ?? null, heli?.velocity ?? STILL, this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished', this.busting ? 0.5 : 1);
+    // (half as loud in a bust's slow motion, the user's call: with all the race's sound now - setDuck - not its own too)
+    this.sound.setRotor(heli?.position ?? null, heli?.velocity ?? STILL, this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
     this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);

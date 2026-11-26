@@ -148,6 +148,9 @@ export class Sound {
   private fade!: GainNode;
   /** The scene's level: 1, faded away past the finish (fadeAway), back for the next race or the garage (bringBack). */
   private scene!: GainNode;
+  /** The race's sound turned down for a moment (a bust's slow motion: setDuck), 1 otherwise; not the cues, nor music. */
+  private duck!: GainNode;
+  private duckLevel = 1;
   private limiter: AudioWorkletNode | null = null;
   private engineBus!: GainNode;
   private skidGain!: GainNode;
@@ -233,7 +236,9 @@ export class Sound {
     this.master.gain.value = this.masterGain;
     this.fade = ctx.createGain();
     this.scene = ctx.createGain();
-    this.master.connect(this.scene).connect(this.fade);
+    this.duck = ctx.createGain();
+    this.duck.gain.value = this.duckLevel;
+    this.master.connect(this.duck).connect(this.scene).connect(this.fade);
     // Straight out until the limiter's in (its module loads asynchronously, and may fail: then it stays out); out of
     // the way again if it ever fails (a failed worklet outputs silence for good - the whole mix gone).
     this.fade.connect(ctx.destination);
@@ -621,6 +626,14 @@ export class Sound {
     g.setValueAtTime(0, now);
     g.setTargetAtTime(1, now, RESUME_FADE / 4);
     void this.ctx.resume();
+  }
+
+  /** The race's sound (not the cues, not the music) at `level` of its loudness: a bust's slow motion turned down. */
+  setDuck(level: number): void {
+    const v = Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 1;
+    if (v === this.duckLevel) return; // (set only on a change: each frame's, paused, piled up on the param)
+    this.duckLevel = v;
+    if (this.ctx) this.duck.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
   }
 
   /** How fast the race's time runs (1: as it is; the finish's slow motion below): every engine pitched by it. */

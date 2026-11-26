@@ -185,5 +185,12 @@ from 0.4 s - past its fade-in; its length where the blades' beat runs on into th
 -16.7 LUFS (held by its peak, -1 dBFS: low and heavy). Looped from anywhere in its lap (`src/audio/rotor.ts`),
 placed by hand (pan.ts) at the helicopter, 1.2 within 40 m (overhead: as loud as the player's engine flat out, the
 user's call - 0.45 at first, 5-6 dB under it), quieter by inverse distance, none past 900 m; played at its
-Doppler factor times the race's time scale (a bust's slow motion: slower and deeper, and half as loud). Silent
-without its bundle (the synthesised one it replaced removed, 2026-11-26).
+Doppler factor times the race's time scale (a bust's slow motion: slower and deeper, and half as loud, as all the
+race's sound). Silent without its bundle (the synthesised one it replaced removed, 2026-11-26).
+
+# A bust's slow motion
+
+The race's sound - everything but the music and the cues (countdown, finish, menus) - turned down with it (a gain
+after the master, `Sound.setDuck`): at full speed as it is, at its slowest (0.3) half as loud, in between in step
+with the time scale - quieter as it slows down over 1.5 s, back up as it eases back over 1 s (the user's call: slowed
+down it sounds ugly). The music as it is.
