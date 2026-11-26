@@ -58,6 +58,12 @@ export const HELI = {
 };
 
 /**
+ * Its navigation lights' brightness (times their colour; unlit by the tone map): the red and green at its sides, the
+ * white strobe - past the bloom's threshold (2.05, its luminance) as the police light bars (police FLASH).
+ */
+export const NAV_LIGHTS = { side: 12, strobe: 20 };
+
+/**
  * Its rotors' blurred blades (render/rotorBlur): four each. The main rotor's blades 0.35 m wide on a 5.5 m radius,
  * a helicopter's rotor slow enough to see each blade - short trails, its tips still there; its pattern 9 rad/s
  * (at 30 fps 17 degrees a frame, of the 45 a turning-back look starts at). The tail rotor's 0.12 m on 0.65 m, a
@@ -421,10 +427,16 @@ export class Helicopter {
       this.rotorDiscs.push(disc);
       this.disposables.push(disc.geometry, disc.material);
     }
-    // Navigation lights: red to port (left), green to starboard, the white strobe under the tail.
-    add(new THREE.SphereGeometry(0.12, 8, 6), lit(0xff2a20), body, -1.1, 0, 0.2);
-    add(new THREE.SphereGeometry(0.12, 8, 6), lit(0x20ff50), body, 1.1, 0, 0.2);
-    this.strobe = add(new THREE.SphereGeometry(0.16, 8, 6), lit(0xffffff), body, 0, -0.1, 6.9);
+    // Navigation lights: red to port (left), green to starboard, the white strobe under the tail - bright enough to
+    // bloom (NAV_LIGHTS: at 1 they were dots of a pixel or two, under the bloom's threshold).
+    const glow = (hex: number, k: number) => {
+      const m = lit(hex);
+      m.color.multiplyScalar(k);
+      return m;
+    };
+    add(new THREE.SphereGeometry(0.12, 8, 6), glow(0xff2a20, NAV_LIGHTS.side), body, -1.1, 0, 0.2);
+    add(new THREE.SphereGeometry(0.12, 8, 6), glow(0x20ff50, NAV_LIGHTS.side), body, 1.1, 0, 0.2);
+    this.strobe = add(new THREE.SphereGeometry(0.16, 8, 6), glow(0xffffff, NAV_LIGHTS.strobe), body, 0, -0.1, 6.9);
     // The lamp itself (its face lit with it: update).
     this.lampMat = lit(0x2a2d33);
     add(new THREE.CylinderGeometry(0.25, 0.3, 0.35, 10), this.lampMat, body, LAMP_AT.x, LAMP_AT.y, LAMP_AT.z);
