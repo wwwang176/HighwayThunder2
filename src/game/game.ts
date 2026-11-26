@@ -1897,7 +1897,7 @@ export class Game {
   }
 
   /**
-   * The rivals' tyres this frame, into `this.skidSources` (where each is drawn, its strongest slide); the player's
+   * The rivals' and police cars' tyres this frame, into `this.skidSources` (where each is drawn, its strongest slide); the player's
    * too while it is drawn through a bend in an intro (heard there, its own squeal silent meanwhile).
    */
   private heardSkids(): SkidSource[] {
@@ -1908,6 +1908,12 @@ export class Game {
       s.slip = list[i].car.showPose?.slip ?? list[i].car.maxSlip; // (drawn drifting in an intro: squealing as drawn)
     }
     let n = list.length;
+    // (the police cars' too - a parked one silent)
+    for (const q of this.police?.list ?? []) {
+      const s = (out[n++] ??= { pos: { x: 0, y: 0, z: 0 }, slip: 0 }), p = q.car.mesh.position;
+      s.pos.x = p.x; s.pos.y = p.y; s.pos.z = p.z;
+      s.slip = q.state === 'parked' ? 0 : q.car.maxSlip;
+    }
     const pose = this.player.showPose;
     if (pose) {
       const s = (out[n++] ??= { pos: { x: 0, y: 0, z: 0 }, slip: 0 }), p = this.player.mesh.position;

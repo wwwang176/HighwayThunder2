@@ -312,7 +312,7 @@ export class Sound {
   }
 
   /**
-   * The rivals' tyres (`sources`, one voice each, kept by its place in the list): each squeals as the player's does
+   * The other cars' tyres (`sources`, one voice each, kept by its place in the list): each squeals as the player's does
    * on its slip, heard from `ear` as the engines are (panned, full within SKID_OTHERS_REF m, fading with distance;
    * none past SKID_OTHERS_RANGE), pitched with the race's time. Each its own loop of the squeal (from its own random
    * point, so two never sound as one). `active` false: all silent. Silent without the recording.
