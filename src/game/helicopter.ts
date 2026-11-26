@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { type RotorBlur, rotorBlurMesh } from '../render/rotorBlur';
 import { depthBias } from '../render/shadowBias';
 
 /**
@@ -19,8 +20,8 @@ import { depthBias } from '../render/shadowBias';
  * - flown as a helicopter flies (by its path, no physics): its nose along its way, turning to it over `turn` s;
  *   nose down `cruiseTilt` at `cruiseAt` m/s and on, `pitchPerAcc` more a m/s^2 speeding up (up slowing), banked
  *   `rollPerAcc` a m/s^2 into a turn - its motion smoothed over `smooth` s; never past `maxPitch`, `maxRoll`;
- * - its main rotor `rotorHz` turns a second, its tail rotor `tailHz`; its white strobe flashes `strobeOn` s every
- *   `strobeEvery` s.
+ * - its main rotor `rotorHz` turns a second (heard: audio/rotor; drawn as a blur, MAIN_ROTOR); its white strobe
+ *   flashes `strobeOn` s every `strobeEvery` s.
  */
 export const HELI = {
   height: 30,
@@ -48,9 +49,23 @@ export const HELI = {
   maxPitch: 0.35,
   maxRoll: 0.5,
   rotorHz: 5.5,
-  tailHz: 24,
   strobeEvery: 1.1,
   strobeOn: 0.06,
+};
+
+/**
+ * Its rotors' blurred blades (render/rotorBlur): four each. The main rotor's blades 0.35 m wide on a 5.5 m radius,
+ * a helicopter's rotor slow enough to see each blade - short trails, its tips still there; its pattern 9 rad/s
+ * (at 30 fps 17 degrees a frame, of the 45 a turning-back look starts at). The tail rotor's 0.12 m on 0.65 m, a
+ * blur more than blades.
+ */
+export const MAIN_ROTOR: RotorBlur = {
+  blades: 4, radius: 5.5, bladeWidth: 0.064, rootSmear: 0.02, tipSmear: 0.1, smearCurve: 1.4,
+  rootAlpha: 1, tipAlpha: 0.3, fadeCurve: 1.5, base: 0.08, baseCurve: 2, shade: 0.06, spin: 9,
+};
+export const TAIL_ROTOR: RotorBlur = {
+  blades: 4, radius: 0.65, bladeWidth: 0.18, rootSmear: 0.05, tipSmear: 0.25, smearCurve: 1.4,
+  rootAlpha: 0.9, tipAlpha: 0.2, fadeCurve: 1.5, base: 0.15, baseCurve: 2, shade: 0.06, spin: 14,
 };
 
 /**
@@ -259,6 +274,8 @@ export class Helicopter {
   private readonly object = new THREE.Group();
   private readonly rotor = new THREE.Group();
   private readonly tailRotor = new THREE.Group();
+  /** The main rotor's blurred disc, the tail rotor's. */
+  private readonly rotorDiscs: THREE.Mesh[] = [];
   private readonly strobe: THREE.Mesh;
   /** The lamp's face (lit with the searchlight), and how much of the searchlight is on (searchlight: 0..1). */
   private readonly lampMat: THREE.MeshBasicMaterial;
@@ -296,8 +313,6 @@ export class Helicopter {
   constructor(private readonly scene: THREE.Scene) {
     const dark = new THREE.MeshStandardMaterial({ color: 0x1c2026, roughness: 0.55, metalness: 0.3 });
     const glassy = new THREE.MeshStandardMaterial({ color: 0x0c1218, roughness: 0.15, metalness: 0.6 });
-    const blade = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 });
-    const disc = new THREE.MeshBasicMaterial({ color: 0x9aa4b0, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide });
     const lit = (hex: number) => new THREE.MeshBasicMaterial({ color: hex, toneMapped: false });
     const add = <T extends THREE.BufferGeometry>(g: T, m: THREE.Material, to: THREE.Object3D, x = 0, y = 0, z = 0) => {
       const mesh = new THREE.Mesh(g, m);
@@ -313,21 +328,25 @@ export class Helicopter {
     add(new THREE.CylinderGeometry(0.22, 0.5, 5.2, 8).rotateX(Math.PI / 2), dark, body, 0, 0.35, 4.3);
     add(new THREE.BoxGeometry(0.12, 1.5, 0.9), dark, body, 0, 1.0, 6.7);
     this.tailRotor.position.set(0.25, 1.0, 6.8);
-    add(new THREE.BoxGeometry(0.04, 1.3, 0.12), blade, this.tailRotor);
-    add(new THREE.BoxGeometry(0.04, 0.12, 1.3), blade, this.tailRotor);
+    this.tailRotor.rotation.y = Math.PI / 2; // (its disc across the boom: x its axis)
     body.add(this.tailRotor);
     // Skids.
     for (const x of [-0.95, 0.95]) {
       add(new THREE.CylinderGeometry(0.06, 0.06, 3.6, 6).rotateX(Math.PI / 2), dark, body, x, -1.55, 0);
       for (const z of [-0.8, 0.9]) add(new THREE.CylinderGeometry(0.05, 0.05, 0.6, 6), dark, body, x * 0.85, -1.2, z);
     }
-    // The main rotor: a mast, two crossed blades, a faint disc (the blur).
+    // The main rotor: a mast, its hub, its blades turning (a blurred disc: render/rotorBlur).
     add(new THREE.CylinderGeometry(0.12, 0.12, 0.5, 8), dark, body, 0, 1.35, -0.2);
+    add(new THREE.CylinderGeometry(0.28, 0.28, 0.14, 10), dark, body, 0, 1.6, -0.2);
     this.rotor.position.set(0, 1.6, -0.2);
-    add(new THREE.BoxGeometry(11, 0.05, 0.35), blade, this.rotor);
-    add(new THREE.BoxGeometry(0.35, 0.05, 11), blade, this.rotor);
+    this.rotor.rotation.x = -Math.PI / 2; // (its disc level: y its axis)
     body.add(this.rotor);
-    add(new THREE.CircleGeometry(5.5, 32).rotateX(-Math.PI / 2), disc, body, 0, 1.6, -0.2);
+    for (const [to, blur] of [[this.rotor, MAIN_ROTOR], [this.tailRotor, TAIL_ROTOR]] as const) {
+      const disc = rotorBlurMesh(blur);
+      to.add(disc);
+      this.rotorDiscs.push(disc);
+      this.disposables.push(disc.geometry, disc.material);
+    }
     // Navigation lights: red to port (left), green to starboard, the white strobe under the tail.
     add(new THREE.SphereGeometry(0.12, 8, 6), lit(0xff2a20), body, -1.1, 0, 0.2);
     add(new THREE.SphereGeometry(0.12, 8, 6), lit(0x20ff50), body, 1.1, 0, 0.2);
@@ -336,7 +355,7 @@ export class Helicopter {
     this.lampMat = lit(0x2a2d33);
     add(new THREE.CylinderGeometry(0.25, 0.3, 0.35, 10), this.lampMat, body, LAMP_AT.x, LAMP_AT.y, LAMP_AT.z);
     this.object.add(body);
-    this.disposables.push(dark, glassy, blade, disc);
+    this.disposables.push(dark, glassy);
 
     // The beam: lit air in a cone from the lamp to the lit car, added (black is no light). Each pixel as bright as
     // the light its sight line goes through: where that line is in the cone (worked out exactly: a cone, cut at the
@@ -569,8 +588,9 @@ export class Helicopter {
     const att = heliAttitude(-this.accel.x * sin - this.accel.z * cos, this.accel.x * cos - this.accel.z * sin, speed);
     this.object.position.copy(this.position);
     this.object.rotation.set(att.pitch, this.yaw, att.roll, 'YXZ');
-    this.rotor.rotation.y += play * 2 * Math.PI * HELI.rotorHz;
-    this.tailRotor.rotation.x += play * 2 * Math.PI * HELI.tailHz;
+    // (the blur's pattern at its own pace, not the rotor's: render/rotorBlur)
+    this.rotorDiscs[0].rotation.z = (this.rotorDiscs[0].rotation.z + play * MAIN_ROTOR.spin) % (2 * Math.PI);
+    this.rotorDiscs[1].rotation.z = (this.rotorDiscs[1].rotation.z + play * TAIL_ROTOR.spin) % (2 * Math.PI);
     this.strobe.visible = t % HELI.strobeEvery < HELI.strobeOn;
     this.object.visible = true;
     // The beam, from the lamp to the car (a little off it: a hand on the lamp, not a servo; swinging over to a new one).
