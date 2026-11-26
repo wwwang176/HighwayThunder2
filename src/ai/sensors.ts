@@ -32,6 +32,12 @@ export interface TrafficBox {
   v: number;
   length: number;
   /**
+   * Its body as it lies (turned `yaw` off the road, + toward +d; its half length and width): the box is the road-square
+   * box round it (wider than it turned). The planner goes by this where there is one (two cars turned side by side,
+   * touching: each one's box reached over the other, and both stood there). None: the box is its body.
+   */
+  body?: { yaw: number; halfLength: number; halfWidth: number };
+  /**
    * The lane a vehicle is about to move into: kept clear of like the vehicle itself, but touching it is not a
    * crash.
    */

@@ -971,13 +971,13 @@ export class PlayerCar {
     return this.headlights.map(smokeLightFromSpot);
   }
 
-  /** Road-space AABB for AI / reset checks. */
-  footprint(): { s: number; dMin: number; dMax: number; length: number } {
+  /** Road-space AABB for AI / reset checks, and its body as it lies in it (TrafficBox.body). */
+  footprint(): { s: number; dMin: number; dMax: number; length: number; body: { yaw: number; halfLength: number; halfWidth: number } } {
     const c = Math.abs(Math.cos(this.yaw));
     const sn = Math.abs(Math.sin(this.yaw));
     const { width: w, length: l } = this.params;
     const halfD = (w / 2) * c + (l / 2) * sn;
     const halfS = (l / 2) * c + (w / 2) * sn;
-    return { s: this.s, dMin: this.d - halfD, dMax: this.d + halfD, length: halfS * 2 };
+    return { s: this.s, dMin: this.d - halfD, dMax: this.d + halfD, length: halfS * 2, body: { yaw: this.yaw, halfLength: l / 2, halfWidth: w / 2 } };
   }
 }

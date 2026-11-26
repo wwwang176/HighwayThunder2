@@ -89,12 +89,13 @@ export function boxToFrame(
   frame: RoadFrame,
   b: { x: number; z: number; fx: number; fz: number; w: number; l: number; vx: number; vz: number },
   hint?: number,
-): { s: number; dMin: number; dMax: number; length: number; v: number } {
+): { s: number; dMin: number; dMax: number; length: number; v: number; body: { yaw: number; halfLength: number; halfWidth: number } } {
   const c = frame.fromWorld(b.x, b.z, hint);
   const yaw = frame.yawFromWorldForward(b.fx, b.fz, c.s);
   const cs = Math.abs(Math.cos(yaw));
   const sn = Math.abs(Math.sin(yaw));
   const halfD = (b.w / 2) * cs + (b.l / 2) * sn;
   const halfS = (b.l / 2) * cs + (b.w / 2) * sn;
-  return { s: c.s, dMin: c.d - halfD, dMax: c.d + halfD, length: halfS * 2, v: frame.speedAlong(b.vx, b.vz, c.s) };
+  // (its body as it lies too: TrafficBox.body)
+  return { s: c.s, dMin: c.d - halfD, dMax: c.d + halfD, length: halfS * 2, v: frame.speedAlong(b.vx, b.vz, c.s), body: { yaw, halfLength: b.l / 2, halfWidth: b.w / 2 } };
 }
