@@ -102,14 +102,18 @@ function beaconSpot(mesh: THREE.Object3D, name: string, side: number): THREE.Vec
 }
 
 /**
- * The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glow` (emissive intensity). Six
- * even beats - red, dark, red, blue, dark, blue: one colour's flashes straight into the other's, no gap between.
+ * The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glowRed` / `glowBlue` (emissive
+ * intensity). Six even beats - red, dark, red, blue, dark, blue: one colour's flashes straight into the other's, no
+ * gap between. Bright enough to bloom on their own (POST.threshold 2.05, by luminance: red 0.22 of it a unit, blue
+ * 0.13 - blue the brighter for it to look as bright); 4 at first, both under it: only the nearest car's bloomed, its
+ * beacon lighting its own bar from 25 cm (the user's call: every car's).
  */
 const FLASH = {
   cycle: 0.4,
   red: [[0, 1 / 6], [2 / 6, 3 / 6]] as [number, number][],
   blue: [[3 / 6, 4 / 6], [5 / 6, 1]] as [number, number][],
-  glow: 4,
+  glowRed: 20,
+  glowBlue: 35,
 };
 /**
  * The light bars' real light: one for them all - they flash red or blue, never both, all in step - at the flashing
@@ -368,8 +372,8 @@ export class Police {
       p.car.render(alpha, flares);
       const on = this.triggered && p.state !== 'parked';
       const bar = (p.lightBar ??= { red: ownMaterial(p.car.mesh.getObjectByName('lightbar-red')), blue: ownMaterial(p.car.mesh.getObjectByName('lightbar-blue')) });
-      if (bar.red) bar.red.emissiveIntensity = on && red ? FLASH.glow : 0;
-      if (bar.blue) bar.blue.emissiveIntensity = on && blue ? FLASH.glow : 0;
+      if (bar.red) bar.red.emissiveIntensity = on && red ? FLASH.glowRed : 0;
+      if (bar.blue) bar.blue.emissiveIntensity = on && blue ? FLASH.glowBlue : 0;
       const d = eye ? p.car.mesh.position.distanceToSquared(eye) : 0;
       if (on && d < nearD) {
         near = p;
