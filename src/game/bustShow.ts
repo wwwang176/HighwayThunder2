@@ -4,9 +4,10 @@ import { POLICE_TUNING } from './policeLogic';
 
 /**
  * The bust's slow motion: the race eased down from full speed to `scale` of it over `ease` s (real time), and held
- * there. (0.4 s at first: at its slowest at once - the user's call, slowed down gradually from full speed.)
+ * there. (0.4 s at first: at its slowest at once - the user's call, slowed down gradually from full speed.) Put
+ * back, eased back up to full speed over `back` s (real time; at once at first - the user's call, ~1 s).
  */
-export const BUST_SLOW = { scale: 0.15, ease: 1.5 };
+export const BUST_SLOW = { scale: 0.15, ease: 1.5, back: 1 };
 /**
  * The camera's orbit round the car (rad/s, real time; 0.9 at first: too fast, the user's call 66% less), how far out
  * (m), how high (m), its field of view (deg).
@@ -16,6 +17,11 @@ const ORBIT = { rate: 0.9 * 0.34, radius: 7, height: 2.2, fov: 45 };
 /** How fast the race runs `t` s (real) into the bust. */
 export function bustTimeScale(t: number): number {
   return THREE.MathUtils.lerp(1, BUST_SLOW.scale, THREE.MathUtils.smoothstep(t, 0, BUST_SLOW.ease));
+}
+
+/** How fast the race runs `t` s (real) after the bust's put-back: from its slow motion back up to full speed. */
+export function bustRecoverScale(t: number): number {
+  return THREE.MathUtils.lerp(BUST_SLOW.scale, 1, THREE.MathUtils.smoothstep(t, 0, BUST_SLOW.back));
 }
 
 /**

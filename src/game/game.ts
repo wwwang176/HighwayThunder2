@@ -89,7 +89,7 @@ import { GameFlow, picksCars, type Phase } from './gameState';
 import { FINISHED_SPEED, GRID_REV, PLAYER_BOX_ID, RaceView, RIVAL_COLORS, Rivals } from './rivals';
 import { Police } from './police';
 import { bustAllowed, type Racer } from './policeLogic';
-import { BustShow } from './bustShow';
+import { BustShow, bustRecoverScale } from './bustShow';
 import { Helicopter, type HeliTarget } from './helicopter';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
@@ -308,6 +308,8 @@ export class Game {
   private bust: BustShow | null = null;
   /** When (simTime) the player was last put back after a bust: none again for POLICE_TUNING.grace s. */
   private bustPutBackAt = -Infinity;
+  /** Real seconds (racing) since that put-back: the race easing back up to full speed (bustRecoverScale). */
+  private bustRecover = Infinity;
   private aiTraffic: TrafficBox[] = [];
   /** The traffic's bodies, drawn instanced. */
   private bodies!: BodyInstances;
@@ -958,6 +960,7 @@ export class Game {
     this.touched.clear();
     this.bust = null; // (a new race, or back to the garage, mid-bust: no put-back left to come)
     this.bustPutBackAt = -Infinity;
+    this.bustRecover = Infinity;
     this.contactSoundAt.clear();
     // A new road each race (and on the title's road too).
     this.roadLine = this.skidpad ? skidpadRoad() : this.mountain ? mountainRoad(Math.random) : randomRoad(Math.random, ROAD_LENGTH);
@@ -1193,16 +1196,21 @@ export class Game {
     // whole picture; only the menus, and the finish's show (what sets how slow), run on real time.
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     show?.step(dt);
-    // Busted: slowed down round the car on real time while the race is on (a pause holds it), then put back.
-    const bust = this.flow.phase === 'racing' ? this.bust : null;
+    // Busted: slowed down round the car on real time while the race is on (a pause holds it), then put back - and
+    // eased back up to full speed (bustRecoverScale), on real time too.
+    const racing = this.flow.phase === 'racing';
+    const bust = racing ? this.bust : null;
+    if (racing) this.bustRecover += dt;
     bust?.step(dt);
     if (bust?.done) {
       this.bust = null;
       this.putBack();
       this.bustPutBackAt = this.simTime;
+      this.bustRecover = 0;
     }
     const busted = bust && !bust.done ? bust : null;
-    const play = dt * (show ? show.timeScale : busted ? busted.timeScale : (TIME_SCALE[this.flow.phase] ?? 1));
+    const recovering = racing && !busted ? bustRecoverScale(this.bustRecover) : 1;
+    const play = dt * (show ? show.timeScale : busted ? busted.timeScale : (TIME_SCALE[this.flow.phase] ?? 1) * recovering);
     this.sound.setTimeScale(dt > 0 ? play / dt : 1); // (the engines slow with it; a pause leaves it as it was)
     if (play > 0 && !this.freeze) {
       this.accumulator += play;
@@ -1456,6 +1464,7 @@ export class Game {
         // A hit (not a scrape) busts the player: slow motion round the car, then put back; that police car pulls over.
         if (!this.bust && bustAllowed(this.flow.phase, rel * 3.6, this.simTime - this.bustPutBackAt)) {
           this.bust = new BustShow(this.camera, this.player);
+          this.bustRecover = Infinity; // (busted again easing back up: its own slow motion from full speed)
           this.police?.pullOver(police.id);
         }
         return;
