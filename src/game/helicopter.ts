@@ -41,8 +41,8 @@ export const HELI = {
   lightOn: 0.6,
   targetEvery: 10,
   retarget: 2,
-  reposition: 5,
-  repositionAcc: 10, // (5, in 8 s at least: slow to its car - its light out of reach the while; 10 its nose at 0.32 of maxPitch 0.35)
+  reposition: 3,
+  repositionAcc: 20, // (5 in 8 s at least, then 10 in 5: slow to its car - its light out of reach the while; leaning held to maxPitch/maxRoll)
   turn: 0.6,
   faceBelow: 60 / 3.6,
   pathAbove: 100 / 3.6,

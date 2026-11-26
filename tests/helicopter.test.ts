@@ -71,7 +71,7 @@ describe('police helicopter', () => {
     expect(switchFade(HELI.retarget, HELI.retarget)).toBe(0); // (the light on the new car)
     expect(switchFade(HELI.retarget + 1, HELI.retarget)).toBe(0);
     for (let t = 0; t < HELI.reposition; t += 0.1) expect(switchFade(t + 0.1, HELI.reposition)).toBeLessThanOrEqual(switchFade(t, HELI.reposition));
-    expect(switchFade(HELI.retarget, HELI.reposition)).toBeGreaterThan(0.6); // (the light there, the helicopter mostly not yet)
+    expect(switchFade(HELI.retarget, HELI.reposition)).toBeGreaterThan(0.2); // (the light there, the helicopter not yet)
     expect(switchFade(HELI.reposition, HELI.reposition)).toBe(0);
   });
 

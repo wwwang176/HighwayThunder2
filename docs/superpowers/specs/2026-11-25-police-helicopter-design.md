@@ -38,9 +38,10 @@ it never touches anything and does not change the chase (the police's own logic 
   light comes on) another racer, any but the one it lights, each as likely; the player when busted. (My call before:
   the player half the time, else a rival within 150 m of them, a roll every ~20 s - it seemed never to change.) The
   light and the circling
-  swing over to a new car apart, as two people's (the user's call): the light in 2 s, the helicopter in 5 s at least,
-  never pulling harder than 10 m/s^2 (both in 4 s at first, then 2 s: the helicopter lurched up to 150 m in it; then
-  8 s and 5 m/s^2 - 2026-11-27, the user's call: too slow over to the player, its light out of reach the while). Its ~10 s over a car counted from when it
+  swing over to a new car apart, as two people's (the user's call): the light in 2 s, the helicopter in 3 s at least,
+  never pulling harder than 20 m/s^2, leaning no more than its limits (both in 4 s at first, then 2 s: the helicopter
+  lurched up to 150 m in it; then 8 s and 5 m/s^2, then 5 s and 10 - 2026-11-27, the user's call: too slow over to the
+  player, its light out of reach the while). Its ~10 s over a car counted from when it
   is there (2026-11-26, the user's call: counted from the switch, its 8-17 s flight over ate it - it left a car as
   soon as it got there). Its car put back (a rival far off brought 200 m from the player, a reset) flown to as to a new
   car (2026-11-26, the user's call: it jumped with it).
