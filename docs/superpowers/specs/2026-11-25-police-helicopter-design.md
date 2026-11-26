@@ -41,7 +41,8 @@ it never touches anything and does not change the chase (the police's own logic 
   swing over to a new car apart, as two people's (the user's call): the light in 2 s, the helicopter in 8 s (both
   in 4 s at first, then 2 s: the helicopter lurched up to 150 m in it). Its ~10 s over a car counted from when it
   is there (2026-11-26, the user's call: counted from the switch, its 8-17 s flight over ate it - it left a car as
-  soon as it got there).
+  soon as it got there). Its car put back (a rival far off brought 200 m from the player, a reset) flown to as to a new
+  car (2026-11-26, the user's call: it jumped with it).
 - **Veil** only with the camera inside the beam (up to the lit car); the flare a little further (the chase camera
   behind the car looking up the beam) - the veil there greyed the whole view.
 - **Coming in** (the user's call, 2026-11-25): from far behind and high - 450 m back, 90 m over its height (~120 m

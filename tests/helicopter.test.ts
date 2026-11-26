@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, beamSpot, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, nextPickIn, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
+import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, beamSpot, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, nextPickIn, pickHeliTarget, repositionTime, shadowSpan, switchFade, targetJumped } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -133,6 +133,16 @@ describe('police helicopter', () => {
     const far = beamSpot(0, 60, 300, 0, 52);
     expect(Math.hypot(far.s, far.d - 60)).toBeCloseTo(52);
     expect(far.d).toBeCloseTo(60 - (60 * 52) / Math.hypot(300, 60));
+  });
+
+  it('its car put back (a rival brought near the player, a reset): seen as a jump, flown to as to a new car', () => {
+    const frame = 1 / 60;
+    expect(targetJumped(400 / 3.6 * frame, 0.08, frame)).toBe(false); // (flat out, changing lanes)
+    expect(targetJumped(0, 0, 0)).toBe(false); // (paused)
+    expect(targetJumped(-12, 0, 0)).toBe(true); // (put back while paused: none)
+    expect(targetJumped(210, 0, frame)).toBe(true); // (a rival 400 m behind put 200 m behind the player)
+    expect(targetJumped(-6, 0, frame)).toBe(true); // (a little back)
+    expect(targetJumped(0, 3.75, frame)).toBe(true); // (a lane over)
   });
 
   it('flying sideways: leaning that way, not nose down; backwards: nose up', () => {

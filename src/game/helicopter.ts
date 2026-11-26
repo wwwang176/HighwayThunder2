@@ -135,6 +135,19 @@ export function beamSpot(heliS: number, heliD: number, carS: number, carD: numbe
   return { s: heliS + ds * k, d: heliD + dd * k };
 }
 
+/** A car's most along the road (m/s, on: 430 km/h) and back or across (spinning, sliding) between two frames. */
+const DRIVEN = { on: 120, back: 30, across: 10, slack: 3, slackAcross: 2 };
+
+/**
+ * Whether its car moved by more than it could drive in `play` s (`ds` m along the road, `dd` across): put back
+ * (a rival far off brought near the player - 200 m and more; a reset: back a little, a lane over). Then flown to as
+ * to a new car (the user's call: it jumped with it).
+ */
+export function targetJumped(ds: number, dd: number, play: number): boolean {
+  const t = Math.max(0, play);
+  return ds > DRIVEN.on * t + DRIVEN.slack || ds < -(DRIVEN.back * t + DRIVEN.slack) || Math.abs(dd) > DRIVEN.across * t + DRIVEN.slackAcross;
+}
+
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const smooth = (x: number) => {
   const u = clamp01(x);
@@ -356,6 +369,10 @@ export class Helicopter {
   private aimD = 0;
   private aimOffS = 0;
   private aimOffD = 0;
+  /** Its car last frame (-1: none) and where it was: put back since (targetJumped), flown to. */
+  private lastTarget = -1;
+  private lastS = 0;
+  private lastD = 0;
   /** Its heading (rad, as a rotation about y: the nose toward -z) and acceleration (world, smoothed). */
   private yaw = 0;
   private readonly accel = new THREE.Vector3();
@@ -565,6 +582,7 @@ export class Helicopter {
     this.sinceSwitch = HELI.reposition;
     this.centreOff.set(0, 0);
     this.aimOffS = this.aimOffD = 0;
+    this.lastTarget = -1;
     this.hide();
   }
 
@@ -590,17 +608,37 @@ export class Helicopter {
       this.nextPick = nextPickIn(0, Math.random()); // (alone: the same car - again after a while)
     }
     if (next === this.target) return;
-    // Swinging over: from where it was (its centre, its light) to the new car's, as offsets from that car fading out.
-    const to = targets[next];
+    this.flyOver(targets[next]);
+    // (its while over it from when it is there - the busted player's too)
+    this.nextPick = nextPickIn(this.flightTime, Math.random());
+    this.target = next;
+  }
+
+  /**
+   * Swinging over to `to` (a new car, or its own put back - targetJumped): from where it was (its centre, its light)
+   * to the car's, as offsets from that car fading out.
+   */
+  private flyOver(to: HeliTarget): void {
     this.centreOff.set(this.centreS - to.s, this.centreD - to.d);
     // (along the road, not straight across: on a bend that cut across its inside, off the road)
     this.aimOffS = this.aimS - to.s;
     this.aimOffD = this.aimD - to.d;
     this.flightTime = repositionTime(Math.hypot(this.centreOff.x, this.centreOff.y));
-    // (its while over it from when it is there - the busted player's too)
-    this.nextPick = nextPickIn(this.flightTime, Math.random());
     this.sinceSwitch = 0;
-    this.target = next;
+  }
+
+  /**
+   * Its car put back since the last frame (a rival far off brought near the player, a reset: targetJumped): flown
+   * to as to a new car, its while over it from when it is there - not jumping with it.
+   */
+  private follow(play: number, car: HeliTarget): void {
+    if (this.target === this.lastTarget && targetJumped(car.s - this.lastS, car.d - this.lastD, play)) {
+      this.flyOver(car);
+      this.nextPick = Math.max(this.nextPick, nextPickIn(this.flightTime, Math.random()));
+    }
+    this.lastTarget = this.target;
+    this.lastS = car.s;
+    this.lastD = car.d;
   }
 
   /**
@@ -616,6 +654,7 @@ export class Helicopter {
     this.sinceSwitch += play;
     this.choose(play, targets, player);
     const car = targets[this.target];
+    this.follow(play, car);
     // (its pilot slower to a new car than its light's operator)
     const flight = switchFade(this.sinceSwitch, this.flightTime);
     this.centreS = car.s + this.centreOff.x * flight;
