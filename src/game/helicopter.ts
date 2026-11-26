@@ -61,11 +61,11 @@ export const HELI = {
  */
 export const MAIN_ROTOR: RotorBlur = {
   blades: 4, radius: 5.5, bladeWidth: 0.064, rootSmear: 0.02, tipSmear: 0.1, smearCurve: 1.4,
-  rootAlpha: 1, tipAlpha: 0.3, fadeCurve: 1.5, base: 0.08, baseCurve: 2, shade: 0.06, spin: 9,
+  rootAlpha: 1, tipAlpha: 0.3, fadeCurve: 1.5, base: 0.08, baseCurve: 2, shade: 0.4, spin: 9,
 };
 export const TAIL_ROTOR: RotorBlur = {
   blades: 4, radius: 0.65, bladeWidth: 0.18, rootSmear: 0.05, tipSmear: 0.25, smearCurve: 1.4,
-  rootAlpha: 0.9, tipAlpha: 0.2, fadeCurve: 1.5, base: 0.15, baseCurve: 2, shade: 0.06, spin: 14,
+  rootAlpha: 0.9, tipAlpha: 0.2, fadeCurve: 1.5, base: 0.15, baseCurve: 2, shade: 0.4, spin: 14,
 };
 
 /**
@@ -311,6 +311,8 @@ export class Helicopter {
   flying = false;
 
   constructor(private readonly scene: THREE.Scene) {
+    // (its body grey-white: dark, it was not to be seen against the night sky; its skids, mast and hub dark)
+    const paint = new THREE.MeshStandardMaterial({ color: 0xc4c8cc, roughness: 0.5, metalness: 0.2 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x1c2026, roughness: 0.55, metalness: 0.3 });
     const glassy = new THREE.MeshStandardMaterial({ color: 0x0c1218, roughness: 0.15, metalness: 0.6 });
     const lit = (hex: number) => new THREE.MeshBasicMaterial({ color: hex, toneMapped: false });
@@ -323,10 +325,10 @@ export class Helicopter {
     };
     const body = new THREE.Group();
     // The cabin: a capsule lying along z, its nose (-z) glazed; the tail boom tapering back; the fin, the tail rotor.
-    add(new THREE.CapsuleGeometry(1.15, 2.6, 6, 12).rotateX(Math.PI / 2), dark, body);
+    add(new THREE.CapsuleGeometry(1.15, 2.6, 6, 12).rotateX(Math.PI / 2), paint, body);
     add(new THREE.SphereGeometry(1.05, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(-Math.PI / 2), glassy, body, 0, 0.1, -1.6);
-    add(new THREE.CylinderGeometry(0.22, 0.5, 5.2, 8).rotateX(Math.PI / 2), dark, body, 0, 0.35, 4.3);
-    add(new THREE.BoxGeometry(0.12, 1.5, 0.9), dark, body, 0, 1.0, 6.7);
+    add(new THREE.CylinderGeometry(0.22, 0.5, 5.2, 8).rotateX(Math.PI / 2), paint, body, 0, 0.35, 4.3);
+    add(new THREE.BoxGeometry(0.12, 1.5, 0.9), paint, body, 0, 1.0, 6.7);
     this.tailRotor.position.set(0.25, 1.0, 6.8);
     this.tailRotor.rotation.y = Math.PI / 2; // (its disc across the boom: x its axis)
     body.add(this.tailRotor);
@@ -355,7 +357,7 @@ export class Helicopter {
     this.lampMat = lit(0x2a2d33);
     add(new THREE.CylinderGeometry(0.25, 0.3, 0.35, 10), this.lampMat, body, LAMP_AT.x, LAMP_AT.y, LAMP_AT.z);
     this.object.add(body);
-    this.disposables.push(dark, glassy);
+    this.disposables.push(paint, dark, glassy);
 
     // The beam: lit air in a cone from the lamp to the lit car, added (black is no light). Each pixel as bright as
     // the light its sight line goes through: where that line is in the cone (worked out exactly: a cone, cut at the
