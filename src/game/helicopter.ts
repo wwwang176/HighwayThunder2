@@ -119,6 +119,22 @@ export function beamReach(dx: number, dz: number, drop: number): number {
   return across === 0 ? 1 : Math.min(1, (Math.max(0, drop) * Math.tan(BEAM.maxTilt)) / across);
 }
 
+/**
+ * Where on the road it lights (`s` along, `d` across), over (`heliS`, `heliD`) with its car at (`carS`, `carD`), its
+ * light reaching `reach` m across (BEAM.maxTilt at its height): the car; a car out of reach, on its lane, as near it
+ * as it reaches - on the road, waiting for it (the user's call: short of it on the straight line to it, it lit the
+ * city - itself over it, out to the side of its circle, the line to a car far off along the road); its lane out of
+ * reach altogether (not flown so), the way to it.
+ */
+export function beamSpot(heliS: number, heliD: number, carS: number, carD: number, reach: number): { s: number; d: number } {
+  const ds = carS - heliS, dd = carD - heliD;
+  const across = Math.hypot(ds, dd);
+  if (across <= reach) return { s: carS, d: carD };
+  if (Math.abs(dd) < reach) return { s: heliS + Math.sign(ds) * Math.sqrt(reach * reach - dd * dd), d: carD };
+  const k = reach / across;
+  return { s: heliS + ds * k, d: heliD + dd * k };
+}
+
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const smooth = (x: number) => {
   const u = clamp01(x);
@@ -335,7 +351,11 @@ export class Helicopter {
   private centreD = 0;
   private readonly centreOff = new THREE.Vector2();
   private readonly aim = new THREE.Vector3();
-  private readonly aimOff = new THREE.Vector3();
+  /** Where on the road its light falls (beamSpot: s, d), and, swinging over to a new car, how far off it it was. */
+  private aimS = 0;
+  private aimD = 0;
+  private aimOffS = 0;
+  private aimOffD = 0;
   /** Its heading (rad, as a rotation about y: the nose toward -z) and acceleration (world, smoothed). */
   private yaw = 0;
   private readonly accel = new THREE.Vector3();
@@ -544,7 +564,7 @@ export class Helicopter {
     this.nextPick = HELI.arrive + HELI.targetEvery;
     this.sinceSwitch = HELI.reposition;
     this.centreOff.set(0, 0);
-    this.aimOff.set(0, 0, 0);
+    this.aimOffS = this.aimOffD = 0;
     this.hide();
   }
 
@@ -573,7 +593,9 @@ export class Helicopter {
     // Swinging over: from where it was (its centre, its light) to the new car's, as offsets from that car fading out.
     const to = targets[next];
     this.centreOff.set(this.centreS - to.s, this.centreD - to.d);
-    this.aimOff.copy(this.aim).sub(to.pos);
+    // (along the road, not straight across: on a bend that cut across its inside, off the road)
+    this.aimOffS = this.aimS - to.s;
+    this.aimOffD = this.aimD - to.d;
     this.flightTime = repositionTime(Math.hypot(this.centreOff.x, this.centreOff.y));
     // (its while over it from when it is there - the busted player's too)
     this.nextPick = nextPickIn(this.flightTime, Math.random());
@@ -601,7 +623,8 @@ export class Helicopter {
     const t = this.clock;
     // (its circle's start as it comes down: ahead of the car, in the chase camera's view, as its light comes on)
     const o = heliOrbit(t - HELI.arrive);
-    place(this.centreS + o.ahead + arrivalAhead(this.since), this.centreD + o.side, A);
+    const heliS = this.centreS + o.ahead + arrivalAhead(this.since), heliD = this.centreD + o.side;
+    place(heliS, heliD, A);
     const prev = B.copy(this.position);
     this.position.set(A.x, A.y + heliHeight(t) + arrivalRise(this.since), A.z);
     // Its motion (smoothed: the cars' shakes not in it), and how it hangs by it.
@@ -639,10 +662,21 @@ export class Helicopter {
     // The beam, from the lamp to the car (a little off it: a hand on the lamp, not a servo; swinging over to a new one).
     this.object.updateMatrixWorld();
     this.lamp.copy(LAMP_AT).applyMatrix4(this.object.matrixWorld);
-    this.aim.copy(car.pos).addScaledVector(this.aimOff, switchFade(this.sinceSwitch, HELI.retarget));
+    // (on the road: swinging over along it; a car out of reach - BEAM.maxTilt - waited for on its lane: beamSpot)
+    const fade = switchFade(this.sinceSwitch, HELI.retarget);
+    const wantS = car.s + this.aimOffS * fade, wantD = car.d + this.aimOffD * fade;
+    const across = Math.max(0, this.lamp.y - car.pos.y) * Math.tan(BEAM.maxTilt);
+    const spot = beamSpot(heliS, heliD, wantS, wantD, across);
+    this.aimS = spot.s;
+    this.aimD = spot.d;
+    if (spot.s === car.s && spot.d === car.d) this.aim.copy(car.pos);
+    else {
+      place(spot.s, spot.d, this.aim);
+      this.aim.y = car.pos.y;
+    }
     // (its hand's wander: 1.2 / 1.6 m at 2.6 / 1.6 rad/s - 0.6 / 0.8 m at 1.3 / 0.8 at first, too steady)
     DIR.set(this.aim.x + 1.2 * Math.sin(t * 2.6), this.aim.y, this.aim.z + 1.6 * Math.sin(t * 1.6 + 1)).sub(this.lamp);
-    // (no further over than BEAM.maxTilt, its hand's wander too: short of a car far off - beamReach)
+    // (no further over than BEAM.maxTilt, its hand's wander too - the lamp not quite where the helicopter is: beamReach)
     const reach = beamReach(DIR.x, DIR.z, -DIR.y);
     DIR.x *= reach;
     DIR.z *= reach;

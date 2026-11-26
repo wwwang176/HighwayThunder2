@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, nextPickIn, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
+import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, beamSpot, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, nextPickIn, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -116,6 +116,23 @@ describe('police helicopter', () => {
     expect(beamReach(60, 80, 30)).toBeCloseTo((30 * Math.tan(BEAM.maxTilt)) / 100);
     expect(beamReach(0, 0, 30)).toBe(1); // (right under it)
     expect(beamReach(10, 0, 0)).toBe(0); // (no lower than it: straight down)
+  });
+
+  it('a car out of its reach lit on its lane, the nearest of it it reaches: on the road, not off it on the way', () => {
+    // (within reach: the car)
+    expect(beamSpot(0, 28, 30, 0, 52)).toEqual({ s: 30, d: 0 });
+    // (over the city 28 m off the middle, a car 300 m on: on the car's lane, 43.8 m along - 23 m off the road it was)
+    const ahead = beamSpot(0, 28, 300, 0, 52);
+    expect(ahead.d).toBe(0);
+    expect(ahead.s).toBeCloseTo(Math.sqrt(52 ** 2 - 28 ** 2));
+    expect(Math.hypot(ahead.s - 0, ahead.d - 28)).toBeCloseTo(52); // (as far over as it may)
+    const behind = beamSpot(10, -20, -300, 3.75, 52);
+    expect(behind.d).toBe(3.75);
+    expect(behind.s).toBeCloseTo(10 - Math.sqrt(52 ** 2 - 23.75 ** 2));
+    // (its lane out of reach altogether - not flown so: the way to it, as far as it reaches)
+    const far = beamSpot(0, 60, 300, 0, 52);
+    expect(Math.hypot(far.s, far.d - 60)).toBeCloseTo(52);
+    expect(far.d).toBeCloseTo(60 - (60 * 52) / Math.hypot(300, 60));
   });
 
   it('flying sideways: leaning that way, not nose down; backwards: nose up', () => {

@@ -50,7 +50,10 @@ it never touches anything and does not change the chase (the police's own logic 
 - **The light's tilt** (the user's call, 2026-11-26): never more than 60 degrees off straight down, its hand's
   wander too - a car far off (just picked, the helicopter on its way) lit on the ground short of it, the way to it,
   not by a beam lying along the ground; on it once it is near. (Its circling is 36-74 degrees off straight down, 55
-  the median: on its car ~60% of the time; 45 degrees would have been 20%.)
+  the median: on its car ~60% of the time; 45 degrees would have been 20%.) A car out of reach lit on its lane, as
+  near it as it reaches (2026-11-26, the user's call: short of it on the straight line to it, it lit the city - the
+  helicopter out to the side of its circle, the line to a car far off along the road); its swing to a new car along
+  the road too.
 - **Facing** (the user's call, 2026-11-26): its nose along its way from 100 km/h; under 60 km/h toward its car (it
   circles sideways, watching it); between the two in between. It leans the way it goes, sideways too.
 - **Rotors** (2026-11-26): blurred blades on a disc each (render/rotorBlur), the pattern at its own pace (the
