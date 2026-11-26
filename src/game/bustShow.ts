@@ -2,8 +2,11 @@ import * as THREE from 'three';
 import type { PlayerCar } from '../vehicles/playerCar';
 import { POLICE_TUNING } from './policeLogic';
 
-/** The bust's slow motion: the race eased down to `scale` of its speed over `ease` s (real time), and held there. */
-export const BUST_SLOW = { scale: 0.15, ease: 0.4 };
+/**
+ * The bust's slow motion: the race eased down from full speed to `scale` of it over `ease` s (real time), and held
+ * there. (0.4 s at first: at its slowest at once - the user's call, slowed down gradually from full speed.)
+ */
+export const BUST_SLOW = { scale: 0.15, ease: 1.5 };
 /**
  * The camera's orbit round the car (rad/s, real time; 0.9 at first: too fast, the user's call 66% less), how far out
  * (m), how high (m), its field of view (deg).
