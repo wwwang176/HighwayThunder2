@@ -3,6 +3,7 @@ import { store } from './storage';
 import Stats from 'stats.js';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
+import { BeaconGlow } from '../render/beaconGlow';
 import { PlanPath } from '../render/planPath';
 import { POST, PostFx } from '../render/postFx';
 import { blurAmount, blurMask as emptyBlurMask, MASK_POINTS, motionCenter, type BlurMask } from '../render/speedBlur';
@@ -211,6 +212,8 @@ export class Game {
   private readonly post: PostFx;
   private flares!: LightFlares;
   readonly npcBeams = new NpcBeams();
+  /** The police light bars' red and blue on the ground (all but the nearest's: its real light). */
+  private readonly beaconGlow = new BeaconGlow();
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 3000);
   readonly keyboard = new Keyboard();
@@ -1089,7 +1092,10 @@ export class Game {
     this.scene.fog = root.fog;
     root.background = null;
     root.fog = null;
-    for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
+    for (const m of this.road.groundMaterials) {
+      this.npcBeams.patch(m);
+      this.beaconGlow.patch(m);
+    }
     this.gate = this.mountain ? new FinishGate(root, { left: -MOUNTAIN.edge - 0.6, right: MOUNTAIN.edge + 0.6, length: this.skidpad ? SKIDPAD.length : this.courseLength }) : new FinishGate(root);
     // (the practice ground: no finish, no time - its course endless, the gate and the HUD's time and track not shown)
     document.body.classList.toggle('skidpad', this.skidpad);
@@ -1977,7 +1983,8 @@ export class Game {
       for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
     }
     this.rivals.render(alpha, this.flares);
-    this.police?.render(alpha, play, this.flares, pp);
+    this.beaconGlow.clear(); // (no police: none left from before)
+    this.police?.render(alpha, play, this.flares, pp, this.beaconGlow);
     for (const car of this.lightRivals(play)) this.npcBeams.add(car.mesh, pp.x, pp.z); // (the rivals without a real lamp: their beams painted)
     this.flares.end();
     this.npcBeams.end();

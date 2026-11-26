@@ -5,6 +5,7 @@ import { trackerFrom } from '../ai/netTracker';
 import { PlannerDriver, type PlanSource } from '../ai/plannerDriver';
 import type { TrafficBox } from '../ai/sensors';
 import type { PhysicsWorld } from '../physics/physicsWorld';
+import type { BeaconGlow } from '../render/beaconGlow';
 import type { LightFlares } from '../render/lightFlares';
 import type { Centerline } from '../road/centerline';
 import { lanesOccupied, surfaceGrip } from '../road/coords';
@@ -114,6 +115,8 @@ const FLASH = {
  * The light bars' real light: one for them all - they flash red or blue, never both, all in step - at the flashing
  * car nearest the player, `lift` m over the half lit, in its colour (candela; out to `distance` m, falling off by
  * `decay`); dark between the flashes. In the scene throughout (a light coming and going has every material rebuilt).
+ * The others' bars light the ground as it would (render/beaconGlow: in the ground's shaders - the user's call, the
+ * ground what shows it most; a real light each: every pixel's cost), not the cars, nor the rails.
  */
 const BEACON = { intensity: 120, distance: 30, decay: 1.6, lift: 0.25, red: 0xff2020, blue: 0x2050ff };
 
@@ -137,6 +140,8 @@ export class Police {
   private clock = 0;
   /** The light bars' real light (BEACON; none without a scene: the sims). */
   private readonly beacon: THREE.PointLight | null;
+  /** The other flashing cars' beacons this frame (world), for the ground (BeaconGlow). */
+  private readonly glowSpots: THREE.Vector3[] = [];
 
   constructor(
     private readonly physics: PhysicsWorld,
@@ -352,8 +357,8 @@ export class Police {
   }
 
   /** Drawn: `play` s of the race's time on (the light bars' flashing: still when paused); the beacon at the flashing
-   * car nearest `eye` (the player). */
-  render(alpha: number, play: number, flares?: LightFlares, eye?: THREE.Vector3): void {
+   * car nearest `eye` (the player), the others' on the ground (`glow`). */
+  render(alpha: number, play: number, flares?: LightFlares, eye?: THREE.Vector3, glow?: BeaconGlow): void {
     this.flashTime += play;
     const x = (this.flashTime % FLASH.cycle) / FLASH.cycle;
     const red = FLASH.red.some(([a, b]) => x >= a && x < b), blue = FLASH.blue.some(([a, b]) => x >= a && x < b);
@@ -372,17 +377,32 @@ export class Police {
       }
     }
     const b = this.beacon;
+    glow?.clear();
     if (!b) return;
     if (!near || !(red || blue)) {
       b.intensity = 0;
       return;
     }
-    const mesh = near.car.mesh;
-    mesh.updateMatrixWorld();
-    const at = (near.beaconAt ??= { red: beaconSpot(mesh, 'lightbar-red', -1), blue: beaconSpot(mesh, 'lightbar-blue', 1) });
-    b.position.copy(red ? at.red : at.blue).applyMatrix4(mesh.matrixWorld);
+    this.beaconAt(near, red, b.position);
     b.color.setHex(red ? BEACON.red : BEACON.blue);
     b.intensity = BEACON.intensity;
+    if (!glow) return;
+    const spots = this.glowSpots;
+    let n = 0;
+    for (const p of this.list) {
+      if (p === near || !this.triggered || p.state === 'parked') continue;
+      this.beaconAt(p, red, (spots[n] ??= new THREE.Vector3()));
+      n++;
+    }
+    glow.set(spots, n, red ? BEACON.red : BEACON.blue, BEACON);
+  }
+
+  /** Where (world) `p`'s beacon shines from, over its red half or its blue. */
+  private beaconAt(p: PoliceCar, red: boolean, out: THREE.Vector3): THREE.Vector3 {
+    const mesh = p.car.mesh;
+    mesh.updateMatrixWorld();
+    const at = (p.beaconAt ??= { red: beaconSpot(mesh, 'lightbar-red', -1), blue: beaconSpot(mesh, 'lightbar-blue', 1) });
+    return out.copy(red ? at.red : at.blue).applyMatrix4(mesh.matrixWorld);
   }
 
   /** The police cars with their lights on (chasing, guarding, pulled over): their sirens heard. */
