@@ -1383,6 +1383,19 @@ export class Game {
         this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, sliding && near(w.contactX, w.contactZ) ? w.slip : 0, rv.x, rv.z, dt, kick.x, kick.z, w.contactY);
       });
     }
+    // The police cars' tyres too (keys 40 on; parked - put somewhere new: no trail across to there).
+    for (const p of this.police?.list ?? []) {
+      const c = p.car;
+      const v = c.body.linvel();
+      const out = p.state !== 'parked';
+      const pSideways = c.slidingSideways;
+      c.wheels.forEach((w, i) => {
+        const sliding = out && w.inContact && (w.sliding || pSideways);
+        this.skids.add(40 + p.index * 4 + i, w.contactX, w.contactZ, w.dirX, w.dirZ, sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0, w.contactY);
+        const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, v.x, v.z);
+        this.smoke.emit(40 + p.index * 4 + i, w.contactX, w.contactZ, sliding && near(w.contactX, w.contactZ) ? w.slip : 0, v.x, v.z, dt, kick.x, kick.z, w.contactY);
+      });
+    }
     // Wrecks run on the same tyre model, so they leave marks and smoke too.
     for (const npc of this.npcs.values()) {
       if (!npc.wrecked) continue;
