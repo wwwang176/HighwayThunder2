@@ -5,9 +5,11 @@ export const ROTOR_BUNDLE_URL = 'audio/rotor.bin';
 
 /**
  * The police helicopter's rotor: a recording of one hovering, one seamless lap of it looped (its clip at -16.7 LUFS),
- * heard as loud as `volume` at `ref` m, quieter by inverse distance (`rolloff`), none past `range` m.
+ * heard as loud as `volume` at `ref` m, quieter by inverse distance (`rolloff`), none past `range` m. Overhead (25-35 m
+ * up: within `ref`) as loud as the player's engine flat out (its -16 LUFS clips at 0.8 in both ears; this one 0.7 dB
+ * quieter, and panned equal-power: 0.71 of it in each ear at the middle). (0.45 at first: 5-6 dB under the engine.)
  */
-export const ROTOR = { volume: 0.45, ref: 40, rolloff: 1, range: 900 };
+export const ROTOR = { volume: 1.2, ref: 40, rolloff: 1, range: 900 };
 
 /** Its playback rate: its Doppler factor at the race's `timeScale` (slow motion: slower and deeper), never quite 0. */
 export function rotorRate(doppler: number, timeScale: number): number {

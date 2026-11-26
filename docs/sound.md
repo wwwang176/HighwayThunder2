@@ -180,6 +180,7 @@ the private repository, copied in for the build by the Pages workflow. No playli
 A recording of a helicopter hovering (`rotor.bin`, clip `rotor`): one seamless lap of its steady first 10 s (9.6 s,
 from 0.4 s - past its fade-in; its length where the blades' beat runs on into the start, crossfaded over 0.3 s), at
 -16.7 LUFS (held by its peak, -1 dBFS: low and heavy). Looped from anywhere in its lap (`src/audio/rotor.ts`),
-placed by hand (pan.ts) at the helicopter, 0.45 at 40 m, quieter by inverse distance, none past 900 m; played at its
+placed by hand (pan.ts) at the helicopter, 1.2 within 40 m (overhead: as loud as the player's engine flat out, the
+user's call - 0.45 at first, 5-6 dB under it), quieter by inverse distance, none past 900 m; played at its
 Doppler factor times the race's time scale (a bust's slow motion: slower and deeper, and half as loud). Silent
 without its bundle (the synthesised one it replaced removed, 2026-11-26).
