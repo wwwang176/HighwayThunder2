@@ -70,7 +70,7 @@ export const NAV_LIGHTS = { side: 12, strobe: 20 };
  * searchlight's pool lighting it back up - the road's `albedo` of the light on it over the pool's area
  * (BEAM.groundRadius), a lit surface facing up (its candela: albedo E r^2).
  */
-export const HELI_GLOW = { city: 0xffb35c, cityStrength: 0.4, albedo: 0.25 };
+export const HELI_GLOW = { city: 0xffb35c, cityStrength: 0.2, albedo: 0.125 }; // (0.4, 0.25: too plain to see)
 
 /** Its searchlight's pool's light up (candela), its light `len` m down to it, `lit` its share on (0..1). See HELI_GLOW. */
 export function poolBounce(len: number, lit: number): number {
