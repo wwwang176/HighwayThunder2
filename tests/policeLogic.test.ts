@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { BLOCK, BRAKE_CHECK, blockClear, blockD, blockSteer, brakeCheckDue, noseAhead, passD, ramAllowed, bustAllowed, chaseStarts, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, racerVD, ramInput, reachTime, SHOULDER_D, Sighting, type Racer } from '../src/game/policeLogic';
-import { LANE_WIDTH, RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
+import { BLOCK, BRAKE_CHECK, blockClear, blockD, blockSteer, brakeCheckDue, noseAhead, passD, bustAllowed, chaseStarts, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, racerVD, ramInput, pushing, railSide, reachTime, SHOULDER_D, SIDE, sideD, sideMode, sideSpeed, Sighting, type Racer } from '../src/game/policeLogic';
+import { KMH, LANE_WIDTH, RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
 import type { SelfState, TrafficBox } from '../src/ai/sensors';
 import type { Plan } from '../src/ai/planner';
 
@@ -151,9 +151,7 @@ describe('policeLogic', () => {
     expect(BLOCK.noseAhead).toBe(1);
   });
 
-  it('behind: rams only a target slowed under RAM_BELOW; else passes it, in the lane beside it nearer, the less busy', () => {
-    expect(ramAllowed(100 / 3.6)).toBe(true);
-    expect(ramAllowed(150 / 3.6)).toBe(false);
+  it('behind: passes it, in the lane beside it nearer, the less busy', () => {
     const suv = { s: 960, d: -1.875, halfWidth: 1, halfLength: 2.5 };
     const t = { s: 1000, d: 1.875, v: 55, isPlayer: true };
     expect(passD(suv, t, [])).toBeCloseTo(1.875 - LANE_WIDTH); // (the one beside it on its side)
@@ -162,6 +160,27 @@ describe('policeLogic', () => {
     expect(passD({ ...suv, d: 5.625 }, { ...t, d: 5.625 }, [])).toBeCloseTo(SHOULDER_D); // (in the outer lane: the shoulder beside it, the police's own)
     expect(passD({ ...suv, d: -5.625 }, { ...t, d: -5.625 }, [])).toBeCloseTo(-SHOULDER_D); // (the median's side too)
     expect(passD({ ...suv, d: 6.5 }, { ...t, d: 6.5 }, [])).toBeCloseTo(6.5 - LANE_WIDTH); // (on the road's very edge: the shoulder too near it)
+  });
+
+  it('a racer slowed under 120 km/h shoved from beside it into its nearest rail, till it is back over 130', () => {
+    expect(sideMode(false, 119 * KMH)).toBe(true);
+    expect(sideMode(false, 121 * KMH)).toBe(false);
+    expect(sideMode(true, 125 * KMH)).toBe(true); // (no flicking back and forth round 120)
+    expect(sideMode(true, 131 * KMH)).toBe(false);
+    expect(railSide(3)).toBe(1); // (the outer rail)
+    expect(railSide(-0.5)).toBe(-1); // (the median's)
+    // (on its other side, SIDE.gap m apart: a target 0.93 half wide, the SUV 0.99)
+    expect(sideD({ ...P(0), d: 5.6 }, 0.93, 0.99)).toBeCloseTo(5.6 - (0.93 + 0.99 + SIDE.gap));
+    expect(sideD({ ...P(0), d: -5.6 }, 0.93, 0.99)).toBeCloseTo(-5.6 + (0.93 + 0.99 + SIDE.gap));
+    // (as fast as them level with them; faster behind, slower ahead)
+    expect(sideSpeed(100, { ...P(100), v: 25 })).toBeCloseTo(25);
+    expect(sideSpeed(90, { ...P(100), v: 25 })).toBeGreaterThan(25);
+    expect(sideSpeed(110, { ...P(100), v: 25 })).toBeLessThan(25);
+    expect(sideSpeed(200, { ...P(100), v: 25 })).toBe(0);
+    // (shoving only level with them, from the side away from the rail)
+    expect(pushing({ s: 101, d: 2 }, { ...P(100), d: 5.6 })).toBe(true);
+    expect(pushing({ s: 100 - SIDE.level - 0.5, d: 2 }, { ...P(100), d: 5.6 })).toBe(false); // (not level yet)
+    expect(pushing({ s: 100, d: 8.5 }, { ...P(100), d: 5.6 })).toBe(false); // (between them and the rail)
   });
 
   it('blocking: steered across to where its target will be', () => {

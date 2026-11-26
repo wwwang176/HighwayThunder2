@@ -15,12 +15,12 @@ import type { Obstacle } from '../traffic/trafficAI';
 import { POLICE_SUV } from '../vehicles/cars';
 import type { DriveInput } from '../vehicles/handling';
 import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
-import { BLOCK, blockClear, blockD, blockSteer, BRAKE_CHECK, brakeCheckDue, chaseStarts, guardD, guardHorizon, inLine, isLost, lineClear, noseAhead, outOfSight, parkSpot, passD, phaseOf, pickTarget, POLICE_TUNING, racerVD, ramAllowed, ramInput, type Racer, reachTime, SHOULDER_D, Sighting } from './policeLogic';
+import { BLOCK, blockClear, blockD, blockSteer, BRAKE_CHECK, brakeCheckDue, chaseStarts, guardD, guardHorizon, inLine, isLost, lineClear, noseAhead, outOfSight, parkSpot, passD, phaseOf, pickTarget, POLICE_TUNING, pushing, racerVD, railSide, type Racer, reachTime, SHOULDER_D, SIDE, sideD, sideMode, sideSpeed, Sighting } from './policeLogic';
 import { coursePlan } from '../ai/coursePlanner';
 import type { Plan } from '../ai/planner';
 import type { Blocker } from './reset';
 
-/** Parked on the shoulder; ahead of its target (on its way); behind it (chasing, ramming); done, pulling over. */
+/** Parked on the shoulder; ahead of its target (on its way); behind it (chasing); done, pulling over. */
 export type PoliceState = 'parked' | 'front' | 'behind' | 'pullover';
 
 export interface PoliceCar {
@@ -29,8 +29,9 @@ export interface PoliceCar {
   driver: PlannerDriver;
   state: PoliceState;
   target: Racer | null;
-  /** Ramming its target this step (the line to it clear): steered at it, not by its plans. */
-  ramming: boolean;
+  /** Going for its target from beside it (SIDE: it slowed), and shoving it into the rail this step: steered, not by its plans. */
+  siding: boolean;
+  pushing: boolean;
   /** Blocking its target this step (BLOCK: about to pass it, no traffic in the way): steered across, not by its plans. */
   blocking: boolean;
   /** A brake check (BRAKE_CHECK): s of it left (0: none), s till another may be; on this step. */
@@ -67,8 +68,6 @@ const PULL_OVER = { speed: 40 * KMH, near: 0.4 };
 const PARK_APART = 40;
 /** With nobody to go for, still in the player's sight: on along the road this fast (m/s). */
 const CRUISE = 100 * KMH;
-/** Rams only a target at most this far ahead (m): further, it closes in by its plans. */
-const RAM_RANGE = 120;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
 /** Guarding: the target's line worked out again every `every` s (only as far as it needs: guardHorizon - its 8 s took
  * 71 ms, a guard 0.4-0.5 s behind), as if it drove for at most `cap` m/s. */
@@ -176,7 +175,7 @@ export class Police {
       driver.latAccel = spec.ai.latAccel;
       driver.brake = spec.ai.brake;
       driver.tracker = trackerFrom(spec.ai.tracker);
-      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, blocking: false, brakeLeft: 0, brakeCooldown: 0, braking: false, sighting: new Sighting(), sightingFor: undefined, guardPlan: null, guardClock: 0, guardAsked: -1, guardFor: undefined });
+      this.list.push({ index: i, car, driver, state: 'parked', target: null, siding: false, pushing: false, blocking: false, brakeLeft: 0, brakeCooldown: 0, braking: false, sighting: new Sighting(), sightingFor: undefined, guardPlan: null, guardClock: 0, guardAsked: -1, guardFor: undefined });
     }
     this.place();
   }
@@ -216,7 +215,7 @@ export class Police {
     for (const p of this.list) if (p.state === 'parked' && chaseStarts(p.car.s, racers)) this.triggered = true;
     for (const p of this.list) {
       const c = p.car;
-      p.ramming = false;
+      p.pushing = false;
       p.blocking = false;
       p.braking = false;
       p.brakeCooldown = Math.max(0, p.brakeCooldown - dt);
@@ -262,6 +261,24 @@ export class Police {
       p.target = t;
       p.state = phaseOf(c.s, t);
       const seen = this.seen(p, racerBoxes, traffic);
+      p.siding = sideMode(p.siding, t.v);
+      if (p.siding) {
+        // Slowed (SIDE): up beside it on its side away from its nearest rail, by its plans round the traffic (the
+        // target's box among it: it lines up beside it); level with it, shoved over into that rail - steered at a
+        // line past its middle (the traffic in the way or not: the user's).
+        p.guardPlan = null;
+        p.brakeLeft = 0;
+        const gap = t.s - c.s;
+        this.boost(p, 1 + BOOST.most * Math.max(0, Math.min(1, (gap - BOOST.from) / (BOOST.full - BOOST.from))));
+        const speed = Math.min(POLICE_SUV.params.maxSpeed, t.v + BEHIND_FASTER, sideSpeed(c.s, t));
+        const self = selfStateOf(c, speed);
+        p.driver.preferD = sideD(t, PLAYER_W / 2, c.width / 2);
+        const planned = p.driver.drive(self, seen, c.params); // (its plans kept up while it shoves: back on them after)
+        p.pushing = pushing({ s: c.s, d: c.d }, t);
+        if (p.pushing) c.prePhysics({ steer: blockSteer(self, t.d + railSide(t.d) * SIDE.push, c.params), ...speedPedals(speed, c.vLong) }, dt);
+        else c.prePhysics(planned, dt);
+        continue;
+      }
       if (p.state === 'front') {
         // On the line its target will take as it gets here (its plan as the planner would drive it, every GUARD.every s).
         // (a racer on the AI: its own plan; else worked out in the predictor's worker, a request at a time - without one,
@@ -297,22 +314,14 @@ export class Police {
       }
       p.guardPlan = null;
       p.brakeLeft = 0;
-      // Behind: boosted the further back it is; past them in the lane beside theirs to get in front of them (passD) -
-      // flat out at them only slowed (RAM_BELOW), the line to them clear.
+      // Behind: boosted the further back it is; past them in the lane beside theirs to get in front of them (passD).
       const gap = t.s - c.s;
       this.boost(p, 1 + BOOST.most * Math.max(0, Math.min(1, (gap - BOOST.from) / (BOOST.full - BOOST.from))));
-      const aim = { s: t.s + t.v * POLICE_TUNING.aimAhead, d: t.d };
       const others = seen.filter((b) => !this.isTargetBox(b, t, racers, racerBoxes));
       const cap = Math.min(POLICE_SUV.params.maxSpeed, t.v + BEHIND_FASTER);
       c.params.maxSpeed = cap;
-      if (ramAllowed(t.v) && gap < RAM_RANGE && lineClear({ s: c.s, d: c.d }, aim, others, POLICE_TUNING.laneWidth)) {
-        p.ramming = true;
-        p.driver.preferD = null;
-        c.prePhysics(ramInput(selfStateOf(c, cap), aim, c.params), dt);
-      } else {
-        p.driver.preferD = passD({ s: c.s, d: c.d, halfWidth: c.width / 2, halfLength: c.length / 2 }, t, others);
-        c.prePhysics(p.driver.drive(selfStateOf(c, cap), seen, c.params), dt);
-      }
+      p.driver.preferD = passD({ s: c.s, d: c.d, halfWidth: c.width / 2, halfLength: c.length / 2 }, t, others);
+      c.prePhysics(p.driver.drive(selfStateOf(c, cap), seen, c.params), dt);
     }
   }
 
@@ -520,7 +529,8 @@ export class Police {
   private park(p: PoliceCar, s: number): void {
     p.state = 'parked';
     p.target = null;
-    p.ramming = false;
+    p.siding = false;
+    p.pushing = false;
     p.brakeLeft = 0;
     p.brakeCooldown = 0;
     p.driver.preferD = null;
