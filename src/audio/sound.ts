@@ -62,8 +62,9 @@ const NITRO_START_VOLUME = 0.1325;
  * A rival's tyre squeal at its fullest within SKID_OTHERS_REF m (fading beyond it, inversely with distance, at
  * SKID_OTHERS_ROLLOFF of the engines' pace), none past SKID_OTHERS_RANGE m. (At the engines' pace at first - half at
  * 20 m: the rivals pulling away from a car left on the line were loud only their first second; the user's call.)
+ * Louder than the player's own (1 to its 0.6, the user's call: 0.6 at first, still too quiet).
  */
-const SKID_OTHERS_VOLUME = 0.6;
+const SKID_OTHERS_VOLUME = 1;
 const SKID_OTHERS_REF = 10;
 const SKID_OTHERS_ROLLOFF = 0.5;
 const SKID_OTHERS_RANGE = 220;
