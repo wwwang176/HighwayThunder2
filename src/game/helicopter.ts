@@ -33,7 +33,7 @@ export const HELI = {
   orbitLong: 70,
   orbitSide: 28,
   orbitPeriod: 45,
-  wobble: 0.5,
+  wobble: 0.25, // (0.5: its pace past its turn's own, at times backwards - out 40-50 m ahead and back; under 17/45 never)
   wobblePeriod: 17,
   arrive: 14,
   arriveFrom: -450,
