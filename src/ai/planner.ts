@@ -133,7 +133,7 @@ export interface PlanEgo {
    */
   preferD?: number;
   preferCost?: number;
-  /** It may go out onto the shoulder (up to the rail, at its cost), as off the road already. None: the paved road. */
+  /** It may go out onto the shoulder (up to the rail) freely, as on a lane (a police car's). None: the paved road (off it already: back onto it - the shoulder at its cost). */
   shoulder?: boolean;
   /** s looked ahead (a police car's guess at where a racer goes: only as far as it needs). None: COURSE.horizon. */
   horizon?: number;

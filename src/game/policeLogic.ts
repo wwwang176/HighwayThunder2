@@ -69,18 +69,23 @@ export function noseAhead(suvS: number, suvHalfL: number, tS: number, tHalfL: nu
   return suvS + suvHalfL - (tS + tHalfL);
 }
 
+/** m across from its target a police car's passing line is at least (a racer on the road's edge: the shoulder too near them). */
+export const PASS_ROOM = 2.8;
+
 /** Behind its target: rams them only slowed under RAM_BELOW (else passes them to get in front). */
 export function ramAllowed(targetV: number): boolean {
   return targetV < RAM_BELOW;
 }
 
 /**
- * Behind its target: the line (d) it passes them on - a lane beside theirs on the road, clear of traffic (`boxes`)
- * from it to 30 m past them; of those (else of both) the nearer its own.
+ * Behind its target: the line (d) it passes them on - a lane beside theirs, or the shoulder (its middle at most: the
+ * police's own, the user's call - it kept to the paved road), PASS_ROOM m over from them at least, clear of traffic
+ * (`boxes`) from it to 30 m past them; of those (else of both) the nearer its own.
  */
 export function passD(suv: { s: number; d: number; halfWidth: number; halfLength: number }, t: Racer, boxes: readonly TrafficBox[]): number {
-  const edge = ROAD_HALF_WIDTH - suv.halfWidth;
-  const sides = [t.d - LANE_WIDTH, t.d + LANE_WIDTH].filter((d) => Math.abs(d) <= edge);
+  const sides = [t.d - LANE_WIDTH, t.d + LANE_WIDTH]
+    .map((d) => Math.max(-SHOULDER_D, Math.min(SHOULDER_D, d)))
+    .filter((d) => Math.abs(d - t.d) >= PASS_ROOM);
   if (!sides.length) return t.d;
   const clear = sides.filter((d) => lineClear({ s: suv.s, d }, { s: t.s + 30, d }, boxes, suv.halfWidth + 0.3));
   const from = clear.length ? clear : sides;

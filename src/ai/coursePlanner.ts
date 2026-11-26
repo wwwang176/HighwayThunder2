@@ -276,7 +276,8 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
           if (hit) continue;
           if (!relaxed && tooClose(s, d, v, psi + beta, psi, hl, hw, side, inWay, tA + dt, margin, ego)) continue;
           let score = n.score + (s - n.s);
-          if (Math.abs(d) > ROAD_HALF_WIDTH) score -= (OFF_ROAD + (out(d) ? OUT_COST * (Math.abs(d) - edge) : 0)) * w;
+          // (the shoulder free to a police car - ego.shoulder: the user's call, it kept off it at OFF_ROAD's cost)
+          if (Math.abs(d) > ROAD_HALF_WIDTH) score -= ((ego.shoulder ? 0 : OFF_ROAD) + (out(d) ? OUT_COST * (Math.abs(d) - edge) : 0)) * w;
           else if (Math.abs(d - laneCenter(laneAt(d))) > ON_CENTRE) score -= P.lineCost * w;
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus * w;
           if (P.passCost > 0) score -= passShort(local, s, d, hl, hw, tA + dt) * w;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BLOCK, BRAKE_CHECK, blockClear, blockD, blockSteer, brakeCheckDue, noseAhead, passD, ramAllowed, bustAllowed, chaseStarts, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, racerVD, ramInput, reachTime, Sighting, type Racer } from '../src/game/policeLogic';
+import { BLOCK, BRAKE_CHECK, blockClear, blockD, blockSteer, brakeCheckDue, noseAhead, passD, ramAllowed, bustAllowed, chaseStarts, guardD, guardHorizon, isLost, outOfSight, POLICE_TUNING, lineClear, parkSpot, phaseOf, pickTarget, racerVD, ramInput, reachTime, SHOULDER_D, Sighting, type Racer } from '../src/game/policeLogic';
 import { LANE_WIDTH, RAIL_D, ROAD_HALF_WIDTH } from '../src/config';
 import type { SelfState, TrafficBox } from '../src/ai/sensors';
 import type { Plan } from '../src/ai/planner';
@@ -159,7 +159,9 @@ describe('policeLogic', () => {
     expect(passD(suv, t, [])).toBeCloseTo(1.875 - LANE_WIDTH); // (the one beside it on its side)
     const busy: TrafficBox[] = [{ s: 1010, dMin: -2.8, dMax: -0.9, v: 25, length: 4.5 }];
     expect(passD(suv, t, busy)).toBeCloseTo(1.875 + LANE_WIDTH); // (that one taken: the other)
-    expect(passD({ ...suv, d: 5.625 }, { ...t, d: 5.625 }, [])).toBeCloseTo(1.875); // (on the road's edge: inside it)
+    expect(passD({ ...suv, d: 5.625 }, { ...t, d: 5.625 }, [])).toBeCloseTo(SHOULDER_D); // (in the outer lane: the shoulder beside it, the police's own)
+    expect(passD({ ...suv, d: -5.625 }, { ...t, d: -5.625 }, [])).toBeCloseTo(-SHOULDER_D); // (the median's side too)
+    expect(passD({ ...suv, d: 6.5 }, { ...t, d: 6.5 }, [])).toBeCloseTo(6.5 - LANE_WIDTH); // (on the road's very edge: the shoulder too near it)
   });
 
   it('blocking: steered across to where its target will be', () => {
