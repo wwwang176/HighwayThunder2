@@ -4,7 +4,8 @@ Every sound in the game is a recording licensed for use inside the game only, so
 
 - **No audio is ever committed.** Not a recording, not a processed clip, not a built bundle - in any format.
   `public/audio/` is git-ignored, and `tests/noLicensedAudio.test.ts` fails if any audio file is tracked.
-- The game ships them packed into scrambled bundles (`public/audio/engines.bin`, `crashes.bin`, `effects.bin`;
+- The game ships them packed into scrambled bundles (`public/audio/engines.bin`, `crashes.bin`, `effects.bin`,
+  `rotor.bin`;
   `src/audio/bundleCodec.ts`), never as loose clips.
 - The bundles, their build tools and the music live in a private repository, checked out by the Pages workflow and
   copied into `public/audio` just for the build. Without them (any checkout of this repository) the game runs silent.
@@ -173,3 +174,12 @@ the private repository, copied in for the build by the Pages workflow. No playli
   tuning, the race setup, the settings, the pause and finish menus, Esc in and out of the pause). A **system sound**:
   on its own AudioContext (`uiCtx`, the player's volume and mute, no limiter), so heard with the race's stopped in a
   pause.
+
+# The police helicopter's rotor
+
+A recording of a helicopter hovering (`rotor.bin`, clip `rotor`): one seamless lap of its steady first 10 s (9.6 s,
+from 0.4 s - past its fade-in; its length where the blades' beat runs on into the start, crossfaded over 0.3 s), at
+-16.7 LUFS (held by its peak, -1 dBFS: low and heavy). Looped from anywhere in its lap (`src/audio/rotor.ts`),
+placed by hand (pan.ts) at the helicopter, 0.45 at 40 m, quieter by inverse distance, none past 900 m; played at its
+Doppler factor times the race's time scale (a bust's slow motion: slower and deeper, and half as loud). Silent
+without its bundle (the synthesised one it replaced removed, 2026-11-26).

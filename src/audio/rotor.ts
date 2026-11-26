@@ -1,21 +1,17 @@
 import { azimuthDeg, type EarPose, equalPowerMono, inverseDistanceGain } from './pan';
 
-/**
- * The police helicopter's rotor, made here (no recording): its blades' slap - `blades` x `rotorHz` beats a second
- * (src/game/helicopter.ts HELI.rotorHz), the sound gated by each from silence - of noise between `noiseBand` Hz
- * (`noise` loud) over a low `thumpHz` buzz (`thump` loud) with its first `thumpHarmonics` harmonics: low, the ear
- * hearing its pitch from them where a small speaker has none that low. Heard as loud as `volume` at `ref` m, quieter by
- * inverse distance (`rolloff`), none past `range` m. (A 55 Hz sine under noise below 420 Hz at first: almost all of
- * it under 150 Hz, unheard on a laptop's speakers; then noise to 1600 Hz and a 1150 Hz whine: shrill.)
- */
-export const ROTOR = {
-  blades: 2, rotorHz: 5.5, noiseBand: [60, 400] as const, noise: 3.5, thumpHz: 48, thumpHarmonics: 6, thump: 0.5,
-  volume: 0.45, ref: 40, rolloff: 1, range: 900,
-};
+/** The rotor's recording's bundle (built in the private audio repo; git-ignored: docs/sound.md): clip `rotor`. */
+export const ROTOR_BUNDLE_URL = 'audio/rotor.bin';
 
-/** The blades' beat (Hz): its pulse train's rate, at the race's `timeScale` and a Doppler factor. */
-export function rotorBeat(doppler: number, timeScale: number): number {
-  return ROTOR.blades * ROTOR.rotorHz * doppler * timeScale;
+/**
+ * The police helicopter's rotor: a recording of one hovering, one seamless lap of it looped (its clip at -16.7 LUFS),
+ * heard as loud as `volume` at `ref` m, quieter by inverse distance (`rolloff`), none past `range` m.
+ */
+export const ROTOR = { volume: 0.45, ref: 40, rolloff: 1, range: 900 };
+
+/** Its playback rate: its Doppler factor at the race's `timeScale` (slow motion: slower and deeper), never quite 0. */
+export function rotorRate(doppler: number, timeScale: number): number {
+  return Math.max(0.05, doppler * timeScale);
 }
 
 /** Its loudness `distance` m off, times `loud` (the game's: half in a bust's slow motion). See ROTOR. */
@@ -23,68 +19,27 @@ export function rotorGain(distance: number, loud: number): number {
   return distance < ROTOR.range ? loud * ROTOR.volume * inverseDistanceGain(distance, ROTOR.ref, ROTOR.rolloff) : 0;
 }
 
-/** The rotor's voice: placed by hand (pan.ts), beating at rotorBeat. */
+/** The rotor's voice: its recording looped, placed by hand (pan.ts), played at rotorRate. */
 export class Rotor {
-  private readonly noise: AudioBufferSourceNode;
-  private readonly thump: OscillatorNode;
-  private readonly beat: OscillatorNode;
+  private readonly loop: AudioBufferSourceNode;
   private readonly left: GainNode;
   private readonly right: GainNode;
   private readonly merge: ChannelMergerNode;
   private readonly lr = new Float32Array(2);
 
-  constructor(private readonly ctx: BaseAudioContext, out: AudioNode) {
-    // A second of white noise, looped.
-    const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-    this.noise = ctx.createBufferSource();
-    this.noise.buffer = buf;
-    this.noise.loop = true;
-    const low = ctx.createBiquadFilter();
-    low.type = 'highpass';
-    low.frequency.value = ROTOR.noiseBand[0];
-    low.Q.value = 0.7;
-    const high = ctx.createBiquadFilter();
-    high.type = 'lowpass';
-    high.frequency.value = ROTOR.noiseBand[1];
-    high.Q.value = 0.7;
-    const noiseLevel = ctx.createGain();
-    noiseLevel.gain.value = ROTOR.noise;
-    this.thump = ctx.createOscillator();
-    this.thump.frequency.value = ROTOR.thumpHz;
-    const tr = new Float32Array(ROTOR.thumpHarmonics + 1);
-    const ti = new Float32Array(ROTOR.thumpHarmonics + 1);
-    for (let n = 1; n <= ROTOR.thumpHarmonics; n++) ti[n] = 1 / n;
-    this.thump.setPeriodicWave(ctx.createPeriodicWave(tr, ti));
-    const thumpLevel = ctx.createGain();
-    thumpLevel.gain.value = ROTOR.thump;
-    // The beat: a pulse train (a blade going by: sharp up, slow down) gating the slap from silence (0..1).
-    this.beat = ctx.createOscillator();
-    const harmonics = 16;
-    const real = new Float32Array(harmonics + 1);
-    const imag = new Float32Array(harmonics + 1);
-    for (let n = 1; n <= harmonics; n++) imag[n] = 1 / n; // (a sawtooth's: falling after each beat)
-    this.beat.setPeriodicWave(ctx.createPeriodicWave(real, imag));
-    const depth = ctx.createGain();
-    depth.gain.value = 0.5;
-    const level = ctx.createGain();
-    level.gain.value = 0.5;
-    this.beat.connect(depth).connect(level.gain);
+  constructor(private readonly ctx: BaseAudioContext, clip: AudioBuffer, out: AudioNode) {
+    this.loop = ctx.createBufferSource();
+    this.loop.buffer = clip;
+    this.loop.loop = true;
     this.left = ctx.createGain();
     this.right = ctx.createGain();
     this.left.gain.value = this.right.gain.value = 0;
     const merge = (this.merge = ctx.createChannelMerger(2));
-    this.noise.connect(low).connect(high).connect(noiseLevel).connect(level);
-    this.thump.connect(thumpLevel).connect(level);
-    level.connect(this.left);
-    level.connect(this.right);
-    this.left.connect(merge, 0, 0);
-    this.right.connect(merge, 0, 1);
+    this.loop.connect(this.left).connect(merge, 0, 0);
+    this.loop.connect(this.right).connect(merge, 0, 1);
     merge.connect(out);
-    this.noise.start();
-    this.thump.start();
-    this.beat.start();
+    // (from anywhere in its lap: no two flights' alike)
+    this.loop.start(0, Math.random() * clip.duration);
   }
 
   /**
@@ -98,20 +53,13 @@ export class Rotor {
     equalPowerMono(azimuthDeg(pos[0], pos[1], pos[2], ear), gain, this.lr);
     this.left.gain.setTargetAtTime(this.lr[0], now, 0.08);
     this.right.gain.setTargetAtTime(this.lr[1], now, 0.08);
-    const rate = Math.max(0.05, doppler * timeScale);
-    this.beat.frequency.setTargetAtTime(rotorBeat(doppler, timeScale), now, 0.05);
-    this.thump.frequency.setTargetAtTime(ROTOR.thumpHz * rate, now, 0.05);
-    this.noise.playbackRate.setTargetAtTime(rate, now, 0.05);
+    this.loop.playbackRate.setTargetAtTime(rotorRate(doppler, timeScale), now, 0.05);
   }
 
   /** Stopped, and out of the graph (freed). */
   dispose(): void {
-    this.noise.stop();
-    this.thump.stop();
-    this.beat.stop();
-    this.noise.disconnect();
-    this.thump.disconnect();
-    this.beat.disconnect();
+    this.loop.stop();
+    this.loop.disconnect();
     this.left.disconnect();
     this.right.disconnect();
     this.merge.disconnect();

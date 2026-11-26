@@ -9,7 +9,7 @@ import { ROLLS } from './rolling';
 import { windLevel, windRate, WINDS } from './wind';
 import { azimuthDeg, equalPowerMono, inverseDistanceGain, type EarPose } from './pan';
 import { Siren } from './siren';
-import { Rotor } from './rotor';
+import { Rotor, ROTOR_BUNDLE_URL } from './rotor';
 import { EarMotion } from './earMotion';
 import { dopplerFactor } from './spatial';
 // (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
@@ -29,7 +29,7 @@ const SIREN_GONE = 1;
  * line, begun at that click, the engines' came in 20 s on - a race started straight away silent. Decoded at the wake.
  */
 export function prefetchSoundBundles(): void {
-  for (const url of [ENGINE_BUNDLE_URL, EFFECTS_BUNDLE_URL, CRASH_BUNDLE_URL]) void fetchBundle(url);
+  for (const url of [ENGINE_BUNDLE_URL, EFFECTS_BUNDLE_URL, CRASH_BUNDLE_URL, ROTOR_BUNDLE_URL]) void fetchBundle(url);
 }
 
 /** The player's engine, this loud (its clips are at -16 LUFS each); the others' (each by its distance on top). */
@@ -130,7 +130,7 @@ function pickNoRepeat(size: number, last: number): number {
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - straight into the mix, whichever way the
  * camera looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
  * (recorded, crashBank; silent without their bundle), the tyre squeal (built with the engines), the nitro
- * (recorded: effects.bin; silent without it), the traffic's tyres rolling (rolling.ts: effects.bin), the wind past the player's car (wind.ts) and the backfires' pops. Nothing synthesised. All of it through a lookahead limiter (limiter.worklet.js).
+ * (recorded: effects.bin; silent without it), the traffic's tyres rolling (rolling.ts: effects.bin), the wind past the player's car (wind.ts), the backfires' pops and the police helicopter's rotor (rotor.ts: rotor.bin). Nothing synthesised but the sirens. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -190,8 +190,12 @@ export class Sound {
   private sirenTime = 0;
   private readonly sirenEar = new EarMotion();
   private readonly sirenEarPos: [number, number, number] = [0, 0, 0];
-  /** The police helicopter's rotor (setRotor; made at its first flight), the ear's motion for its Doppler shift. */
+  /**
+   * The police helicopter's rotor (setRotor; made at its first flight - none without its recording), the recording
+   * (null: none to be had, or not loaded yet), the ear's motion for its Doppler shift.
+   */
   private rotor: Rotor | null = null;
+  private rotorClip: AudioBuffer | null = null;
   private readonly rotorEar = new EarMotion();
   private readonly rotorEarPos: [number, number, number] = [0, 0, 0];
   private readonly rotorPos: [number, number, number] = [0, 0, 0];
@@ -287,6 +291,7 @@ export class Sound {
       const roll = effects?.get('roll');
       if (roll) this.rolls = new PlacedLoops(ctx, roll, this.rollsBus, ROLLS);
     });
+    void loadSoundBank(ctx, ROTOR_BUNDLE_URL).then((bank) => { this.rotorClip = bank?.get('rotor') ?? null; });
   }
 
   /** A loop played on and on into `out` (null: no clip). */
@@ -415,16 +420,17 @@ export class Sound {
   }
 
   /**
-   * The police helicopter's rotor (made here: audio/rotor.ts), at `pos` going `vel` (world; null: not flying - silent),
-   * heard from `ear`; `dt` s of the race's time on (the ear's motion), `active` false: silent; `loud` times as loud.
+   * The police helicopter's rotor (its recording: audio/rotor.ts; silent without it), at `pos` going `vel` (world;
+   * null: not flying - silent), heard from `ear`; `dt` s of the race's time on (the ear's motion), `active` false:
+   * silent; `loud` times as loud.
    */
   setRotor(pos: { x: number; y: number; z: number } | null, vel: { x: number; y: number; z: number }, ear: EarPose, dt: number, active: boolean, loud = 1): void {
     const ctx = this.ctx;
-    if (!ctx || !this.running) return;
+    if (!ctx || !this.running || !this.rotorClip) return;
     if (!pos && !this.rotor) return;
     this.rotorEarPos[0] = ear.px; this.rotorEarPos[1] = ear.py; this.rotorEarPos[2] = ear.pz;
     this.rotorEar.update(this.rotorEarPos, dt);
-    this.rotor ??= new Rotor(ctx, this.master);
+    this.rotor ??= new Rotor(ctx, this.rotorClip, this.master);
     if (pos) {
       this.rotorPos[0] = pos.x; this.rotorPos[1] = pos.y; this.rotorPos[2] = pos.z;
       this.rotorVel[0] = vel.x; this.rotorVel[1] = vel.y; this.rotorVel[2] = vel.z;

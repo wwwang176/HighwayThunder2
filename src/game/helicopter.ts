@@ -22,7 +22,7 @@ import { depthBias } from '../render/shadowBias';
  *   leaning the way it goes (nose down forward, side down sideways) `cruiseTilt` at `cruiseAt` m/s and on,
  *   `pitchPerAcc` more a m/s^2 speeding up (up slowing), banked `rollPerAcc` a m/s^2 into a turn - its motion
  *   smoothed over `smooth` s; never past `maxPitch`, `maxRoll`;
- * - its main rotor `rotorHz` turns a second (heard: audio/rotor; drawn as a blur, MAIN_ROTOR); its white strobe
+ * - its rotors heard as recorded (audio/rotor), drawn as a blur (MAIN_ROTOR, TAIL_ROTOR); its white strobe
  *   flashes `strobeOn` s every `strobeEvery` s.
  */
 export const HELI = {
@@ -52,7 +52,6 @@ export const HELI = {
   smooth: 0.35,
   maxPitch: 0.35,
   maxRoll: 0.5,
-  rotorHz: 5.5,
   strobeEvery: 1.1,
   strobeOn: 0.06,
 };

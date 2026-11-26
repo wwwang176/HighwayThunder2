@@ -21,8 +21,10 @@ it never touches anything and does not change the chase (the police's own logic 
     camera faces the lamp (our camera follows the lit car: usually in the beam, looking away);
   - a real spot light lighting the ground (no shadow; in the scene throughout, intensity 0 when off: a light coming
     and going rebuilds every material).
-- **Sound**: rotor "whop-whop" synthesized here (no recordings): blade-pass pulses, panned, quieter with distance,
-  Doppler-shifted, at the race's time scale.
+- **Sound**: rotor "whop-whop", panned, quieter with distance, Doppler-shifted, at the race's time scale.
+  ~~Synthesized here (blade-pass pulses).~~ Changed by the user (2026-11-26): a recording of a helicopter hovering
+  (one seamless lap of it looped, in its own bundle - docs/sound.md); the synthesized one removed (no bundle: silent,
+  as every sound).
 - **Busted**: in the slow-motion orbit it keeps hovering, its light on the player.
 
 ## My calls (stated to the user)
@@ -70,6 +72,6 @@ it never touches anything and does not change the chase (the police's own logic 
 - `src/game/helicopter.ts`: the pure schedule (`heliOffset(t)`: ahead and side at time t; `beamGlare(axial,
   radial, facing)`) - unit-tested (tests/helicopter.test.ts); class `Helicopter` (the primitives, the beam, glare,
   veil, spot light; `update(play, player, place, camera, active)`, `reset()`, `dispose()`).
-- `src/audio/rotor.ts`: the rotor voice (as siren.ts); `Sound.setRotor(...)`.
+- `src/audio/rotor.ts`: the rotor voice (its recording looped, placed as siren.ts); `Sound.setRotor(...)`.
 - `src/game/game.ts`: made and disposed with Police; reset at each race's start; updated after the camera is placed;
   heard with the sirens.
