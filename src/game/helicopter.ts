@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { type RotorBlur, rotorBlurMesh } from '../render/rotorBlur';
 import { depthBias } from '../render/shadowBias';
+import { HeliGlow } from '../render/heliGlow';
 
 /**
  * The police helicopter's flight (scripted: no planner, it never touches anything):
@@ -33,7 +34,7 @@ export const HELI = {
   orbitLong: 70,
   orbitSide: 28,
   orbitPeriod: 45,
-  wobble: 0.5,
+  wobble: 0.25, // (0.5: its pace past its turn's own, at times backwards - out 40-50 m ahead and back; under 17/45 never)
   wobblePeriod: 17,
   arrive: 14,
   arriveFrom: -450,
@@ -41,8 +42,8 @@ export const HELI = {
   lightOn: 0.6,
   targetEvery: 10,
   retarget: 2,
-  reposition: 8,
-  repositionAcc: 5,
+  reposition: 3,
+  repositionAcc: 25, // (5 in 8 s at least, then 10 in 5, 20 in 3: slow to its car - its light out of reach the while; leaning held to maxPitch/maxRoll)
   turn: 0.6,
   faceBelow: 60 / 3.6,
   pathAbove: 100 / 3.6,
@@ -56,6 +57,26 @@ export const HELI = {
   strobeEvery: 1.1,
   strobeOn: 0.06,
 };
+
+/**
+ * Its navigation lights' brightness (times their colour; unlit by the tone map): the red and green at its sides, the
+ * white strobe - past the bloom's threshold (2.05, its luminance) as the police light bars (police FLASH).
+ */
+export const NAV_LIGHTS = { side: 12, strobe: 20 };
+
+/**
+ * Light on its body (render/heliGlow: against the night sky it was all but black): the city's glow from under it,
+ * `city` colour (the road scene's warm rim light's) at `cityStrength` (irradiance, on what faces down); its
+ * searchlight's pool lighting it back up - the road's `albedo` of the light on it over the pool's area
+ * (BEAM.groundRadius), a lit surface facing up (its candela: albedo E r^2).
+ */
+export const HELI_GLOW = { city: 0xffb35c, cityStrength: 0.2, albedo: 0.125 }; // (0.4, 0.25: too plain to see)
+
+/** Its searchlight's pool's light up (candela), its light `len` m down to it, `lit` its share on (0..1). See HELI_GLOW. */
+export function poolBounce(len: number, lit: number): number {
+  const onPool = (BEAM.light * Math.max(0, lit)) / Math.max(Math.pow(len, BEAM.decay), 0.01);
+  return HELI_GLOW.albedo * onPool * BEAM.groundRadius * BEAM.groundRadius;
+}
 
 /**
  * Its rotors' blurred blades (render/rotorBlur): four each. The main rotor's blades 0.35 m wide on a 5.5 m radius,
@@ -320,6 +341,7 @@ const A = new THREE.Vector3();
 const B = new THREE.Vector3();
 const DIR = new THREE.Vector3();
 const TO_CAM = new THREE.Vector3();
+const POOL = new THREE.Vector3();
 const VIEW = new THREE.Vector3();
 /** Where the lamp hangs, under its nose (the body's space: the nose toward -z). */
 const LAMP_AT = new THREE.Vector3(0, -0.9, -2.2);
@@ -341,6 +363,8 @@ export class Helicopter {
   /** The main rotor's blurred disc, the tail rotor's. */
   private readonly rotorDiscs: THREE.Mesh[] = [];
   private readonly strobe: THREE.Mesh;
+  /** Its body's light from the city under it and its searchlight's pool (HELI_GLOW). */
+  private readonly glow = new HeliGlow();
   /** The lamp's face (lit with the searchlight), and how much of the searchlight is on (searchlight: 0..1). */
   private readonly lampMat: THREE.MeshBasicMaterial;
   private lit = 0;
@@ -387,6 +411,7 @@ export class Helicopter {
     const paint = new THREE.MeshStandardMaterial({ color: 0xc4c8cc, roughness: 0.5, metalness: 0.2 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x1c2026, roughness: 0.55, metalness: 0.3 });
     const glassy = new THREE.MeshStandardMaterial({ color: 0x0c1218, roughness: 0.15, metalness: 0.6 });
+    for (const m of [paint, dark, glassy]) this.glow.patch(m);
     const lit = (hex: number) => new THREE.MeshBasicMaterial({ color: hex, toneMapped: false });
     const add = <T extends THREE.BufferGeometry>(g: T, m: THREE.Material, to: THREE.Object3D, x = 0, y = 0, z = 0) => {
       const mesh = new THREE.Mesh(g, m);
@@ -421,10 +446,16 @@ export class Helicopter {
       this.rotorDiscs.push(disc);
       this.disposables.push(disc.geometry, disc.material);
     }
-    // Navigation lights: red to port (left), green to starboard, the white strobe under the tail.
-    add(new THREE.SphereGeometry(0.12, 8, 6), lit(0xff2a20), body, -1.1, 0, 0.2);
-    add(new THREE.SphereGeometry(0.12, 8, 6), lit(0x20ff50), body, 1.1, 0, 0.2);
-    this.strobe = add(new THREE.SphereGeometry(0.16, 8, 6), lit(0xffffff), body, 0, -0.1, 6.9);
+    // Navigation lights: red to port (left), green to starboard, the white strobe under the tail - bright enough to
+    // bloom (NAV_LIGHTS: at 1 they were dots of a pixel or two, under the bloom's threshold).
+    const glow = (hex: number, k: number) => {
+      const m = lit(hex);
+      m.color.multiplyScalar(k);
+      return m;
+    };
+    add(new THREE.SphereGeometry(0.12, 8, 6), glow(0xff2a20, NAV_LIGHTS.side), body, -1.1, 0, 0.2);
+    add(new THREE.SphereGeometry(0.12, 8, 6), glow(0x20ff50, NAV_LIGHTS.side), body, 1.1, 0, 0.2);
+    this.strobe = add(new THREE.SphereGeometry(0.16, 8, 6), glow(0xffffff, NAV_LIGHTS.strobe), body, 0, -0.1, 6.9);
     // The lamp itself (its face lit with it: update).
     this.lampMat = lit(0x2a2d33);
     add(new THREE.CylinderGeometry(0.25, 0.3, 0.35, 10), this.lampMat, body, LAMP_AT.x, LAMP_AT.y, LAMP_AT.z);
@@ -737,6 +768,8 @@ export class Helicopter {
     this.light.target.position.copy(this.lamp).addScaledVector(DIR, len);
     this.light.angle = Math.atan((BEAM.groundRadius * 1.1) / len);
     this.light.intensity = BEAM.light * lit;
+    // (its body lit from under it: the city's glow, the pool of its light - HELI_GLOW)
+    this.glow.set(HELI_GLOW.city, HELI_GLOW.cityStrength, POOL.copy(this.lamp).addScaledVector(DIR, len), BEAM.color, poolBounce(len, lit), BEAM.decay);
     // Its shadow: over the stretch where traffic can be in the beam (shadowSpan); the lit air in the beam by it too.
     const span = shadowSpan(len, this.lamp.y - this.aim.y, this.light.angle);
     const sc = this.light.shadow.camera;

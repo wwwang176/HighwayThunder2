@@ -7,12 +7,10 @@ import { type CarParams, DEFAULT_CAR, type DriveInput, steerRange } from '../veh
  * The police cars' numbers (docs/superpowers/specs/2026-11-24-police-chase-design.md): `count` at once; a parked one
  * pulls out for a racer coming within `wake` m; one further than `lost` m from every racer has lost them, and is parked
  * again `parkAhead` m ahead of the leader (in the fog); a hit closing at `bustKmh` or more busts the player (a scrape
- * or a knock does not: at 15 km/h a light touch did, the user found), not within `grace` s of being put back, and it is put back `bustSeconds` s (real) later. Ramming: the line
- * to the target clear within `laneWidth` m each side (about one SUV wide: narrower than the spec's "two cars"),
- * aimed `aimAhead` s on. Seen by the player up to `viewAhead` m ahead (the highway's fog ends at 650 m): one is lost,
+ * or a knock does not: at 15 km/h a light touch did, the user found), not within `grace` s of being put back, and it is put back `bustSeconds` s (real) later. Seen by the player up to `viewAhead` m ahead (the highway's fog ends at 650 m): one is lost,
  * and parked again, only out of its sight (outOfSight) - at 300 m ahead in the fog, it was seen to vanish.
  */
-export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, playerFirst: 100, notice: 100, parkAhead: 700, viewAhead: 700, bustKmh: 45, grace: 2, bustSeconds: 3, laneWidth: 1.1, aimAhead: 0.3 };
+export const POLICE_TUNING = { count: 3, wake: 250, lost: 300, playerFirst: 100, notice: 100, parkAhead: 700, viewAhead: 700, bustKmh: 45, grace: 2, bustSeconds: 3 };
 
 /** A guard prediction's horizon (s): at least, at most (the planner's own), and past getting to the police car. */
 const GUARD_HORIZON = { least: 2, most: 8, more: 1 };
@@ -45,14 +43,14 @@ export const BLOCK = { within: 4, react: 0.3, reach: LANE_WIDTH, after: 1, gap: 
 /**
  * Every police car after the front of its racer (the user's call, 2026-11-26): alongside it, its nose `BLOCK.noseAhead`
  * m ahead of theirs or more, it squeezes into their lane (blockAt: no traffic in the way) - their way across shut, or
- * their nose shoved round; behind them, it passes them in the lane beside them (passD) to get there, ramming only a
- * racer slowed under RAM_BELOW (stuck in traffic: the line to them clear). In front of them with them right behind it
+ * their nose shoved round; behind them, it passes them in the lane beside them (passD) to get there - a racer slowed
+ * under SIDE.below (stuck in traffic) shoved into the rail from beside it instead (SIDE; ramming from behind it
+ * before, under 120 km/h too). In front of them with them right behind it
  * in its lane, at its tail within `within` s: a brake check - full brakes, no warning (the user's), for `hold` s at
  * most (till they are out of its lane, by it, or into it), not again for `cooldown` s; `overlap` m of the two cars'
  * widths in line at least.
  */
 export const BRAKE_CHECK = { within: 1, hold: 1, cooldown: 4, overlap: 0.5 };
-export const RAM_BELOW = 120 * KMH;
 
 /** A brake check due (BRAKE_CHECK): `t` (half `tHalfW` wide) behind the police car `suv`, in line with it, at its tail in `reach` s (reachTime). */
 export function brakeCheckDue(suv: { s: number; d: number; halfWidth: number; halfLength: number }, t: Racer, reach: number, tHalfW: number): boolean {
@@ -69,18 +67,53 @@ export function noseAhead(suvS: number, suvHalfL: number, tS: number, tHalfL: nu
   return suvS + suvHalfL - (tS + tHalfL);
 }
 
-/** Behind its target: rams them only slowed under RAM_BELOW (else passes them to get in front). */
-export function ramAllowed(targetV: number): boolean {
-  return targetV < RAM_BELOW;
+/**
+ * The side push (the user's call, 2026-11-27, in place of ramming from behind): a racer slowed under `below` (stuck in
+ * traffic) has the police car come up beside it, on its side away from the rail nearest it (the median's or the
+ * outer: traffic between them and it or not - the user's), `gap` m apart, and - level with it, `level` m along at
+ * most - steer `push` m past its middle: shoved over into that rail. Till it is back over `above` (not flicking back
+ * and forth round `below`); over it, after its front as before. Not a bust of itself (the user's): only a hit at
+ * POLICE_TUNING.bustKmh. Coming up on it `catchUp` m/s faster a metre behind (slower a metre ahead).
+ */
+export const SIDE = { below: 120 * KMH, above: 130 * KMH, gap: 0.3, level: 3, push: 1.5, catchUp: 0.8 };
+
+/** Pushing its target from the side now (SIDE): `was` the step before, the target going `v` m/s. */
+export function sideMode(was: boolean, v: number): boolean {
+  return v < (was ? SIDE.above : SIDE.below);
 }
 
+/** The rail nearest a car at `d`: +1 the outer (right), -1 the median's. */
+export function railSide(d: number): 1 | -1 {
+  return d < 0 ? -1 : 1;
+}
+
+/** Where (d) a police car `halfWidth` wide lines up beside racer `t` (`tHalfW` half wide) to push it: on its side away from its rail, SIDE.gap apart. */
+export function sideD(t: Racer, tHalfW: number, halfWidth: number): number {
+  return t.d - railSide(t.d) * (tHalfW + halfWidth + SIDE.gap);
+}
+
+/** How fast (m/s) a police car at `suvS` goes, lining up beside racer `t`: as fast as them level with them, faster behind (slower ahead). */
+export function sideSpeed(suvS: number, t: Racer): number {
+  return Math.max(0, t.v + SIDE.catchUp * (t.s - suvS));
+}
+
+/** Shoving racer `t` now: level with it (SIDE.level m along at most) and on its side away from its rail. */
+export function pushing(suv: { s: number; d: number }, t: Racer): boolean {
+  return Math.abs(t.s - suv.s) <= SIDE.level && (suv.d - t.d) * railSide(t.d) < 0;
+}
+
+/** m across from its target a police car's passing line is at least (a racer on the road's edge: the shoulder too near them). */
+export const PASS_ROOM = 2.8;
+
 /**
- * Behind its target: the line (d) it passes them on - a lane beside theirs on the road, clear of traffic (`boxes`)
- * from it to 30 m past them; of those (else of both) the nearer its own.
+ * Behind its target: the line (d) it passes them on - a lane beside theirs, or the shoulder (its middle at most: the
+ * police's own, the user's call - it kept to the paved road), PASS_ROOM m over from them at least, clear of traffic
+ * (`boxes`) from it to 30 m past them; of those (else of both) the nearer its own.
  */
 export function passD(suv: { s: number; d: number; halfWidth: number; halfLength: number }, t: Racer, boxes: readonly TrafficBox[]): number {
-  const edge = ROAD_HALF_WIDTH - suv.halfWidth;
-  const sides = [t.d - LANE_WIDTH, t.d + LANE_WIDTH].filter((d) => Math.abs(d) <= edge);
+  const sides = [t.d - LANE_WIDTH, t.d + LANE_WIDTH]
+    .map((d) => Math.max(-SHOULDER_D, Math.min(SHOULDER_D, d)))
+    .filter((d) => Math.abs(d - t.d) >= PASS_ROOM);
   if (!sides.length) return t.d;
   const clear = sides.filter((d) => lineClear({ s: suv.s, d }, { s: t.s + 30, d }, boxes, suv.halfWidth + 0.3));
   const from = clear.length ? clear : sides;
