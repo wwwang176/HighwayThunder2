@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, beamSpot, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, nextPickIn, pickHeliTarget, repositionTime, shadowSpan, switchFade, targetJumped } from '../src/game/helicopter';
+import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, beamSpot, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, HELI_GLOW, nextPickIn, pickHeliTarget, poolBounce, repositionTime, shadowSpan, switchFade, targetJumped } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -196,5 +196,13 @@ describe('police helicopter', () => {
     expect(beamGlare(len + 6, 3, len, 1, 1)).toBe(0); // (but not in the cone itself: no veil)
     expect(beamGlare(20, BEAM.groundRadius * BEAM.glareWiden, len, 1)).toBe(0); // (well outside the cone)
     expect(beamGlare(20, 0.5, len, 1)).toBeGreaterThan(beamGlare(20, 3, len, 1)); // (nearer its axis: brighter)
+  });
+
+  it('its light pool on the road lights it back up: the light on the pool times the road\'s albedo over its area, none off', () => {
+    const onPool = BEAM.light / Math.pow(50, BEAM.decay);
+    expect(poolBounce(50, 1)).toBeCloseTo(HELI_GLOW.albedo * onPool * BEAM.groundRadius ** 2);
+    expect(poolBounce(50, 0.5)).toBeCloseTo(poolBounce(50, 1) / 2);
+    expect(poolBounce(35, 1)).toBeGreaterThan(poolBounce(60, 1)); // (lower over it: a brighter pool)
+    expect(poolBounce(50, 0)).toBe(0);
   });
 });
