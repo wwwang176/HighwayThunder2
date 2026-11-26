@@ -82,7 +82,9 @@ as a hit, only quieter (its closing speed along the push: a side swipe little). 
   ~0.04 s; pitched with the race's time.
 - **The rivals' squeal**: the same loop (one each, from its own random point), on each one's own slip as the
   player's (from 1.5 m/s, full at 11.5, 0.6), placed from the camera as the engines are (panned, full within 10 m,
-  inversely with distance beyond; none past 220 m).
+  inversely with distance beyond - at half the engines' rolloff: 0.67 of it at 20 m, 0.4 at 40 m, 0.18 at 100 m;
+  none past 220 m). (At the engines' rolloff at first: the rivals pulling away from a car left on the line were loud
+  only their first second - the user's call, 2026-11-26.)
 - **The nitro** (`effects.bin`): as the player's lights, its start (once, 0.1325); while it burns, the hiss (0.125),
   in over ~0.3 s and out over ~0.6 s.
 

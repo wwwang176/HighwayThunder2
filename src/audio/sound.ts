@@ -59,11 +59,13 @@ const SKID_VOLUME = 0.6;
 const NITRO_VOLUME = 0.125;
 const NITRO_START_VOLUME = 0.1325;
 /**
- * A rival's tyre squeal at its fullest within SKID_OTHERS_REF m (fading beyond it, inversely with distance, as the
- * engines), none past SKID_OTHERS_RANGE m.
+ * A rival's tyre squeal at its fullest within SKID_OTHERS_REF m (fading beyond it, inversely with distance, at
+ * SKID_OTHERS_ROLLOFF of the engines' pace), none past SKID_OTHERS_RANGE m. (At the engines' pace at first - half at
+ * 20 m: the rivals pulling away from a car left on the line were loud only their first second; the user's call.)
  */
 const SKID_OTHERS_VOLUME = 0.6;
 const SKID_OTHERS_REF = 10;
+const SKID_OTHERS_ROLLOFF = 0.5;
 const SKID_OTHERS_RANGE = 220;
 const SKID_PAN = new Float32Array(2);
 /**
@@ -331,7 +333,7 @@ export class Sound {
       let gain = 0;
       if (active && s) {
         const d = Math.hypot(s.pos.x - ear.px, s.pos.y - ear.py, s.pos.z - ear.pz);
-        if (d <= SKID_OTHERS_RANGE) gain = squeal(s.slip) * SKID_OTHERS_VOLUME * inverseDistanceGain(d, SKID_OTHERS_REF, 1);
+        if (d <= SKID_OTHERS_RANGE) gain = squeal(s.slip) * SKID_OTHERS_VOLUME * inverseDistanceGain(d, SKID_OTHERS_REF, SKID_OTHERS_ROLLOFF);
         if (gain > 0) equalPowerMono(azimuthDeg(s.pos.x, s.pos.y, s.pos.z, ear), gain, SKID_PAN);
       }
       // (none, or a NaN from a body the physics blew up on: silent - a NaN set on a gain throws)
