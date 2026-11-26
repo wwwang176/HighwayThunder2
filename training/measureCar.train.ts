@@ -1,6 +1,6 @@
 import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { CARS } from '../src/vehicles/cars';
+import { CARS, specById } from '../src/vehicles/cars';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { openGround } from './openGround';
 import { PlayerCar } from '../src/vehicles/playerCar';
@@ -14,7 +14,7 @@ import { KMH, PHYSICS_DT } from '../src/config';
  */
 it('measure car', async () => {
   await RAPIER.init();
-  const spec = CARS[process.env.CAR ?? 'street-racer'];
+  const spec = specById(process.env.CAR ?? 'street-racer');
   if (!spec) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
   const physics = PhysicsWorld.createSync();
   physics.timestep = PHYSICS_DT;

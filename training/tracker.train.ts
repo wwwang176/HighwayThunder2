@@ -5,6 +5,7 @@ import type { Brain } from '../src/ai/brain';
 import { DEFAULT_EVO, nextGeneration } from '../src/ai/evolution';
 import { quietTracker, trackerFrom } from '../src/ai/netTracker';
 import { mulberry32 } from '../src/ai/rng';
+import { specById } from '../src/vehicles/cars';
 import {
   DRIVE_EPS, DRIVE_GUARD, PER_GEN, RACE_KEEP, RACE_RESETS, RACE_SEEDS, RACE_TRAIN, RACE_VALIDATION_SEEDS, RACE_WEIGHT, Scenario, scenario, SPEC,
   VALIDATION,
@@ -66,8 +67,11 @@ it('tracker', async () => {
   const rng = mulberry32(Number(process.env.SEED ?? 1));
   const valRng = mulberry32(99);
   const validation = Array.from({ length: VALIDATION }, () => scenario(valRng));
-  // From the car's current network if it has one (CONTINUE=1), else quiet ones (the plain tracker).
-  const start = process.env.CONTINUE ? trackerFrom(SPEC.ai.tracker) : null;
+  // From the car's current network if it has one (CONTINUE=1; START_FROM=<car>: that car's - a car without one of
+  // its own, the police SUV from the muscle car it is built on), else quiet ones (the plain tracker).
+  const from = process.env.START_FROM ? specById(process.env.START_FROM) : SPEC;
+  if (!from) throw new Error(`no car "${process.env.START_FROM}"`);
+  const start = process.env.CONTINUE ? trackerFrom(from.ai.tracker) : null;
   let pop: Brain[] = Array.from({ length: evo.population }, (_, i) => (start && i === 0 ? start : quietTracker(rng)));
   /** One brain's validation: the driving's cost (and its errors). */
   let startDrive = NaN; // the start's driving on validation (the guard), the launches' extra left out

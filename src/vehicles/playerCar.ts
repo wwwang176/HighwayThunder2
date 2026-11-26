@@ -24,8 +24,8 @@ import { BRAKE_HEAT, discGlow, discHeatStep } from './brakeHeat';
 export interface PlayerCarOptions {
   /** Car type (default: the street racer). */
   spec?: CarSpec;
-  /** Who the collider is: the player (default) or a rival. Without a scene and without this: a ghost. */
-  entity?: Extract<EntityRef, { type: 'player' } | { type: 'rival' }>;
+  /** Who the collider is: the player (default), a rival or a police car. Without a scene and without this: a ghost. */
+  entity?: Extract<EntityRef, { type: 'player' } | { type: 'rival' } | { type: 'police' }>;
   /** Body colour (default: the spec's). */
   color?: number;
   /** Paint job, for a car with a model file (carModels.ts; default: its own). */
@@ -140,6 +140,7 @@ const HOOD_EYE: Record<CarStyle, [y: number, z: number]> = {
   super: [0.6, -0.65], // (0.15 m over its hood: its short sloping hood seen at all)
   muscle: [0.68, -0.51],
   jdm: [0.78, -0.53],
+  suv: [1.0, -0.9], // (the police SUV's stand-in body: models.ts buildPoliceSuv)
 };
 
 /**
@@ -305,7 +306,7 @@ export class PlayerCar {
             .setFriction(BODY_FRICTION.upright)
             .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
             .setRestitution(0.05)
-            .setCollisionGroups(entity.type === 'rival' ? RIVAL_GROUPS : PLAYER_GROUPS)
+            .setCollisionGroups(entity.type === 'player' ? PLAYER_GROUPS : RIVAL_GROUPS) // (a police car: as a rival)
             .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
           this.body,
         );
@@ -778,7 +779,11 @@ export class PlayerCar {
     this.flames?.dispose();
     // What is its own on the GPU (not its file's shared parts): its lamps' and pipes' merged meshes, its headlights'
     // shadow maps (three frees them only so).
-    this.mesh.traverse((o) => (o as THREE.Mesh).isMesh && o.userData.ownGeometry && (o as THREE.Mesh).geometry.dispose());
+    this.mesh.traverse((o) => {
+      if (!(o as THREE.Mesh).isMesh) return;
+      if (o.userData.ownGeometry) (o as THREE.Mesh).geometry.dispose();
+      if (o.userData.ownMaterial) ((o as THREE.Mesh).material as THREE.Material).dispose(); // (the police SUV's light bar)
+    });
     for (const hl of this.headlights) hl.dispose();
     this.mesh.removeFromParent();
   }

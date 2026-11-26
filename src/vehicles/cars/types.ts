@@ -25,8 +25,8 @@ export interface CarSpec {
   ai: CarPerformance;
 }
 
-/** Body shapes: a low supercar wedge, a long-hooded muscle car, a tuned JDM coupe. */
-export type CarStyle = 'super' | 'muscle' | 'jdm';
+/** Body shapes: a low supercar wedge, a long-hooded muscle car, a tuned JDM coupe, the police SUV. */
+export type CarStyle = 'super' | 'muscle' | 'jdm' | 'suv';
 
 /** Measured on the car itself (training/measureCar.train.ts). */
 export interface CarPerformance {

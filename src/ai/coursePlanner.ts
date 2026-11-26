@@ -78,6 +78,9 @@ const TURN_COST = 20;
 const TURN_FREE = 0.5;
 /** m of progress a plan point on the shoulder costs (past the paved road's edge: allowed up to the rail). */
 const OFF_ROAD = 5;
+/** PlanEgo.preferD's cost by default: m of progress a plan point costs per m off that line - on the paved road's edge,
+ * the shoulder's middle 1.25 m out, over OFF_ROAD (3: it stood on the edge, short of the shoulder it was pulling onto). */
+const PREFER_COST = 6;
 /** m of progress a plan point costs per m it is outside where it may go (it heads back in). */
 const OUT_COST = 2;
 /** The ground's grip at d (the median's grass) as a share of the road's. */
@@ -94,7 +97,8 @@ export function coursePlan(ego: PlanEgo, traffic: TrafficBox[], previous: Previo
   const t0 = performance.now();
   const hl = ego.halfLength ?? 2.2;
   // Street racing does not look back (PLANNER.lookBehind): what is wholly behind brakes for us.
-  const reach = ego.s + Math.max(ego.v, ego.speedCap) * COURSE.horizon + 50;
+  const horizon = ego.horizon ?? COURSE.horizon;
+  const reach = ego.s + Math.max(ego.v, ego.speedCap) * horizon + 50;
   const boxes = traffic.filter((t) => t.s < reach && t.s > ego.s - 150 && (PLANNER.lookBehind || t.s + t.length / 2 >= ego.s - hl));
   const start = startNode(ego);
   let found = search(ego, start, boxes, previous, false);
@@ -107,7 +111,7 @@ export function coursePlan(ego: PlanEgo, traffic: TrafficBox[], previous: Previo
   // plan has the car now, if that one is recent (reuseAge) - its plans ride the edge of what is clear (the side room,
   // the room to brake), and a few cm or km/h off the last one the way it was on can be closed to it.
   const ends = (p: Plan | null) => (p ? p.points[p.points.length - 1].t : 0);
-  if (COURSE.reuseAge > 0 && previous && previous.age <= COURSE.reuseAge && ends(found) < COURSE.horizon - COURSE.reuseShort) {
+  if (COURSE.reuseAge > 0 && previous && previous.age <= COURSE.reuseAge && ends(found) < horizon - COURSE.reuseShort) {
     const at = planAt(previous.plan, previous.age);
     const pts = previous.plan.points;
     const k = Math.min(pts.length - 1, Math.floor(previous.age / COURSE.step));
@@ -161,7 +165,8 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   const P = PLANNER, K = COURSE;
   // The steps: fine ones first, then longer.
   const stepAt: number[] = [];
-  for (let t = 0; t < K.horizon - 1e-9; ) {
+  const horizon = ego.horizon ?? K.horizon;
+  for (let t = 0; t < horizon - 1e-9; ) {
     const dt = t < K.fine - 1e-9 ? K.step : K.longStep;
     stepAt.push(dt);
     t += dt;
@@ -175,7 +180,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   // How far out its centre may go: the paved road's edge, or - off it already, or across the
   // road (a crash: ACROSS) - up to the rail, the shoulder at a cost (OFF_ROAD). (Allowed always, it passed a car on
   // the shoulder rather than take the gap.)
-  const edge = Math.abs(start.d) > ROAD_HALF_WIDTH || Math.abs(start.psi + start.beta) > ACROSS ? RAIL_D - hw : ROAD_HALF_WIDTH;
+  const edge = ego.shoulder || Math.abs(start.d) > ROAD_HALF_WIDTH || Math.abs(start.psi + start.beta) > ACROSS ? RAIL_D - hw : ROAD_HALF_WIDTH;
   // Outside that (on the median's grass, say) it still plans - going out further only to turn back in, at a cost the
   // further out (OUT_COST); once in it never goes out again. (Outside, every move out was refused: heading away from
   // the road it could not even start turning back, and stood braking.) Never past our rails: the right one, the
@@ -275,6 +280,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
           else if (Math.abs(d - laneCenter(laneAt(d))) > ON_CENTRE) score -= P.lineCost * w;
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus * w;
           if (P.passCost > 0) score -= passShort(local, s, d, hl, hw, tA + dt) * w;
+          if (ego.preferD !== undefined) score -= (ego.preferCost ?? PREFER_COST) * Math.abs(d - ego.preferD) * w;
           const key = (Math.round(d / K.dCell) * 1000 + Math.round(v / K.vCell)) * 1000 + Math.round(wrap(psi) / K.psiCell) + 500;
           const old = next.get(key);
           if (old && old.score >= score) continue; // (the same state: the same speed and turn left)
@@ -319,7 +325,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     deepest = nodes;
   }
   // The best end, and the next best that go another way (another order of lanes along it): shown beside the plan.
-  const cut = deepest[0].t < K.horizon - 1e-6;
+  const cut = deepest[0].t < horizon - 1e-6;
   const slowest = (x: Node, y: Node) => Math.round(x.v / K.vCell) - Math.round(y.v / K.vCell) || y.val - x.val;
   const ends = [...deepest].sort(cut && K.deadEnd > 0 ? slowest : (x, y) => y.val - x.val);
   if (cut && K.deadEnd > 0 && ends.length && ends[0].parent) COURSE_STATS.deadEnd++;

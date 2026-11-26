@@ -6,7 +6,7 @@ Run (Blender 5.x, headless):
   blender -b --factory-startup -P tools/models/supercar.py -- [--out public/models/supercar.glb] [--preview DIR] [--collider TS]
 
 Its own: the channel down the generated roof filled (`fill_roof`); its paint is red like its tail lights (`tail` tells them apart: the lights are the purer, fuller red),
-its headlamps are thin angular LED strips (lamps laid cell by cell over the texture's), the front indicators
+its headlamps are thin angular LED strips (an outline of the texture's drawn smooth: HEAD_SHAPE), the front indicators
 the strips' outer ends, its tail light bar a hairline on the texture (made 4 cm tall). Its black roof and
 lower body stay black in every livery (the stripes' colour: black), the roof all of it (`roof_above`).
 """
@@ -19,6 +19,13 @@ import carkit as kit  # noqa: E402
 
 
 RIMS = ((0.461, 1.014), (0.095, 1.072), (-0.388, 1.030))  # the roof channel's rims (y, z), front to back
+# The left headlamp's outline (x, z; seen from ahead, working frame), smooth where the texture's white cells are
+# ragged: its LED strip from the pointed inner end along its lower edge out to the outer corner, up the upright leg
+# there, and back along the strip's upper edge. Its front indicator: the outer 8 cm of it (the leg).
+HEAD_SHAPE = [(-0.405, 0.416), (-0.50, 0.426), (-0.60, 0.441), (-0.70, 0.453), (-0.795, 0.465), (-0.795, 0.565),
+              (-0.745, 0.565), (-0.745, 0.484), (-0.60, 0.465), (-0.50, 0.450), (-0.43, 0.428)]
+IND_SHAPE = [(-0.715, 0.455), (-0.795, 0.465), (-0.795, 0.565), (-0.745, 0.565), (-0.745, 0.484), (-0.715, 0.480)]
+HEAD_SPREAD = 0.04  # (its face curves back steeply at the outer end: up to 4 cm a cm)
 
 
 def fill_roof(body, px):
@@ -39,17 +46,13 @@ def fill_roof(body, px):
 
 
 def lamps(body, px, s):
-    """Headlamps: the white LED strips on the nose, cell by cell. Front indicators: over each strip's outer 8 cm.
+    """Headlamps: the white LED strips on the nose (HEAD_SHAPE). Front indicators: over each strip's outer 8 cm.
     Then the tail lights (kit.tail_lamps)."""
     out = []
-    white = s.hits(False, "white")
     for side, sx in (("L", -1), ("R", 1)):
-        strip = [(x, z) for x, z in white if x * sx > 0]
-        print(f"[supercar] head_{side}: {len(strip)} cells, |x| {min(abs(x) for x, z in strip):.2f}..{max(abs(x) for x, z in strip):.2f}")
-        head = kit.cell_lamp(f"head_{side}", s, body, strip, "head")
-        outer = max(abs(x) for x, z in strip) - 0.08
-        ind = kit.cell_lamp(f"ind_F{side}", s, body, [(x, z) for x, z in strip if abs(x) >= outer], "ind",
-                            lift=kit.LIFT * 2.5, others=[head])
+        head = kit.shape_lamp(f"head_{side}", s, body, HEAD_SHAPE, "head", HEAD_SPREAD, flip=sx > 0)
+        ind = kit.shape_lamp(f"ind_F{side}", s, body, IND_SHAPE, "ind", HEAD_SPREAD, flip=sx > 0, lift=kit.LIFT * 2.5,
+                             others=[head])
         out += [head, ind]
     return out + kit.tail_lamps(s, body, min_height=0.04) + [kit.third_brake(s, body, seam=(-0.58, 0.997), half=0.2, height=0.03)]
 

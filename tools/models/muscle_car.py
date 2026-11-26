@@ -130,6 +130,7 @@ CAR = kit.Car(
     exhaust={"tips": [(-0.5, 0.33), (0.5, 0.33)], "back": 2.26, "rect": (0.17, 0.06)},  # flat, just under the bumper
     lamps=lamps,
     mend=build_apron,
+    well_ring=1.04,  # (its arches' lips 1.05-1.3 tyre radii out: black slivers round them at 1.25)
 )
 
 if __name__ == "__main__":

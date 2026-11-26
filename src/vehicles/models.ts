@@ -177,6 +177,7 @@ export function buildCar(
   if (made) return fromTemplate(made, h, l, color, withWheels, beam, livery);
   if (style === 'muscle') return buildMuscleCar(w, h, l, color, withWheels, beam);
   if (style === 'jdm') return buildJdmCar(w, h, l, color, withWheels, beam);
+  if (style === 'suv') return buildPoliceSuv(w, h, l, color, withWheels, beam);
   const sporty = style !== false;
   const root = new THREE.Group();
   const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
@@ -198,6 +199,44 @@ export function buildCar(
   }
   if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.32, l * 0.32], 0.33);
   addLights(root, lights, w / 2, g + 0.28 + bodyH * 0.7, -l / 2, l / 2, beam ? g : undefined);
+  return { root, lights };
+}
+
+/**
+ * The police SUV (a stand-in until its model is made): a tall square body in `color`, white doors, a roof with a light
+ * bar - its two halves `lightbar-red` (left) and `lightbar-blue` (right), their glow flashed by src/game/police.ts. A
+ * made-up livery: no real force's marks.
+ */
+function buildPoliceSuv(w: number, h: number, l: number, color: number, withWheels: boolean, beam: boolean): VehicleModel {
+  const root = new THREE.Group();
+  const lights: VehicleLights = { left: [], right: [], brake: [], third: [] };
+  const g = -h / 2;
+  const paint = std(color, 0.35, 0.4);
+  const white = std(0xf2f2f2, 0.35, 0.3);
+  const floor = g + 0.34; // (a tall car: high off the ground)
+  const bodyH = 0.78;
+  box(root, w, bodyH, l, paint, 0, floor + bodyH / 2, 0);
+  box(root, w * 1.005, bodyH * 0.6, l * 0.42, white, 0, floor + bodyH * 0.45, l * 0.02, false); // (the doors)
+  const cabinH = 0.62;
+  const cabinL = l * 0.62;
+  const cabinY = floor + bodyH + cabinH / 2;
+  box(root, w * 0.92, cabinH, cabinL, paint, 0, cabinY, l * 0.08);
+  box(root, w * 0.94, cabinH * 0.72, cabinL * 0.94, GLASS, 0, cabinY - 0.02, l * 0.08, false);
+  box(root, w * 0.9, 0.12, 0.25, DARK, 0, floor + bodyH * 0.35, -l / 2 - 0.08); // (a push bar)
+  const barY = floor + bodyH + cabinH + 0.07;
+  box(root, w * 0.8, 0.06, 0.32, DARK, 0, barY - 0.05, l * 0.02, false);
+  const bar = (name: string, hex: number, x: number) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w * 0.38, 0.1, 0.28), new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 0, roughness: 0.3 }));
+    m.name = name;
+    m.userData.ownGeometry = true; // (its own, not the shared boxes': freed with the car - PlayerCar.dispose)
+    m.userData.ownMaterial = true;
+    m.position.set(x, barY + 0.03, l * 0.02);
+    root.add(m);
+  };
+  bar('lightbar-red', 0xff2020, -w * 0.2);
+  bar('lightbar-blue', 0x2050ff, w * 0.2);
+  if (withWheels) wheels(root, g, w / 2 - 0.1, [-l * 0.3, l * 0.3], 0.38);
+  addLights(root, lights, w / 2, floor + bodyH * 0.75, -l / 2, l / 2, beam ? g : undefined);
   return { root, lights };
 }
 

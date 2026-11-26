@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { burstSparks, scrapeSparks, slideSpeed, Sparks, SPARKS } from '../src/world/sparks';
+import { impactSpeed } from '../src/physics/physicsWorld';
 
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
@@ -22,6 +23,12 @@ describe('collision sparks', () => {
     expect(burstSparks(10)).toBe(Math.round(SPARKS.burst * 10));
     expect(burstSparks(200)).toBe(SPARKS.burstMax);
   });
+
+  it('a hit\'s force: the speed its impulse took out of the two along the push (impulse x the inverse masses)', () => {
+    expect(impactSpeed(3000, 1 / 1500, 1 / 3000)).toBeCloseTo(3); // 2 m/s off the light car, 1 off the heavy
+    expect(impactSpeed(3000, 1 / 1500, 0)).toBeCloseTo(2); // (a rail: fixed, no inverse mass)
+    expect(impactSpeed(0, 1 / 1500, 1 / 3000)).toBe(0); // resting together
+  });
 });
 
 describe('sparks on a road that climbs and falls', () => {
@@ -33,7 +40,7 @@ describe('sparks on a road that climbs and falls', () => {
     const touch = {
       a: { type: 'player' as const }, b: { type: 'static' as const },
       points: [at], count: 1, normal: v(1, 0, 0), mid: at.clone(),
-      va: v(0, 0, -30), vb: v(0, 0, 0), upA: v(0, 1, 0), upB: v(0, 0, 0), fresh: true,
+      va: v(0, 0, -30), vb: v(0, 0, 0), upA: v(0, 1, 0), upB: v(0, 0, 0), fresh: true, impact: 0,
     };
     sparks.touch(touch, 1 / 120);
     const s = sparks as unknown as { pos: Float32Array; age: Float32Array };

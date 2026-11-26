@@ -4,7 +4,8 @@ Every sound in the game is a recording licensed for use inside the game only, so
 
 - **No audio is ever committed.** Not a recording, not a processed clip, not a built bundle - in any format.
   `public/audio/` is git-ignored, and `tests/noLicensedAudio.test.ts` fails if any audio file is tracked.
-- The game ships them packed into scrambled bundles (`public/audio/engines.bin`, `crashes.bin`, `effects.bin`;
+- The game ships them packed into scrambled bundles (`public/audio/engines.bin`, `crashes.bin`, `effects.bin`,
+  `rotor.bin`;
   `src/audio/bundleCodec.ts`), never as loose clips.
 - The bundles, their build tools and the music live in a private repository, checked out by the Pages workflow and
   copied into `public/audio` just for the build. Without them (any checkout of this repository) the game runs silent.
@@ -80,8 +81,11 @@ as a hit, only quieter (its closing speed along the push: a side swipe little). 
   slip - the player's strongest sliding tyre's slip speed: from 1.5 m/s, full at 11.5 m/s (0.6), following it within
   ~0.04 s; pitched with the race's time.
 - **The rivals' squeal**: the same loop (one each, from its own random point), on each one's own slip as the
-  player's (from 1.5 m/s, full at 11.5, 0.6), placed from the camera as the engines are (panned, full within 10 m,
-  inversely with distance beyond; none past 220 m).
+  player's (from 1.5 m/s, full at 11.5 - at 1, louder than the player's 0.6: the user's call, 0.6 at first too quiet),
+  placed from the camera as the engines are (panned, full within 10 m,
+  inversely with distance beyond - at half the engines' rolloff: 0.67 of it at 20 m, 0.4 at 40 m, 0.18 at 100 m;
+  none past 220 m). (At the engines' rolloff at first: the rivals pulling away from a car left on the line were loud
+  only their first second - the user's call, 2026-11-26.)
 - **The nitro** (`effects.bin`): as the player's lights, its start (once, 0.1325); while it burns, the hiss (0.125),
   in over ~0.3 s and out over ~0.6 s.
 
@@ -173,3 +177,20 @@ the private repository, copied in for the build by the Pages workflow. No playli
   tuning, the race setup, the settings, the pause and finish menus, Esc in and out of the pause). A **system sound**:
   on its own AudioContext (`uiCtx`, the player's volume and mute, no limiter), so heard with the race's stopped in a
   pause.
+
+# The police helicopter's rotor
+
+A recording of a helicopter hovering (`rotor.bin`, clip `rotor`): one seamless lap of its steady first 10 s (9.6 s,
+from 0.4 s - past its fade-in; its length where the blades' beat runs on into the start, crossfaded over 0.3 s), at
+-16.7 LUFS (held by its peak, -1 dBFS: low and heavy). Looped from anywhere in its lap (`src/audio/rotor.ts`),
+placed by hand (pan.ts) at the helicopter, 1.2 within 40 m (overhead: as loud as the player's engine flat out, the
+user's call - 0.45 at first, 5-6 dB under it), quieter by inverse distance, none past 900 m; played at its
+Doppler factor times the race's time scale (a bust's slow motion: slower and deeper, and half as loud, as all the
+race's sound). Silent without its bundle (the synthesised one it replaced removed, 2026-11-26).
+
+# A bust's slow motion
+
+The race's sound - everything but the music and the cues (countdown, finish, menus) - turned down with it (a gain
+after the master, `Sound.setDuck`): at full speed as it is, at its slowest (0.3) half as loud, in between in step
+with the time scale - quieter as it slows down over 1.5 s, back up as it eases back over 1 s (the user's call: slowed
+down it sounds ugly). The music as it is.

@@ -5,6 +5,7 @@ import { PlannerDriver } from '../src/ai/plannerDriver';
 import { mulberry32 } from '../src/ai/rng';
 import { KMH, PHYSICS_DT } from '../src/config';
 import { PLAYER_BOX_ID, RaceView, RIVAL_TUNING, Rivals } from '../src/game/rivals';
+import { laneAt, laneCenter } from '../src/road/coords';
 import { PhysicsWorld } from '../src/physics/physicsWorld';
 import { OUR_FRAME, boxToFrame } from '../src/road/frame';
 import { TrafficWorld } from '../src/sim/trafficWorld';
@@ -54,7 +55,7 @@ function race(seed: number) {
     rivals.after(PHYSICS_DT, view, traffic.ourBoxes());
     traffic.maintain(PHYSICS_DT, focus(), (f) => rivals.occupants(f));
   };
-  return { physics, player, rivals, step, contacts: () => contacts, time: () => time };
+  return { physics, player, rivals, traffic, step, contacts: () => contacts, time: () => time };
 }
 
 describe('rivals racing (headless)', () => {
@@ -79,6 +80,22 @@ describe('rivals racing (headless)', () => {
       expect(rv.resets).toBeGreaterThanOrEqual(1);
       expect(r.player.s - rv.car.s).toBeLessThan(RIVAL_TUNING.teleportBehind);
     }
+    r.physics.free();
+  }, 60_000);
+
+  it('one put back is never put on a police car', () => {
+    const r = race(7003);
+    for (let i = 0; i < 1 / PHYSICS_DT; i++) r.step();
+    const rv = r.rivals.list[0];
+    const lane = 1;
+    rv.car.resetTo(r.player.s + RIVAL_TUNING.teleportAhead + 50, lane, 30 * KMH); // (far ahead: put back placeAhead ahead of the player)
+    const at = r.player.s + RIVAL_TUNING.placeAhead;
+    const cop = { s: at, dMin: laneCenter(lane) - 1.02, dMax: laneCenter(lane) + 1.02, length: 5, v: 0, id: -2_000_000 };
+    const view: RaceView = { player: r.player, traffic: [], speedCap: 300 * KMH, raceTime: r.time(), police: [cop] };
+    r.rivals.after(PHYSICS_DT, view, [], true);
+    expect(rv.resets).toBeGreaterThanOrEqual(1);
+    const onIt = laneAt(rv.car.d) === lane && Math.abs(rv.car.s - cop.s) < (cop.length + rv.car.length) / 2 + 1;
+    expect(onIt).toBe(false);
     r.physics.free();
   }, 60_000);
 });

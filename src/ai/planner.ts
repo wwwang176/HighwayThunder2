@@ -127,6 +127,16 @@ export interface PlanEgo {
   vLat?: number;
   /** The tightest it can turn on its steering lock (1/m: tan(maxSteer) / wheelbase). */
   turnMax?: number;
+  /**
+   * A line across the road (d, m) it would rather be on: each plan point costs `preferCost` m of progress per m off it
+   * (default PREFER_COST) - a police car guarding a racer's line, or pulling over. None: no such cost.
+   */
+  preferD?: number;
+  preferCost?: number;
+  /** It may go out onto the shoulder (up to the rail, at its cost), as off the road already. None: the paved road. */
+  shoulder?: boolean;
+  /** s looked ahead (a police car's guess at where a racer goes: only as far as it needs). None: COURSE.horizon. */
+  horizon?: number;
 }
 
 /** Where the plan is `t` seconds after it was made (between points: linear), and how fast it moves sideways there. */

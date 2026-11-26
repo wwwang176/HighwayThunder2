@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { LEFT_RAIL_X, MEDIAN_FAR_X, MEDIAN_NEAR_X, RAIL_D } from '../config';
 import { Centerline, STRAIGHT_ROAD } from '../road/centerline';
 
-export type EntityRef = { type: 'player' } | { type: 'rival'; id: number } | { type: 'npc'; id: number } | { type: 'static' };
+export type EntityRef = { type: 'player' } | { type: 'rival'; id: number } | { type: 'police'; id: number } | { type: 'npc'; id: number } | { type: 'static' };
 
 // Collision group bits (membership << 16 | filter).
 export const G_STATIC = 1;
@@ -79,6 +79,21 @@ export interface Touch {
   upA: THREE.Vector3;
   upB: THREE.Vector3;
   fresh: boolean;
+  /** How hard they pushed on each other in the last step: the speed its impulse took out of the two (m/s, impactSpeed). */
+  impact: number;
+}
+
+/**
+ * A hit's force as a speed (m/s): what its `impulse` (N s, along the push) took out of the two coming together, each
+ * by its inverse mass (a fixed thing's 0).
+ */
+export function impactSpeed(impulse: number, invMassA: number, invMassB: number): number {
+  return impulse * (invMassA + invMassB);
+}
+
+/** A body's inverse mass (a fixed one's, or none: 0). */
+function invMass(body: RAPIER.RigidBody | null): number {
+  return !body || body.isFixed() ? 0 : 1 / body.mass();
 }
 
 /** A body's velocity at world point `p` (none: a fixed thing's, 0). */
@@ -249,6 +264,7 @@ export class PhysicsWorld {
     upA: new THREE.Vector3(),
     upB: new THREE.Vector3(),
     fresh: false,
+    impact: 0,
   };
 
   private constructor() {
@@ -594,14 +610,17 @@ export class PhysicsWorld {
         continue;
       }
       t.count = 0;
+      let impulse = 0;
       this.world.contactPair(c1, c2, (m) => {
         for (let i = 0; i < m.numSolverContacts() && t.count < t.points.length; i++) {
           const q = m.solverContactPoint(i);
           if (q) t.points[t.count++].set(q.x, q.y, q.z);
         }
+        for (let i = 0; i < m.numContacts(); i++) impulse += m.contactImpulse(i);
         if (t.count) m.normal(t.normal);
       });
       if (!t.count) continue;
+      t.impact = impactSpeed(impulse, invMass(c1.parent()), invMass(c2.parent()));
       // The surfaces' velocities at the middle of the contact.
       const mid = t.mid.set(0, 0, 0);
       for (let i = 0; i < t.count; i++) mid.add(t.points[i]);

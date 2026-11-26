@@ -1,0 +1,535 @@
+import * as THREE from 'three';
+import { KMH } from '../config';
+import { selfStateOf, speedPedals } from '../ai/driver';
+import { trackerFrom } from '../ai/netTracker';
+import { PlannerDriver, type PlanSource } from '../ai/plannerDriver';
+import type { TrafficBox } from '../ai/sensors';
+import type { PhysicsWorld } from '../physics/physicsWorld';
+import type { BeaconGlow, GlowShade, GlowSpot } from '../render/beaconGlow';
+import type { LightFlares } from '../render/lightFlares';
+import type { Centerline } from '../road/centerline';
+import { lanesOccupied, surfaceGrip } from '../road/coords';
+import { boxToFrame, OUR_FRAME, type RoadFrame } from '../road/frame';
+import type { Occupant } from '../traffic/spawner';
+import type { Obstacle } from '../traffic/trafficAI';
+import { POLICE_SUV } from '../vehicles/cars';
+import type { DriveInput } from '../vehicles/handling';
+import { PLAYER_L, PLAYER_W, PlayerCar } from '../vehicles/playerCar';
+import { BLOCK, blockClear, blockD, blockSteer, BRAKE_CHECK, brakeCheckDue, chaseStarts, guardD, guardHorizon, inLine, isLost, lineClear, noseAhead, outOfSight, parkSpot, passD, phaseOf, pickTarget, POLICE_TUNING, racerVD, ramAllowed, ramInput, type Racer, reachTime, SHOULDER_D, Sighting } from './policeLogic';
+import { coursePlan } from '../ai/coursePlanner';
+import type { Plan } from '../ai/planner';
+import type { Blocker } from './reset';
+
+/** Parked on the shoulder; ahead of its target (on its way); behind it (chasing, ramming); done, pulling over. */
+export type PoliceState = 'parked' | 'front' | 'behind' | 'pullover';
+
+export interface PoliceCar {
+  index: number;
+  car: PlayerCar;
+  driver: PlannerDriver;
+  state: PoliceState;
+  target: Racer | null;
+  /** Ramming its target this step (the line to it clear): steered at it, not by its plans. */
+  ramming: boolean;
+  /** Blocking its target this step (BLOCK: about to pass it, no traffic in the way): steered across, not by its plans. */
+  blocking: boolean;
+  /** A brake check (BRAKE_CHECK): s of it left (0: none), s till another may be; on this step. */
+  brakeLeft: number;
+  brakeCooldown: number;
+  braking: boolean;
+  /** What it has seen of its target (for its reaction, BLOCK.react), and which racer that is (Racer.id). */
+  sighting: Sighting;
+  sightingFor: number | undefined;
+  /** Guarding: its target's predicted line (null: none yet), and s till it is worked out again. */
+  guardPlan: Plan | null;
+  guardClock: number;
+  /** Its last prediction asked for (its stamp), and for which racer (Racer.id): an answer to anything else is dropped. */
+  guardAsked: number;
+  guardFor: number | undefined;
+  /** Its light bar's two halves' materials (found on its body at first draw; none: a body without one). */
+  lightBar?: { red?: THREE.MeshStandardMaterial; blue?: THREE.MeshStandardMaterial };
+  /** Where on it (its mesh's space) the beacon shines from over each half (found at first need). */
+  beaconAt?: { red: THREE.Vector3; blue: THREE.Vector3 };
+}
+
+/** The police cars' first spots (m along the road, on the shoulder): the first met ~10 s into the race. */
+const FIRST_PARKED = [400, 900, 1400];
+/** Ids of their boxes (the planners', the traffic's): clear of the rivals' (-1_000_000 on) and the player's (-1). */
+const POLICE_BOX_ID = -2_000_000;
+/** How much slower than its target one ahead of it goes, how much faster one behind may (m/s). */
+const FRONT_SLOWER = 20 * KMH;
+const BEHIND_FASTER = 40 * KMH;
+/** Behind: its engine boosted by up to this share, from `boostFrom` m behind its target to `boostFull` m. */
+const BOOST = { most: 0.5, from: 30, full: 230 };
+/** Pulling over: this fast (m/s) until within `near` m of the shoulder's middle, then to a stop. */
+const PULL_OVER = { speed: 40 * KMH, near: 0.4 };
+/** Parked again: this far (m) along from any other police car. */
+const PARK_APART = 40;
+/** With nobody to go for, still in the player's sight: on along the road this fast (m/s). */
+const CRUISE = 100 * KMH;
+/** Rams only a target at most this far ahead (m): further, it closes in by its plans. */
+const RAM_RANGE = 120;
+const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
+/** Guarding: the target's line worked out again every `every` s (only as far as it needs: guardHorizon - its 8 s took
+ * 71 ms, a guard 0.4-0.5 s behind), as if it drove for at most `cap` m/s. */
+const GUARD = { every: 0.3, cap: 300 * KMH };
+/** A prediction's stamp: its sequence number times this, plus the guarding car's index. */
+const STAMP_SLOTS = 8;
+/**
+ * A light bar half's material, its own (a model file's are shared by every car built from it: one car's flashing
+ * was every car's); none: no such part.
+ */
+function ownMaterial(o: THREE.Object3D | undefined): THREE.MeshStandardMaterial | undefined {
+  const m = o as THREE.Mesh | undefined;
+  if (!m?.isMesh) return undefined;
+  m.material = (m.material as THREE.MeshStandardMaterial).clone();
+  return m.material as THREE.MeshStandardMaterial;
+}
+
+/**
+ * Where the beacon shines from over a light bar half (`name`), in the car's mesh's space (its matrices up to date):
+ * BEACON.lift over its middle; a body without one: over its roof, to that `side` (-1 left).
+ */
+function beaconSpot(mesh: THREE.Object3D, name: string, side: number): THREE.Vector3 {
+  const half = mesh.getObjectByName(name) as THREE.Mesh | undefined;
+  if (!half?.isMesh) return new THREE.Vector3(side * 0.3, 1.2 + BEACON.lift, 0);
+  half.geometry.computeBoundingBox();
+  const c = half.geometry.boundingBox!.getCenter(new THREE.Vector3());
+  half.localToWorld(c);
+  mesh.worldToLocal(c);
+  c.y += BEACON.lift;
+  return c;
+}
+
+/**
+ * The light bars: one `cycle` (s) of red flashes then blue (shares of the cycle), at `glowRed` / `glowBlue` (emissive
+ * intensity). Six even beats - red, dark, red, blue, dark, blue: one colour's flashes straight into the other's, no
+ * gap between. Bright enough to bloom on their own (POST.threshold 2.05, by luminance: red 0.22 of it a unit, blue
+ * 0.13 - blue the brighter for it to look as bright); 4 at first, both under it: only the nearest car's bloomed, its
+ * beacon lighting its own bar from 25 cm (the user's call: every car's).
+ */
+const FLASH = {
+  cycle: 0.4,
+  red: [[0, 1 / 6], [2 / 6, 3 / 6]] as [number, number][],
+  blue: [[3 / 6, 4 / 6], [5 / 6, 1]] as [number, number][],
+  glowRed: 20,
+  glowBlue: 35,
+};
+/**
+ * The light bars' real light: one for them all - they flash red or blue, never both, all in step - at the flashing
+ * car nearest the player, `lift` m over the half lit, in its colour (candela; out to `distance` m, falling off by
+ * `decay`); dark between the flashes. In the scene throughout (a light coming and going has every material rebuilt).
+ * The ground lit by every car's bar as it would (render/beaconGlow: in the ground's shaders - the user's call, the
+ * ground what shows it most; a real light each: every pixel's cost), shaded by its own car (BEACON_SHADE); not the
+ * other cars, nor the rails. The real one leaves the ground to it (its `decay` its tag: the only point light).
+ */
+const BEACON = { intensity: 120, distance: 30, decay: 1.6, lift: 0.25, red: 0xff2020, blue: 0x2050ff };
+/**
+ * The SUV's own shade of its bar's light on the ground (its mesh's space, measured off its model: its ground at
+ * -0.56, the bar 1.18-1.28 up, its middle 0.29 back): its roof at 1.12 (0.70 either side, -0.35 to 1.9 along) and
+ * its body at its shoulders, 0.62 (1.05 either side, -2.0 to 2.4) - the ground round it dark (2-3 m out to the side
+ * the bar is on, 5-6 m the other, ~9 m behind), not lit under it: it floated on its pool of light (the user's call).
+ */
+const BEACON_SHADE: GlowShade = {
+  roof: { y: 1.12, x: 0.7, z0: -0.35, z1: 1.9 },
+  body: { y: 0.62, x: 1.05, z0: -2.0, z1: 2.4 },
+  soft: 0.12,
+};
+
+/**
+ * The police (the highway's): POLICE_TUNING.count SUVs, parked on the shoulder. Any racer coming within 100 m of a
+ * parked one (chaseStarts) sets the chase off (`triggered`); from then on each, by the racer it goes for (pickTarget: the player within 100 m first), guards
+ * the road ahead of it (front) or chases it (behind: its plans round the traffic, flat out at it once the line to it is
+ * clear). Further than POLICE_TUNING.lost from every racer it has lost them: parked again ahead of them all, out of sight.
+ * One that busted the player pulls over onto the shoulder and stays there till it too is lost.
+ */
+export class Police {
+  readonly list: PoliceCar[] = [];
+  /** A racer (the player or a rival) has come within 100 m of a parked police car: the chase is on (each race anew). */
+  triggered = false;
+  private readonly boxBuf: TrafficBox[] = [];
+  /** Where the guarding cars' targets' lines are worked out (a Web Worker in the game; none in the sims: in line). */
+  private readonly predictor: PlanSource | null;
+  private predictSeq = 0;
+  /** The race's time the light bars flash by; the race's time they drive by (their sightings'). */
+  private flashTime = 0;
+  private clock = 0;
+  /** The light bars' real light (BEACON; none without a scene: the sims). */
+  private readonly beacon: THREE.PointLight | null;
+  /** The flashing cars' beacons this frame, for the ground (BeaconGlow). */
+  private readonly glowSpots: GlowSpot[] = [];
+
+  constructor(
+    private readonly physics: PhysicsWorld,
+    scene: THREE.Scene | null,
+    makeSource: () => PlanSource | null,
+  ) {
+    this.predictor = makeSource();
+    this.beacon = scene ? new THREE.PointLight(BEACON.red, 0, BEACON.distance, BEACON.decay) : null;
+    if (this.beacon) scene!.add(this.beacon);
+    const spec = POLICE_SUV;
+    for (let i = 0; i < POLICE_TUNING.count; i++) {
+      const car = new PlayerCar(physics, scene, { spec, entity: { type: 'police', id: i }, realLights: false });
+      car.surfaceGrip = surfaceGrip;
+      const driver = new PlannerDriver(makeSource());
+      driver.accel = spec.ai.accel;
+      driver.latAccel = spec.ai.latAccel;
+      driver.brake = spec.ai.brake;
+      driver.tracker = trackerFrom(spec.ai.tracker);
+      this.list.push({ index: i, car, driver, state: 'parked', target: null, ramming: false, blocking: false, brakeLeft: 0, brakeCooldown: 0, braking: false, sighting: new Sighting(), sightingFor: undefined, guardPlan: null, guardClock: 0, guardAsked: -1, guardFor: undefined });
+    }
+    this.place();
+  }
+
+  /** The road they drive on. */
+  setRoad(line: Centerline): void {
+    for (const p of this.list) p.car.road = line;
+  }
+
+  /** A race's start: all parked at their first spots, the chase not on yet. */
+  place(): void {
+    this.triggered = false;
+    this.list.forEach((p, i) => this.park(p, FIRST_PARKED[i % FIRST_PARKED.length] + Math.floor(i / FIRST_PARKED.length) * 1500));
+  }
+
+  /** Before the race: held where they are. */
+  hold(dt: number): void {
+    for (const p of this.list) {
+      p.car.holdInPlace(true);
+      p.car.prePhysics(HOLD, dt);
+    }
+  }
+
+  /**
+   * Before the physics step: each one's input. `racers` (the player and the rivals) with their boxes `racerBoxes` (the
+   * same order); `traffic` our carriageway's.
+   */
+  drive(dt: number, racers: readonly Racer[], racerBoxes: readonly TrafficBox[], traffic: readonly TrafficBox[]): void {
+    this.clock += dt;
+    // A predicted line back from the worker: the guarding car it was asked for (by its stamp), if it guards still.
+    const answer = this.predictor?.take();
+    if (answer) {
+      const q = this.list[answer.stamp % STAMP_SLOTS];
+      if (q?.state === 'front' && answer.stamp === q.guardAsked && q.target?.id === q.guardFor) q.guardPlan = answer.plan;
+    }
+    const player = racers.find((r) => r.isPlayer);
+    for (const p of this.list) if (p.state === 'parked' && chaseStarts(p.car.s, racers)) this.triggered = true;
+    for (const p of this.list) {
+      const c = p.car;
+      p.ramming = false;
+      p.blocking = false;
+      p.braking = false;
+      p.brakeCooldown = Math.max(0, p.brakeCooldown - dt);
+      // Lost: parked again ahead of them all (one parked behind them all too - left behind, the chase not on).
+      const behindAll = racers.every((r) => r.s > c.s);
+      // (only out of the player's sight: lost 300 m ahead in the fog, it was seen to vanish)
+      const unseen = !player || outOfSight(c.s, player.s);
+      if (racers.length && unseen && isLost(c.s, racers, POLICE_TUNING.lost) && (p.state !== 'parked' || behindAll)) {
+        this.parkAhead(p, racers);
+        continue;
+      }
+      if (p.state === 'parked') {
+        const t = this.triggered ? pickTarget(c.s, racers, POLICE_TUNING.wake) : null;
+        if (!t) {
+          c.holdInPlace(true);
+          c.prePhysics(HOLD, dt);
+          continue;
+        }
+        c.holdInPlace(false);
+        p.driver.reset();
+        p.driver.shoulder = true; // (the police's own rule: out onto the shoulder too, round the traffic - the racers may not)
+        p.state = phaseOf(c.s, t);
+      }
+      if (p.state === 'pullover') {
+        p.target = null;
+        const there = Math.abs(c.d - SHOULDER_D) < PULL_OVER.near;
+        this.boost(p, 1);
+        c.prePhysics(p.driver.drive(selfStateOf(c, there ? 0 : PULL_OVER.speed), this.seen(p, racerBoxes, traffic), c.params), dt);
+        continue;
+      }
+      const t = pickTarget(c.s, racers, POLICE_TUNING.lost);
+      if (!t) {
+        // Nobody to go for: parked again ahead out of sight, else on along the road till it is.
+        if (unseen) this.parkAhead(p, racers);
+        else {
+          p.target = null;
+          p.driver.preferD = null;
+          this.boost(p, 1);
+          c.prePhysics(p.driver.drive(selfStateOf(c, CRUISE), this.seen(p, racerBoxes, traffic), c.params), dt);
+        }
+        continue;
+      }
+      p.target = t;
+      p.state = phaseOf(c.s, t);
+      const seen = this.seen(p, racerBoxes, traffic);
+      if (p.state === 'front') {
+        // On the line its target will take as it gets here (its plan as the planner would drive it, every GUARD.every s).
+        // (a racer on the AI: its own plan; else worked out in the predictor's worker, a request at a time - without one,
+        // the sims, here and now)
+        p.guardClock -= dt;
+        if (t.plan) p.guardPlan = t.plan; // (an AI's: the line it really drives)
+        else if (p.guardClock <= 0 && !this.predictor?.busy) {
+          // (heading and sideways speed too: without them it was seen going straight, swerving - 1.1 s late moving over)
+          const ego = { s: t.s, d: t.d, v: t.v, vD: racerVD(t), yaw: t.yaw ?? 0, vLat: t.vLat ?? 0, speedCap: Math.max(t.v, GUARD.cap), horizon: guardHorizon(c.s, t) };
+          if (this.predictor) {
+            p.guardAsked = ++this.predictSeq * STAMP_SLOTS + p.index;
+            p.guardFor = t.id;
+            this.predictor.request(p.guardAsked, ego, traffic.slice(), null);
+          }
+          else p.guardPlan = coursePlan(ego, traffic.slice(), null);
+          p.guardClock = GUARD.every;
+        }
+        p.driver.preferD = p.guardPlan ? guardD(p.guardPlan, c.s, t) : null;
+        this.boost(p, 1);
+        const speed = Math.max(0, t.v - FRONT_SLOWER);
+        const self = selfStateOf(c, speed);
+        const planned = p.driver.drive(self, seen, c.params); // (its plans kept up while it blocks: back on them after)
+        const others = seen.filter((b) => !this.isTargetBox(b, t, racers, racerBoxes));
+        const toD = this.blockAt(p, t, others);
+        const steer = toD === null ? planned.steer : blockSteer(self, toD, c.params);
+        p.blocking = toD !== null;
+        if (this.brakeCheck(p, t, others, dt)) {
+          p.braking = true;
+          c.prePhysics({ steer, throttle: 0, brake: 1 }, dt);
+        } else if (toD === null) c.prePhysics(planned, dt);
+        else c.prePhysics({ steer, ...speedPedals(speed, c.vLong) }, dt);
+        continue;
+      }
+      p.guardPlan = null;
+      p.brakeLeft = 0;
+      // Behind: boosted the further back it is; past them in the lane beside theirs to get in front of them (passD) -
+      // flat out at them only slowed (RAM_BELOW), the line to them clear.
+      const gap = t.s - c.s;
+      this.boost(p, 1 + BOOST.most * Math.max(0, Math.min(1, (gap - BOOST.from) / (BOOST.full - BOOST.from))));
+      const aim = { s: t.s + t.v * POLICE_TUNING.aimAhead, d: t.d };
+      const others = seen.filter((b) => !this.isTargetBox(b, t, racers, racerBoxes));
+      const cap = Math.min(POLICE_SUV.params.maxSpeed, t.v + BEHIND_FASTER);
+      c.params.maxSpeed = cap;
+      if (ramAllowed(t.v) && gap < RAM_RANGE && lineClear({ s: c.s, d: c.d }, aim, others, POLICE_TUNING.laneWidth)) {
+        p.ramming = true;
+        p.driver.preferD = null;
+        c.prePhysics(ramInput(selfStateOf(c, cap), aim, c.params), dt);
+      } else {
+        p.driver.preferD = passD({ s: c.s, d: c.d, halfWidth: c.width / 2, halfLength: c.length / 2 }, t, others);
+        c.prePhysics(p.driver.drive(selfStateOf(c, cap), seen, c.params), dt);
+      }
+    }
+  }
+
+  /** After the physics step. */
+  after(): void {
+    for (const p of this.list) p.car.postPhysics();
+  }
+
+  /** Police car `index` busted the player: it pulls over onto the shoulder, and goes for nobody now. */
+  pullOver(index: number): void {
+    const p = this.list[index];
+    if (!p) return;
+    p.state = 'pullover';
+    p.target = null;
+    p.car.holdInPlace(false); // (busted on a parked one: it was held where it stood)
+    p.driver.preferD = SHOULDER_D;
+    p.driver.shoulder = true;
+  }
+
+  /** As boxes in our road's coordinates (the racers' AIs). */
+  boxes(out: TrafficBox[] = []): TrafficBox[] {
+    out.length = 0;
+    for (const p of this.list) out.push({ ...p.car.footprint(), id: POLICE_BOX_ID - p.index, v: Math.max(0, p.car.speed) });
+    return out;
+  }
+
+  /** As the traffic sees the player: it gives way to them. */
+  obstacles(frame: RoadFrame): Obstacle[] {
+    return this.list.map((p) => {
+      const c = p.car;
+      const t = c.body.translation();
+      const v = c.body.linvel();
+      const f = OUR_FRAME.forwardWorld(c.yaw, c.s);
+      const box = { x: t.x, z: t.z, fx: f.x, fz: f.z, w: c.width, l: c.length, vx: v.x, vz: v.z };
+      return { ...boxToFrame(frame, box, frame.sOf(c.s)), id: POLICE_BOX_ID - p.index, isPlayer: true };
+    });
+  }
+
+  /** Where they are, so traffic is never spawned on top of one. */
+  occupants(frame: RoadFrame): Occupant[] {
+    const out: Occupant[] = [];
+    for (const p of this.list) {
+      const c = p.car;
+      const s = frame.sOf(c.s);
+      for (const lane of lanesOccupied(c.d - c.width / 2, c.d + c.width / 2)) out.push({ s, lane, length: c.length, v: Math.max(0, c.speed) });
+    }
+    return out;
+  }
+
+  /** In the way of a car put back (game/reset). */
+  blockers(): Blocker[] {
+    return this.list.map((p) => ({ ...p.car.footprint(), v: Math.max(0, p.car.speed) }));
+  }
+
+  /** Which police car `id`'s box is (boxes()); none: -1. */
+  static indexOfBox(id: number | undefined): number {
+    return id !== undefined && id <= POLICE_BOX_ID && id > POLICE_BOX_ID - 1000 ? POLICE_BOX_ID - id : -1;
+  }
+
+  /** Drawn: `play` s of the race's time on (the light bars' flashing: still when paused); the beacon at the flashing
+   * car nearest `eye` (the player), the others' on the ground (`glow`). */
+  render(alpha: number, play: number, flares?: LightFlares, eye?: THREE.Vector3, glow?: BeaconGlow): void {
+    this.flashTime += play;
+    const x = (this.flashTime % FLASH.cycle) / FLASH.cycle;
+    const red = FLASH.red.some(([a, b]) => x >= a && x < b), blue = FLASH.blue.some(([a, b]) => x >= a && x < b);
+    let near: PoliceCar | null = null;
+    let nearD = Infinity;
+    for (const p of this.list) {
+      p.car.render(alpha, flares);
+      const on = this.triggered && p.state !== 'parked';
+      const bar = (p.lightBar ??= { red: ownMaterial(p.car.mesh.getObjectByName('lightbar-red')), blue: ownMaterial(p.car.mesh.getObjectByName('lightbar-blue')) });
+      if (bar.red) bar.red.emissiveIntensity = on && red ? FLASH.glowRed : 0;
+      if (bar.blue) bar.blue.emissiveIntensity = on && blue ? FLASH.glowBlue : 0;
+      const d = eye ? p.car.mesh.position.distanceToSquared(eye) : 0;
+      if (on && d < nearD) {
+        near = p;
+        nearD = d;
+      }
+    }
+    const b = this.beacon;
+    glow?.clear();
+    if (!b) return;
+    if (!near || !(red || blue)) {
+      b.intensity = 0;
+      return;
+    }
+    this.beaconAt(near, red, b.position);
+    b.color.setHex(red ? BEACON.red : BEACON.blue);
+    b.intensity = BEACON.intensity;
+    if (!glow) return;
+    // (every flashing car's on the ground - the nearest's too: the real light leaves the ground to it)
+    const spots = this.glowSpots;
+    let n = 0;
+    for (const p of this.list) {
+      if (!this.triggered || p.state === 'parked') continue;
+      const s = (spots[n] ??= { pos: new THREE.Vector3(), local: new THREE.Vector3(), inv: new THREE.Matrix4() });
+      this.beaconAt(p, red, s.pos, s.local);
+      s.inv.copy(p.car.mesh.matrixWorld).invert();
+      n++;
+    }
+    glow.set(spots, n, red ? BEACON.red : BEACON.blue, BEACON, BEACON_SHADE);
+  }
+
+  /** Where (world) `p`'s beacon shines from, over its red half or its blue (and where on it: `local`). */
+  private beaconAt(p: PoliceCar, red: boolean, out: THREE.Vector3, local?: THREE.Vector3): THREE.Vector3 {
+    const mesh = p.car.mesh;
+    mesh.updateMatrixWorld();
+    const at = (p.beaconAt ??= { red: beaconSpot(mesh, 'lightbar-red', -1), blue: beaconSpot(mesh, 'lightbar-blue', 1) });
+    local?.copy(red ? at.red : at.blue);
+    return out.copy(red ? at.red : at.blue).applyMatrix4(mesh.matrixWorld);
+  }
+
+  /** The police cars with their lights on (chasing, guarding, pulled over): their sirens heard. */
+  sirens(): PoliceCar[] {
+    return this.triggered ? this.list.filter((p) => p.state !== 'parked') : [];
+  }
+
+  dispose(): void {
+    for (const p of this.list) {
+      p.car.dispose(this.physics);
+      p.driver.dispose();
+    }
+    this.predictor?.dispose?.();
+    this.list.length = 0;
+    this.beacon?.removeFromParent();
+    this.beacon?.dispose();
+  }
+
+  /** What one sees: the traffic, the racers, the other police cars. */
+  private seen(p: PoliceCar, racerBoxes: readonly TrafficBox[], traffic: readonly TrafficBox[]): TrafficBox[] {
+    const out = this.boxBuf;
+    out.length = 0;
+    for (const t of traffic) out.push(t);
+    for (const b of racerBoxes) out.push(b);
+    for (const o of this.list) if (o !== p) out.push({ ...o.car.footprint(), id: POLICE_BOX_ID - o.index, v: Math.max(0, o.car.speed) });
+    return out;
+  }
+
+  private isTargetBox(b: TrafficBox, t: Racer, racers: readonly Racer[], racerBoxes: readonly TrafficBox[]): boolean {
+    const i = racers.indexOf(t);
+    return i >= 0 && racerBoxes[i] !== undefined && b.id === racerBoxes[i].id;
+  }
+
+  /**
+   * Guarding: where across the road (d) it blocks its target `t` (seen, BLOCK.react s late) as they come to its tail
+   * within BLOCK.within s, with nothing of `others` in its way (blockClear); null: not now (by its plans).
+   */
+  private blockAt(p: PoliceCar, t: Racer, others: readonly TrafficBox[]): number | null {
+    const c = p.car;
+    if (p.sightingFor !== t.id) {
+      p.sighting.clear();
+      p.sightingFor = t.id;
+    }
+    p.sighting.see(this.clock, t.d, racerVD(t));
+    const v = Math.max(0, c.speed);
+    const reach = reachTime(c.s, v, c.length / 2, t, PLAYER_L / 2);
+    // (alongside them: squeezed into their lane, its nose BLOCK.noseAhead m ahead of theirs or more)
+    if (reach <= 0 && noseAhead(c.s, c.length / 2, t.s, PLAYER_L / 2) < BLOCK.noseAhead) return null;
+    if (reach > BLOCK.within) return null;
+    const seen = p.sighting.at(this.clock);
+    if (!seen) return null;
+    const toD = blockD(seen.d, seen.vD, reach + BLOCK.react, c.width / 2);
+    const self = { s: c.s, d: c.d, v, halfWidth: c.width / 2, halfLength: c.length / 2 };
+    return blockClear(self, toD, reach + BLOCK.after, others) ? toD : null;
+  }
+
+  /**
+   * Guarding: a brake check on its target `t` this step (BRAKE_CHECK): begun with them right behind it in its lane at
+   * its tail within BRAKE_CHECK.within s, nothing of `others` between them; held BRAKE_CHECK.hold s at most - over as
+   * they are out of its lane or by it - then none for BRAKE_CHECK.cooldown s.
+   */
+  private brakeCheck(p: PoliceCar, t: Racer, others: readonly TrafficBox[], dt: number): boolean {
+    const c = p.car;
+    const suv = { s: c.s, d: c.d, halfWidth: c.width / 2, halfLength: c.length / 2 };
+    if (p.brakeLeft > 0) {
+      p.brakeLeft -= dt;
+      if (p.brakeLeft > 0 && inLine(suv, t, PLAYER_W / 2)) return true;
+      p.brakeLeft = 0;
+      p.brakeCooldown = BRAKE_CHECK.cooldown;
+      return false;
+    }
+    if (p.brakeCooldown > 0) return false;
+    const reach = reachTime(c.s, Math.max(0, c.speed), c.length / 2, t, PLAYER_L / 2);
+    if (!brakeCheckDue(suv, t, reach, PLAYER_W / 2) || !lineClear({ s: t.s, d: t.d }, { s: c.s, d: c.d }, others, PLAYER_W / 2)) return false;
+    p.brakeLeft = BRAKE_CHECK.hold;
+    return true;
+  }
+
+  /** Its engine (and its plans' acceleration) times `k`. */
+  private boost(p: PoliceCar, k: number): void {
+    const base = POLICE_SUV.params;
+    p.car.params.power = base.power * k;
+    p.car.params.engineTorque = base.engineTorque * k;
+    p.car.params.maxSpeed = base.maxSpeed;
+    p.driver.accelScale = k;
+  }
+
+  /** Parked again on the shoulder ahead of every racer (out of sight), clear of the other police cars. */
+  private parkAhead(p: PoliceCar, racers: readonly Racer[]): void {
+    let s = parkSpot(racers, POLICE_TUNING.parkAhead).s;
+    while (this.list.some((o) => o !== p && Math.abs(o.car.s - s) < PARK_APART)) s += PARK_APART;
+    this.park(p, s);
+  }
+
+  private park(p: PoliceCar, s: number): void {
+    p.state = 'parked';
+    p.target = null;
+    p.ramming = false;
+    p.brakeLeft = 0;
+    p.brakeCooldown = 0;
+    p.driver.preferD = null;
+    p.driver.shoulder = false;
+    p.guardPlan = null;
+    p.guardAsked = -1;
+    this.boost(p, 1);
+    p.car.resetAt(s, SHOULDER_D, 0);
+    p.car.holdInPlace(true);
+    p.driver.reset();
+  }
+}

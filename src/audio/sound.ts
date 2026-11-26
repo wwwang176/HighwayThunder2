@@ -8,15 +8,28 @@ import { PlacedLoops, type LoopSource } from './placedLoops';
 import { ROLLS } from './rolling';
 import { windLevel, windRate, WINDS } from './wind';
 import { azimuthDeg, equalPowerMono, inverseDistanceGain, type EarPose } from './pan';
+import { Siren } from './siren';
+import { Rotor, ROTOR_BUNDLE_URL } from './rotor';
+import { EarMotion } from './earMotion';
+import { dopplerFactor } from './spatial';
 // (its own file, never inlined as a data: URL - not every browser loads a worklet from one)
 import limiterUrl from './limiter.worklet.js?url&no-inline';
+
+/** A police car's siren heard: its key (the car's), where it is and how it moves (world). */
+export interface SirenSource {
+  key: number;
+  pos: number[];
+  vel: number[];
+}
+/** s (the audio clock's) a siren whose car is no longer heard is kept, fading out, before it is freed. */
+const SIREN_GONE = 1;
 
 /**
  * The sound's bundles downloading now, before the first click wakes the sound (a download needs none): on a slow
  * line, begun at that click, the engines' came in 20 s on - a race started straight away silent. Decoded at the wake.
  */
 export function prefetchSoundBundles(): void {
-  for (const url of [ENGINE_BUNDLE_URL, EFFECTS_BUNDLE_URL, CRASH_BUNDLE_URL]) void fetchBundle(url);
+  for (const url of [ENGINE_BUNDLE_URL, EFFECTS_BUNDLE_URL, CRASH_BUNDLE_URL, ROTOR_BUNDLE_URL]) void fetchBundle(url);
 }
 
 /** The player's engine, this loud (its clips are at -16 LUFS each); the others' (each by its distance on top). */
@@ -46,11 +59,14 @@ const SKID_VOLUME = 0.6;
 const NITRO_VOLUME = 0.125;
 const NITRO_START_VOLUME = 0.1325;
 /**
- * A rival's tyre squeal at its fullest within SKID_OTHERS_REF m (fading beyond it, inversely with distance, as the
- * engines), none past SKID_OTHERS_RANGE m.
+ * A rival's tyre squeal at its fullest within SKID_OTHERS_REF m (fading beyond it, inversely with distance, at
+ * SKID_OTHERS_ROLLOFF of the engines' pace), none past SKID_OTHERS_RANGE m. (At the engines' pace at first - half at
+ * 20 m: the rivals pulling away from a car left on the line were loud only their first second; the user's call.)
+ * Louder than the player's own (1 to its 0.6, the user's call: 0.6 at first, still too quiet).
  */
-const SKID_OTHERS_VOLUME = 0.6;
+const SKID_OTHERS_VOLUME = 1;
 const SKID_OTHERS_REF = 10;
+const SKID_OTHERS_ROLLOFF = 0.5;
 const SKID_OTHERS_RANGE = 220;
 const SKID_PAN = new Float32Array(2);
 /**
@@ -117,7 +133,7 @@ function pickNoRepeat(size: number, last: number): number {
  * Web Audio: the engines (recorded, engineVoice: the player's unplaced - straight into the mix, whichever way the
  * camera looks - the others' each from where it is, otherEngines; silent without the built sound bundle), the crashes
  * (recorded, crashBank; silent without their bundle), the tyre squeal (built with the engines), the nitro
- * (recorded: effects.bin; silent without it), the traffic's tyres rolling (rolling.ts: effects.bin), the wind past the player's car (wind.ts) and the backfires' pops. Nothing synthesised. All of it through a lookahead limiter (limiter.worklet.js).
+ * (recorded: effects.bin; silent without it), the traffic's tyres rolling (rolling.ts: effects.bin), the wind past the player's car (wind.ts), the backfires' pops and the police helicopter's rotor (rotor.ts: rotor.bin). Nothing synthesised but the sirens. All of it through a lookahead limiter (limiter.worklet.js).
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -132,6 +148,9 @@ export class Sound {
   private fade!: GainNode;
   /** The scene's level: 1, faded away past the finish (fadeAway), back for the next race or the garage (bringBack). */
   private scene!: GainNode;
+  /** The race's sound turned down for a moment (a bust's slow motion: setDuck), 1 otherwise; not the cues, nor music. */
+  private duck!: GainNode;
+  private duckLevel = 1;
   private limiter: AudioWorkletNode | null = null;
   private engineBus!: GainNode;
   private skidGain!: GainNode;
@@ -172,6 +191,21 @@ export class Sound {
   private lastCrash = -1;
   /** How fast the race's time runs (the finish's slow motion): every engine's rate by it. */
   private timeScale = 1;
+  /** The police cars' sirens (setSirens), their wail's clock, the ear's motion for their Doppler shift. */
+  private readonly sirens = new Map<number, { siren: Siren; heard: number }>();
+  private sirenTime = 0;
+  private readonly sirenEar = new EarMotion();
+  private readonly sirenEarPos: [number, number, number] = [0, 0, 0];
+  /**
+   * The police helicopter's rotor (setRotor; made at its first flight - none without its recording), the recording
+   * (null: none to be had, or not loaded yet), the ear's motion for its Doppler shift.
+   */
+  private rotor: Rotor | null = null;
+  private rotorClip: AudioBuffer | null = null;
+  private readonly rotorEar = new EarMotion();
+  private readonly rotorEarPos: [number, number, number] = [0, 0, 0];
+  private readonly rotorPos: [number, number, number] = [0, 0, 0];
+  private readonly rotorVel: [number, number, number] = [0, 0, 0];
   muted = false;
   /** The player's volume for it all (settings: 0..1 on top of MASTER). */
   private sfx = 1;
@@ -202,7 +236,9 @@ export class Sound {
     this.master.gain.value = this.masterGain;
     this.fade = ctx.createGain();
     this.scene = ctx.createGain();
-    this.master.connect(this.scene).connect(this.fade);
+    this.duck = ctx.createGain();
+    this.duck.gain.value = this.duckLevel;
+    this.master.connect(this.duck).connect(this.scene).connect(this.fade);
     // Straight out until the limiter's in (its module loads asynchronously, and may fail: then it stays out); out of
     // the way again if it ever fails (a failed worklet outputs silence for good - the whole mix gone).
     this.fade.connect(ctx.destination);
@@ -263,6 +299,7 @@ export class Sound {
       const roll = effects?.get('roll');
       if (roll) this.rolls = new PlacedLoops(ctx, roll, this.rollsBus, ROLLS);
     });
+    void loadSoundBank(ctx, ROTOR_BUNDLE_URL).then((bank) => { this.rotorClip = bank?.get('rotor') ?? null; });
   }
 
   /** A loop played on and on into `out` (null: no clip). */
@@ -288,7 +325,7 @@ export class Sound {
   }
 
   /**
-   * The rivals' tyres (`sources`, one voice each, kept by its place in the list): each squeals as the player's does
+   * The other cars' tyres (`sources`, one voice each, kept by its place in the list): each squeals as the player's does
    * on its slip, heard from `ear` as the engines are (panned, full within SKID_OTHERS_REF m, fading with distance;
    * none past SKID_OTHERS_RANGE), pitched with the race's time. Each its own loop of the squeal (from its own random
    * point, so two never sound as one). `active` false: all silent. Silent without the recording.
@@ -302,7 +339,7 @@ export class Sound {
       let gain = 0;
       if (active && s) {
         const d = Math.hypot(s.pos.x - ear.px, s.pos.y - ear.py, s.pos.z - ear.pz);
-        if (d <= SKID_OTHERS_RANGE) gain = squeal(s.slip) * SKID_OTHERS_VOLUME * inverseDistanceGain(d, SKID_OTHERS_REF, 1);
+        if (d <= SKID_OTHERS_RANGE) gain = squeal(s.slip) * SKID_OTHERS_VOLUME * inverseDistanceGain(d, SKID_OTHERS_REF, SKID_OTHERS_ROLLOFF);
         if (gain > 0) equalPowerMono(azimuthDeg(s.pos.x, s.pos.y, s.pos.z, ear), gain, SKID_PAN);
       }
       // (none, or a NaN from a body the physics blew up on: silent - a NaN set on a gain throws)
@@ -357,6 +394,57 @@ export class Sound {
    */
   setOtherWinds(sources: readonly LoopSource[], count: number, ear: EarPose, dt: number, active: boolean): void {
     if (this.running) this.winds?.update(sources, count, ear, dt, this.timeScale, active);
+  }
+
+  /**
+   * The police cars' sirens (made here: audio/siren.ts): one voice for each of the first `count` `sources`, kept by its
+   * key (its car: never handed to another), its wail a little apart from the others'; `dt` s of the race's time on (the
+   * wail and the ear's motion), `active` false: all silent. A voice whose car is no longer heard fades out and is
+   * freed SIREN_GONE s later.
+   */
+  setSirens(sources: readonly SirenSource[], count: number, ear: EarPose, dt: number, active: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.running) return;
+    this.sirenEarPos[0] = ear.px; this.sirenEarPos[1] = ear.py; this.sirenEarPos[2] = ear.pz;
+    this.sirenEar.update(this.sirenEarPos, dt);
+    this.sirenTime += dt;
+    const now = ctx.currentTime;
+    for (let i = 0; i < count; i++) {
+      const src = sources[i];
+      let voice = this.sirens.get(src.key);
+      if (!voice) this.sirens.set(src.key, (voice = { siren: new Siren(ctx, this.master), heard: now }));
+      voice.heard = now;
+      const doppler = dopplerFactor(src.pos, src.vel, this.sirenEarPos, this.sirenEar.velocity);
+      voice.siren.update(this.sirenTime + src.key * 1.1, src.pos, ear, doppler, this.timeScale, active);
+    }
+    for (const [key, voice] of this.sirens) {
+      if (voice.heard === now) continue;
+      voice.siren.update(this.sirenTime, this.sirenEarPos, ear, 1, this.timeScale, false); // (fading out)
+      if (now - voice.heard > SIREN_GONE) {
+        voice.siren.dispose();
+        this.sirens.delete(key);
+      }
+    }
+  }
+
+  /**
+   * The police helicopter's rotor (its recording: audio/rotor.ts; silent without it), at `pos` going `vel` (world;
+   * null: not flying - silent), heard from `ear`; `dt` s of the race's time on (the ear's motion), `active` false:
+   * silent; `loud` times as loud.
+   */
+  setRotor(pos: { x: number; y: number; z: number } | null, vel: { x: number; y: number; z: number }, ear: EarPose, dt: number, active: boolean, loud = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.running || !this.rotorClip) return;
+    if (!pos && !this.rotor) return;
+    this.rotorEarPos[0] = ear.px; this.rotorEarPos[1] = ear.py; this.rotorEarPos[2] = ear.pz;
+    this.rotorEar.update(this.rotorEarPos, dt);
+    this.rotor ??= new Rotor(ctx, this.rotorClip, this.master);
+    if (pos) {
+      this.rotorPos[0] = pos.x; this.rotorPos[1] = pos.y; this.rotorPos[2] = pos.z;
+      this.rotorVel[0] = vel.x; this.rotorVel[1] = vel.y; this.rotorVel[2] = vel.z;
+    }
+    const doppler = pos ? dopplerFactor(this.rotorPos, this.rotorVel, this.rotorEarPos, this.rotorEar.velocity) : 1;
+    this.rotor.update(this.rotorPos, ear, doppler, this.timeScale, active && !!pos, loud);
   }
 
   /**
@@ -538,6 +626,14 @@ export class Sound {
     g.setValueAtTime(0, now);
     g.setTargetAtTime(1, now, RESUME_FADE / 4);
     void this.ctx.resume();
+  }
+
+  /** The race's sound (not the cues, not the music) at `level` of its loudness: a bust's slow motion turned down. */
+  setDuck(level: number): void {
+    const v = Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 1;
+    if (v === this.duckLevel) return; // (set only on a change: each frame's, paused, piled up on the param)
+    this.duckLevel = v;
+    if (this.ctx) this.duck.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
   }
 
   /** How fast the race's time runs (1: as it is; the finish's slow motion below): every engine pitched by it. */

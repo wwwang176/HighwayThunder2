@@ -45,7 +45,7 @@ import sys
 import bmesh
 import bpy
 import numpy as np
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Vector, geometry
 from mathutils.bvhtree import BVHTree
 
 import wheels
@@ -91,6 +91,27 @@ class Car:
     mend        mend(body, px): the car's own fixes to its generated body (or None)
     paint_hue   (lo, hi) hue range of its paint on the texture (lo > hi: it wraps past 1, a red)
     paint_grey  (lo, hi) brightness of its paint on the texture when it is a grey (None: a colour, by hue)
+    paint_sat   saturation over which a texel of its paint's hue is paint (a dark navy's is low)
+    glass_s     saturation under which a texel is its glass (a bluish tint's is higher)
+    src_normals its body shaded by the generated body's own normals (smooth over its big lumpy triangles: a hood),
+                not by its faces (the stretches of slivers some generations have streak with them); True: all of
+                it, or where(face centre, working frame) -> bool: there only (a rippled roof's flatter by its faces)
+    glass_not   where(face centre, working frame) -> bool: never window there, whatever grey the texture has (a
+                roof light bar's black middle; None: anywhere may be)
+    well_out    how far (its normal's x, outward) a face in a wheel arch may face out of the car and still go black
+                with the wheel well (None: any; a car whose fender flares come in close round its tyres wants
+                them kept their paint: their parts facing the axle would go black, a jagged edge)
+    axles       (front y, back y) where our wheels go, in our frame before centring like `tyres` (None: where the
+                generated tyres were; a generation that set them off its arches' middles: there instead). The
+                finished car's origin is midway between these; the working frame (every y a Car gives) stays the
+                generated tyres'.
+    livery_size its liveries' texture size (None: LIVERY_SIZE; a big body spreads the texture thin: up to the
+                generated 2048)
+    well_ring   how far round the axle (tyre radii) the flat faces facing out across the tyre go black with the
+                wheel well (the fill round the generated tyre's wall); a car whose arches hug its tyres wants it
+                smaller (else its flares' faces beside the tread go black: wedges by the wheels)
+    open_wheels the holes the tyres left not patched where the patch would lie in a wheel's room (a tyre grown
+                onto its well all round leaves a ring: its patch a panel across the wheel)
     paint_fade  brightness below which its paint on the texture is taken for paint fading into black at an
                 edge (the livery's darkened as much; a dark paint, a navy, wants it lower)
     trim        the faces whose texture isn't its paint (chassis, bumpers, grille) their own `trim` material,
@@ -101,6 +122,8 @@ class Car:
                 texture shares the cab's white, which takes the livery)
     tail        tail(h, s, v): whether a texel is its tail lights' red (None: saturated red; a red car's
                 paint is red too, so it needs its own)
+    mirror      which half of the generated body is kept and mirrored onto the other: 1 its +x (right) half, -1
+                its -x half (when the concept images showed only its left side, the right one guessed)
     exhaust     its exhaust pipes (None: none): {"tips": [(x, height above the ground)], "back": how far behind
                 the axles' midpoint the tips are, and "r" (round, their radius) or "rect" (w, h: flat,
                 square-cut)}, in metres on the finished car
@@ -109,7 +132,7 @@ class Car:
     def __init__(self, name, width, src_ground, tyres, tyre, rim, wheel_face, liveries, collider, collider_file, lamps,
                  mend=None, glass_above=0.8, tops_above=0.7, log=None, preview=None, paint_hue=(0.012, 0.14), tail=None,
                  roof_above=None, caliper=None, glass_v=(0.13, 0.25), glass_y=None, roof_flat=0.95, frames_above=None, paint_grey=None, glass_bend=12, glass_fill=False, plain=None, paint_fade=0.45, trim=False,
-                 exhaust=None):
+                 exhaust=None, mirror=1, paint_sat=0.45, glass_s=0.15, src_normals=False, glass_not=None, well_out=None, axles=None, livery_size=None, open_wheels=False, well_ring=1.25):
         self.name, self.width, self.src_ground, self.tyres = name, width, src_ground, tyres
         self.tyre, self.rim, self.wheel_face, self.caliper = tyre, rim, wheel_face, caliper
         self.liveries, self.collider, self.collider_file = liveries, collider, collider_file
@@ -118,13 +141,19 @@ class Car:
         self.roof_above = roof_above
         self.paint_hue, self.tail, self.paint_grey, self.glass_bend = paint_hue, tail, paint_grey, glass_bend
         self.glass_fill, self.plain, self.paint_fade, self.trim = glass_fill, plain, paint_fade, trim
-        self.exhaust = exhaust
+        self.exhaust, self.mirror = exhaust, mirror
+        self.paint_sat, self.glass_s, self.src_normals, self.glass_not = paint_sat, glass_s, src_normals, glass_not
+        self.well_out = well_out
+        self.livery_size = livery_size or LIVERY_SIZE
+        self.open_wheels, self.well_ring = open_wheels, well_ring
         self.log = log or name.replace("-", "_")  # the prefix of what it prints
         self.preview = preview or name  # the prefix of its preview images
         self.src = os.path.join(HERE, "src", f"{name}-tripo.glb")
-        self.axle_mid = (tyres[0][0] + tyres[-1][0]) / 2  # the origin goes here, midway between the front and back axles
-        self.wheel_yf = tyres[0][0] - self.axle_mid
-        self.wheel_yr = tyres[-1][0] - self.axle_mid
+        self.axle_mid = (tyres[0][0] + tyres[-1][0]) / 2  # the working frame's origin: midway between the generated tyres
+        yf, yr = axles or (tyres[0][0], tyres[-1][0])
+        self.axle_shift = (yf + yr) / 2 - self.axle_mid  # the finished car's origin: midway between our axles, this far on
+        self.wheel_yf = yf - self.axle_mid - self.axle_shift
+        self.wheel_yr = yr - self.axle_mid - self.axle_shift
 
 
 CAR = None  # the car being built (run)
@@ -204,14 +233,17 @@ def load_body():
     """The generated body in our frame, symmetric, its tyres gone; and its texture (pixels, H x W x 4)."""
     bpy.ops.import_scene.gltf(filepath=CAR.src, merge_vertices=True)
     ob = next(o for o in bpy.context.scene.objects if o.type == "MESH")
-    ob.data.transform(Matrix.Translation((0, -CAR.axle_mid, CAR.src_ground * LENGTH)) @ Matrix.Scale(LENGTH, 4)
-                      @ Matrix.Rotation(math.pi / 2, 4, "Z") @ ob.matrix_world)
+    m = (Matrix.Translation((0, -CAR.axle_mid, CAR.src_ground * LENGTH)) @ Matrix.Scale(LENGTH, 4)
+         @ Matrix.Rotation(math.pi / 2, 4, "Z") @ ob.matrix_world)
+    if CAR.src_normals:
+        keep_generated_normals(ob.data, m)
+    ob.data.transform(m)
     ob.matrix_world = Matrix.Identity(4)
     ob.name = ob.data.name = "body"
     bm = bmesh.new()
     bm.from_mesh(ob.data)
-    # The right half (+x) mirrored onto the left: exactly symmetric, the seam welded.
-    bmesh.ops.symmetrize(bm, input=bm.verts[:] + bm.edges[:] + bm.faces[:], direction="X", dist=1e-4)
+    # One half (the right, +x, unless the car says) mirrored onto the other: exactly symmetric, the seam welded.
+    bmesh.ops.symmetrize(bm, input=bm.verts[:] + bm.edges[:] + bm.faces[:], direction="X" if CAR.mirror > 0 else "-X", dist=1e-4)
 
     def in_tyre(v):
         for wy, wz, r, x0, x1 in CAR.tyres:
@@ -229,6 +261,15 @@ def load_body():
     around = {v: next(l[uv].uv.copy() for l in v.link_loops) for e in bm.edges if e.is_boundary for v in e.verts}
     new = bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)["faces"]
     new = bmesh.ops.triangulate(bm, faces=new, quad_method="BEAUTY", ngon_method="EAR_CLIP")["faces"]
+    if CAR.open_wheels:  # (a fill across a wheel's room: a panel over the wheel, not a hole's patch)
+        def in_room(f):
+            c = f.calc_center_median()
+            return any(math.hypot(c.y - (wy - CAR.axle_mid), c.z - wz) < r * 0.95 and x0 - 0.03 <= abs(c.x) <= x1 + 0.04
+                       for wy, wz, r, x0, x1 in CAR.tyres)
+        over = [f for f in new if in_room(f)]
+        print(f"[{CAR.log}] fill over the wheels left open: {len(over)} faces, {sum(f.calc_area() for f in over):.3f} m2 (working)")
+        bmesh.ops.delete(bm, geom=over, context="FACES")
+        new = [f for f in new if f.is_valid]
     for f in new:
         for l in f.loops:
             l[uv].uv = around[l.vert]
@@ -242,6 +283,59 @@ def load_body():
     w, h = img.size
     px = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)
     return ob, px
+
+
+GENERATED = None  # the generated body's kept half and its own normals (keep_generated_normals), for its shading
+
+
+def keep_generated_normals(me, m):
+    """The generated body's own normals (Tripo's, from the dense surface it was cut down from: smooth where our
+    few big triangles aren't), on its half `CAR.mirror` keeps, in our frame (`m` takes it there)."""
+    global GENERATED
+    rot = m.to_3x3().inverted().transposed()
+    corner = [(rot @ Vector(c.vector)).normalized() for c in me.corner_normals]
+    me.calc_loop_triangles()
+    co = [m @ v.co for v in me.vertices]
+    tris, normals = [], []
+    for t in me.loop_triangles:
+        ps = [co[i] for i in t.vertices]
+        if sum(p.x for p in ps) / 3 * CAR.mirror >= -0.01:  # (the faces over the middle too)
+            tris.append(ps)
+            normals.append([corner[i] for i in t.loops])
+    GENERATED = (BVHTree.FromPolygons([p for ps in tris for p in ps], [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(tris))]),
+                 tris, normals)
+
+
+def generated_shading(body, most=50):
+    """Each corner of the body takes the generated body's normal under it (at the point a little in from the
+    corner, its face's own side of a crease; mirrored on the half made by mirroring), unless that turns over
+    `most` degrees from the corner's face: there (where the body was mended, a hole filled) it keeps its own."""
+    tree, tris, normals = GENERATED
+    me = body.data
+    own = [Vector(c.vector) for c in me.corner_normals]
+    out = list(own)
+    took = 0
+    for p in me.polygons:
+        centre = Vector(p.center)
+        if callable(CAR.src_normals) and not CAR.src_normals(centre):
+            continue
+        for li in p.loop_indices:
+            q = me.vertices[me.loops[li].vertex_index].co.lerp(centre, 0.1)
+            flip = q.x * CAR.mirror < 0
+            if flip:
+                q = Vector((-q.x, q.y, q.z))
+            hit, _, i, _ = tree.find_nearest(q)
+            if hit is None:
+                continue
+            w = barycentric(hit, *tris[i])
+            n = sum((c * k for c, k in zip(normals[i], w)), Vector()).normalized()
+            if flip:
+                n.x = -n.x
+            if n.angle(p.normal, math.pi) < math.radians(most):
+                out[li] = n
+                took += 1
+    me.normals_split_custom_set(out)
+    print(f"[{CAR.log}] shading: {took} of {len(out)} corners the generated body's")
 
 
 def crossing_pairs(bm):
@@ -322,7 +416,7 @@ def colour_class(rgb):
         return "white"
     if CAR.tail(h, s, v) if CAR.tail else s > 0.6 and v > 0.45 and (h < 0.012 or h > 0.95):
         return "red"
-    if s > 0.45 and v > min(0.25, CAR.paint_fade) and in_paint_hue(h) or grey_paint(s, v):
+    if s > CAR.paint_sat and v > min(0.25, CAR.paint_fade) and in_paint_hue(h) or grey_paint(s, v):
         return "paint"
     return "dark" if v < 0.12 else "grey"
 
@@ -346,7 +440,7 @@ def hsv(px):
 def paint_mask(px):
     """The texture's paint pixels (colour_class "paint", vectorised) and every pixel's brightness."""
     hue, s, mx = hsv(px)
-    return (s > 0.45) & (mx > min(0.25, CAR.paint_fade)) & in_paint_hue(hue) | grey_paint(s, mx), mx
+    return (s > CAR.paint_sat) & (mx > min(0.25, CAR.paint_fade)) & in_paint_hue(hue) | grey_paint(s, mx), mx
 
 
 def paint_uv(px):
@@ -364,7 +458,7 @@ def paint_uv(px):
 
 # ---------------------------------------------------------------- materials and liveries
 
-LIVERY_SIZE = 1024
+LIVERY_SIZE = 1024  # a livery's texture, square (the generated one's 2048; a car may keep more: Car.livery_size)
 
 
 def face_points(f, uv):
@@ -398,7 +492,8 @@ def split_glass(body, px):
         c = f.calc_center_median()
         roof = CAR.roof_above is not None and c.z > CAR.roof_above and f.normal.z > CAR.roof_flat
         along = CAR.glass_y is None or CAR.glass_y[0] <= c.y <= CAR.glass_y[1]
-        if c.z > CAR.glass_above and CAR.glass_v[0] < v < CAR.glass_v[1] and s < 0.15 and along and not roof:
+        never = CAR.glass_not is not None and CAR.glass_not(c)
+        if c.z > CAR.glass_above and CAR.glass_v[0] < v < CAR.glass_v[1] and s < CAR.glass_s and along and not roof and not never:
             cand.add(f)
     glass = set()
     left = set(cand)
@@ -416,7 +511,7 @@ def split_glass(body, px):
         if sum(g.calc_area() for g in piece) > 0.02:
             glass |= piece
     dark = {f for f in bm.faces if f.calc_center_median().z > CAR.glass_above
-            and (lambda s, v: v < CAR.glass_v[1] and s < 0.15)(*colorsys.rgb_to_hsv(*face_colour(px, f, uv))[1:])}
+            and (lambda s, v: v < CAR.glass_v[1] and s < CAR.glass_s)(*colorsys.rgb_to_hsv(*face_colour(px, f, uv))[1:])}
     thin = {f for f in bm.faces if f.calc_center_median().z > CAR.glass_above
             and 2 * f.calc_area() / max(e.calc_length() for e in f.edges) < 0.02}
     while CAR.glass_fill:
@@ -436,10 +531,10 @@ def split_glass(body, px):
         trim.name = "trim"
         hue, s, _ = hsv(px)
         dark = px.copy()
-        dark[(s > 0.45) & in_paint_hue(hue), :3] = 0.04
+        dark[(s > CAR.paint_sat) & in_paint_hue(hue), :3] = 0.04
         img = bpy.data.images.new("trim", px.shape[1], px.shape[0], alpha=False)
         img.pixels.foreach_set(dark.astype(np.float32).ravel())
-        img.scale(LIVERY_SIZE, LIVERY_SIZE)
+        img.scale(CAR.livery_size, CAR.livery_size)
         img.pack()
         trim.node_tree.nodes["Image Texture"].image = img
         mats.append(trim)
@@ -476,7 +571,7 @@ def split_glass(body, px):
     return tops, roof
 
 
-def wheel_wells(body, reach=1.7, facing=0.3, ring=1.25):
+def wheel_wells(body, reach=1.7, facing=0.3, ring=None):
     """The wheel wells' faces near black (`wheel_well`, as the underside), whatever the texture has there (the
     holes the tyres left were filled with the paint beside them):
     - round each axle within `reach` tyre radii of it, between the tyre's inner side and the arch's outer edge,
@@ -485,6 +580,7 @@ def wheel_wells(body, reach=1.7, facing=0.3, ring=1.25):
       edge (the fill round the generated tyre's wall).
     (Above, the generated wells are open: one sees the shell's inside, its faces' backs. The game draws the
     backs dark.)"""
+    ring = CAR.well_ring if ring is None else ring
     me = body.data
     me.materials.append(material("wheel_well", srgb(0x0B0B0C), 0.9))
     k = len(me.materials) - 1
@@ -494,6 +590,8 @@ def wheel_wells(body, reach=1.7, facing=0.3, ring=1.25):
         if p.material_index == glass:
             continue
         c = p.center
+        if CAR.well_out is not None and p.normal.x * math.copysign(1, c.x) > CAR.well_out:
+            continue
         for wy, wz, r, x0, x1 in CAR.tyres:
             to_axle = Vector((0, wy - CAR.axle_mid - c.y, wz - c.z))
             if (to_axle.length < r * reach and x0 - 0.15 <= abs(c.x) <= x1 + 0.02 and p.normal.dot(to_axle.normalized()) > facing
@@ -619,7 +717,7 @@ def livery_textures(px, tops_roof):
         full = np.concatenate([img_px, np.ones((h, w, 1), np.float32)], axis=2)
         img = bpy.data.images.new(f"livery-{name}", w, h, alpha=False)
         img.pixels.foreach_set(full.astype(np.float32).ravel())
-        img.scale(LIVERY_SIZE, LIVERY_SIZE)
+        img.scale(CAR.livery_size, CAR.livery_size)
         out[name] = img
     return out
 
@@ -714,6 +812,52 @@ def cell_lamp(name, s, body, cells, mat, back=False, lift=LIFT, others=()):
         if len(corners) == 4:
             faces.append(tuple(range(len(verts), len(verts) + 4)))
             verts += corners
+    ob = mesh_object(name, verts, faces, [mat])
+    clear_of(ob, [body, *others], -d)
+    return ob
+
+
+def shape_lamp(name, s, body, outline, mat, spread, back=False, flip=False, lift=LIFT, others=(), step=0.005, grid=0.01):
+    """A lamp of an outline (x, z) drawn over the texture's (cell_lamp's cells are as ragged as a blurred or broken
+    texture: a jagged lamp), on the body seen from ahead (`back`: from behind; `flip`: mirrored across the middle,
+    the right one of the left's outline, facet for facet): the outline (a point every `step`) and a `grid` of points
+    inside, triangulated, each laid on the body `lift` off it, then clear of the body and `others`. A facet whose
+    corners land more than `spread` apart along the car (across a step in the surface: a facet through the body no
+    lift clears) is left out."""
+    loop = []
+    for (x0, z0), (x1, z1) in zip(outline, outline[1:] + outline[:1]):
+        n = max(1, round(math.hypot(x1 - x0, z1 - z0) / step))
+        loop += [(x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n) for i in range(n)]
+
+    def inside(x, z):
+        c = False
+        for (x0, z0), (x1, z1) in zip(outline, outline[1:] + outline[:1]):
+            if (z0 > z) != (z1 > z) and x < x0 + (z - z0) * (x1 - x0) / (z1 - z0):
+                c = not c
+        return c
+
+    xs, zs = [p[0] for p in outline], [p[1] for p in outline]
+    pts = [(min(xs) + grid * i, min(zs) + grid * j) for i in range(round((max(xs) - min(xs)) / grid) + 1)
+           for j in range(round((max(zs) - min(zs)) / grid) + 1)]
+    pts = [p for p in pts if inside(*p) and min(math.hypot(p[0] - q[0], p[1] - q[1]) for q in loop) > step * 0.6]
+    co2 = [Vector(p) for p in loop + pts]
+    out = geometry.delaunay_2d_cdt(co2, [(i, (i + 1) % len(loop)) for i in range(len(loop))], [list(range(len(loop)))], 1, 1e-6)
+    d = Vector((0, 1, 0)) if back else Vector((0, -1, 0))
+    on = []
+    for v in out[0]:
+        p = s.tree.ray_cast(Vector((-v.x if flip else v.x, 0, v.y)) - d * 5, d)[0]
+        on.append(None if p is None else p - d * lift)
+    verts, faces, skipped = [], [], 0
+    for f in out[2]:
+        ps = [on[i] for i in f]
+        if any(p is None for p in ps) or max(p.y for p in ps) - min(p.y for p in ps) > spread:
+            skipped += 1
+            continue
+        if (ps[1] - ps[0]).cross(ps[2] - ps[0]).dot(d) > 0:  # facing out (against the rays)
+            ps = ps[::-1]
+        faces.append(tuple(range(len(verts), len(verts) + 3)))
+        verts += [tuple(p) for p in ps]
+    print(f"[{CAR.log}] {name}: {len(faces)} facets ({skipped} across a step left out)")
     ob = mesh_object(name, verts, faces, [mat])
     clear_of(ob, [body, *others], -d)
     return ob
@@ -847,7 +991,7 @@ def preview(out_dir, export_objs, wheel, caliper, spots, body, liveries, pieces)
     shown = []
     for x in (-spots["x"], spots["x"]):
         k = spots["front"] / CAR.wheel_yf  # (working frame to the finished size)
-        for y in (spots["rear"], *((t[0] - CAR.axle_mid) * k for t in CAR.tyres[1:-1]), spots["front"]):
+        for y in (spots["rear"], *((t[0] - CAR.axle_mid - CAR.axle_shift) * k for t in CAR.tyres[1:-1]), spots["front"]):
             w = wheel.copy()
             bpy.context.collection.objects.link(w)
             w.location = (x, y, spots["r"] - GROUND)
@@ -1050,14 +1194,16 @@ def run(car):
     wn.weight = 100
     wn.keep_sharp = True
     bpy.ops.object.modifier_apply(modifier="wn")
+    if car.src_normals:
+        generated_shading(body)
     flat_windows(body)
 
     # Up to the car's size (the ground and the axles' midpoint stay put), then down to the origin (GROUND
-    # above the ground).
+    # above the ground; and along to our axles' midpoint when they aren't the generated tyres': `axles`).
     g = car.width / (max(v.co.x for v in body.data.vertices) - min(v.co.x for v in body.data.vertices))
     for o in [body, *lamps]:
         o.data.transform(Matrix.Scale(g, 4))
-        o.data.transform(Matrix.Translation((0, 0, -GROUND)))
+        o.data.transform(Matrix.Translation((0, -car.axle_shift * g, -GROUND)))
         o.data.update()
     # The wheel, real size (centred on its axle), its tyres' outer faces where the generated ones' were.
     wheel, caliper, size = wheels.build_wheel(car.tyre, car.rim, car.caliper)

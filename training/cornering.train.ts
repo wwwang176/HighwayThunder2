@@ -2,12 +2,12 @@ import { it } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { openGround } from './openGround';
 import { PlayerCar } from '../src/vehicles/playerCar';
-import { CARS } from '../src/vehicles/cars';
+import { CARS, specById } from '../src/vehicles/cars';
 import { KMH, PHYSICS_DT } from '../src/config';
 import * as THREE from 'three';
 
 /** The car type these measure (CAR=muscle-car; default the supercar), with CAR_JSON='{"springK":24000}' changes on top. */
-const BASE_SPEC = CARS[process.env.CAR ?? 'street-racer'];
+const BASE_SPEC = specById(process.env.CAR ?? 'street-racer');
 if (!BASE_SPEC) throw new Error(`no car "${process.env.CAR}" (have: ${Object.keys(CARS).join(', ')})`);
 const CAR_SPEC = { ...BASE_SPEC, params: { ...BASE_SPEC.params, ...JSON.parse(process.env.CAR_JSON ?? '{}') } };
 

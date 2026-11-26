@@ -3,6 +3,7 @@ import { store } from './storage';
 import Stats from 'stats.js';
 import { LightFlares, updateFlareScale } from '../render/lightFlares';
 import { NpcBeams } from '../render/npcBeams';
+import { BeaconGlow } from '../render/beaconGlow';
 import { PlanPath } from '../render/planPath';
 import { POST, PostFx } from '../render/postFx';
 import { blurAmount, blurMask as emptyBlurMask, MASK_POINTS, motionCenter, type BlurMask } from '../render/speedBlur';
@@ -30,6 +31,7 @@ import { CameraRig, type Look } from '../render/cameraRig';
 import { TrafficSim } from '../traffic/trafficAI';
 import { DEFAULT_SPACING, Occupant } from '../traffic/spawner';
 import { TRAFFIC_PLAN_EVERY, TrafficFocus, TrafficWorld } from '../sim/trafficWorld';
+import { wakers } from '../traffic/wake';
 import { pixelRatioFor, readQuality } from '../render/quality';
 import { Driver, selfStateOf } from '../ai/driver';
 import type { TrafficBox } from '../ai/sensors';
@@ -85,7 +87,11 @@ import { SkidMarks } from '../world/skidMarks';
 import { Sparks } from '../world/sparks';
 import { smokeKick, smokeLightFromSpot, TireSmoke } from '../world/tireSmoke';
 import { GameFlow, picksCars, type Phase } from './gameState';
-import { FINISHED_SPEED, GRID_REV, RaceView, RIVAL_COLORS, Rivals } from './rivals';
+import { FINISHED_SPEED, GRID_REV, PLAYER_BOX_ID, RaceView, RIVAL_COLORS, Rivals } from './rivals';
+import { Police } from './police';
+import { bustAllowed, type Racer } from './policeLogic';
+import { BustShow, bustRecoverScale, bustVolume } from './bustShow';
+import { Helicopter, type HeliTarget } from './helicopter';
 import { type LitCar, RivalLightPool } from './rivalLights';
 import { BeamFlasher, wantsToFlash } from './flashing';
 import { closingSpeed, knocksOut } from './contact';
@@ -95,7 +101,8 @@ import { DriftTimer } from './driftTimer';
 import { Blocker, computeResetSpot } from './reset';
 import type { EngineSource } from '../audio/otherEngines';
 import type { EarPose } from '../audio/pan';
-import type { EngineKind } from '../audio/engineCatalog';
+import { engineOf, type EngineKind } from '../audio/engineCatalog';
+import type { SirenSource } from '../audio/sound';
 import { trafficEngine, type TrafficGearing } from '../audio/spatial';
 
 /** The rivals' colours, for the HUD. */
@@ -106,22 +113,20 @@ const TRAFFIC_EDGE: [number, number] = [500, 580];
 /** Traffic gone this far out (m), either way: just past where it appears (none kept out in the fog unseen). */
 const TRAFFIC_GONE = 600;
 /**
- * The traffic farther than this from the player (m), and RIVAL_AWAKE from every rival, moved by its planner alone,
+ * The traffic farther than this from the player (m) on our carriageway, and no car about to touch it (wakers), moved by its planner alone,
  * its bodies kinematic (NpcVehicle asleep): nobody near to touch it (an oncoming car closing at 95 m/s: over a
  * second to settle on its springs), its springs' play under a pixel that far (its wheels drawn rolling on still).
  * Simulated in full it was over half the physics' time.
  */
 const TRAFFIC_AWAKE = 120;
-/**
- * A rival wakes only the traffic this near (m): what it may hit next (closing at 45 m/s, a second and more to
- * settle on its springs). What is seen is woken by the player's TRAFFIC_AWAKE; around rivals spread down the road,
- * 200 m each kept some 46 cars in full.
- */
-const RIVAL_AWAKE = 60;
+// (a rival, a police car: only what it is about to touch, near the player - traffic/wake.ts; 60 m round each before,
+// 200 m before that: some 46 cars in full)
 /** Another car's tyres smoke only this near the player (m). */
 const SMOKE_RANGE = 100;
 const HOLD: DriveInput = { throttle: 0, brake: 0, steer: 0, hold: true };
 const ROLL_OUT: DriveInput = { throttle: 0, brake: 0.35, steer: 0 };
+/** Busted (its slow motion): hands off. */
+const BUSTED: DriveInput = { throttle: 0, brake: 0, steer: 0 };
 /** Every lamp state a traffic vehicle shows (brake lights dim and on, indicators off and on): for prewarm. */
 const PREWARM_LAMPS: VehicleLights[] = [
   { left: [], right: [], brake: [new THREE.Mesh(undefined, BRAKE_DIM)], third: [] },
@@ -173,6 +178,8 @@ const TRAILER_ROLL = { gain: 0.8, pitch: 0.75 };
 const ROLL_AT = new THREE.Vector3();
 /** The player's engine heard placed (drawn through a bend in an intro): its key among the others' (rivals -1, -2, ...). */
 const PLAYER_DRAWN_KEY = -1000;
+/** The police cars' engines' keys: this, less each one's index. */
+const POLICE_ENGINE_KEY = -2000;
 /** The traffic's engines: each kind's sound, its gearing (for its rpm by its speed), how loud against a rival's. */
 const TRAFFIC_ENGINE: Record<VehicleKind, { kind: EngineKind; gearing: TrafficGearing; gain: number }> = {
   car: { kind: 'sedan', gearing: { gears: 5, top: 55 }, gain: 0.6 },
@@ -205,6 +212,8 @@ export class Game {
   private readonly post: PostFx;
   private flares!: LightFlares;
   readonly npcBeams = new NpcBeams();
+  /** The police light bars' red and blue on the ground (all but the nearest's: its real light). */
+  private readonly beaconGlow = new BeaconGlow();
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(62, 1, 0.1, 3000);
   readonly keyboard = new Keyboard();
@@ -246,6 +255,8 @@ export class Game {
   /** The background music (audio/music): from the first click or key in the garage on. */
   readonly music = new Music();
   private readonly nowPlaying: NowPlaying;
+  /** The police cars' sirens heard this frame (heardSirens; reused). */
+  private readonly sirenBuf: SirenSource[] = [];
   /** The engines heard from outside, this frame's (heardEngines; reused). */
   private readonly engineSources: EngineSource[] = [];
   /** The rivals' tyres as heard this frame (its entries reused). */
@@ -280,6 +291,28 @@ export class Game {
   private rivalBoxes: TrafficBox[] = [];
   /** Velocities (world x/z) of the player [0] and the rivals [1..] going into the physics step. */
   private racerVelBefore: { x: number; z: number }[] = [];
+  /** The police (the highway's, when on: CarSelection.police); none: null. */
+  private police: Police | null = null;
+  /** The police helicopter over the player once the chase is on (made and freed with the police). */
+  private helicopter: Helicopter | null = null;
+  /** Where the helicopter flies along the road: at `s`, `d` (Helicopter.update). */
+  private readonly heliPlace = (s: number, d: number, out: THREE.Vector3): THREE.Vector3 => {
+    const w = this.roadLine.toWorld(s, d);
+    return out.set(w.x, this.player.mesh.position.y, w.z);
+  };
+  /** The cars the helicopter may light (the player first), made again each frame into the same list. */
+  private readonly heliTargets: HeliTarget[] = [];
+  private policeBoxes: TrafficBox[] = [];
+  /** The cars but the player's that may wake the traffic this step (wakers; reused). */
+  private readonly wakeOthers: PlayerCar[] = [];
+  /** The police cars' velocities going into the physics step (as racerVelBefore). */
+  private policeVelBefore: { x: number; z: number }[] = [];
+  /** Busted by a police car: its slow motion round the car, then put back on the road (none: not busted). */
+  private bust: BustShow | null = null;
+  /** When (simTime) the player was last put back after a bust: none again for POLICE_TUNING.grace s. */
+  private bustPutBackAt = -Infinity;
+  /** Real seconds (racing) since that put-back: the race easing back up to full speed (bustRecoverScale). */
+  private bustRecover = Infinity;
   private aiTraffic: TrafficBox[] = [];
   /** The traffic's bodies, drawn instanced. */
   private bodies!: BodyInstances;
@@ -497,6 +530,7 @@ export class Game {
     for (const m of allTrafficModels()) for (const lamps of PREWARM_LAMPS) this.bodies.add(m.key, m.template, ahead, lamps);
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);
+    for (const p of this.police?.list ?? []) p.car.addWheels(this.bodies);
     this.bodies.end();
     const hidden: THREE.Object3D[] = [];
     const culled: THREE.Object3D[] = [];
@@ -660,7 +694,7 @@ export class Game {
     // (in the click or key itself: the browser lets the sound start only there; paused, the race's sound stays
     // stopped - silent through the fade and the loading - and comes back with the new race, setUpRace)
     if (this.flow.phase !== 'paused') this.sound.init();
-    if (fromGarage) this.sound.startup(specOf((cars ?? this.cars).player).style);
+    if (fromGarage) this.sound.startup(engineOf(specOf((cars ?? this.cars).player).style));
     this.music.change(); // (a new scene: the song faded out, a moment's quiet, the next one in)
     this.overlay.toBlack(START_FADE_OUT, () => void this.setUpRace(cars));
   }
@@ -837,6 +871,18 @@ export class Game {
     }
     this.rivalCars = rivals;
     this.cars = { ...cars, rivals: [...cars.rivals], paint: { ...cars.paint } };
+    // The police: the highway's, when on (off, or another course: none).
+    const police = cars.police && !this.mountain && !this.skidpad;
+    if (police && !this.police) {
+      this.police = new Police(this.physics, this.scene, () => new WorkerPlanSource());
+      this.police.setRoad(this.roadLine);
+      this.helicopter = new Helicopter(this.scene);
+    } else if (!police && this.police) {
+      this.police.dispose();
+      this.police = null;
+      this.helicopter?.dispose();
+      this.helicopter = null;
+    }
   }
 
   /** Back to the garage (from the pause or the finish). */
@@ -908,13 +954,16 @@ export class Game {
   private playerOccupants(frame: RoadFrame): Occupant[] {
     const p = this.playerBox(frame);
     const own = lanesOccupied(p.dMin, p.dMax).map((lane) => ({ s: p.s, lane, length: p.length, v: Math.max(0, p.v) }));
-    return [...own, ...this.rivals.occupants(frame)];
+    return [...own, ...this.rivals.occupants(frame), ...(this.police?.occupants(frame) ?? [])];
   }
 
   /** Clear traffic and wrecks, put the player on the start line, refill traffic ahead. */
   resetWorld(): void {
     this.prevRelS.clear();
     this.touched.clear();
+    this.bust = null; // (a new race, or back to the garage, mid-bust: no put-back left to come)
+    this.bustPutBackAt = -Infinity;
+    this.bustRecover = Infinity;
     this.contactSoundAt.clear();
     // A new road each race (and on the title's road too).
     this.roadLine = this.skidpad ? skidpadRoad() : this.mountain ? mountainRoad(Math.random) : randomRoad(Math.random, ROAD_LENGTH);
@@ -931,6 +980,7 @@ export class Game {
     } else this.physics.setRoad(this.roadLine);
     this.player.road = this.roadLine;
     this.rivals.setRoad(this.roadLine);
+    this.police?.setRoad(this.roadLine);
     this.road.setRoad(this.roadLine);
     this.gate.setRoad(this.roadLine);
     this.minimap?.setRoad(this.roadLine, this.courseLength);
@@ -946,6 +996,8 @@ export class Game {
     this.playerNitroAi.reset();
     this.aiDriver?.reset(this.player.d);
     this.rivals.place();
+    this.police?.place();
+    this.helicopter?.reset();
     if (this.finishShow) {
       this.finishShow = null;
       this.overlay.show(false);
@@ -959,8 +1011,19 @@ export class Game {
     this.trafficWorld.reset(this.focus(), (f) => this.playerOccupants(f), !this.mountain); // (the mountain road: no traffic)
   }
 
+  /** A bust's slow motion on (or paused in it: its camera held where it is). */
+  private get busting(): boolean {
+    return this.bust !== null && (this.flow.phase === 'racing' || this.flow.phase === 'paused');
+  }
+
   tryReset(): void {
-    if (!this.flow.canReset()) return;
+    // (busted: hands off till its own put-back - R in its slow motion put the car back twice)
+    if (!this.flow.canReset() || this.bust) return;
+    this.putBack();
+  }
+
+  /** The player put back on the road (R; a bust's end): somewhere clear, at RESET_SPEED. */
+  private putBack(): void {
     if (this.mountain) {
       this.putBackOnMountain();
       this.flow.markReset();
@@ -981,6 +1044,7 @@ export class Game {
       }
     }
     blockers.push(...this.rivals.boxes(this.rivalBoxes));
+    if (this.police) blockers.push(...this.police.blockers());
     const spot = computeResetSpot(this.player.s, this.player.d, blockers, RESET_SPEED);
     this.player.resetTo(spot.s, spot.lane, RESET_SPEED);
     this.aiDriver?.reset(this.player.d);
@@ -1028,7 +1092,10 @@ export class Game {
     this.scene.fog = root.fog;
     root.background = null;
     root.fog = null;
-    for (const m of this.road.groundMaterials) this.npcBeams.patch(m);
+    for (const m of this.road.groundMaterials) {
+      this.npcBeams.patch(m);
+      this.beaconGlow.patch(m);
+    }
     this.gate = this.mountain ? new FinishGate(root, { left: -MOUNTAIN.edge - 0.6, right: MOUNTAIN.edge + 0.6, length: this.skidpad ? SKIDPAD.length : this.courseLength }) : new FinishGate(root);
     // (the practice ground: no finish, no time - its course endless, the gate and the HUD's time and track not shown)
     document.body.classList.toggle('skidpad', this.skidpad);
@@ -1135,8 +1202,24 @@ export class Game {
     // whole picture; only the menus, and the finish's show (what sets how slow), run on real time.
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     show?.step(dt);
-    const play = dt * (show ? show.timeScale : (TIME_SCALE[this.flow.phase] ?? 1));
+    // Busted: slowed down round the car on real time while the race is on (a pause holds it), then put back - and
+    // eased back up to full speed (bustRecoverScale), on real time too.
+    const racing = this.flow.phase === 'racing';
+    const bust = racing ? this.bust : null;
+    if (racing) this.bustRecover += dt;
+    bust?.step(dt);
+    if (bust?.done) {
+      this.bust = null;
+      this.putBack();
+      this.bustPutBackAt = this.simTime;
+      this.bustRecover = 0;
+    }
+    const busted = bust && !bust.done ? bust : null;
+    const recovering = racing && !busted ? bustRecoverScale(this.bustRecover) : 1;
+    const play = dt * (show ? show.timeScale : busted ? busted.timeScale : (TIME_SCALE[this.flow.phase] ?? 1) * recovering);
     this.sound.setTimeScale(dt > 0 ? play / dt : 1); // (the engines slow with it; a pause leaves it as it was)
+    // (and quieter with a bust's slow motion, down to half - slowed down it sounds ugly; a pause leaves it as it was)
+    if (this.flow.phase !== 'paused') this.sound.setDuck(busted ? bustVolume(busted.timeScale) : racing ? bustVolume(recovering) : 1);
     if (play > 0 && !this.freeze) {
       this.accumulator += play;
       let steps = 0;
@@ -1191,6 +1274,7 @@ export class Game {
     this.player.params.maxSpeed = cap;
     const seen = this.trafficWorld.ourBoxes(this.aiTraffic);
     for (const b of this.rivals.boxes(this.rivalBoxes)) seen.push(b);
+    if (this.police) for (const b of this.police.boxes(this.policeBoxes)) seen.push(b);
     const aim = coast ? Math.max(cap, this.player.speed) : cap;
     return ai.drive(selfStateOf(this.player, aim), seen, this.player.params);
   }
@@ -1198,6 +1282,7 @@ export class Game {
   private currentInput(): DriveInput {
     switch (this.flow.phase) {
       case 'racing':
+        if (this.bust) return BUSTED; // (the AI's too)
         if (this.aiActive && this.aiDriver && !this.inputOverride) return this.aiInput(this.aiDriver, Infinity);
         return this.inputOverride ?? this.keyboard.driving();
       case 'finished':
@@ -1232,14 +1317,32 @@ export class Game {
       speedCap: this.aiSettings.speedCapKmh / 3.6,
       topShare: this.rivalTopShare,
       raceTime: this.flow.raceTime,
+      ...(this.police ? { police: this.police.boxes(this.policeBoxes) } : {}),
     };
     if (racing) this.rivals.drive(dt, view);
     else this.rivals.hold(dt, this.flow.phase === 'countdown', this.flow.countdown, view);
+    // The police after them (the racers where they are this step, the player first).
+    if (this.police) {
+      if (racing) {
+        // (one past the line is nobody's target: the chase is over for it)
+        const racers: Racer[] = [{ s: this.player.s, d: this.player.d, v: Math.max(0, this.player.speed), isPlayer: true, done: this.flow.phase === 'finished', id: 0, plan: this.aiActive && this.aiDriver instanceof PlannerDriver ? this.aiDriver.plan : null, yaw: this.player.yaw, vLat: this.player.vLat }];
+        const racerBoxes: TrafficBox[] = [{ ...this.player.footprint(), id: PLAYER_BOX_ID, v: Math.max(0, this.player.speed) }];
+        for (const b of this.rivals.boxes(this.rivalBoxes)) racerBoxes.push(b);
+        for (const r of this.rivals.list) racers.push({ s: r.car.s, d: r.car.d, v: Math.max(0, r.car.speed), isPlayer: false, done: r.finishTime !== null, id: 1 + r.index, plan: r.driver instanceof PlannerDriver ? r.driver.plan : null, yaw: r.car.yaw, vLat: r.car.vLat });
+        this.police.drive(dt, racers, racerBoxes, view.traffic);
+      } else this.police.hold(dt);
+    }
 
     // Traffic AI on both carriageways (the player, the rivals and every wreck are
     // obstacles to both), then drive the NPC bodies along the planned paths.
-    this.trafficWorld.rouse([{ s: this.player.s, reach: TRAFFIC_AWAKE }, ...this.rivals.list.map((r) => ({ s: r.car.s, reach: RIVAL_AWAKE }))]);
-    this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame)]);
+    // (round the player all of it; the rivals and the police out only what they are about to touch, near the player)
+    const others = this.wakeOthers;
+    others.length = 0;
+    for (const r of this.rivals.list) others.push(r.car);
+    for (const p of this.police?.list ?? []) if (p.state !== 'parked') others.push(p.car);
+    const w = wakers(this.player, others, TRAFFIC_AWAKE);
+    this.trafficWorld.rouse(w.rousers, w.movers, this.simTime);
+    this.trafficWorld.stepAI(dt, this.simTime, (frame) => [{ ...this.playerBox(frame), id: PLAYER_OBSTACLE_ID, isPlayer: true }, ...this.rivals.obstacles(frame), ...(this.police?.obstacles(frame) ?? [])]);
 
     this.player.holdInPlace(this.flow.phase === 'countdown' || this.flow.phase === 'intro'); // (on the grid a burnout goes nowhere)
     this.player.prePhysics(input, dt);
@@ -1249,6 +1352,10 @@ export class Game {
     this.rivals.list.forEach((r, i) => {
       const v = r.car.body.linvel();
       this.racerVelBefore[i + 1] = { x: v.x, z: v.z };
+    });
+    this.police?.list.forEach((p, i) => {
+      const v = p.car.body.linvel();
+      this.policeVelBefore[i] = { x: v.x, z: v.z };
     });
     // The intro's arriving cars, drawn braking: the load on their bodies (held on the grid), on their own springs.
     if (this.introOn) for (const [car, decel] of this.intro!.braking()) car.brakeLoad(decel, dt);
@@ -1265,6 +1372,7 @@ export class Game {
     if (this.mountain && this.player.body.translation().y < this.roadLine.height(this.player.s) - FALLEN) this.putBackOnMountain();
     this.trafficWorld.afterPhysics();
     this.rivals.after(dt, view, this.trafficWorld.ourBoxes(this.rivalTraffic), racing);
+    this.police?.after();
     const pv = this.player.body.linvel();
     // Another car's tyre smokes only within SMOKE_RANGE of the player (the puffs are few: far off they'd crowd out
     // what is near, unseen).
@@ -1289,6 +1397,19 @@ export class Game {
         this.skids.add(10 + r.index * 4 + i, w.contactX, w.contactZ, w.dirX, w.dirZ, sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0, w.contactY);
         const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, rv.x, rv.z);
         this.smoke.emit(10 + r.index * 4 + i, w.contactX, w.contactZ, sliding && near(w.contactX, w.contactZ) ? w.slip : 0, rv.x, rv.z, dt, kick.x, kick.z, w.contactY);
+      });
+    }
+    // The police cars' tyres too (keys 40 on; parked - put somewhere new: no trail across to there).
+    for (const p of this.police?.list ?? []) {
+      const c = p.car;
+      const v = c.body.linvel();
+      const out = p.state !== 'parked';
+      const pSideways = c.slidingSideways;
+      c.wheels.forEach((w, i) => {
+        const sliding = out && w.inContact && (w.sliding || pSideways);
+        this.skids.add(40 + p.index * 4 + i, w.contactX, w.contactZ, w.dirX, w.dirZ, sliding && w.slip > 1.5 ? Math.min(1, (w.slip - 1.5) / 8) : 0, w.contactY);
+        const kick = smokeKick(w.dirX, w.dirZ, w.omega, w.r, v.x, v.z);
+        this.smoke.emit(40 + p.index * 4 + i, w.contactX, w.contactZ, sliding && near(w.contactX, w.contactZ) ? w.slip : 0, v.x, v.z, dt, kick.x, kick.z, w.contactY);
       });
     }
     // Wrecks run on the same tyre model, so they leave marks and smoke too.
@@ -1339,6 +1460,29 @@ export class Game {
   private onContact(a: EntityRef, b: EntityRef, normal: { x: number; z: number } | null): void {
     const playerHit = a.type === 'player' || b.type === 'player';
     const rival = a.type === 'rival' ? a : b.type === 'rival' ? b : null;
+    const police = a.type === 'police' ? a : b.type === 'police' ? b : null;
+    if (police) {
+      const sv = this.policeVelBefore[police.id];
+      if (playerHit) {
+        // The player and a police car: felt and heard as a rival is.
+        const pv = this.racerVelBefore[0];
+        const rel = pv && sv ? closingSpeed(pv, sv, normal) : 0;
+        this.crashShake(rel, normal ?? (pv && sv ? { x: pv.x - sv.x, z: pv.z - sv.z } : null));
+        this.contactSound(`police ${police.id}`, rel);
+        // A hit (not a scrape) busts the player: slow motion round the car, then put back; that police car pulls over.
+        if (!this.bust && bustAllowed(this.flow.phase, rel * 3.6, this.simTime - this.bustPutBackAt)) {
+          this.bust = new BustShow(this.camera, this.player);
+          this.bustRecover = Infinity; // (busted again easing back up: its own slow motion from full speed)
+          this.police?.pullOver(police.id);
+        }
+        return;
+      }
+      // A police car into a vehicle: a hit wrecks it, a scrape it drives on from (as a rival).
+      const id = this.trafficWorld.onNpcContact(a, b);
+      const npc = id === null ? undefined : this.npcs.get(id);
+      if (id !== null && npc && (!sv || knocksOut(sv, npc.parts[0].body.linvel(), normal))) this.trafficWorld.wreck(id);
+      return;
+    }
     if (playerHit && rival) {
       // Player and rival trading paint: feel it, the physics does the rest.
       const pv = this.player.body.linvel();
@@ -1420,9 +1564,13 @@ export class Game {
     return painted;
   }
 
-  /** The lights whose shadows show this frame: the player's headlights, and the rivals' pool's near ones. */
+  /**
+   * The lights whose shadows show this frame: the player's headlights, the rivals' pool's near ones, and the police
+   * helicopter's searchlight while it flies (the traffic under it shadowing what it lights).
+   */
   private shadowLights(): THREE.SpotLight[] {
-    return [...this.player.headlights, ...this.rivalShadows];
+    const heli = this.helicopter?.shadowLight;
+    return heli ? [...this.player.headlights, ...this.rivalShadows, heli] : [...this.player.headlights, ...this.rivalShadows];
   }
 
   /**
@@ -1442,7 +1590,7 @@ export class Game {
     const yaw = Math.atan2(BLUR_V.x, BLUR_V.z);
     if (look !== this.blurLook) this.camYaw = null; // (the cut: no turn)
     this.blurLook = look;
-    const shot = this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null);
+    const shot = this.flow.phase === 'title' || this.flow.phase === 'intro' || (this.flow.phase === 'finished' && this.finishShow !== null) || this.busting;
     if (play > 0) {
       const v = this.player.body.linvel();
       let share = 1;
@@ -1639,6 +1787,22 @@ export class Game {
   }
 
   /**
+   * The police cars with their lights on this frame, into `this.sirenBuf` (its entries reused): each one's index (its
+   * siren's key), where its light bar is and how it moves. How many.
+   */
+  private heardSirens(): number {
+    let n = 0;
+    for (const q of this.police?.sirens() ?? []) {
+      const s = (this.sirenBuf[n++] ??= { key: 0, pos: [0, 0, 0], vel: [0, 0, 0] });
+      const p = q.car.mesh.position, v = q.car.body.linvel();
+      s.key = q.index;
+      s.pos[0] = p.x; s.pos[1] = p.y + 1.6; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+    }
+    return n;
+  }
+
+  /**
    * The engines heard from outside this frame, into `this.engineSources` (its entries reused: none made a frame):
    * the rivals' (their own rpm and throttle; keys -1, -2, ...) and the traffic's (keys their ids). How many.
    */
@@ -1651,7 +1815,20 @@ export class Game {
       // (a car drawn through a bend in an intro: heard going as it is drawn going)
       const c = r.car, s = next(), p = c.mesh.position, v = c.showPose?.vel ?? c.body.linvel();
       s.key = -1 - r.index;
-      s.kind = c.style;
+      s.kind = engineOf(c.style);
+      s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
+      s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
+      s.rpm = c.shownRpm;
+      s.idle = c.params.idleRpm;
+      s.redline = c.params.redline;
+      s.throttle = c.shownThrottle;
+      s.gain = 1;
+    }
+    for (const q of this.police?.list ?? []) {
+      if (q.state === 'parked') continue; // (parked: its engine off)
+      const c = q.car, s = next(), p = c.mesh.position, v = c.body.linvel();
+      s.key = POLICE_ENGINE_KEY - q.index;
+      s.kind = engineOf(c.style);
       s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
       s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
       s.rpm = c.shownRpm;
@@ -1665,7 +1842,7 @@ export class Game {
     if (pose) {
       const s = next(), p = pc.mesh.position, v = pose.vel;
       s.key = PLAYER_DRAWN_KEY;
-      s.kind = pc.style;
+      s.kind = engineOf(pc.style);
       s.pos[0] = p.x; s.pos[1] = p.y; s.pos[2] = p.z;
       s.vel[0] = v.x; s.vel[1] = v.y; s.vel[2] = v.z;
       s.rpm = pc.shownRpm;
@@ -1737,7 +1914,7 @@ export class Game {
   }
 
   /**
-   * The rivals' tyres this frame, into `this.skidSources` (where each is drawn, its strongest slide); the player's
+   * The rivals' and police cars' tyres this frame, into `this.skidSources` (where each is drawn, its strongest slide); the player's
    * too while it is drawn through a bend in an intro (heard there, its own squeal silent meanwhile).
    */
   private heardSkids(): SkidSource[] {
@@ -1748,6 +1925,12 @@ export class Game {
       s.slip = list[i].car.showPose?.slip ?? list[i].car.maxSlip; // (drawn drifting in an intro: squealing as drawn)
     }
     let n = list.length;
+    // (the police cars' too - a parked one silent)
+    for (const q of this.police?.list ?? []) {
+      const s = (out[n++] ??= { pos: { x: 0, y: 0, z: 0 }, slip: 0 }), p = q.car.mesh.position;
+      s.pos.x = p.x; s.pos.y = p.y; s.pos.z = p.z;
+      s.slip = q.state === 'parked' ? 0 : q.car.maxSlip;
+    }
     const pose = this.player.showPose;
     if (pose) {
       const s = (out[n++] ??= { pos: { x: 0, y: 0, z: 0 }, slip: 0 }), p = this.player.mesh.position;
@@ -1800,6 +1983,8 @@ export class Game {
       for (const part of npc.parts) this.npcBeams.add(part.mesh, pp.x, pp.z);
     }
     this.rivals.render(alpha, this.flares);
+    this.beaconGlow.clear(); // (no police: none left from before)
+    this.police?.render(alpha, play, this.flares, pp, this.beaconGlow);
     for (const car of this.lightRivals(play)) this.npcBeams.add(car.mesh, pp.x, pp.z); // (the rivals without a real lamp: their beams painted)
     this.flares.end();
     this.npcBeams.end();
@@ -1847,6 +2032,7 @@ export class Game {
     const show = this.flow.phase === 'finished' ? this.finishShow : null;
     if (this.introOn) this.intro!.placeCamera();
     else if (show) show.placeCamera();
+    else if (this.busting) this.bust!.placeCamera();
     else if (this.hoodCam && look === 'ahead') this.rig.updateHood(this.player.mesh, this.player.hoodEye, this.player.speed, this.player.params.maxSpeed);
     else this.rig.update(play, p, this.player.worldYaw, this.player.body.linvel(), this.player.speed, this.player.params.maxSpeed, look);
     // The camera kept clear of the scenery's ground (Scenery.groundAt: the mountain's rock and hillside, the highway's
@@ -1857,7 +2043,7 @@ export class Game {
     // instead, the side looks were pulled in to the edge on the narrow road where no rock was too.)
     const scene = this.road;
     if (scene.groundAt) {
-      const shot = this.introOn || !!show;
+      const shot = this.introOn || !!show || this.busting;
       const A = shot ? CAMERA_SHOT : CAMERA_ARM;
       const c = this.player.body.translation();
       const pivot = { x: c.x, y: c.y + A.pivot, z: c.z };
@@ -1867,6 +2053,15 @@ export class Game {
       this.armShare = shot ? 1 : armFollow(this.armShare, armReach(pivot, want, ground, A), play, A);
       const at = armPlace(pivot, want, this.armShare, ground, A);
       this.camera.position.set(at.x, at.y, at.z);
+    }
+    // The helicopter, once the chase is on: circling a racer (the player, now and then a rival near them), its
+    // searchlight on them - the player's only, busted (its glare by the camera: placed).
+    if (this.helicopter) {
+      const ts = this.heliTargets;
+      ts.length = 0;
+      ts.push({ s: this.player.s, d: this.player.d, pos: this.player.mesh.position });
+      for (const r of this.rivals.list) ts.push({ s: r.car.s, d: r.car.d, pos: r.car.mesh.position });
+      this.helicopter.update(play, !!this.police?.triggered, ts, this.busting, this.heliPlace, this.camera);
     }
     if (show?.done && !this.hud.finishShown) {
       this.overlay.show(false);
@@ -1882,6 +2077,7 @@ export class Game {
     for (const npc of this.npcs.values()) npc.addBodies(this.bodies);
     this.player.addWheels(this.bodies);
     for (const r of this.rivals.list) r.car.addWheels(this.bodies);
+    for (const p of this.police?.list ?? []) p.car.addWheels(this.bodies); // (their wheels: files', drawn as the cars')
     this.bodies.end();
     // (Mid-upshift the engine is let go of: it sounds off the throttle. The intro's blip, as it is put on; a
     // downshift's heel-and-toe blip, on the throttle.)
@@ -1890,9 +2086,13 @@ export class Game {
     // (drawn through a bend in an intro: heard there instead - heardEngines, heardSkids)
     const drawn = !!this.player.showPose;
     const own = this.player.gearbox.shifting ? 0 : this.lastInput.throttle;
-    this.sound.setEngine(this.player.style, this.player.shownRpm, car.idleRpm, car.redline,
+    this.sound.setEngine(engineOf(this.player.style), this.player.shownRpm, car.idleRpm, car.redline,
       rev ? rev.throttle : this.player.blipping ? Math.max(HEEL_TOE.throttle, own) : own, this.flow.phase !== 'title' && !drawn);
     this.sound.setOtherEngines(this.engineSources, this.heardEngines(), this.ear(), play, this.flow.phase !== 'title');
+    this.sound.setSirens(this.sirenBuf, this.heardSirens(), this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
+    const heli = this.helicopter?.flying ? this.helicopter : null;
+    // (half as loud in a bust's slow motion, the user's call: with all the race's sound now - setDuck - not its own too)
+    this.sound.setRotor(heli?.position ?? null, heli?.velocity ?? STILL, this.ear(), play, this.flow.phase === 'racing' || this.flow.phase === 'finished');
     this.sound.setSkid(this.flow.phase === 'title' || drawn ? 0 : this.player.maxSlip);
     this.sound.setOtherSkids(this.heardSkids(), this.ear(), this.flow.phase !== 'title');
     this.sound.setNitro(this.flow.phase !== 'title' && this.player.nitro.active);

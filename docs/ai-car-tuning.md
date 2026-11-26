@@ -105,3 +105,20 @@ done; wait
 4. 要讓玩家能選：加進 `src/game/carSelection.ts` 的 `PICKABLE` 和 `CAR_CARDS`。
 
 遊戲中每台車（玩家與每個對手）的 `accel`、`latAccel`、`tracker` 和極速都跟著自己的 `CarSpec` 走，不用另外改程式。
+
+## 警車（高速公路的警察追緝）
+
+警用 SUV（`src/vehicles/cars/policeSuv.ts`）不在 `CARS` 裡（車庫、調校、跑分的「每台車」都不含它），量車時用 `CAR=police-suv`（`specById` 找得到）。它沒有方向盤網路，規劃器用一般的追線方式。
+
+- **一生**（`src/game/police.ts`）：停在路肩待命 → 玩家第一次經過任何一台，追緝開始 → 選目標（範圍內先選玩家，否則最近的賽車）→ 在目標前面就守它的預估路線（前段），在後面就追（後段：照規劃器閃車，跟目標之間沒有阻礙時直接衝撞）→ 撞飛玩家的那台開到路肩停下（收工）→ 離所有賽車都太遠就移到所有賽車前方的路肩重新待命。
+- **判斷**（`src/game/policeLogic.ts`，有單元測試）：`POLICE_TUNING` 是所有距離、門檻、秒數；`pickTarget`、`phaseOf`、`lineClear`、`isLost`、`parkSpot`、`bustAllowed`、`ramInput`、`guardD`。
+- **規劃器的選項**：`PlanEgo.preferD`（偏好的橫向位置，每公尺偏離扣 `PREFER_COST` 公尺的進度）和 `PlanEgo.shoulder`（可以開上路肩）。不設時行為跟原本完全一樣，改動這兩項後要跑高速公路逐幀比對確認。
+- **守線的預測**：用警察自己的一個 Web Worker 算目標的路線（主執行緒上一次最多 133 ms，會頓）。
+- **撞飛**：`src/game/bustShow.ts`，慢動作 3 秒（現實時間，暫停時停住）後照按 R 的方式放回。
+- **調數值**：`training/policeChase.train.ts` 跑整場追緝（玩家車由 AI 開、5 台對手、交通車、警察），輸出每場被撞飛幾次、第一次在幾秒、對手被撞幾次、警車追丟幾次、各狀態的時間比例、完賽時間：
+
+```powershell
+$env:SEEDS='7001,7002,7003'; npx vitest run --config training/vitest.config.ts training/policeChase.train.ts --silent=false
+```
+
+  目標是一場 5 km 被撞飛 1–3 次（2026-11-24：2 / 3 / 3 次）。

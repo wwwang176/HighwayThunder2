@@ -31,6 +31,8 @@ export interface CarSelection {
   paint: Record<string, string>;
   /** Each car's tuning (src/vehicles/tuning: its knobs' levels), kept apart as its paint is; none: as built. */
   tuning: Record<string, Tuning>;
+  /** The police on the highway (src/game/police.ts; a save from before there was a choice: on). */
+  police: boolean;
 }
 
 export const MAX_RIVALS = 5;
@@ -73,7 +75,7 @@ export const CAR_CARDS: CarCard[] = [
 
 /** A first visit's race: the player on the supercar, five rivals on cars drawn at random, hard, a clear night. */
 export function defaultSelection(): CarSelection {
-  return { player: STREET_RACER.id, rivals: Array.from({ length: MAX_RIVALS }, () => STREET_RACER.id), rivalMode: 'random', difficulty: DEFAULT_DIFFICULTY, weather: 'clear', course: 'highway', paint: {}, tuning: {} };
+  return { player: STREET_RACER.id, rivals: Array.from({ length: MAX_RIVALS }, () => STREET_RACER.id), rivalMode: 'random', difficulty: DEFAULT_DIFFICULTY, weather: 'clear', course: 'highway', paint: {}, tuning: {}, police: true };
 }
 
 const pickable = (id: unknown): string => (typeof id === 'string' && PICKABLE.includes(id) && CARS[id] ? id : STREET_RACER.id);
@@ -87,7 +89,7 @@ const pickable = (id: unknown): string => (typeof id === 'string' && PICKABLE.in
  */
 export function sanitize(x: unknown): CarSelection {
   if (!x || typeof x !== 'object') return defaultSelection();
-  const o = x as { player?: unknown; rivals?: unknown; rivalMode?: unknown; difficulty?: unknown; course?: unknown; paint?: unknown; tuning?: unknown };
+  const o = x as { player?: unknown; rivals?: unknown; rivalMode?: unknown; difficulty?: unknown; course?: unknown; paint?: unknown; tuning?: unknown; police?: unknown };
   const course = COURSES.find((c) => c === o.course) ?? 'highway';
   const rivalMode = RIVAL_MODES.find((m) => m === o.rivalMode) ?? 'custom';
   const rivals = (Array.isArray(o.rivals) ? o.rivals.map(pickable) : defaultSelection().rivals).slice(0, COURSE_RIVALS[course]);
@@ -109,7 +111,7 @@ export function sanitize(x: unknown): CarSelection {
       tuning[id] = knobs;
     }
   }
-  return { player: pickable(o.player), rivals, rivalMode, difficulty, weather: 'clear', course, paint, tuning };
+  return { player: pickable(o.player), rivals, rivalMode, difficulty, weather: 'clear', course, paint, tuning, police: o.police !== false };
 }
 
 export function loadSelection(storage: Pick<Storage, 'getItem'>): CarSelection {
