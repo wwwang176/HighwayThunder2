@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
+import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, nextPickIn, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -84,6 +84,15 @@ describe('police helicopter', () => {
       expect((6 * d) / (t * t)).toBeLessThanOrEqual(HELI.repositionAcc + 1e-9); // (a smoothstep's hardest pull)
     }
     expect(repositionTime(250)).toBeGreaterThan(repositionTime(100));
+  });
+
+  it('stays over a new car its while once there: the flight over it not counted', () => {
+    expect(nextPickIn(12, 0)).toBeCloseTo(12 + HELI.targetEvery * 0.75);
+    expect(nextPickIn(12, 1)).toBeCloseTo(12 + HELI.targetEvery * 1.25);
+    expect(nextPickIn(0, 0.5)).toBeCloseTo(HELI.targetEvery);
+    // (the longest flight over, still its least while there after it)
+    const far = repositionTime(500);
+    expect(nextPickIn(far, 0) - far).toBeCloseTo(HELI.targetEvery * 0.75);
   });
 
   it('pitches nose down speeding up, up slowing; banks into a turn; never past its limits', () => {

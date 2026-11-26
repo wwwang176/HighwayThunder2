@@ -11,7 +11,8 @@ import { depthBias } from '../render/shadowBias';
  *   height) over `arrive` s - catching up with the car at 200 km/h, coming down, over it into its circle ahead - its
  *   searchlight off till then, on over `lightOn` s: seen and heard first, then its light (from 350 m ahead over 6 s,
  *   the light on, at first: sudden);
- * - its car: the player first; every `targetEvery` s (+-25%; the first that long after its light comes on) another
+ * - its car: the player first; every `targetEvery` s (+-25%; the first that long after its light comes on; after a
+ *   switch that long once it is over the new car - nextPickIn: counted from the switch, it left far ones at once) another
  *   racer, any but the one it lights, each as likely (the player half the time, a rival only within 150 m of them,
  *   every 20 s: it seemed never to change); the player busted: the player. To a new car its light (its operator) swings over in `retarget` s, the helicopter
  *   (its pilot) follows in `reposition` s, longer to one further off - never pulling harder than `repositionAcc`
@@ -187,6 +188,15 @@ export function switchFade(since: number, over: number): number {
  */
 export function repositionTime(distance: number): number {
   return Math.max(HELI.reposition, Math.sqrt((6 * Math.abs(distance)) / HELI.repositionAcc));
+}
+
+/**
+ * How long (s) till it picks its next car, as it swings over to one: its flight there (`flight` s: repositionTime)
+ * and then its while over it, HELI.targetEvery +-25% by `roll` (0..1) - counted from the switch, a car far off was left
+ * as soon as it got there, or before.
+ */
+export function nextPickIn(flight: number, roll: number): number {
+  return flight + HELI.targetEvery * (0.75 + 0.5 * roll);
 }
 
 /** How much higher than its height it still is, `t` s after it set off to come (flying in). */
@@ -557,7 +567,7 @@ export class Helicopter {
     if (player) next = 0;
     else if (this.nextPick <= 0) {
       next = pickHeliTarget(targets.length, this.target, Math.random());
-      this.nextPick = HELI.targetEvery * (0.75 + 0.5 * Math.random());
+      this.nextPick = nextPickIn(0, Math.random()); // (alone: the same car - again after a while)
     }
     if (next === this.target) return;
     // Swinging over: from where it was (its centre, its light) to the new car's, as offsets from that car fading out.
@@ -565,6 +575,8 @@ export class Helicopter {
     this.centreOff.set(this.centreS - to.s, this.centreD - to.d);
     this.aimOff.copy(this.aim).sub(to.pos);
     this.flightTime = repositionTime(Math.hypot(this.centreOff.x, this.centreOff.y));
+    // (its while over it from when it is there - the busted player's too)
+    this.nextPick = nextPickIn(this.flightTime, Math.random());
     this.sinceSwitch = 0;
     this.target = next;
   }
