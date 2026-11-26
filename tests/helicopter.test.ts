@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, arrivalRise, searchlight, beamGlare, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
+import { arrivalAhead, arrivalRise, searchlight, beamGlare, beamReach, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -97,6 +97,16 @@ describe('police helicopter', () => {
     const wild = heliAttitude(-100, 100, 50);
     expect(Math.abs(wild.pitch)).toBeLessThanOrEqual(HELI.maxPitch + 1e-9);
     expect(Math.abs(wild.roll)).toBeLessThanOrEqual(HELI.maxRoll + 1e-9);
+  });
+
+  it('its light never past maxTilt off straight down: a car further off, lit short of it, the way to it', () => {
+    // (30 m up, 60 degrees: within 52 m across all of the way; 120 m off, 52 m of it)
+    expect(BEAM.maxTilt).toBeCloseTo(Math.PI / 3);
+    expect(beamReach(40, 0, 30)).toBeCloseTo(1);
+    expect(beamReach(0, 120, 30)).toBeCloseTo((30 * Math.sqrt(3)) / 120);
+    expect(beamReach(60, 80, 30)).toBeCloseTo((30 * Math.tan(BEAM.maxTilt)) / 100);
+    expect(beamReach(0, 0, 30)).toBe(1); // (right under it)
+    expect(beamReach(10, 0, 0)).toBe(0); // (no lower than it: straight down)
   });
 
   it('flying sideways: leaning that way, not nose down; backwards: nose up', () => {

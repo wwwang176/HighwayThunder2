@@ -43,6 +43,14 @@ it never touches anything and does not change the chase (the police's own logic 
 - **Coming in** (the user's call, 2026-11-25): from far behind and high - 450 m back, 90 m over its height (~120 m
   up) - over 14 s, catching up and coming down over the car into its circle ahead; its searchlight off till it is
   down, on over 0.6 s: seen and heard first, then the light. Its circle starts as it comes down (ahead of the car).
+- **The light's tilt** (the user's call, 2026-11-26): never more than 60 degrees off straight down, its hand's
+  wander too - a car far off (just picked, the helicopter on its way) lit on the ground short of it, the way to it,
+  not by a beam lying along the ground; on it once it is near. (Its circling is 36-74 degrees off straight down, 55
+  the median: on its car ~60% of the time; 45 degrees would have been 20%.)
+- **Facing** (the user's call, 2026-11-26): its nose along its way from 100 km/h; under 60 km/h toward its car (it
+  circles sideways, watching it); between the two in between. It leans the way it goes, sideways too.
+- **Rotors** (2026-11-26): blurred blades on a disc each (render/rotorBlur), the pattern at its own pace (the
+  rotor's own beats with the frame rate); the body grey-white (dark, it was not to be seen at night).
 - **Busted**: the slow-motion orbit 66% slower (0.306 rad/s), the rotor half as loud while it lasts.
 - **When**: from the chase's start (Police.triggered), flying in as above (300 m back over 10 s; from ahead before that); then the rest of
   the race. Highway, police on only (it lives and dies with Police).

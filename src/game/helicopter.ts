@@ -106,7 +106,18 @@ export const BEAM = {
   shadowMap: 512,
   shadowOffset: 0.02,
   shadowNormalBias: 0.02,
+  maxTilt: Math.PI / 3, // (its circling 36-74 degrees off straight down, 55 the median: on its car ~60% of it)
 };
+
+/**
+ * How far over to its car (`dx`, `dz` m across from the lamp, `drop` m below it) its light reaches (a share of the
+ * way: 1 all of it): never more than `BEAM.maxTilt` off straight down (a car far off - just picked, the helicopter
+ * on its way - lit on the ground short of it, the way to it, not along the ground from afar; on it once it is near).
+ */
+export function beamReach(dx: number, dz: number, drop: number): number {
+  const across = Math.hypot(dx, dz);
+  return across === 0 ? 1 : Math.min(1, (Math.max(0, drop) * Math.tan(BEAM.maxTilt)) / across);
+}
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const smooth = (x: number) => {
@@ -620,6 +631,10 @@ export class Helicopter {
     this.aim.copy(car.pos).addScaledVector(this.aimOff, switchFade(this.sinceSwitch, HELI.retarget));
     // (its hand's wander: 1.2 / 1.6 m at 2.6 / 1.6 rad/s - 0.6 / 0.8 m at 1.3 / 0.8 at first, too steady)
     DIR.set(this.aim.x + 1.2 * Math.sin(t * 2.6), this.aim.y, this.aim.z + 1.6 * Math.sin(t * 1.6 + 1)).sub(this.lamp);
+    // (no further over than BEAM.maxTilt, its hand's wander too: short of a car far off - beamReach)
+    const reach = beamReach(DIR.x, DIR.z, -DIR.y);
+    DIR.x *= reach;
+    DIR.z *= reach;
     const len = DIR.length();
     DIR.divideScalar(len);
     this.beam.position.copy(this.lamp);
