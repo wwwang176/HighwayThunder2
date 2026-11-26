@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrivalAhead, arrivalRise, searchlight, beamGlare, BEAM, HELI, heliAttitude, heliHeight, heliOrbit, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
+import { arrivalAhead, arrivalRise, searchlight, beamGlare, BEAM, HELI, heliAttitude, heliHeading, heliHeight, heliOrbit, pickHeliTarget, repositionTime, shadowSpan, switchFade } from '../src/game/helicopter';
 
 describe('police helicopter', () => {
   const times = Array.from({ length: 2000 }, (_, i) => i * 0.1);
@@ -97,6 +97,27 @@ describe('police helicopter', () => {
     const wild = heliAttitude(-100, 100, 50);
     expect(Math.abs(wild.pitch)).toBeLessThanOrEqual(HELI.maxPitch + 1e-9);
     expect(Math.abs(wild.roll)).toBeLessThanOrEqual(HELI.maxRoll + 1e-9);
+  });
+
+  it('flying sideways: leaning that way, not nose down; backwards: nose up', () => {
+    const right = heliAttitude(0, 0, 0, 15);
+    expect(right.roll).toBeLessThan(0); // (to its right: its right side down)
+    expect(right.pitch).toBeCloseTo(0);
+    expect(heliAttitude(0, 0, 0, -15).roll).toBeGreaterThan(0);
+    expect(heliAttitude(0, 0, -15).pitch).toBeGreaterThan(0);
+  });
+
+  it('its nose: toward its car when slow, along its way when fast, between the two in between', () => {
+    const path = 0.3, face = 1.3;
+    expect(heliHeading(path, face, 5)).toBeCloseTo(face);
+    expect(heliHeading(path, face, HELI.faceBelow)).toBeCloseTo(face);
+    expect(heliHeading(path, face, HELI.pathAbove)).toBeCloseTo(path);
+    expect(heliHeading(path, face, 80)).toBeCloseTo(path);
+    const mid = heliHeading(path, face, (HELI.faceBelow + HELI.pathAbove) / 2);
+    expect(mid).toBeCloseTo((path + face) / 2);
+    // (the short way round: across the +-PI seam, not the long way)
+    const across = heliHeading(3, -3, (HELI.faceBelow + HELI.pathAbove) / 2);
+    expect(Math.cos(across)).toBeLessThan(-0.95);
   });
 
   it('its light\'s shadow: all of the light on the road (its cone\'s low edge too), nothing above traffic', () => {

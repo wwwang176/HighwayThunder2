@@ -17,9 +17,11 @@ import { depthBias } from '../render/shadowBias';
  *   (its pilot) follows in `reposition` s, longer to one further off - never pulling harder than `repositionAcc`
  *   m/s^2 (both in `retarget` s, it lurched 150 m in 2 s; in a fixed 8 s, 250 m back to the player, nose at its
  *   limit);
- * - flown as a helicopter flies (by its path, no physics): its nose along its way, turning to it over `turn` s;
- *   nose down `cruiseTilt` at `cruiseAt` m/s and on, `pitchPerAcc` more a m/s^2 speeding up (up slowing), banked
- *   `rollPerAcc` a m/s^2 into a turn - its motion smoothed over `smooth` s; never past `maxPitch`, `maxRoll`;
+ * - flown as a helicopter flies (by its path, no physics): its nose along its way from `pathAbove` m/s, toward its
+ *   car under `faceBelow` (slow, it circles sideways, watching it: heliHeading), turning to it over `turn` s;
+ *   leaning the way it goes (nose down forward, side down sideways) `cruiseTilt` at `cruiseAt` m/s and on,
+ *   `pitchPerAcc` more a m/s^2 speeding up (up slowing), banked `rollPerAcc` a m/s^2 into a turn - its motion
+ *   smoothed over `smooth` s; never past `maxPitch`, `maxRoll`;
  * - its main rotor `rotorHz` turns a second (heard: audio/rotor; drawn as a blur, MAIN_ROTOR); its white strobe
  *   flashes `strobeOn` s every `strobeEvery` s.
  */
@@ -41,6 +43,8 @@ export const HELI = {
   reposition: 8,
   repositionAcc: 5,
   turn: 0.6,
+  faceBelow: 60 / 3.6,
+  pathAbove: 100 / 3.6,
   cruiseTilt: 0.12,
   cruiseAt: 60,
   pitchPerAcc: 0.02, // (0.03: the AI's braking and pulling away in traffic at its limit most of the time)
@@ -133,15 +137,26 @@ export function pickHeliTarget(count: number, lit: number, roll: number): number
 
 /**
  * How it hangs (rad; the rotation's x and z, the nose toward -z): speeding up `accFwd` m/s^2 along its nose (-:
- * slowing), pulled `accLat` m/s^2 to its right, going `speed` m/s. See HELI.
+ * slowing), pulled `accLat` m/s^2 to its right, going `vFwd` m/s along its nose (-: backwards) and `vLat` to its
+ * right - leaning the way it goes (the cruise tilt: nose down going forward, its side down going sideways). See HELI.
  */
-export function heliAttitude(accFwd: number, accLat: number, speed: number): { pitch: number; roll: number } {
+export function heliAttitude(accFwd: number, accLat: number, vFwd: number, vLat = 0): { pitch: number; roll: number } {
   const clamp = (x: number, m: number) => Math.max(-m, Math.min(m, x));
-  const cruise = HELI.cruiseTilt * Math.min(1, Math.abs(speed) / HELI.cruiseAt);
+  const lean = (v: number) => HELI.cruiseTilt * clamp(v / HELI.cruiseAt, 1);
   return {
-    pitch: clamp(-cruise - accFwd * HELI.pitchPerAcc, HELI.maxPitch),
-    roll: clamp(-accLat * HELI.rollPerAcc, HELI.maxRoll),
+    pitch: clamp(-lean(vFwd) - accFwd * HELI.pitchPerAcc, HELI.maxPitch),
+    roll: clamp(-lean(vLat) - accLat * HELI.rollPerAcc, HELI.maxRoll),
   };
+}
+
+/**
+ * Where its nose is to point (rad, as its yaw): along its way (`path`) going `speed` m/s from `pathAbove` on; toward
+ * the car it lights (`face`) under `faceBelow` (circling slowly with its side or nose to it, as one watching a car);
+ * turned from the one to the other in between - the short way round.
+ */
+export function heliHeading(path: number, face: number, speed: number): number {
+  const k = Math.max(0, Math.min(1, (speed - HELI.faceBelow) / (HELI.pathAbove - HELI.faceBelow)));
+  return face + k * Math.atan2(Math.sin(path - face), Math.cos(path - face));
 }
 
 /** A car it may light: where it is along the road (`s`, `d`) and in the world. */
@@ -580,14 +595,18 @@ export class Helicopter {
     }
     this.flying = true;
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
-    if (speed > 3) {
-      const want = Math.atan2(-this.velocity.x, -this.velocity.z);
-      let turn = want - this.yaw;
-      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-      this.yaw += turn * (1 - Math.exp(-play / HELI.turn));
-    }
+    // (its nose along its way fast, toward its car slow - heliHeading; hardly moving: no way to go along; right over
+    // the car: none to face)
+    const path = speed > 3 ? Math.atan2(-this.velocity.x, -this.velocity.z) : this.yaw;
+    const toX = car.pos.x - this.position.x, toZ = car.pos.z - this.position.z;
+    const face = Math.hypot(toX, toZ) > 5 ? Math.atan2(-toX, -toZ) : path;
+    let turn = heliHeading(path, face, speed) - this.yaw;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    this.yaw += turn * (1 - Math.exp(-play / HELI.turn));
+    // (along its nose and to its right: its acceleration and its way, sideways too)
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
-    const att = heliAttitude(-this.accel.x * sin - this.accel.z * cos, this.accel.x * cos - this.accel.z * sin, speed);
+    const fwd = (x: number, z: number) => -x * sin - z * cos, right = (x: number, z: number) => x * cos - z * sin;
+    const att = heliAttitude(fwd(this.accel.x, this.accel.z), right(this.accel.x, this.accel.z), fwd(this.velocity.x, this.velocity.z), right(this.velocity.x, this.velocity.z));
     this.object.position.copy(this.position);
     this.object.rotation.set(att.pitch, this.yaw, att.roll, 'YXZ');
     // (the blur's pattern at its own pace, not the rotor's: render/rotorBlur)
