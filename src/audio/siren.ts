@@ -14,7 +14,35 @@ export function sirenPitch(t: number): number {
   return SIREN.lo + (SIREN.hi - SIREN.lo) * k;
 }
 
-/** One siren's voice: placed by hand (pan.ts), pitched by the wail times the Doppler factor and the race's speed. */
+/**
+ * The roof horn the tone plays through: its driver clipping softly (`drive`), no lows below `cut` Hz (the horn's
+ * mouth), louder at its fixed `peaks` (Hz, Q, dB - the wail's harmonics swelling as they sweep over them), little past
+ * `top` Hz; `level` brings it back to the loudness the plain tone had.
+ */
+export const HORN = {
+  drive: 2.2,
+  cut: 450,
+  peaks: [
+    { f: 1150, q: 3, gain: 7 },
+    { f: 2300, q: 4, gain: 5 },
+    { f: 3400, q: 5, gain: 3 },
+  ],
+  top: 5000,
+  level: 0.42, // (measured: the wail's RMS through the horn 2.4 times the plain tone's)
+};
+
+/** The driver's soft clip as a WaveShaper curve of `n` points over -1..1: tanh(drive·x), scaled to reach ±1. */
+export function hornCurve(n: number, drive: number): Float32Array {
+  const c = new Float32Array(n);
+  const k = Math.tanh(drive);
+  for (let i = 0; i < n; i++) c[i] = Math.tanh(drive * ((2 * i) / (n - 1) - 1)) / k;
+  return c;
+}
+
+/**
+ * One siren's voice: placed by hand (pan.ts), pitched by the wail times the Doppler factor and the race's speed,
+ * through its horn (HORN).
+ */
 export class Siren {
   private readonly a: OscillatorNode;
   private readonly b: OscillatorNode;
@@ -29,19 +57,31 @@ export class Siren {
     this.a.type = 'sawtooth';
     this.b.type = 'square';
     this.b.detune.value = 9;
-    const tone = ctx.createBiquadFilter();
-    tone.type = 'lowpass';
-    tone.frequency.value = 2400;
-    tone.Q.value = 0.7;
     const mix = ctx.createGain();
     mix.gain.value = 0.5;
+    const driver = ctx.createWaveShaper();
+    driver.curve = hornCurve(1025, HORN.drive) as Float32Array<ArrayBuffer>;
+    driver.oversample = '4x';
+    const filter = (type: BiquadFilterType, f: number, q: number, gain = 0): BiquadFilterNode => {
+      const n = ctx.createBiquadFilter();
+      n.type = type;
+      n.frequency.value = f;
+      n.Q.value = q;
+      n.gain.value = gain;
+      return n;
+    };
+    let tone: AudioNode = mix.connect(driver).connect(filter('highpass', HORN.cut, 0.7));
+    for (const p of HORN.peaks) tone = tone.connect(filter('peaking', p.f, p.q, p.gain));
+    tone = tone.connect(filter('lowpass', HORN.top, 0.7));
+    const level = ctx.createGain();
+    level.gain.value = HORN.level;
+    tone = tone.connect(level);
     this.left = ctx.createGain();
     this.right = ctx.createGain();
     this.left.gain.value = this.right.gain.value = 0;
     const merge = (this.merge = ctx.createChannelMerger(2));
     this.a.connect(mix);
     this.b.connect(mix);
-    mix.connect(tone);
     tone.connect(this.left).connect(merge, 0, 0);
     tone.connect(this.right).connect(merge, 0, 1);
     merge.connect(out);
