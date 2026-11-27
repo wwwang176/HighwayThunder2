@@ -163,8 +163,9 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 #hud .h-goal { transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 0.2vw; color: #ffd21a; pointer-events: none; }
 #hud .h-goal .flag { width: 1.6vw; height: 1.6vw; filter: drop-shadow(0 0 0.4vw rgba(255, 190, 20, 0.8)); }
 #hud .h-goal .num { font-size: 1.15vw; font-weight: 600; }
-/* A rival coming up behind: an arrow on the bottom edge, in its colour, on its side. */
-#hud .h-behind { bottom: 1.2vh; transform: translateX(-50%); text-align: center; color: var(--c); }
+/* A rival coming up behind: an arrow on the bottom edge where it is across the road, white (its colour - the
+   progress bar's, the map's - was not its paint, which is a livery at random). */
+#hud .h-behind { --c: #fff; bottom: 1.2vh; transform: translateX(-50%); text-align: center; color: var(--c); }
 #hud .h-behind .chev { width: 0; height: 0; margin: 0 auto; border-left: 1.2vw solid transparent; border-right: 1.2vw solid transparent;
   border-bottom: 1.4vw solid var(--c); filter: drop-shadow(0 0 0.5vw var(--c)); }
 #hud .h-behind .d { font-size: 0.83vw; font-weight: 600; margin-bottom: 0.3vh; }

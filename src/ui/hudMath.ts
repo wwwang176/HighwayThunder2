@@ -9,18 +9,16 @@ export function progress(s: number, length = ROAD_LENGTH): number {
 
 /**
  * The rival closest behind the player within `range` m (bumper to bumper):
- * the gap, its colour, and how far to the side of the player it is (m, + its right). Null when none is that close.
+ * the gap, and how far to the side of the player it is (m, + its right). Null when none is that close. Not one
+ * within BEHIND_FROM m: alongside, on the screen already (it showed 0 m) - the next one back if any.
  */
-export function closestBehind(
-  me: { s: number; d: number },
-  rivals: { s: number; d: number; color: string }[],
-  range: number,
-): { gap: number; color: string; off: number } | null {
-  let best: { gap: number; color: string; off: number } | null = null;
+export const BEHIND_FROM = 2;
+export function closestBehind(me: { s: number; d: number }, rivals: { s: number; d: number }[], range: number): { gap: number; off: number } | null {
+  let best: { gap: number; off: number } | null = null;
   for (const r of rivals) {
     const gap = Math.round((me.s - r.s - CAR_L) * 10) / 10;
-    if (r.s >= me.s || gap > range || (best && gap >= best.gap)) continue;
-    best = { gap: Math.max(0, gap), color: r.color, off: Math.round((r.d - me.d) * 100) / 100 };
+    if (r.s >= me.s || gap <= BEHIND_FROM || gap > range || (best && gap >= best.gap)) continue;
+    best = { gap, off: Math.round((r.d - me.d) * 100) / 100 };
   }
   return best;
 }

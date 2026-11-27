@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { behindX, closestBehind, HUD_SHAKE, hudShake, overtook, progress, RESET_HINT, ResetHint } from '../src/ui/hudMath';
+import { BEHIND_FROM, behindX, closestBehind, HUD_SHAKE, hudShake, overtook, progress, RESET_HINT, ResetHint } from '../src/ui/hudMath';
 
 describe('hudMath', () => {
-  it('the rival closest behind within range, with its colour and how far to the side it is', () => {
+  it('the rival closest behind within range, and how far to the side it is', () => {
     const me = { s: 1000, d: 0.4 };
     const rivals = [
       { s: 960, d: 0.4, color: '#a' }, // 40 m behind (bumper to bumper: 35.6 m)
@@ -10,9 +10,19 @@ describe('hudMath', () => {
       { s: 1010, d: 0, color: '#c' }, // ahead
       { s: 800, d: 0, color: '#d' }, // far behind
     ];
-    expect(closestBehind(me, rivals, 50)).toEqual({ gap: 5.6, color: '#b', off: -3.75 });
-    expect(closestBehind(me, [rivals[0]], 50)).toEqual({ gap: 35.6, color: '#a', off: 0 });
+    expect(closestBehind(me, rivals, 50)).toEqual({ gap: 5.6, off: -3.75 });
+    expect(closestBehind(me, [rivals[0]], 50)).toEqual({ gap: 35.6, off: 0 });
     expect(closestBehind(me, [rivals[2], rivals[3]], 50)).toBeNull();
+  });
+
+  it('only past BEHIND_FROM m: one closer is alongside (on the screen), the next one back is shown', () => {
+    const me = { s: 1000, d: 0 };
+    const alongside = { s: 1000 - 4.4 - 1.5, d: 3.75 }; // 1.5 m behind
+    const back = { s: 1000 - 4.4 - 9, d: 0 }; // 9 m
+    expect(BEHIND_FROM).toBe(2);
+    expect(closestBehind(me, [alongside, back], 30)).toEqual({ gap: 9, off: 0 });
+    expect(closestBehind(me, [alongside], 30)).toBeNull();
+    expect(closestBehind(me, [{ s: 1000 - 4.4 - 2, d: 0 }], 30)).toBeNull(); // (2 m: not past it)
   });
 
   it('the arrow across the bottom edge where it is: a lane over 12 % of the screen off the middle, never off it', () => {
