@@ -103,6 +103,17 @@ button { margin: 0; padding: 0; border: 0; background: none; color: inherit; fon
 .toast { position: absolute; left: 50%; top: 23vh; transform: translateX(-50%) skewX(-8deg); white-space: nowrap; opacity: 0; pointer-events: none;
   font: italic 900 2.6vw/1 var(--f-title); letter-spacing: 0.3vw; color: #fff; text-shadow: 0 0 1.6vw var(--accent), 0 0 0.3vw var(--accent); }
 .toast.show { animation: pop 0.9s ease-out forwards; }
+/* "Busted": where the moments show, a size up, white in a glow going red / blue as a police car's lights; up while
+   its slow motion lasts (hud.ts: .on), its lights held while paused (.held). */
+.bust { position: absolute; left: 50%; top: 23vh; transform: translateX(-50%) skewX(-8deg) scale(0.8); white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity 0.35s ease, transform 0.35s ease;
+  font: italic 900 3.6vw/1 var(--f-title); letter-spacing: 0.4vw; color: #fff; }
+.bust.on { opacity: 1; transform: translateX(-50%) skewX(-8deg) scale(1); animation: siren 0.5s steps(1, end) infinite; }
+.bust.held { animation-play-state: paused; }
+@keyframes siren {
+  0% { text-shadow: 0 0 1.8vw #ff2a2a, 0 0 0.35vw #ff2a2a; }
+  50% { text-shadow: 0 0 1.8vw #2a6bff, 0 0 0.35vw #2a6bff; }
+}
 /* A longer message: on a cut glass strip, an accent bar on its left. */
 .toast.long { padding: 0.9vw 1.6vw 0.9vw 1.4vw; --c: 0.6vw; clip-path: polygon(var(--c) 0, 100% 0, 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, 0 100%, 0 var(--c));
   background: linear-gradient(90deg, var(--accent) 0 0.26vw, rgba(8, 12, 22, 0.8) 0.26vw); font: 700 1.3vw/1.3 var(--f-title); letter-spacing: 0; text-shadow: none; }
@@ -130,7 +141,9 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
 /* ══ The race HUD (src/ui/hud.ts): numbers floating on the view, no panels (and no backdrop blur: it would
    re-blur the 3D view every frame). ══ */
 /* The HUD box the screen's size (it shakes with the camera: Hud.update), its parts placed in it. */
-#hud { position: absolute; inset: 0; will-change: transform; }
+#hud { position: absolute; inset: 0; will-change: transform; transition: opacity 0.5s ease; }
+/* Busted (a police car's slow motion): the HUD faded out under "busted" (.bust), till put back. */
+#hud.busted { opacity: 0; }
 #hud > * { position: absolute; }
 #hud .h-time { left: 3.1vw; top: 2.3vw; }
 #hud .h-time .lbl { margin-bottom: 0.42vw; }

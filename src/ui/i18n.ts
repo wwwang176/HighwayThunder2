@@ -110,6 +110,7 @@ export const STRINGS = {
   // The race.
   'hud.reset': { zh: '回到賽道', en: 'Back on track' },
   'toast.overtake': { zh: '超車！', en: 'Overtake!' },
+  'hud.busted': { zh: '被攔截！', en: 'BUSTED!' },
   'toast.nearMiss': { zh: '險過！', en: 'Near miss!' },
   'toast.drift': { zh: '甩尾！', en: 'Drift!' },
   'toast.driftTime': { zh: '{s} 秒', en: '{s}s' },

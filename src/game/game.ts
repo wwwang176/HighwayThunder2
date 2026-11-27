@@ -2127,6 +2127,7 @@ export class Game {
       aiDriving: this.aiActive && this.flow.phase === 'racing',
       place: this.rivals.rank(this.player.lead, this.flow.finishTime),
       shake: this.rig.shaken,
+      busted: this.busting,
       racers: [
         { s: this.player.s, d: this.player.d, color: '#fff', me: true },
         ...this.rivals.list.map((r) => ({ s: r.car.s, d: r.car.d, color: RIVAL_CSS[r.index % RIVAL_CSS.length], me: false })),
