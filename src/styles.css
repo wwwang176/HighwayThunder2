@@ -467,6 +467,12 @@ body.game-paused #hud *, body.game-paused .toast { animation-play-state: paused 
    title's view), the garage's own type faded (the brand too: the panel is where it was). */
 #garage.tune .g-corner, #garage.tune .g-id, #garage.tune .g-left, #garage.tune .g-paint, #garage.tune .g-depart, #garage.tune .g-brand {
   opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+/* ...their buttons too (and the title's, out of it): `#ui button`'s auto beats what they inherit - the garage's,
+   unseen, took clicks at the title. */
+#garage.title :is(.g-brand, .g-corner, .g-id, .g-left, .g-paint, .g-depart) button,
+#garage.setup :is(.g-corner, .g-id, .g-left, .g-paint, .g-depart) button,
+#garage.tune :is(.g-corner, .g-id, .g-left, .g-paint, .g-depart, .g-brand) button,
+#garage:not(.title) .g-title button { pointer-events: none; }
 #garage .g-tune-open { display: flex; align-items: center; gap: 0.5vw; margin-left: 1.6vw; height: 2.3vw; padding: 0 1.2vw; --c: 0.6vw;
   background: color-mix(in srgb, var(--accent) 22%, rgba(8, 12, 22, 0.75)); outline: 1px solid var(--accent); outline-offset: -1px;
   font: 700 0.94vw/1 var(--f-title); letter-spacing: 0.1vw; color: #fff; box-shadow: 0 0 1.2vw -0.3vw var(--accent); transition: background 0.15s; }
