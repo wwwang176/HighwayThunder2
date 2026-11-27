@@ -459,15 +459,16 @@ function tooClose(s: number, d: number, v: number, heading: number, psi: number,
     const bw = (b.dMax - b.dMin) / 2, bd = (b.dMin + b.dMax) / 2;
     const overlap = bw + halfW + side - Math.abs(bd - d);
     if (overlap <= 0) continue;
+    // (the boxes round the bodies first: past it, or farther off than it has to keep - the bodies are no nearer than
+    // their boxes - it is clear without reachAlong's sweep)
+    if (whollyBehind(s, reachS, b, t)) continue;
     const closing = vS - b.v;
     if (closing <= 0) continue;
     let keep = (closing * closing) / (2 * maxBrake(v - closing / 2, ego.brake)) + PLANNER.headway * v * margin;
     const away = bd < d ? vD > 0.5 : bd > d ? vD < -0.5 : PLANNER.steerClear && Math.abs(vD) > 0.5;
     if (away) keep = Math.min(keep, closing * (overlap / Math.abs(vD)));
-    // (the boxes round the bodies first: the bodies are no nearer than their boxes - that far off, or past it, it is
-    // clear without reachAlong's sweep)
     const rear = b.s + b.v * t - b.length / 2;
-    if (rear - (s + reachS) >= keep || whollyBehind(s, reachS, b, t)) continue;
+    if (rear - (s + reachS) >= keep) continue;
     // How far down the road its body gets before it touches the other's (the corner that gets there first - a turned
     // car's box reaches back further than its body).
     const gap = reachAlong(s, d, heading, hl, hw + side, b, t);
