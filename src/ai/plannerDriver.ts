@@ -6,6 +6,7 @@ import type { Brain } from './brain';
 import { ACROSS_YAW, baseSteer, netDrive, trackerFrom } from './netTracker';
 import { AccelTable, maxAccel, maxBrake, Plan, planAt, PlanEgo, PLANNER, PreviousPlan } from './planner';
 import { coursePlan } from './coursePlanner';
+import { reachAlong } from './bodies';
 import { followSteer, STANDING, tractionShare } from './courseFollow';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 import type { SelfState, TrafficBox } from './sensors';
@@ -48,6 +49,7 @@ export function egoOf(self: SelfState, p: CarParams, accel: AccelTable, latAccel
     yaw: self.yaw,
     vLat: self.vLat,
     turnMax: Math.tan(p.maxSteer) / p.wheelbase,
+    rearOffset: p.wheelbase / 2, // (the wheels at +- wheelbase / 2 of its middle)
   };
 }
 
@@ -132,20 +134,26 @@ export function emergencyBrake(
   // Sideways speed: what the car has, or what the plan is taking it to if more (the car lags the plan).
   const actual = actualVD;
   const vD = Math.abs(plannedVD) > Math.abs(actual) && Math.sign(plannedVD) !== -Math.sign(actual) ? plannedVD : actual;
-  const halfW = self.halfWidth ?? HALF_WIDTH;
+  const halfW = self.halfWidth ?? HALF_WIDTH, halfL = self.halfLength ?? HALF_LENGTH;
+  // Its body as it lies: how far across the road it reaches, how fast it goes down it. (Taken as heading down the
+  // road, standing across it a car down the road it was not going toward stopped it for good.)
+  const halfD = halfW * Math.abs(Math.cos(self.yaw)) + halfL * Math.abs(Math.sin(self.yaw));
+  const vS = self.vLong * Math.cos(self.yaw) - self.vLat * Math.sin(self.yaw);
   for (const t of traffic) {
-    if (t.phantom || t.s <= self.s || t.dMax < self.d - halfW || t.dMin > self.d + halfW) continue;
-    const closing = self.vLong - t.v;
+    if (t.phantom || t.s <= self.s || t.dMax < self.d - halfD || t.dMin > self.d + halfD) continue;
+    const closing = vS - t.v;
     if (closing <= 0) continue;
-    const gap = t.s - t.length / 2 - (self.s + (self.halfLength ?? HALF_LENGTH));
+    // (bumper to bumper by the two bodies as they lie: the corner that gets there first)
+    const gap = reachAlong(self.s, self.d, self.yaw, halfL, halfW, t, 0);
+    if (gap === Infinity) continue;
     const room = gap - STOP_GAP;
-    const overlap = Math.min(t.dMax, self.d + halfW) - Math.max(t.dMin, self.d - halfW);
+    const overlap = Math.min(t.dMax, self.d + halfD) - Math.max(t.dMin, self.d - halfD);
     const needHere = room <= 0.1 ? Infinity : (closing * closing) / (2 * room);
     // (the plans believed whatever stopping straight on would take: braking anyway past a share of the full brake, the
     // muscle car's 60 game-contact races were 2-3 s slower for 5-10 fewer wrecks - most of those passes come off)
     if (onPlan && overlap <= DRIVER_TUNING.pathOverlap) {
       const t0 = Math.max(0, gap) / closing, t1 = (t.s - self.s) / closing;
-      const sides = paths.map((p, i) => passSide(p, offsets[i], lags[i], halfW, t, t0, t1));
+      const sides = paths.map((p, i) => passSide(p, offsets[i], lags[i], halfD, t, t0, t1));
       if (sides[0] !== 0 && sides.every((x) => x === sides[0])) continue;
     }
     // Swerving away from it: no brake if the car is clear of it sideways before it gets there. With
@@ -153,7 +161,7 @@ export function emergencyBrake(
     const side = t.dMax < self.d ? 1 : t.dMin > self.d ? -1 : PLANNER.steerClear ? 0 : NaN;
     const away = vD > SWERVING ? side === 1 || side === 0 : vD < -SWERVING ? side === -1 || side === 0 : false;
     if (away) {
-      const overlap = vD > 0 ? t.dMax - (self.d - halfW) : self.d + halfW - t.dMin;
+      const overlap = vD > 0 ? t.dMax - (self.d - halfD) : self.d + halfD - t.dMin;
       if (closing * (overlap / Math.abs(vD)) < room) continue;
     }
     need = Math.max(need, needHere);

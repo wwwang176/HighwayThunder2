@@ -119,6 +119,20 @@ describe('emergencyBrake', () => {
     expect(emergencyBrake({ ...self, yaw: -0.4 }, [slow], 0, [right(0), right(0)])).toBeGreaterThan(0.5);
   });
 
+  it('by the way it is going and its body as it lies: standing across the road, not for a car down the road', () => {
+    // Crossways (90 deg), rolling 3 m/s across the road: not closing on a standing car 2.5 m down the road at all (by
+    // its half length down the road, 1.2 m in front of its middle, it braked for good).
+    const across = { s: 0, d: laneCenter(1), yaw: Math.PI / 2, vLong: 3, vLat: 0, yawRate: 0, speedCap: 80 };
+    const down = [{ id: 1, s: 0.93 + 2.5 + 2.2, dMin: laneCenter(1) - 0.95, dMax: laneCenter(1) + 0.95, v: 0, length: 4.4 }];
+    expect(emergencyBrake(across, down)).toBe(0);
+    // Its nose 30 deg out: its leading corner, not its middle's half length, is what gets there first.
+    const turned = { ...across, yaw: Math.PI / 6, vLong: 12 };
+    const reach = 2.2 * Math.cos(Math.PI / 6) + 0.93 * Math.sin(Math.PI / 6); // its front's reach down the road
+    const room = (r: number) => [{ id: 1, s: reach + 1.5 + r + 2.2, dMin: laneCenter(1) - 0.95, dMax: laneCenter(1) + 0.95, v: 0, length: 4.4 }];
+    expect(emergencyBrake(turned, room(9))).toBe(0); // (10.4 m/s down the road: 6 m/s² over 9 m)
+    expect(emergencyBrake(turned, room(4))).toBeGreaterThan(0.9); // 13.5 m/s²
+  });
+
   it('once braking it holds on down to a lower need', () => {
     const me = { ...self, d: laneCenter(1), vLong: 50 };
     const ahead = [{ id: 1, s: 2.2 + 1.5 + 40 + 2.25, dMin: laneCenter(1) - 0.925, dMax: laneCenter(1) + 0.925, v: 25, length: 4.5 }];
