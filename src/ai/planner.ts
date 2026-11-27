@@ -127,6 +127,8 @@ export interface PlanEgo {
   vLat?: number;
   /** The tightest it can turn on its steering lock (1/m: tan(maxSteer) / wheelbase). */
   turnMax?: number;
+  /** m its middle (s, d) is ahead of its rear axle, which it turns about (default: half the street racer's wheelbase). */
+  rearOffset?: number;
   /**
    * A line across the road (d, m) it would rather be on: each plan point costs `preferCost` m of progress per m off it
    * (default PREFER_COST) - a police car guarding a racer's line, or pulling over. None: no such cost.

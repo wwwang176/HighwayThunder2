@@ -1,6 +1,7 @@
 import { GRASS_GRIP, LANE_WIDTH, MEDIAN_NEAR_X, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 import { laneAt, laneCenter } from '../road/coords';
 import type { TrafficBox } from './sensors';
+import { depthInto, reachAlong } from './bodies';
 import { maxAccel, maxBrake, PLANNER, planAt, type Plan, type PlanEgo, type PlanPoint, type PreviousPlan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 
@@ -20,6 +21,13 @@ export const COURSE = {
   longStep: 0.5,
   horizon: 8, // s looked ahead
   sub: 3, // sub-steps a step (moved along and checked)
+  /**
+   * m/s by which turning about its rear axle (PlanEgo.rearOffset) has faded out: standing, its course leads its nose
+   * into a turn by the whole of it; faster, the rear tyres slip and it goes (crossways starts kept at it to 7 m/s
+   * spun out and off the road: recovery 16/18; by 6 m/s 17/18, by 3 and 4 18/18 - 4 got out from behind a standing
+   * car as often as with no fading, 24 of 48 standing starts 2.5-8 m behind it, 12 before). 0: never.
+   */
+  pivotTo: 4,
   /** Shares of the tightest turn a step may hold. */
   turns: [-1, -0.4, 0, 0.4, 1], // (seven, with 0.2 and 0.5: no better, half as fast again)
   /** Nodes kept per step (the most promising). */
@@ -59,12 +67,18 @@ interface Node {
   v: number;
   psi: number; // course, rad off the road's heading (+ toward +d)
   beta: number; // the nose off the course (rad)
+  /** The steering's own share of `beta` (about its rear axle: -atan(rearOffset * the turn)); the rest a slide that dies away. */
+  bk?: number;
   score: number;
   t: number; // s into the plan
   /** What the beam keeps it by (value: the score, the speed it has, the turn it still has to make). */
   val: number;
   parent: Node | null;
+  /** How far (m) it is into each box it was in at the start (search's `stuck`): never further, on from here. */
+  pen?: number[];
 }
+
+const NO_PEN: number[] = [];
 
 const ON_CENTRE = 0.3; // m off a lane centre that still counts as on it
 /** Other ways besides the plan it hands back (Plan.alts: drawn fainter beside it). */
@@ -176,6 +190,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   const along = relaxed ? 0 : P.gapBehind;
   const margin = relaxed ? 0 : 1;
   const turnMax = K.lockShare * (ego.turnMax ?? Math.tan(0.55) / 2.5);
+  const lr = ego.rearOffset ?? 2.5 / 2; // (the default: the street racer's, as turnMax's)
   const latTable = ego.latAccel ?? STREET_RACER.ai.latAccel;
   // How far out its centre may go: the paved road's edge, or - off it already, or across the
   // road (a crash: ACROSS) - up to the rail, the shoulder at a cost (OFF_ROAD). (Allowed always, it passed a car on
@@ -211,8 +226,13 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     return n.score + P.endSpeedValue * n.v * Math.cos(n.psi) - (turn === Infinity ? DOOMED : TURN_COST * Math.max(0, turn - TURN_FREE));
   };
 
-  let layer: Node[] = [start];
-  let deepest: Node[] = [start];
+  // What it is in already at the start (touching it, or within its margins: a knock, two cars turned side by side):
+  // not a wall - every way out of it went into it, and it stood there (both did) - but no further into it (Node.pen).
+  const stuck = boxes.filter((b) => depthInto(start.s, start.d, start.psi + start.beta, hl + along, hw + side, b, 0) > 0);
+  const inStart = new Set(stuck);
+  const first: Node = { ...start, pen: stuck.map((b) => depthInto(start.s, start.d, start.psi + start.beta, hl + along, hw + side, b, 0)) };
+  let layer: Node[] = [first];
+  let deepest: Node[] = [first];
   let tA = 0;
   for (let k = 0; k < stepAt.length; tA += stepAt[k], k++) {
     const dt = stepAt[k], h = dt / K.sub;
@@ -242,6 +262,7 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
       const run = Math.max(n.v, n.v + top * dt) * dt;
       const reachS = run + hl + along + 1, reachD = run + hl + hw + side + 1;
       const local = near.filter((b) => {
+        if (inStart.has(b)) return false; // (by its own rule: Node.pen)
         const bs = b.s + b.v * (tA + dt / 2);
         return Math.abs(bs - n.s) < reachS + b.length / 2 + Math.abs(b.v - n.v) * dt && b.dMax > n.d - reachD && b.dMin < n.d + reachD;
       });
@@ -249,29 +270,44 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
       const inWay = near.filter((b) => b.dMax > n.d - reachD && b.dMin < n.d + reachD);
       for (const f of K.turns) {
         const kappa = f * kMax;
-        const aLat = kappa * n.v * n.v;
+        // It turns about its rear axle (ego.rearOffset behind its middle, the turn `kappa` the rear axle's): its middle
+        // goes round a circle a little wider (kc), its course leading its nose into the turn by atan(rearOffset *
+        // kappa) - as soon as the wheel is turned, its nose where it was (its course swings). Its middle on the arc
+        // with its nose along it, a car standing behind one needed 4.25 m to pull out round it; the car itself ~3.
+        const bk = K.pivotTo > 0 ? -Math.atan(lr * kappa) * Math.max(0, 1 - n.v / K.pivotTo) : 0;
+        const kc = kappa * Math.cos(bk);
+        const aLat = kc * n.v * n.v;
         for (const a of accels) {
           // Braking and turning share the grip - and so do driving and turning: flat out with the wheel at full
           // lock the rear tyres spun and the tail slid out (a crossways start).
           if ((aLat / grip) ** 2 + (a / (a < 0 ? brakeMax : grip)) ** 2 > 1 + 1e-9) continue;
-          let s = n.s, d = n.d, v = n.v, psi = n.psi, beta = n.beta;
+          let s = n.s, d = n.d, v = n.v;
+          let beta = bk + (n.beta - (n.bk ?? 0)); // (the slide it had, and the steering's share now)
+          let psi = wrap(n.psi + n.beta - beta); // (its nose where it was)
           let hit = false;
+          const pen = stuck.length ? n.pen!.slice() : NO_PEN;
           for (let j = 1; j <= K.sub && !hit; j++) {
             const v1 = Math.max(0, Math.min(ego.speedCap, v + a * h));
             const vm = (v + v1) / 2;
-            const dpsi = kappa * vm * h;
+            const dpsi = kc * vm * h;
             const pm = psi + dpsi / 2;
             s += vm * h * Math.cos(pm);
             d += vm * h * Math.sin(pm);
             psi = wrap(psi + dpsi);
             v = v1;
-            beta *= decay;
+            beta = bk + (beta - bk) * decay; // (the slide dies away)
             if (v < K.still) {
-              psi = wrap(psi + beta); // (standing: it goes where its nose points)
-              beta = 0;
+              psi = wrap(psi + beta - bk); // (standing: it goes where its nose and its wheels point)
+              beta = bk;
             }
             if ((d > hardHi && d > n.d) || (d < hardLo && d < n.d) || (!out(n.d) && out(d))) hit = true; // (`edge`, `out`)
             else hit = touches(s, d, psi + beta, hl + along, hw + side, local, tA + j * h);
+            // (what it is in at the start: no further into it than it was - out of it, once out never in again)
+            for (let i = 0; i < stuck.length && !hit; i++) {
+              const into = depthInto(s, d, psi + beta, hl + along, hw + side, stuck[i], tA + j * h);
+              if (into > n.pen![i] + 1e-3) hit = true;
+              else pen[i] = Math.max(0, into);
+            }
           }
           if (hit) continue;
           if (!relaxed && tooClose(s, d, v, psi + beta, psi, hl, hw, side, inWay, tA + dt, margin, ego)) continue;
@@ -280,12 +316,12 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
           if (Math.abs(d) > ROAD_HALF_WIDTH) score -= ((ego.shoulder ? 0 : OFF_ROAD) + (out(d) ? OUT_COST * (Math.abs(d) - edge) : 0)) * w;
           else if (Math.abs(d - laneCenter(laneAt(d))) > ON_CENTRE) score -= P.lineCost * w;
           if (wasD !== null && Math.abs(d - wasD) < LANE_WIDTH / 4) score += P.keepCourseBonus * w;
-          if (P.passCost > 0) score -= passShort(local, s, d, hl, hw, tA + dt) * w;
+          if (P.passCost > 0) score -= passShort(local, s, d, psi + beta, hl, hw, tA + dt) * w;
           if (ego.preferD !== undefined) score -= (ego.preferCost ?? PREFER_COST) * Math.abs(d - ego.preferD) * w;
           const key = (Math.round(d / K.dCell) * 1000 + Math.round(v / K.vCell)) * 1000 + Math.round(wrap(psi) / K.psiCell) + 500;
           const old = next.get(key);
           if (old && old.score >= score) continue; // (the same state: the same speed and turn left)
-          const node: Node = { s, d, v, psi, beta, score, t: tA + dt, val: 0, parent: n };
+          const node: Node = { s, d, v, psi, beta, bk, score, t: tA + dt, val: 0, parent: n, pen };
           node.val = value(node);
           next.set(key, node);
         }
@@ -398,19 +434,7 @@ function pointsOf(end: Node): PlanPoint[] {
 
 /** Whether the body (centre s, d; pointing `heading` off the road's; half length / width) overlaps a box at time t. */
 function touches(s: number, d: number, heading: number, hl: number, hw: number, boxes: TrafficBox[], t: number): boolean {
-  const c = Math.abs(Math.cos(heading)), si = Math.abs(Math.sin(heading));
-  const cs = Math.cos(heading), sn = Math.sin(heading);
-  for (const b of boxes) {
-    const bs = b.s + b.v * t;
-    const bl = b.length / 2, bw = (b.dMax - b.dMin) / 2, bd = (b.dMin + b.dMax) / 2;
-    const dx = bs - s, dy = bd - d;
-    // Separating axes: the road's two, the body's two.
-    if (Math.abs(dx) > bl + hl * c + hw * si) continue;
-    if (Math.abs(dy) > bw + hl * si + hw * c) continue;
-    if (Math.abs(dx * cs + dy * sn) > hl + bl * c + bw * si) continue;
-    if (Math.abs(-dx * sn + dy * cs) > hw + bl * si + bw * c) continue;
-    return true;
-  }
+  for (const b of boxes) if (depthInto(s, d, heading, hl, hw, b, t) > 0) return true;
   return false;
 }
 
@@ -420,18 +444,19 @@ function touches(s: number, d: number, heading: number, hl: number, hw: number, 
  */
 function tooClose(s: number, d: number, v: number, heading: number, psi: number, hl: number, hw: number, side: number, boxes: TrafficBox[], t: number, margin: number, ego: PlanEgo): boolean {
   const c = Math.abs(Math.cos(heading)), si = Math.abs(Math.sin(heading));
-  const halfW = hw * c + hl * si, halfL = hl * c + hw * si;
+  const halfW = hw * c + hl * si;
   const vS = v * Math.cos(psi), vD = v * Math.sin(psi);
   for (const b of boxes) {
-    const bs = b.s + b.v * t;
-    const rear = bs - b.length / 2;
-    if (rear < s) continue; // (not ahead)
     const bw = (b.dMax - b.dMin) / 2, bd = (b.dMin + b.dMax) / 2;
     const overlap = bw + halfW + side - Math.abs(bd - d);
     if (overlap <= 0) continue;
+    // How far down the road its body gets before it touches the other's (the corner that gets there first - a turned
+    // car's box reaches back further than its body).
+    const gap = reachAlong(s, d, heading, hl, hw + side, b, t);
+    if (gap === Infinity) continue; // (past it)
+    if (gap <= 0 && b.s + b.v * t - b.length / 2 < s) continue; // (in it already and not ahead: what it is in is the walls')
     const closing = vS - b.v;
     if (closing <= 0) continue;
-    const gap = rear - (s + halfL);
     let keep = (closing * closing) / (2 * maxBrake(v - closing / 2, ego.brake)) + PLANNER.headway * v * margin;
     const away = bd < d ? vD > 0.5 : bd > d ? vD < -0.5 : PLANNER.steerClear && Math.abs(vD) > 0.5;
     if (away) keep = Math.min(keep, closing * (overlap / Math.abs(vD)));
@@ -440,13 +465,13 @@ function tooClose(s: number, d: number, v: number, heading: number, psi: number,
   return false;
 }
 
-/** passCost for the car at (s, d) at time t: what it is short of passRoom beside the boxes it is level with. */
-function passShort(boxes: TrafficBox[], s: number, d: number, hl: number, hw: number, t: number): number {
+/** passCost for the car at (s, d), pointing `heading`, at time t: what it is short of passRoom beside the boxes it is level with. */
+function passShort(boxes: TrafficBox[], s: number, d: number, heading: number, hl: number, hw: number, t: number): number {
   const P = PLANNER;
   let cost = 0;
   for (const b of boxes) {
     if (Math.abs(b.s + b.v * t - s) > b.length / 2 + hl) continue;
-    const gap = d > (b.dMin + b.dMax) / 2 ? d - hw - b.dMax : b.dMin - (d + hw);
+    const gap = -depthInto(s, d, heading, hl, hw, b, t); // (body to body, as they lie)
     if (gap < P.passRoom) cost += P.passCost * (P.passRoom - Math.max(0, gap));
   }
   return cost;
