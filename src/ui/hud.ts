@@ -46,6 +46,8 @@ export interface HudFrame {
   shake: { right: number; up: number; roll: number };
   /** The finish gate on the screen (0..1 from its left and top), `m` m on; none: behind the camera. */
   goal: { x: number; y: number; m: number } | null;
+  /** Busted by a police car (its slow motion, until put back): "busted" up top, the rest faded out. */
+  busted: boolean;
 }
 
 const html = String.raw;
@@ -178,6 +180,7 @@ export class Hud {
         <div class="h-badges"><span data-id="ai" class="h-ai cut">AI</span><span data-id="mute" class="h-mute">🔇</span></div>
       </div>
       <div id="toast" class="toast" data-id="toast"></div>
+      <div id="bust" class="bust" data-id="bust">${tx('hud.busted')}</div>
       <div id="drift" class="toast drift" data-id="drift"><span data-id="driftWord"></span><span class="sec num" data-id="driftSec"></span></div>
       <div id="pause" class="center bracketed">
         <span class="brk tr"></span><span class="brk bl"></span>
@@ -457,6 +460,11 @@ export class Hud {
       this.el.behind.style.left = `${behindX(behind.off).toFixed(2)}%`;
       this.el.behindGap.textContent = `${Math.round(behind.gap)} m`;
     }
+    // Busted by a police car: "busted" up top, the HUD faded out under it, till put back (a pause holds its siren).
+    const busted = f.busted && (phase === 'racing' || phase === 'paused');
+    this.el.hud.classList.toggle('busted', busted);
+    this.el.bust.classList.toggle('on', busted);
+    this.el.bust.classList.toggle('held', phase === 'paused');
     // The finish, marked over its gate as it nears.
     const goal = phase === 'racing' && f.goal && f.goal.m <= GOAL_RANGE ? f.goal : null;
     this.el.goal.style.display = goal ? '' : 'none';
