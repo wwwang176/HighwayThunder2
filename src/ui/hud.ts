@@ -1,6 +1,6 @@
 import type { DriftReport } from '../game/driftTimer';
 import { formatTime, GameFlow } from '../game/gameState';
-import { closestBehind, hudShake, overtook, progress, ResetHint } from './hudMath';
+import { behindX, closestBehind, hudShake, overtook, progress, ResetHint } from './hudMath';
 import { applyLang, onLangChange, t, tx } from './i18n';
 
 export interface HudHandlers {
@@ -455,7 +455,7 @@ export class Hud {
     this.el.behind.style.display = behind ? '' : 'none';
     if (behind) {
       this.el.behind.style.setProperty('--c', behind.color);
-      this.el.behind.style.left = `${50 + behind.side * 12}%`;
+      this.el.behind.style.left = `${behindX(behind.off).toFixed(2)}%`;
       this.el.behindGap.textContent = `${Math.round(behind.gap)} m`;
     }
     // The finish, marked over its gate as it nears.

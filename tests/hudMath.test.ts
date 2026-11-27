@@ -1,18 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { closestBehind, HUD_SHAKE, hudShake, overtook, progress, RESET_HINT, ResetHint } from '../src/ui/hudMath';
+import { behindX, closestBehind, HUD_SHAKE, hudShake, overtook, progress, RESET_HINT, ResetHint } from '../src/ui/hudMath';
 
 describe('hudMath', () => {
-  it('the rival closest behind within range, with its colour and the side it comes up on', () => {
-    const me = { s: 1000, d: 0 };
+  it('the rival closest behind within range, with its colour and how far to the side it is', () => {
+    const me = { s: 1000, d: 0.4 };
     const rivals = [
-      { s: 960, d: 0, color: '#a' }, // 40 m behind (bumper to bumper: 35.6 m)
-      { s: 990, d: -3.75, color: '#b' }, // closest, a lane to the left
+      { s: 960, d: 0.4, color: '#a' }, // 40 m behind (bumper to bumper: 35.6 m)
+      { s: 990, d: -3.35, color: '#b' }, // closest, a lane to the left
       { s: 1010, d: 0, color: '#c' }, // ahead
       { s: 800, d: 0, color: '#d' }, // far behind
     ];
-    expect(closestBehind(me, rivals, 50)).toEqual({ gap: 5.6, color: '#b', side: -1 });
-    expect(closestBehind(me, [rivals[0]], 50)).toEqual({ gap: 35.6, color: '#a', side: 0 });
+    expect(closestBehind(me, rivals, 50)).toEqual({ gap: 5.6, color: '#b', off: -3.75 });
+    expect(closestBehind(me, [rivals[0]], 50)).toEqual({ gap: 35.6, color: '#a', off: 0 });
     expect(closestBehind(me, [rivals[2], rivals[3]], 50)).toBeNull();
+  });
+
+  it('the arrow across the bottom edge where it is: a lane over 12 % of the screen off the middle, never off it', () => {
+    expect(behindX(0)).toBe(50);
+    expect(behindX(-3.75)).toBeCloseTo(38, 6);
+    expect(behindX(1)).toBeCloseTo(53.2, 6);
+    expect(behindX(-40)).toBe(8);
+    expect(behindX(40)).toBe(92);
   });
 
   it('progress along the road, from the start (0) to the finish (1), clamped', () => {

@@ -9,22 +9,30 @@ export function progress(s: number, length = ROAD_LENGTH): number {
 
 /**
  * The rival closest behind the player within `range` m (bumper to bumper):
- * the gap, its colour, and the side it is on (-1 left, 0 right behind, 1
- * right, by a third of a lane). Null when none is that close.
+ * the gap, its colour, and how far to the side of the player it is (m, + its right). Null when none is that close.
  */
 export function closestBehind(
   me: { s: number; d: number },
   rivals: { s: number; d: number; color: string }[],
   range: number,
-): { gap: number; color: string; side: -1 | 0 | 1 } | null {
-  let best: { gap: number; color: string; side: -1 | 0 | 1 } | null = null;
+): { gap: number; color: string; off: number } | null {
+  let best: { gap: number; color: string; off: number } | null = null;
   for (const r of rivals) {
     const gap = Math.round((me.s - r.s - CAR_L) * 10) / 10;
     if (r.s >= me.s || gap > range || (best && gap >= best.gap)) continue;
-    const off = r.d - me.d;
-    best = { gap: Math.max(0, gap), color: r.color, side: off < -LANE_WIDTH / 3 ? -1 : off > LANE_WIDTH / 3 ? 1 : 0 };
+    best = { gap: Math.max(0, gap), color: r.color, off: Math.round((r.d - me.d) * 100) / 100 };
   }
   return best;
+}
+
+/**
+ * Where across the screen's bottom edge (% from its left) the arrow for a rival `off` m to the side shows: where it
+ * is, a lane over 12 % off the middle, kept `edge` % in from the sides. (It was in one of three places: left, right
+ * behind, right.)
+ */
+export const BEHIND_X = { perLane: 12, edge: 8 };
+export function behindX(off: number): number {
+  return Math.min(100 - BEHIND_X.edge, Math.max(BEHIND_X.edge, 50 + (off / LANE_WIDTH) * BEHIND_X.perLane));
 }
 
 /** The place got better since the last frame (null: no last frame yet). */
