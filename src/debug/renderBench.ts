@@ -100,6 +100,15 @@ function seeded(seed: number): () => number {
   };
 }
 
+/**
+ * The seeded source for the game's own draws (the road, the rivals, their paint...); three's - an id for each thing
+ * it makes (generateUUID) - from `real`: a version making more or fewer objects (merging parts) set up the same race.
+ */
+function seededGame(seed: number, real: () => number): () => number {
+  const next = seeded(seed);
+  return () => (new Error().stack?.includes('generateUUID') ? real() : next());
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const nextFrame = () => new Promise<number>((r) => requestAnimationFrame(r));
 
@@ -164,7 +173,7 @@ export async function renderBench(game: Game, opts: BenchOptions = {}): Promise<
   const g = game as unknown as Inside;
   const scene = opts.scene ?? 'typical';
   const random = Math.random;
-  Math.random = seeded(opts.seed ?? 1);
+  Math.random = seededGame(opts.seed ?? 1, random);
   const freeze = g.freeze;
   try {
     // The race set up anew from the title, the traffic's draws seeded too.
