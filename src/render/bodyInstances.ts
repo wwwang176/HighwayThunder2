@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { BRAKE3_OFF, BRAKE_DIM, BRAKE_ON, type VehicleLights } from '../vehicles/models';
 import { GLOW_ATTRIBUTE, glowMaterial, type GlowKind } from './heatGlow';
+import { depthSide, isPlain, plainGeometry, plainMaterial, shadowGeometry, shadowMaterial, SHADOW_LAYER, type Part } from './plainParts';
 
-/** The layer only shadow-casting lights' cameras see (BodyInstances' shadow casters; the view's camera doesn't). */
-export const SHADOW_LAYER = 1;
+export { SHADOW_LAYER };
 
 /** How BodyInstances.add drew a vehicle: in view, casting a shadow (both, either, or 0: not at all). */
 export const SEEN = 1;
@@ -11,6 +11,7 @@ export const CASTS = 2;
 
 const AT = new THREE.Matrix4();
 const SPHERE = new THREE.Sphere();
+const IDENTITY = new THREE.Matrix4();
 
 /** One instanced mesh: a geometry in a material, as many times as vehicles show it this frame. */
 interface Pool {
@@ -20,20 +21,22 @@ interface Pool {
   glow?: THREE.InstancedBufferAttribute;
 }
 
-/**
- * A part of a template: where it sits on the vehicle, its pool (a brake light two: dim and on), and its shadow
- * casters' (a part casting shadows).
- */
+/** A part of a template: where it sits on the vehicle, its pool (a brake light two: dim and on). */
 interface Piece {
   local: THREE.Matrix4;
   pool: Pool;
   on?: Pool;
-  shadow?: Pool;
   role: 'body' | 'L' | 'R' | 'B' | 'C';
 }
 
+/**
+ * A vehicle model as drawn: its parts (its plain ones as one a side: plainMaterial), and its shadow casters as one a
+ * side they draw into the shadow maps (a shadow is the same whatever the paint: only where the part is, and which
+ * of its faces). Models with the same parts in other paint share those pools.
+ */
 interface Template {
   pieces: Piece[];
+  shadows: Pool[];
   bounds: THREE.Sphere; // template space
 }
 
@@ -100,12 +103,13 @@ export class BodyInstances {
       casts = (as & CASTS) !== 0;
     }
     if (!seen && !casts) return 0;
+    if (casts) for (const s of t.shadows) this.put(s, matrix, IDENTITY);
+    if (!seen) return CASTS;
     const braking = lights.brake.length > 0 && lights.brake[0].material === BRAKE_ON;
     const left = lights.left.length > 0 && lights.left[0].visible;
     const right = lights.right.length > 0 && lights.right[0].visible;
     for (const p of t.pieces) {
-      if (casts && p.shadow) this.put(p.shadow, matrix, p.local);
-      if (!seen || (p.role === 'L' && !left) || (p.role === 'R' && !right)) continue;
+      if ((p.role === 'L' && !left) || (p.role === 'R' && !right)) continue;
       this.put((p.role === 'B' || p.role === 'C') && braking ? p.on! : p.pool, matrix, p.local, glow);
     }
     return (seen ? SEEN : 0) | (casts ? CASTS : 0);
@@ -138,6 +142,8 @@ export class BodyInstances {
     root.updateMatrixWorld(true);
     const toRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
     const pieces: Piece[] = [];
+    const plain = new Map<THREE.Side, Part[]>();
+    const casters = new Map<THREE.Side, Part[]>();
     const box = new THREE.Box3();
     root.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -146,19 +152,51 @@ export class BodyInstances {
       const local = new THREE.Matrix4().multiplyMatrices(toRoot, m.matrixWorld);
       const material = m.material as THREE.Material;
       const glow = m.userData.glow as GlowKind | undefined;
-      pieces.push({
-        local,
-        pool: this.pool(m.geometry, role === 'B' ? BRAKE_DIM : role === 'C' ? BRAKE3_OFF : material, false, glow),
-        on: role === 'B' || role === 'C' ? this.pool(m.geometry, BRAKE_ON, false) : undefined,
-        shadow: role === 'body' && m.castShadow ? this.pool(m.geometry, material, true) : undefined,
-        role,
-      });
+      if (role === 'body' && m.castShadow) {
+        const side = depthSide(material);
+        (casters.get(side) ?? casters.set(side, []).get(side)!).push({ mesh: m, local });
+      }
+      if (role === 'body' && isPlain(material, glow)) (plain.get(material.side) ?? plain.set(material.side, []).get(material.side)!).push({ mesh: m, local });
+      else {
+        pieces.push({
+          local,
+          pool: this.pool(m.geometry, role === 'B' ? BRAKE_DIM : role === 'C' ? BRAKE3_OFF : material, false, glow),
+          on: role === 'B' || role === 'C' ? this.pool(m.geometry, BRAKE_ON, false) : undefined,
+          role,
+        });
+      }
       m.geometry.computeBoundingBox();
       box.union(m.geometry.boundingBox!.clone().applyMatrix4(local));
     });
-    const t = { pieces, bounds: box.getBoundingSphere(new THREE.Sphere()) };
+    for (const [side, parts] of plain) pieces.push({ local: IDENTITY, pool: this.plainPool(side, parts), role: 'body' });
+    const shadows = [...casters].map(([side, parts]) => this.shadowPool(side, parts));
+    const t = { pieces, shadows, bounds: box.getBoundingSphere(new THREE.Sphere()) };
     this.templates.set(key, t);
     return t;
+  }
+
+  /** The pool of a model's plain parts on `side` as one (shared by every model with these parts so placed). */
+  private plainPool(side: THREE.Side, parts: Part[]): Pool {
+    const key = `plain|${side}|` + parts.map((p) => `${p.mesh.geometry.uuid}:${(p.mesh.material as THREE.Material).uuid}:${p.local.elements.join(',')}`).join(';');
+    let p = this.pools.get(key);
+    if (!p) {
+      p = { mesh: this.make(plainGeometry(parts), plainMaterial(side), false, this.capacity), n: 0 };
+      this.pools.set(key, p);
+      this.scene.add(p.mesh);
+    }
+    return p;
+  }
+
+  /** The pool of a model's shadow casters drawing `side` into the shadow maps, as one (shared likewise). */
+  private shadowPool(side: THREE.Side, parts: Part[]): Pool {
+    const key = `shadow|${side}|` + parts.map((p) => `${p.mesh.geometry.uuid}:${p.local.elements.join(',')}`).join(';');
+    let p = this.pools.get(key);
+    if (!p) {
+      p = { mesh: this.make(shadowGeometry(parts), shadowMaterial(side), true, this.capacity), n: 0 };
+      this.pools.set(key, p);
+      this.scene.add(p.mesh);
+    }
+    return p;
   }
 
   /** The pool of a geometry in a material: seen (by the camera), or casting shadows (seen only by the lights). */

@@ -1,4 +1,5 @@
-import { MAX_WRECKS, WRECK_LIFETIME } from '../config';
+import { MAX_WRECKS, WRECK_LIFETIME, type VehicleKind } from '../config';
+import { CAR_COLORS, CONTAINER_COLORS, TRUCK_COLORS } from '../vehicles/models';
 import type { EntityRef, PhysicsWorld } from '../physics/physicsWorld';
 import { ONCOMING_FRAME, OUR_FRAME, RoadFrame } from '../road/frame';
 import { laneCenter, lanesOccupied } from '../road/coords';
@@ -239,6 +240,23 @@ export class TrafficWorld {
     }
     for (const npc of this.npcs.values()) if (npc.wrecked) out.push(...npc.obstacles(OUR_FRAME));
     return out;
+  }
+
+  /**
+   * Debug (the render bench): a vehicle of `kind` standing at `s` in `lane` on our carriageway, in paint job `paint`
+   * (a container: its cab's; its box CONTAINER_COLORS[`color`]).
+   */
+  place(kind: VehicleKind, s: number, lane: number, paint = 0, color = 0): NpcVehicle {
+    const side = this.sides[0];
+    const agent = side.sim.addAgent(kind, s, lane, this.rng);
+    agent.v = 0;
+    // (its paint picked by these, in the order NpcVehicle picks: a container's box colour, then its cab's paint job)
+    const paints = kind === 'truck' || kind === 'container' ? TRUCK_COLORS : CAR_COLORS;
+    const picks = kind === 'container' ? [(color + 0.5) / CONTAINER_COLORS.length, (paint + 0.5) / paints.length] : [(paint + 0.5) / paints.length];
+    const npc = new NpcVehicle(this.physics, side.frame, agent, () => picks.shift() ?? 0);
+    this.npcs.set(agent.id, npc);
+    this.side.set(agent.id, side);
+    return npc;
   }
 
   /** Remove every NPC (e.g. when a training generation ends). */
