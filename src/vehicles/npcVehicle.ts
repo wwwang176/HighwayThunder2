@@ -569,6 +569,9 @@ export class NpcVehicle {
     for (const p of this.parts) {
       p.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
       for (const c of p.colliders) c.setEnabled(true);
+      // (its mass now, not at the next step: driven before it, standing still, its wheels' impulses came out NaN -
+      // through the traffic's planner down its lane, to a rival's emergency brake, and the game stopped)
+      p.body.recomputeMassPropertiesFromColliders();
       p.body.setLinvel({ x: f.x * v, y: 0, z: f.z * v }, true);
       p.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     }
