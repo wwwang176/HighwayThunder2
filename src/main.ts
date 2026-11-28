@@ -45,6 +45,12 @@ async function boot() {
   const mountain = skidpad || loadSelection(store).course === 'mountain';
   const game = new Game(document.getElementById('app')!, document.getElementById('ui')!, physics, { mountain, skidpad });
   (window as unknown as { __game: Game }).__game = game;
+  // (dev builds: what a frame costs to draw, on a picture the same every time - src/debug/renderBench)
+  if (import.meta.env.DEV) {
+    void import('./debug/renderBench').then(({ renderBench }) => {
+      (window as unknown as { __renderBench: unknown }).__renderBench = (opts?: Parameters<typeof renderBench>[1]) => renderBench(game, opts);
+    });
+  }
   await loading.next('loading.shaders', 0.85);
   await game.warmUp((share) => loading.set('loading.shaders', 0.85 + 0.13 * share)); // (the bar moving as they are made)
   game.start();
