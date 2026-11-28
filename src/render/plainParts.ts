@@ -141,15 +141,15 @@ export function shadowGeometry(parts: Part[]): THREE.BufferGeometry {
   return mergeGeometries(parts.map(({ mesh, local }) => placed(mesh.geometry, local, false)))!;
 }
 
-/** Parts others find by name (the police's light bars, flashed by src/game/police.ts): left as they are. */
+/** Parts others find by name (the police's light bars, flashed by src/game/police.ts): left in the car. */
 const LOOKED_UP = /^lightbar-/;
 
 /**
  * A racer's still parts (all but its lamps; its wheels are drawn apart, hidden here) drawn as few as can be: its
- * plain parts as one mesh a side (plainMaterial), its shadow casters as one a side they draw into the shadow maps
- * (shadowMaterial, on SHADOW_LAYER: game.ts' shadowLights see it) - the parts themselves then casting none. 9 draws
- * a racer were 6, its 4 into each shadow map 1. Groups of one left as they were. Call once the model is built
- * (mergeStillParts done: its lamps' places, its exhausts' read off it).
+ * shadow casters as one a side they draw into the shadow maps (shadowMaterial, on SHADOW_LAYER: game.ts'
+ * shadowLights see it) - the parts themselves then casting none; its plain parts as one mesh a side
+ * (plainMaterial). Groups of one left as they were. Call once the model is built (mergeStillParts done: its lamps'
+ * places, its exhausts' read off it).
  */
 export function mergePlainParts(model: VehicleModel): void {
   const root = model.root;
@@ -160,8 +160,7 @@ export function mergePlainParts(model: VehicleModel): void {
   const parts: Part[] = [];
   root.traverseVisible((o) => {
     const m = o as THREE.Mesh;
-    if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || lamps.has(m) || LOOKED_UP.test(m.name)) return;
-    if (Array.isArray(m.material) || m.children.length > 0) return;
+    if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || lamps.has(m) || Array.isArray(m.material)) return;
     if (m.matrixWorld.determinant() < 0) return; // (mirrored: its faces would turn inside out baked)
     parts.push({ mesh: m, local: new THREE.Matrix4().multiplyMatrices(toRoot, m.matrixWorld) });
   });
@@ -186,9 +185,10 @@ export function mergePlainParts(model: VehicleModel): void {
     own(mesh);
     for (const p of set) p.mesh.castShadow = false;
   }
+  // Then the plain parts, taken out of the car (none holding others, none found by name).
   for (const [, set] of groups((p) => {
     const m = p.mesh;
-    return isPlain(m.material as THREE.Material, m.userData.glow) ? `${(m.material as THREE.Material).side}|${m.castShadow}|${m.receiveShadow}|${m.renderOrder}` : undefined;
+    return isPlain(m.material as THREE.Material, m.userData.glow) && m.children.length === 0 && !LOOKED_UP.test(m.name) ?`${(m.material as THREE.Material).side}|${m.castShadow}|${m.receiveShadow}|${m.renderOrder}` : undefined;
   })) {
     const first = set[0].mesh;
     const mesh = new THREE.Mesh(plainGeometry(set), plainMaterial((first.material as THREE.Material).side));

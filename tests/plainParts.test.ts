@@ -16,6 +16,7 @@ function racer(): { model: VehicleModel; shell: THREE.Mesh; brake: THREE.Mesh; b
   paint.shadowSide = THREE.BackSide;
   const shell = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 4), paint);
   shell.castShadow = true;
+  shell.add(new THREE.Mesh(shell.geometry, new THREE.MeshStandardMaterial({ side: THREE.BackSide }))); // (its inside, as a file car's)
   const glass = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.5, 2), new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.1, side: THREE.DoubleSide }));
   glass.position.set(0, 0.7, 0);
   const metal = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, side: THREE.DoubleSide });
@@ -62,15 +63,17 @@ describe('mergePlainParts', () => {
     expect([colors.getX(0), colors.getY(0), colors.getZ(0)]).toEqual([glassC.r, glassC.g, glassC.b].map((v) => Math.fround(v)));
     expect(plain.userData.ownGeometry).toBe(true);
 
-    // The shell and the pipes (both into the maps back faces) cast as one, on the shadow layer; the light bar its own.
+    // The shell (its inside in it), the pipes and the light bar (all into the maps back faces) cast as one, on the
+    // shadow layer: none of them casting itself.
+    expect(named(root, 'shadows')).toHaveLength(1);
     const [shadows] = named(root, 'shadows');
     expect(shadows.castShadow).toBe(true);
     expect(shadows.layers.mask).toBe(1 << SHADOW_LAYER);
     expect((shadows.material as THREE.Material).shadowSide).toBe(THREE.BackSide);
     const verts = (g: THREE.BufferGeometry) => g.getAttribute('position').count;
-    expect(verts(shadows.geometry)).toBe(verts(shell.geometry) + 2 * verts(new THREE.CylinderGeometry(0.05, 0.05, 0.3)));
+    expect(verts(shadows.geometry)).toBe(verts(shell.geometry) + 2 * verts(new THREE.CylinderGeometry(0.05, 0.05, 0.3)) + verts(bar.geometry));
     expect(shell.castShadow).toBe(false);
-    expect(bar.castShadow).toBe(true);
+    expect(bar.castShadow).toBe(false);
 
     // Left as they were: the shell (painted), the brake light, the light bar (found by name), the hidden wheel.
     for (const m of [shell, brake, bar, wheel]) expect(m.parent).not.toBeNull();
