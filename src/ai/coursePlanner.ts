@@ -106,7 +106,8 @@ const ACROSS = 0.4;
 /** m across / along the car may be off the last plan for it to be planned again from there (COURSE.reuseAge). */
 const REUSE_NEAR_D = 1;
 const REUSE_NEAR_S = 5;
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+const wrap = (a: number) =>
+  a > Math.PI ? (a > 3 * Math.PI ? Math.atan2(Math.sin(a), Math.cos(a)) : a - 2 * Math.PI) : a < -Math.PI ? (a < -3 * Math.PI ? Math.atan2(Math.sin(a), Math.cos(a)) : a + 2 * Math.PI) : a;
 
 /** The plan for the next `COURSE.horizon` s (see COURSE). Falls back to braking along its course when nothing is clear. */
 export function coursePlan(ego: PlanEgo, traffic: TrafficBox[], previous: PreviousPlan | null = null): Plan {
