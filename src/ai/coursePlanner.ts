@@ -76,6 +76,8 @@ interface Node {
   parent: Node | null;
   /** How far (m) it is into each box it was in at the start (search's `stuck`): never further, on from here. */
   pen?: number[];
+  /** Its cornering grip (m/s², its speed's on its ground): worked out once (search's gripOf). */
+  grip?: number;
 }
 
 const NO_PEN: number[] = [];
@@ -201,6 +203,8 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   // the road it could not even start turning back, and stood braking.) Never past our rails: the right one, the
   // median's on the left (the oncoming carriageway beyond it).
   const out = (d: number) => Math.abs(d) > edge;
+  // (the same for its value as for its moves: once a node)
+  const gripOf = (n: Node) => n.grip ?? (n.grip = K.latGrip * maxAccel(n.v, latTable) * surface(n.d));
   const hardHi = RAIL_D - hw, hardLo = MEDIAN_NEAR_X + hw;
   // How far (rad) a node still has to turn to run along the road, the way round there is room for at its tightest
   // turn: the short way (toward the edge it is heading for), or else the long way (away from it, through backward);
@@ -214,8 +218,8 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
     const hi = out(n.d) ? hardHi : edge, lo = out(n.d) ? hardLo : -edge;
     const toward = n.psi > 0 ? hi - n.d : n.d - lo;
     const away = n.psi > 0 ? n.d - lo : hi - n.d;
-    const grip = K.latGrip * maxAccel(n.v, latTable) * surface(n.d);
-    const r = Math.max(1 / turnMax, (n.v * n.v) / Math.max(1, grip));
+    const grip = gripOf(n);
+    const r =Math.max(1 / turnMax, (n.v * n.v) / Math.max(1, grip));
     const c = Math.cos(a);
     if (r * (1 - c) <= toward + 0.05) return a;
     if (r * (1 + c) <= toward + 0.05 && r * (1 - c) <= away + 0.05) return 2 * Math.PI - a;
@@ -234,6 +238,9 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
   let layer: Node[] = [first];
   let deepest: Node[] = [first];
   let tA = 0;
+  // (made again for every node: kept)
+  const accels = [0, 0, 0, 0, 0];
+  const local: TrafficBox[] = [], inWay: TrafficBox[] = [];
   for (let k = 0; k < stepAt.length; tA += stepAt[k], k++) {
     const dt = stepAt[k], h = dt / K.sub;
     const decay = Math.exp(-K.slipDecay * h);
@@ -255,19 +262,26 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
       const surf = surface(n.d); // (the grass: less of everything)
       const top = maxAccel(n.v, ego.accel) * surf;
       const brakeMax = maxBrake(n.v, ego.brake) * surf;
-      const accels = [top, top / 2, 0, -P.softBrake * surf, -brakeMax];
-      const grip = K.latGrip * maxAccel(n.v, latTable) * surf;
+      accels[0] = top;
+      accels[1] = top / 2;
+      accels[2] = 0;
+      accels[3] = -P.softBrake * surf;
+      accels[4] = -brakeMax;
+      const grip = gripOf(n);
       const kMax = n.v > 1 ? Math.min(turnMax, grip / (n.v * n.v)) : turnMax;
-      // The boxes its body can touch this step, wherever its moves take it (most of `near` is lanes away).
+      // The boxes its body can touch this step, wherever its moves take it (most of `near` is lanes away) - `local` -
+      // and those ahead it may have to brake for (in its way, however far) - `inWay`.
       const run = Math.max(n.v, n.v + top * dt) * dt;
       const reachS = run + hl + along + 1, reachD = run + hl + hw + side + 1;
-      const local = near.filter((b) => {
-        if (inStart.has(b)) return false; // (by its own rule: Node.pen)
+      local.length = 0;
+      inWay.length = 0;
+      for (const b of near) {
+        if (!(b.dMax > n.d - reachD && b.dMin < n.d + reachD)) continue;
+        inWay.push(b);
+        if (inStart.has(b)) continue; // (by its own rule: Node.pen)
         const bs = b.s + b.v * (tA + dt / 2);
-        return Math.abs(bs - n.s) < reachS + b.length / 2 + Math.abs(b.v - n.v) * dt && b.dMax > n.d - reachD && b.dMin < n.d + reachD;
-      });
-      // ...and those ahead it may have to brake for (in its way, however far).
-      const inWay = near.filter((b) => b.dMax > n.d - reachD && b.dMin < n.d + reachD);
+        if (Math.abs(bs - n.s) < reachS + b.length / 2 + Math.abs(b.v - n.v) * dt) local.push(b);
+      }
       for (const f of K.turns) {
         const kappa = f * kMax;
         // It turns about its rear axle (ego.rearOffset behind its middle, the turn `kappa` the rear axle's): its middle
@@ -311,7 +325,6 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
             }
           }
           if (hit) continue;
-          if (!relaxed && tooClose(s, d, v, psi + beta, psi, hl, hw, side, inWay, tA + dt, margin, ego)) continue;
           let score = n.score + (s - n.s);
           // (the shoulder free to a police car - ego.shoulder: the user's call, it kept off it at OFF_ROAD's cost)
           if (Math.abs(d) > ROAD_HALF_WIDTH) score -= ((ego.shoulder ? 0 : OFF_ROAD) + (out(d) ? OUT_COST * (Math.abs(d) - edge) : 0)) * w;
@@ -322,13 +335,14 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
           const key = (Math.round(d / K.dCell) * 1000 + Math.round(v / K.vCell)) * 1000 + Math.round(wrap(psi) / K.psiCell) + 500;
           const old = next.get(key);
           if (old && old.score >= score) continue; // (the same state: the same speed and turn left)
-          const node: Node = { s, d, v, psi, beta, bk, score, t: tA + dt, val: 0, parent: n, pen };
-          node.val = value(node);
-          next.set(key, node);
+          // (only then whether it can brake in time: one the beam would drop anyway needs no asking)
+          if (!relaxed && tooClose(s, d, v, psi + beta, psi, hl, hw, side, inWay, tA + dt, margin, ego)) continue;
+          next.set(key, { s, d, v, psi, beta, bk, score, t: tA + dt, val: 0, parent: n, pen });
         }
       }
     }
     if (next.size === 0) break;
+    for (const n of next.values()) n.val = value(n); // (those kept only: one beaten to its state needs none)
     let nodes = [...next.values()];
     if (K.beam > 0 && nodes.length > K.beam) {
       // The most promising, but half the beam shared out over where across the road it is (half lanes) and which way
@@ -345,12 +359,13 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
       const bands = K.speedBands, vSpan = Math.max(1e-6, vHi - vLo);
       const band = (n: Node) => (bands > 1 ? Math.min(bands - 1, Math.floor(((n.v - vLo) / vSpan) * bands)) : 0);
       const group = (n: Node) => (Math.round(n.d / (LANE_WIDTH / 2)) * SECTORS + Math.min(SECTORS - 1, Math.floor(((n.psi + Math.PI) / (2 * Math.PI)) * SECTORS))) * 8 + band(n);
-      const groups = new Set(nodes.map(group)).size;
+      const gs = nodes.map(group);
+      const groups = new Set(gs).size;
       const quota = Math.max(2, Math.floor(K.beam / (2 * groups)));
       const per = new Map<number, number>();
       const kept: Node[] = [], rest: Node[] = [];
-      for (const n of nodes) {
-        const g = group(n);
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i], g = gs[i];
         const k = per.get(g) ?? 0;
         if (k < quota && kept.length < K.beam) {
           per.set(g, k + 1);
