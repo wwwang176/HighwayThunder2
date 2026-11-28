@@ -12,6 +12,7 @@ import { buildCar, buildWheel, mergeStillParts, MIRROR_X, setBrake, VehicleLight
 import { SmokeLight, smokeLightFromSpot } from '../world/tireSmoke';
 import { AIM_DOWN, createHeadlight, HEADLIGHT_DECAY, HEADLIGHTS, HIGH_BEAM_DECAY } from './headlight';
 import { ExhaustFlames } from '../render/exhaustFlames';
+import { mergePlainParts } from '../render/plainParts';
 import { Backfire } from './backfire';
 import { emitFlares } from './npcVehicle';
 import type { LightFlares } from '../render/lightFlares';
@@ -346,6 +347,7 @@ export class PlayerCar {
     // Without real lights it shows NPC-style glowing beams instead (rivals: real lights are expensive).
     const model = buildCar(p.width, PLAYER_H, p.length, opts.color ?? spec.color, spec.style, false, !realLights, opts.livery);
     mergeStillParts(model); // (its lamps and pipes a draw a material)
+    mergePlainParts(model); // (its plain parts a draw, its shadows one)
     // Real low-beam headlights, one per lamp: the only car lights that actually
     // light the scene. Each is aimed a few degrees down (beams parallel) and
     // shaped by the low-beam cookie, so the road gets a sharp cut-off instead
