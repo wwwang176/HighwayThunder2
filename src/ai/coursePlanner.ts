@@ -1,7 +1,7 @@
 import { GRASS_GRIP, LANE_WIDTH, MEDIAN_NEAR_X, RAIL_D, ROAD_HALF_WIDTH } from '../config';
 import { laneAt, laneCenter } from '../road/coords';
 import type { TrafficBox } from './sensors';
-import { depthInto, reachAlong } from './bodies';
+import { boxesApart, depthInto, depthIntoCS, reachAlong, whollyBehind } from './bodies';
 import { maxAccel, maxBrake, PLANNER, planAt, type Plan, type PlanEgo, type PlanPoint, type PreviousPlan } from './planner';
 import { STREET_RACER } from '../vehicles/cars/streetRacer';
 
@@ -300,11 +300,12 @@ function search(ego: PlanEgo, start: Node, boxes: TrafficBox[], previous: Previo
               psi = wrap(psi + beta - bk); // (standing: it goes where its nose and its wheels point)
               beta = bk;
             }
+            const ac = Math.cos(psi + beta), as = Math.sin(psi + beta); // (its nose's, for every box)
             if ((d > hardHi && d > n.d) || (d < hardLo && d < n.d) || (!out(n.d) && out(d))) hit = true; // (`edge`, `out`)
-            else hit = touches(s, d, psi + beta, hl + along, hw + side, local, tA + j * h);
+            else hit = touches(s, d, ac, as, hl + along, hw + side, local, tA + j * h);
             // (what it is in at the start: no further into it than it was - out of it, once out never in again)
             for (let i = 0; i < stuck.length && !hit; i++) {
-              const into = depthInto(s, d, psi + beta, hl + along, hw + side, stuck[i], tA + j * h);
+              const into = depthIntoCS(s, d, ac, as, hl + along, hw + side, stuck[i], tA + j * h);
               if (into > n.pen![i] + 1e-3) hit = true;
               else pen[i] = Math.max(0, into);
             }
@@ -432,9 +433,16 @@ function pointsOf(end: Node): PlanPoint[] {
   return points;
 }
 
-/** Whether the body (centre s, d; pointing `heading` off the road's; half length / width) overlaps a box at time t. */
-function touches(s: number, d: number, heading: number, hl: number, hw: number, boxes: TrafficBox[], t: number): boolean {
-  for (const b of boxes) if (depthInto(s, d, heading, hl, hw, b, t) > 0) return true;
+/**
+ * Whether the body (centre s, d; pointing off the road's by the angle of cosine `ac`, sine `as`; half length / width)
+ * overlaps a box at time t.
+ */
+function touches(s: number, d: number, ac: number, as: number, hl: number, hw: number, boxes: TrafficBox[], t: number): boolean {
+  // (the boxes round the bodies first - roadReach's: the bodies' own test on everything far off cost 60% more
+  // planning time)
+  const c = Math.abs(ac), sn = Math.abs(as);
+  const reachS = hl * c + hw * sn, reachD = hl * sn + hw * c;
+  for (const b of boxes) if (!boxesApart(s, d, reachS, reachD, b, t) && depthIntoCS(s, d, ac, as, hl, hw, b, t) > 0) return true;
   return false;
 }
 
@@ -445,21 +453,27 @@ function touches(s: number, d: number, heading: number, hl: number, hw: number, 
 function tooClose(s: number, d: number, v: number, heading: number, psi: number, hl: number, hw: number, side: number, boxes: TrafficBox[], t: number, margin: number, ego: PlanEgo): boolean {
   const c = Math.abs(Math.cos(heading)), si = Math.abs(Math.sin(heading));
   const halfW = hw * c + hl * si;
+  const reachS = hl * c + (hw + side) * si; // (the box round the body reachAlong goes by)
   const vS = v * Math.cos(psi), vD = v * Math.sin(psi);
   for (const b of boxes) {
     const bw = (b.dMax - b.dMin) / 2, bd = (b.dMin + b.dMax) / 2;
     const overlap = bw + halfW + side - Math.abs(bd - d);
     if (overlap <= 0) continue;
-    // How far down the road its body gets before it touches the other's (the corner that gets there first - a turned
-    // car's box reaches back further than its body).
-    const gap = reachAlong(s, d, heading, hl, hw + side, b, t);
-    if (gap === Infinity) continue; // (past it)
-    if (gap <= 0 && b.s + b.v * t - b.length / 2 < s) continue; // (in it already and not ahead: what it is in is the walls')
+    // (the boxes round the bodies first: past it, or farther off than it has to keep - the bodies are no nearer than
+    // their boxes - it is clear without reachAlong's sweep)
+    if (whollyBehind(s, reachS, b, t)) continue;
     const closing = vS - b.v;
     if (closing <= 0) continue;
     let keep = (closing * closing) / (2 * maxBrake(v - closing / 2, ego.brake)) + PLANNER.headway * v * margin;
     const away = bd < d ? vD > 0.5 : bd > d ? vD < -0.5 : PLANNER.steerClear && Math.abs(vD) > 0.5;
     if (away) keep = Math.min(keep, closing * (overlap / Math.abs(vD)));
+    const rear = b.s + b.v * t - b.length / 2;
+    if (rear - (s + reachS) >= keep) continue;
+    // How far down the road its body gets before it touches the other's (the corner that gets there first - a turned
+    // car's box reaches back further than its body).
+    const gap = reachAlong(s, d, heading, hl, hw + side, b, t);
+    if (gap === Infinity) continue; // (past it)
+    if (gap <= 0 && rear < s) continue; // (in it already and not ahead: what it is in is the walls')
     if (gap < keep) return true;
   }
   return false;
@@ -469,9 +483,10 @@ function tooClose(s: number, d: number, v: number, heading: number, psi: number,
 function passShort(boxes: TrafficBox[], s: number, d: number, heading: number, hl: number, hw: number, t: number): number {
   const P = PLANNER;
   let cost = 0;
+  const ac = Math.cos(heading), as = Math.sin(heading);
   for (const b of boxes) {
     if (Math.abs(b.s + b.v * t - s) > b.length / 2 + hl) continue;
-    const gap = -depthInto(s, d, heading, hl, hw, b, t); // (body to body, as they lie)
+    const gap = -depthIntoCS(s, d, ac, as, hl, hw, b, t); // (body to body, as they lie)
     if (gap < P.passRoom) cost += P.passCost * (P.passRoom - Math.max(0, gap));
   }
   return cost;
